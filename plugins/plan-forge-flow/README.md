@@ -16,20 +16,7 @@ The plugin provides one user-facing skill: `$forge`.
 
 ## 2. Workflow
 
-```mermaid
-flowchart TD
-    P0["Phase 0<br/>Doctor, agents, and state"] --> A1["Act 1<br/>Grill and plan"]
-    A1 --> A2["Act 2<br/>Adversarial plan review"]
-    A2 -->|REVISE| A2
-    A2 -->|APPROVED| S["Explicit user sign-off"]
-    S --> A3["Act 3<br/>Persistent builder"]
-    A3 -->|Material amendment| AR["Fresh amendment review"]
-    AR --> A3
-    A3 --> A4["Act 4<br/>Full code review"]
-    A4 -->|Accepted fixes| A4
-    A4 --> D["Done"]
-    A4 --> R["Done with findings<br/>Explicit risk acceptance"]
-```
+![Plan Forge Flow workflow from planning through implementation and final review](assets/plan-forge-workflow.svg)
 
 ### Phase 0 — environment and state
 

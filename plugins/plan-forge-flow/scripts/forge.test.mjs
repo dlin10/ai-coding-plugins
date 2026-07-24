@@ -19,6 +19,7 @@ const FORGE = fileURLToPath(new URL('./forge.mjs', import.meta.url));
 const WORKFLOW = fileURLToPath(new URL('../skills/forge/references/workflow.md', import.meta.url));
 const SKILL = fileURLToPath(new URL('../skills/forge/SKILL.md', import.meta.url));
 const README = fileURLToPath(new URL('../README.md', import.meta.url));
+const WORKFLOW_SVG = fileURLToPath(new URL('../assets/plan-forge-workflow.svg', import.meta.url));
 const MARKETPLACE = fileURLToPath(new URL('../../../.agents/plugins/marketplace.json', import.meta.url));
 
 // ---------------------------------------------------------------------------
@@ -86,7 +87,8 @@ test('README presents the plugin through the requested six-section structure', (
   const readme = readFileSync(README, 'utf8');
   assert.match(readme, /## 1\. Description and goal/);
   assert.match(readme, /## 2\. Workflow/);
-  assert.match(readme, /```mermaid\s+flowchart TD[\s\S]*Act 1[\s\S]*Act 4[\s\S]*```/);
+  assert.match(readme, /!\[Plan Forge Flow workflow[^]*\]\(assets\/plan-forge-workflow\.svg\)/);
+  assert.doesNotMatch(readme, /```mermaid/);
   assert.doesNotMatch(readme, /### Responsibilities/);
   assert.match(readme, /## 3\. Requirements/);
   assert.match(readme, /## 4\. Installation/);
@@ -97,6 +99,15 @@ test('README presents the plugin through the requested six-section structure', (
   assert.match(readme, /### Resume an existing workflow[\s\S]*Use \$forge to resume/);
   assert.doesNotMatch(readme, /### Setup and discovery/);
   assert.match(readme, /## 6\. Attribution/);
+});
+
+test('README workflow SVG is accessible and contains every workflow stage', () => {
+  const svg = readFileSync(WORKFLOW_SVG, 'utf8');
+  assert.match(svg, /<svg[^>]*role="img"[^>]*aria-labelledby="title description"/);
+  assert.match(svg, /<title id="title">Plan Forge Flow workflow<\/title>/);
+  for (const label of ['Phase 0', 'Act 1', 'Act 2', 'Act 3', 'Act 4', 'Done', 'Done with findings']) {
+    assert.match(svg, new RegExp(`>${label}<`));
+  }
 });
 
 test('repository marketplace uses the distributable GitHub marketplace identity', () => {
