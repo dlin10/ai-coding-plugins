@@ -13,14 +13,26 @@ import {
   removeExcludeBlock,
   parseApproachTasks,
   sha256,
-} from './forge.mjs';
+} from '../../plugins/plan-forge-flow/scripts/forge.mjs';
 
-const FORGE = fileURLToPath(new URL('./forge.mjs', import.meta.url));
-const WORKFLOW = fileURLToPath(new URL('../skills/forge/references/workflow.md', import.meta.url));
-const SKILL = fileURLToPath(new URL('../skills/forge/SKILL.md', import.meta.url));
-const README = fileURLToPath(new URL('../README.md', import.meta.url));
-const WORKFLOW_SVG = fileURLToPath(new URL('../assets/plan-forge-workflow.svg', import.meta.url));
-const MARKETPLACE = fileURLToPath(new URL('../../../.agents/plugins/marketplace.json', import.meta.url));
+const FORGE = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/scripts/forge.mjs', import.meta.url),
+);
+const WORKFLOW = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/skills/forge/references/workflow.md', import.meta.url),
+);
+const SKILL = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/skills/forge/SKILL.md', import.meta.url),
+);
+const README = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/README.md', import.meta.url),
+);
+const WORKFLOW_SVG = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/assets/plan-forge-workflow.svg', import.meta.url),
+);
+const MARKETPLACE = fileURLToPath(
+  new URL('../../.agents/plugins/marketplace.json', import.meta.url),
+);
 
 // ---------------------------------------------------------------------------
 // Pure functions

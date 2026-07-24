@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-const HOOK = fileURLToPath(new URL('./capture-context.mjs', import.meta.url));
+const HOOK = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/scripts/capture-context.mjs', import.meta.url),
+);
 
 test('UserPromptSubmit hook records model/session/cwd but leaves effort unknown', () => {
   const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
