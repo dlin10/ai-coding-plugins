@@ -121,18 +121,6 @@ verification, and another fresh review. The run ends as `done` after a
 full-coverage approval or as `done-with-findings` after explicit user risk
 acceptance.
 
-### Caps and user control
-
-Initial caps are five plan-review rounds, three build/fix verification retries,
-three final fix rounds, and one malformed-verdict retry. When any cap is
-reached, the workflow stops and asks the user to choose:
-
-1. authorize exactly one additional round;
-2. accept the documented risk and advance;
-3. stop with resumable state preserved.
-
-The workflow never extends a cap or accepts risk on the user's behalf.
-
 ## 3. Requirements
 
 - Codex 0.145 or newer
@@ -148,12 +136,11 @@ when the CLI catalog is unavailable.
 
 ## 4. Installation
 
-From a checkout containing this repository marketplace, point Codex at the
-directory that contains `.agents/plugins/marketplace.json`:
+Add the GitHub repository as a Codex marketplace, then install the plugin:
 
 ```text
-codex plugin marketplace add <path-to-CodexPlugins>
-codex plugin add plan-forge-flow@personal
+codex plugin marketplace add https://github.com/dlin10/CodexPlugins.git
+codex plugin add plan-forge-flow@dlin10-codex-plugins
 ```
 
 Use `codex plugin marketplace list` to verify that the marketplace is
@@ -165,11 +152,12 @@ idempotently installs its two managed agent definitions. If either definition
 is installed or updated, start one more new Codex task so the native
 `spawn_agent` schema includes those roles.
 
-To pick up a newer local version, run the plugin installation command again and
-start a new task:
+To pick up a newer version, refresh the Git marketplace snapshot, reinstall the
+plugin, and start a new task:
 
 ```text
-codex plugin add plan-forge-flow@personal
+codex plugin marketplace upgrade dlin10-codex-plugins
+codex plugin add plan-forge-flow@dlin10-codex-plugins
 ```
 
 ## 5. Usage

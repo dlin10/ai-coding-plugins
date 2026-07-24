@@ -19,6 +19,7 @@ const FORGE = fileURLToPath(new URL('./forge.mjs', import.meta.url));
 const WORKFLOW = fileURLToPath(new URL('../skills/forge/references/workflow.md', import.meta.url));
 const SKILL = fileURLToPath(new URL('../skills/forge/SKILL.md', import.meta.url));
 const README = fileURLToPath(new URL('../README.md', import.meta.url));
+const MARKETPLACE = fileURLToPath(new URL('../../../.agents/plugins/marketplace.json', import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Pure functions
@@ -89,12 +90,20 @@ test('README presents the plugin through the requested six-section structure', (
   assert.doesNotMatch(readme, /### Responsibilities/);
   assert.match(readme, /## 3\. Requirements/);
   assert.match(readme, /## 4\. Installation/);
-  assert.match(readme, /codex plugin marketplace add/);
+  assert.match(readme, /codex plugin marketplace add https:\/\/github\.com\/dlin10\/CodexPlugins\.git/);
+  assert.match(readme, /plan-forge-flow@dlin10-codex-plugins/);
   assert.match(readme, /## 5\. Usage/);
   assert.match(readme, /### Start a new workflow[\s\S]*Use \$forge to plan/);
   assert.match(readme, /### Resume an existing workflow[\s\S]*Use \$forge to resume/);
   assert.doesNotMatch(readme, /### Setup and discovery/);
   assert.match(readme, /## 6\. Attribution/);
+});
+
+test('repository marketplace uses the distributable GitHub marketplace identity', () => {
+  const marketplace = JSON.parse(readFileSync(MARKETPLACE, 'utf8'));
+  assert.equal(marketplace.name, 'dlin10-codex-plugins');
+  assert.equal(marketplace.interface.displayName, 'dlin10 Codex Plugins');
+  assert.equal(marketplace.plugins[0].name, 'plan-forge-flow');
 });
 
 test('model slug grammar: accepts real ids, rejects injection', () => {
