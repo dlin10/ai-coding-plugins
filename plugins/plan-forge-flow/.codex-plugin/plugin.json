@@ -1,0 +1,21 @@
+{
+  "name": "plan-forge-flow",
+  "version": "0.1.0+codex.20260724213914",
+  "description": "A four-act plan hardening, implementation, and independent review workflow for Codex.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Plan Forge Flow",
+    "shortDescription": "Grill, review, build, and verify a plan",
+    "longDescription": "Turns an idea into an owned plan, reviews it with fresh native Codex sub-agents, implements it step by step with a persistent builder, and performs a complete final review.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": "Use $forge to harden, review, and implement my plan."
+  }
+}
