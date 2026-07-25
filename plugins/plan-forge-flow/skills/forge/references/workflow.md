@@ -5,13 +5,17 @@ accepts `--cwd <repository>`.
 
 ## Phase 0 — doctor, agents, and state
 
-1. Run `node "$FORGE" doctor`.
-2. Run `node "$FORGE" install-agents`.
-3. If either managed agent was installed or updated, tell the user a new Codex
+1. Run `node "$FORGE" install-agents`.
+2. If either managed agent was installed or updated, tell the user a new Codex
    task is required so the native spawn schema can refresh. Stop this run.
-4. Run `node "$FORGE" init` if this repository has no active forge state.
+3. Run `node "$FORGE" doctor`.
+4. If `doctor` exits non-zero, stop before changing workflow state. Report every
+   failed check verbatim; for a missing or expired session capture, ask the user
+   to submit a new prompt after confirming the plugin hook loaded.
+5. Run `node "$FORGE" init` if this repository has no active forge state.
 
-Use `fork_turns=none` for reviewers and builders so model/effort can be passed
+The installed native Codex schema uses `fork_turns`; use `fork_turns=none` for
+reviewers and builders so model/effort can be passed
 explicitly and the supplied evidence is the only inherited context.
 Use native Codex sub-agents directly. Do not replace them with `codex exec` or
 other nested Codex CLI subprocesses.
@@ -153,9 +157,10 @@ Present:
 
 Ask: “The plan has been reviewed and approved. Build it now?”
 
-Only an explicit affirmative answer grants sign-off. A negative, ambiguous, or
-missing answer leaves the run in `signoff`; do not choose a builder, lock the
-plan, call `begin-build`, or write code.
+Only an explicit affirmative answer grants sign-off. An ambiguous or missing
+answer leaves the run in `signoff`; do not choose a builder, lock the plan,
+call `begin-build`, or write code. If the user declines and wants revisions,
+run `set phase=review`, revise the plan, and send it through review again.
 
 After an explicit yes, persist the user's exact words:
 
@@ -211,8 +216,10 @@ On resume, recover the live builder from the agent list when available;
 otherwise spawn one replacement and record the recovery in the event log.
 
 A material plan amendment enters `set phase=review --amendment`, receives
-exactly one fresh reviewer round, and is relocked. `REVISE` is returned to the
-user; do not iterate autonomously.
+exactly one fresh reviewer round, and is relocked. Present an approved amended
+plan to the user and run `confirm-signoff` again before returning to
+`set phase=build`; every build dispatch rechecks that sign-off hash. `REVISE`
+is returned to the user; do not iterate autonomously.
 
 After all steps, set `phase=code-review` and call `prepare-review`.
 
@@ -223,28 +230,38 @@ effort pinned at the beginning of Act 2 for every fresh Act 4 reviewer.
 
 `prepare-review` constructs the tracked diff from initial HEAD and inventories
 every current untracked file. Safe text files up to 100 KB are included.
-Binary, larger, and secret-like files are withheld until the user explicitly
-allows their review. Pre-existing findings are always shown and labeled.
+Files larger than 100 KB are inventoried without being read and keep coverage
+partial. Binary and secret-like files within that bound are withheld until the
+user explicitly allows their review with
+`prepare-review --allow-files '<JSON array>' --user-note "<the user's consent>"`.
+Allowances persist for later preparations. Pre-existing findings are always
+shown and labeled.
+
+Build a `{performanceBlock}` before spawning. If the changed-file summary
+contains .NET code or another performance-sensitive path, make it require
+performance analysis. When selected, performance review is required. For .NET
+changes, if the `Analyzing Dotnet Performance` skill is available, instruct the
+reviewer to invoke it; otherwise include the embedded checklist below. If no
+changed path is performance-sensitive, set
+`{performanceBlock}` to a single sentence saying no dedicated performance
+block was selected; the normal correctness review still applies.
 
 For each round, dispatch `code` and spawn a fresh reviewer with this prompt,
 replacing the placeholders:
 
 > Adversarial code review — fix round `{fixRound}` of `{maxFixRounds}`.
 >
-> Performance review is required. If these changes affect .NET and an
-> `Analyzing Dotnet Performance` skill is available in your session, invoke it
-> and follow its procedure within your read-only constraints. If it is not
-> available, continue with the embedded performance checklist below; do not
-> block the review merely because the skill is absent.
+> {performanceBlock}
 >
 > Read, in order:
 >
 > 1. `PLAN.md` for the required implementation and accepted tradeoffs;
 > 2. `PLAN-REVIEW-LOG.md` for settled decisions and earlier findings;
 > 3. `.forge/review-manifest.json` for scope and withheld evidence;
-> 4. `.forge/final-review.patch` in full;
-> 5. `.forge/pre-existing.patch` and `.forge/in-run.patch` to attribute
->    findings correctly.
+> 4. `.forge/changed-files.txt` for the name-only scope summary;
+> 5. `.forge/pre-existing.patch` and `.forge/in-run.patch` in full to attribute
+>    tracked findings correctly;
+> 6. `.forge/untracked-review.patch` for permitted untracked content.
 >
 > You may inspect any repository file needed for context. You are read-only.
 > Actively try to falsify the implementation, but do not manufacture defects.
@@ -256,7 +273,8 @@ replacing the placeholders:
 > steps, unintended deviations, broken API/schema compatibility, concurrency
 > failures, missing error handling, and broken or missing tests.
 >
-> Also inspect changed performance-sensitive paths for:
+> When `{performanceBlock}` requires the embedded performance review, inspect
+> changed performance-sensitive paths for:
 >
 > - worse algorithmic complexity, repeated work, or unbounded growth;
 > - avoidable hot-path allocations, excessive materialization, or GC pressure;
@@ -324,6 +342,13 @@ Use `forge.mjs` for every state transition. Never hand-edit
 `.forge/state.json`, forge refs, or the managed exclude block. Reviewers and
 builders must not commit or stage changes; the working tree is the handoff.
 
+`status` returns a compact orchestration summary; use `status --full` only for
+diagnosis, including `pendingFingerprintMatches`. `verifyCommands` is
+orchestrator-owned advisory state set with
+`set verifyCommands='<JSON array>'`; the CLI records it but does not execute it.
+If a builder reports a merge/conflict condition for a pending task, use
+`resolve-build --conflict` to clear that dispatch without advancing the task.
+
 ## Cleanup
 
 Always ask: “Delete the forge-owned `PLAN.md` and
@@ -336,3 +361,7 @@ The CLI always removes `.forge/`, managed exclude blocks, and pinned refs.
 Artifact deletion is pair-safe and rechecks the ownership marker immediately
 before deletion. A missing or replaced marker blocks artifact deletion without
 blocking internal cleanup.
+
+Managed global agents are shared by all repositories. Remove them only for an
+explicit machine-wide uninstall request with `cleanup --purge-agents`; files
+without the generated marker are preserved.

@@ -99,9 +99,12 @@ The final review covers:
 - plan compliance, correctness, security, data integrity, compatibility,
   concurrency, error handling, tests, and material performance regressions.
 
-Text untracked files up to 100 KB are included automatically. Binary, larger,
-and secret-like files require explicit review permission. Pre-existing findings
-are reported but may be fixed only after separate user authorization.
+Text untracked files up to 100 KB are included automatically. Larger files are
+inventoried without being read and keep coverage partial. Binary and
+secret-like files within the size bound require explicit review permission plus
+a recorded user note. Evidence is aggregate-bounded; every withheld or
+truncated item is recorded and prevents a full-coverage claim. Pre-existing
+findings are reported but may be fixed only after separate user authorization.
 
 Accepted in-run findings return to the persistent builder for correction,
 verification, and another fresh review. The run ends as `done` after a
@@ -172,6 +175,15 @@ Resume from the same repository checkout or worktree. The current phase,
 review history, model selections, pending work, and completed plan steps are
 stored under `.forge/`. Do not run cleanup or delete that directory before
 resuming.
+
+### Trust boundary
+
+The CLI deterministically records and audits the orchestrator's claims. It
+cannot independently prove that a critique came from the registered reviewer,
+that an agent id is fresh, that reported verification commands actually ran,
+or that a `--user-note` reproduces the user's exact words. Those remain
+orchestrator responsibilities and should be treated as auditable assertions,
+not cryptographic guarantees.
 
 ## 6. Attribution
 

@@ -6,6 +6,7 @@
     "name": "Dmitry Linetsky"
   },
   "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Plan Forge Flow",
     "shortDescription": "Grill, review, build, and verify a plan",

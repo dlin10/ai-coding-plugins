@@ -1,11 +1,25 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import process from 'node:process';
 
 function sha256(text) {
   return createHash('sha256').update(text).digest('hex');
+}
+
+function canonicalWorkspace(cwd) {
+  const canonical = realpathSync(cwd);
+  try {
+    return realpathSync(execFileSync(
+      'git',
+      ['-C', canonical, 'rev-parse', '--show-toplevel'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim());
+  } catch {
+    return canonical;
+  }
 }
 
 let input = '';
@@ -15,7 +29,7 @@ try {
   const event = JSON.parse(input || '{}');
   const pluginData = process.env.PLUGIN_DATA;
   if (!pluginData || !event.cwd) process.exit(0);
-  const cwd = resolve(event.cwd);
+  const cwd = canonicalWorkspace(event.cwd);
   const dir = join(pluginData, 'session-context');
   const target = join(dir, `${sha256(cwd.toLowerCase())}.json`);
   const effort = event.reasoning_effort ?? event.effort ?? null;

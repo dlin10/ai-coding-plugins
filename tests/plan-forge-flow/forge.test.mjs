@@ -1,10 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  symlinkSync,
+} from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   parseVerdict,
   parseCoverage,
@@ -13,6 +21,9 @@ import {
   removeExcludeBlock,
   parseApproachTasks,
   sha256,
+  classifySensitivePath,
+  classifySensitiveContent,
+  parseFeatureEnabled,
 } from '../../plugins/plan-forge-flow/scripts/forge.mjs';
 
 const FORGE = fileURLToPath(
@@ -33,6 +44,11 @@ const WORKFLOW_SVG = fileURLToPath(
 const MARKETPLACE = fileURLToPath(
   new URL('../../.agents/plugins/marketplace.json', import.meta.url),
 );
+const PLUGIN_MANIFEST = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/.codex-plugin/plugin.json', import.meta.url),
+);
+const PACKAGE_JSON = fileURLToPath(new URL('../../package.json', import.meta.url));
+const CI_WORKFLOW = fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Pure functions
@@ -43,8 +59,9 @@ test('parseVerdict: valid verdicts on the last non-empty line', () => {
   assert.equal(parseVerdict('VERDICT:   APPROVED  '), 'APPROVED');
 });
 
-test('parseVerdict: decorated, mid-text, or missing verdicts are rejected', () => {
-  assert.equal(parseVerdict('**VERDICT: APPROVED**'), null);
+test('parseVerdict: restrained decoration is accepted, mid-text or missing verdicts are rejected', () => {
+  assert.equal(parseVerdict('**VERDICT: APPROVED**'), 'APPROVED');
+  assert.equal(parseVerdict('VERDICT: REVISE.'), 'REVISE');
   assert.equal(parseVerdict('VERDICT: APPROVED\ntrailing prose'), null);
   assert.equal(parseVerdict('VERDICT: MAYBE'), null);
   assert.equal(parseVerdict(''), null);
@@ -60,9 +77,71 @@ test('parseCoverage: exactly one line, before the verdict', () => {
   assert.equal(parseCoverage('VERDICT: APPROVED\nCOVERAGE: FULL'), null);
 });
 
+test('secret classifier is filename-anchored and recognizes sensitive content signatures', () => {
+  for (const safe of [
+    'TokenService.cs',
+    'PasswordPolicy.md',
+    'SecretSanta.tsx',
+    'src/auth/CredentialStore.ts',
+  ]) {
+    assert.equal(classifySensitivePath(safe), false, `${safe} should be safe`);
+  }
+  for (const sensitive of [
+    'prod.env',
+    'creds.env',
+    'serviceAccount.json',
+    'keystore.jks',
+    'appsettings.Production.json',
+  ]) {
+    assert.equal(classifySensitivePath(sensitive), true, `${sensitive} should be sensitive`);
+  }
+  assert.equal(
+    classifySensitiveContent('key=-----BEGIN RSA PRIVATE KEY-----\nabc'),
+    'private-key',
+  );
+  assert.equal(classifySensitiveContent('AWS=AKIA1234567890ABCDEF'), 'aws-access-key');
+  assert.equal(
+    classifySensitiveContent('api_key=AbCdEfGhIjKlMnOpQrStUv12+/'),
+    'high-entropy-assignment',
+  );
+});
+
+test('feature parser reads the enabled column rather than the stability column', () => {
+  assert.equal(parseFeatureEnabled('multi_agent stable true'), true);
+  assert.equal(parseFeatureEnabled('multi_agent stable false'), false);
+  assert.equal(parseFeatureEnabled('other stable true'), null);
+});
+
+test('root verification harness and plugin hook declaration are wired', () => {
+  const pkg = JSON.parse(readFileSync(PACKAGE_JSON, 'utf8'));
+  assert.equal(pkg.type, 'module');
+  for (const file of ['capture-context.test.mjs', 'model-catalog.test.mjs', 'forge.test.mjs']) {
+    assert.match(pkg.scripts.test, new RegExp(file.replaceAll('.', '\\.')));
+  }
+  const ci = readFileSync(CI_WORKFLOW, 'utf8');
+  assert.match(ci, /ubuntu-latest/);
+  assert.match(ci, /windows-latest/);
+  assert.match(ci, /npm test/);
+  const manifest = JSON.parse(readFileSync(PLUGIN_MANIFEST, 'utf8'));
+  assert.equal(manifest.hooks, './hooks/hooks.json');
+});
+
+test('workflow documents declined sign-off, operational commands, and trust boundary', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const readme = readFileSync(README, 'utf8');
+  assert.match(workflow, /user declines[\s\S]*set phase=review/);
+  assert.match(workflow, /resolve-build --conflict/);
+  assert.match(workflow, /pendingFingerprintMatches/);
+  assert.match(workflow, /verifyCommands/);
+  assert.match(workflow, /cleanup --purge-agents/);
+  assert.match(workflow, /fork_turns=none/);
+  assert.match(readme, /### Trust boundary/);
+  assert.match(readme, /cannot independently prove/);
+});
+
 test('Act 4 review contract requires performance analysis and uses the .NET skill when available', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
-  assert.match(workflow, /Performance review is required/);
+  assert.match(workflow, /performance-sensitive path/);
   assert.match(workflow, /`Analyzing Dotnet Performance` skill is available/);
   assert.match(workflow, /speculative micro-optimizations/i);
 });
@@ -185,10 +264,31 @@ const BASE_ENV = {
   FORGE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'forge-plugin-data-')),
 };
 
+function writeSessionCapture(cwd, pluginData, overrides = {}) {
+  const canonical = realpathSync(cwd);
+  const dir = join(pluginData, 'session-context');
+  mkdirSync(dir, { recursive: true });
+  const payload = {
+    version: 1,
+    sessionId: 'session-a',
+    cwd: canonical,
+    model: 'gpt-5.6-terra',
+    permissionMode: 'workspace-write',
+    effort: 'high',
+    effortKnown: true,
+    observedAt: new Date().toISOString(),
+    ...overrides,
+  };
+  const path = join(dir, `${sha256(canonical.toLowerCase())}.json`);
+  writeFileSync(path, JSON.stringify(payload, null, 2) + '\n');
+  return path;
+}
+
 function rawRun(cwd, args, env = {}) {
   const res = spawnSync(process.execPath, [FORGE, ...args], {
     cwd,
     encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     env: { ...BASE_ENV, ...env },
   });
   const lines = res.stdout.trim().split('\n').filter(Boolean);
@@ -424,6 +524,84 @@ test('install-agents: idempotent global install, reload flag, foreign files pres
   assert.equal(readFileSync(join(agentsDir, 'forge_reviewer.toml'), 'utf8'), 'name = "forge_reviewer"\n# mine\n');
 });
 
+test('CLI hardening: commit-less repos and malformed inputs fail with JSON', () => {
+  const empty = mkdtempSync(join(tmpdir(), 'forge-empty-repo-'));
+  sh(empty, 'git', ['init', '-q']);
+  let r = rawRun(empty, ['init']);
+  assert.equal(r.code, 1);
+  assert.match(r.json.error, /no commits/);
+
+  const dir = makeRepo();
+  assert.equal(rawRun(dir, ['init']).code, 0);
+  writeFileSync(join(dir, '.forge', 'state.json'), '{not-json');
+  r = rawRun(dir, ['status']);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.unexpected, true);
+
+  const versioned = makeRepo();
+  rawRun(versioned, ['init']);
+  const statePath = join(versioned, '.forge', 'state.json');
+  const state = JSON.parse(readFileSync(statePath, 'utf8'));
+  state.version = 99;
+  writeFileSync(statePath, JSON.stringify(state));
+  r = rawRun(versioned, ['status']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /unsupported forge state version 99/);
+
+  r = rawRun(makeRepo(), ['models', '--native-models', '{"slug":"not-an-array"}']);
+  assert.equal(r.code, 1);
+  assert.match(r.json.error, /JSON array/);
+});
+
+test('argument parser supports --key=value and leading-dash values', () => {
+  const spaceForm = makeRepo();
+  const equalsForm = makeRepo();
+  let r = rawRun(spaceForm, ['init', '--rounds', '2']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.maxRounds, 2);
+  r = rawRun(equalsForm, ['init', '--rounds=2']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.maxRounds, 2);
+
+  const negative = makeRepo();
+  r = rawRun(negative, ['init', '--rounds', '-2']);
+  assert.equal(r.code, 1);
+  assert.match(r.json.error, /positive integer/);
+});
+
+test('doctor fails non-zero for a missing session capture and validates installed agents', () => {
+  const dir = makeRepo();
+  const agentsDir = mkdtempSync(join(tmpdir(), 'forge-doctor-agents-'));
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-doctor-data-'));
+  const fakeCodex = join(dir, 'fake-codex.js');
+  writeFileSync(
+    fakeCodex,
+    `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('codex-cli 0.145.0');
+else if (args[0] === 'features') console.log('multi_agent stable true');
+else process.exitCode = 1;
+`,
+  );
+  const env = {
+    FORGE_AGENTS_DIR: agentsDir,
+    FORGE_PLUGIN_DATA: pluginData,
+    FORGE_CODEX_PATH: fakeCodex,
+  };
+  assert.equal(rawRun(dir, ['install-agents'], env).code, 0);
+  let r = rawRun(dir, ['doctor'], env);
+  assert.equal(r.code, 1);
+  const missing = r.json.checks.find((check) => check.name === 'session_capture');
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, 'missing');
+  assert.equal(r.json.checks.find((check) => check.name === 'reviewer_agent').ok, true);
+  assert.equal(r.json.checks.find((check) => check.name === 'builder_agent').ok, true);
+
+  writeSessionCapture(dir, pluginData);
+  r = rawRun(dir, ['doctor'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.json.ok, true);
+});
+
 test('configure-reviewer: runs in Act 2 and enforces strength, effort order, and pinning', () => {
   const dir = makeRepo();
   run(dir, ['init']);
@@ -591,18 +769,18 @@ test('review loop: dispatch/verdict pairing, replay guard, hash drift, deadlock,
   }
 });
 
-test('invalid verdicts: exit 2, no mutation, retry once', () => {
+test('invalid verdicts: exit 2, pending dispatch survives, retry cap is two', () => {
   const dir = makeRepo();
   run(dir, ['init']);
   writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
   run(dir, ['set', 'phase=review']);
   let r = run(dir, ['dispatch', '--stage', 'plan']);
-  const f = writeCritique(dir, r.json.critiqueFile, 'stuff\n**VERDICT: APPROVED**\n');
+  const f = writeCritique(dir, r.json.critiqueFile, 'stuff\nVERDICT: MAYBE\n');
   r = run(dir, ['verdict', '--file', f, '--stage', 'plan']);
   assert.equal(r.code, 2);
   assert.equal(r.json.action, 'invalid-verdict');
 
-  // pending dispatch survived; the initial format retry cap is one
+  // pending dispatch survived; the initial format retry cap is two
   r = run(dir, ['dispatch', '--stage', 'plan', '--retry']);
   assert.equal(r.code, 0);
   assert.equal(r.json.retries, 1);
@@ -610,19 +788,24 @@ test('invalid verdicts: exit 2, no mutation, retry once', () => {
   r = run(dir, ['verdict', '--file', retryFile, '--stage', 'plan']);
   assert.equal(r.code, 2);
   r = run(dir, ['dispatch', '--stage', 'plan', '--retry']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.retries, 2);
+  const retryFile2 = writeCritique(dir, r.json.critiqueFile, 'still malformed again\n');
+  assert.equal(run(dir, ['verdict', '--file', retryFile2, '--stage', 'plan']).code, 2);
+  r = run(dir, ['dispatch', '--stage', 'plan', '--retry']);
   assert.equal(r.code, 3);
 
   // at the reached cap only an explicit one-round extension is accepted
-  r = run(dir, ['set', 'maxVerdictRetries=2']);
+  r = run(dir, ['set', 'maxVerdictRetries=3']);
   assert.equal(r.code, 1);
   r = run(dir, [
-    'set', 'maxVerdictRetries=2', '--user-note', 'user wants one more format retry',
+    'set', 'maxVerdictRetries=3', '--user-note', 'user wants one more format retry',
   ]);
   assert.equal(r.code, 0);
   r = run(dir, ['dispatch', '--stage', 'plan', '--retry']);
   assert.equal(r.code, 0);
-  assert.equal(r.json.retries, 2);
-  assert.equal(r.json.retryCap, 2);
+  assert.equal(r.json.retries, 3);
+  assert.equal(r.json.retryCap, 3);
 });
 
 test('reviewer-session: each plan/code dispatch requires a never-reused native agent id', () => {
@@ -823,16 +1006,38 @@ test('build → code-review is blocked until all tasks complete', () => {
   assert.match(r.json.error, /all tasks complete/);
 });
 
+test('plan integrity guards reject unauthorized relock and stale build hashes', () => {
+  const relockDir = repoAtSignoff();
+  let r = run(relockDir, ['lock-plan', '--relock']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /only legal during an amendment/);
+
+  const completeDir = repoAtSignoff();
+  run(completeDir, ['begin-build']);
+  run(completeDir, ['dispatch', '--stage', 'build', '--task', '1']);
+  writeFileSync(join(completeDir, 'PLAN.md'), `${PLAN_BODY}\nchanged after dispatch\n`);
+  r = run(completeDir, ['complete', '--task', '1']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /changed since task 1 was dispatched/);
+
+  const dispatchDir = repoAtSignoff();
+  run(dispatchDir, ['begin-build']);
+  writeFileSync(join(dispatchDir, 'PLAN.md'), `${PLAN_BODY}\nstale sign-off\n`);
+  r = run(dispatchDir, ['dispatch', '--stage', 'build', '--task', '1']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /PLAN.md changed after user sign-off/);
+});
+
 test('fingerprint: content edits to already-modified files change it', () => {
   const dir = repoAtSignoff();
   writeFileSync(join(dir, 'app.txt'), 'already modified\n');
   run(dir, ['begin-build']);
   run(dir, ['dispatch', '--stage', 'build', '--task', '1']);
-  let r = run(dir, ['status']);
+  let r = run(dir, ['status', '--full']);
   assert.equal(r.json.pendingFingerprintMatches, true);
   // same git-status codes, different content
   writeFileSync(join(dir, 'app.txt'), 'modified differently\n');
-  r = run(dir, ['status']);
+  r = run(dir, ['status', '--full']);
   assert.equal(r.json.pendingFingerprintMatches, false);
 });
 
@@ -861,6 +1066,8 @@ test('amendment loop: build→review preserves position; relock protects complet
   r = run(dir, ['dispatch', '--stage', 'plan']);
   const f = writeCritique(dir, r.json.critiqueFile, 'Amendment fine.\n\nVERDICT: APPROVED\n');
   run(dir, ['verdict', '--file', f, '--stage', 'plan']);
+  r = run(dir, ['confirm-signoff', '--user-note', 'yes, build the amended plan']);
+  assert.equal(r.code, 0);
   r = run(dir, ['set', 'phase=build']);
   assert.equal(r.code, 0);
   r = run(dir, ['status']);
@@ -994,6 +1201,9 @@ test('status: reports next task and files', () => {
   assert.equal(r.json.nextTask.number, 1);
   assert.equal(r.json.files.plan, true);
   assert.equal(r.json.files.builderAgent, false);
+  assert.ok(Buffer.byteLength(JSON.stringify(r.json)) < 4096);
+  assert.ok(r.json.caps);
+  assert.equal(r.json.pendingDispatch, null);
 });
 
 function repoAtCodeReview() {
@@ -1030,17 +1240,115 @@ test('prepare-review: covers full tracked diff and inventories every untracked f
   }
   assert.deepEqual(r.json.withheld.sort(), ['binary.bin', 'secret.env']);
   assert.equal(r.json.coverageReady, false);
-  const patch = readFileSync(join(dir, '.forge', 'final-review.patch'), 'utf8');
+  const patch = readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8') +
+    readFileSync(join(dir, '.forge', 'untracked-review.patch'), 'utf8');
   assert.match(patch, /forge changed tracked edit/);
   assert.match(patch, /safe untracked content/);
   assert.doesNotMatch(patch, /TOKEN=do-not-inline/);
   const manifest = JSON.parse(readFileSync(join(dir, '.forge', 'review-manifest.json'), 'utf8'));
   assert.ok(manifest.tracked.preExistingFiles.includes('app.txt'));
   assert.equal(manifest.untracked.find((item) => item.path === 'notes.txt').preExisting, true);
+  assert.equal(manifest.workspaceRoot, realpathSync(dir));
+  assert.equal(manifest.diffScope.pathspec, '.');
+  assert.ok(!existsSync(join(dir, '.forge', 'final-review.patch')));
+  for (const artifact of ['PLAN.md', 'PLAN-REVIEW-LOG.md']) {
+    const entry = manifest.untracked.find((item) => item.path === artifact);
+    assert.equal(entry.classification, 'excluded-by-design');
+    assert.equal(entry.excludedByDesign, true);
+  }
 
-  r = run(dir, ['prepare-review', '--allow-files', '["binary.bin","secret.env"]']);
+  r = run(dir, [
+    'prepare-review',
+    '--allow-files', '["binary.bin","secret.env"]',
+    '--user-note', 'review these two files',
+  ]);
   assert.equal(r.json.coverageReady, true);
-  assert.match(readFileSync(join(dir, '.forge', 'final-review.patch'), 'utf8'), /TOKEN=do-not-inline/);
+  assert.match(readFileSync(join(dir, '.forge', 'untracked-review.patch'), 'utf8'), /TOKEN=do-not-inline/);
+  r = run(dir, ['prepare-review']);
+  assert.equal(r.json.coverageReady, true, 'allowances must survive later preparation');
+  const fullStatus = run(dir, ['status', '--full']);
+  assert.equal('reviewManifest' in fullStatus.json, false);
+});
+
+test('prepare-review streams a multi-megabyte tracked diff completely', () => {
+  const dir = repoAtCodeReview();
+  const content = `start\n${'x'.repeat(3 * 1024 * 1024)}\ncomplete-tail\n`;
+  writeFileSync(join(dir, 'app.txt'), content);
+  const r = run(dir, ['prepare-review']);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  const patch = readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8');
+  assert.ok(Buffer.byteLength(patch) > 3 * 1024 * 1024);
+  assert.match(patch, /complete-tail/);
+});
+
+test('prepare-review records oversized, unreadable, and aggregate-budget limitations', () => {
+  const dir = repoAtCodeReview();
+  writeFileSync(join(dir, 'oversized.txt'), 'o'.repeat(101 * 1024));
+  for (let i = 0; i < 12; i++) {
+    writeFileSync(join(dir, `budget-${i}.txt`), 'a'.repeat(95 * 1024));
+  }
+  symlinkSync('missing-target.txt', join(dir, 'dangling.txt'), 'file');
+
+  const r = run(dir, ['prepare-review']);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  assert.equal(r.json.coverageReady, false);
+  const manifest = JSON.parse(readFileSync(join(dir, '.forge', 'review-manifest.json'), 'utf8'));
+  const oversized = manifest.untracked.find((entry) => entry.path === 'oversized.txt');
+  assert.equal(oversized.classification, 'larger-than-100KB');
+  assert.equal(oversized.hash, null);
+  const dangling = manifest.untracked.find((entry) => entry.path === 'dangling.txt');
+  assert.equal(dangling.classification, 'read-failed');
+  assert.match(dangling.withheldReason, /stat-failed/);
+  assert.ok(manifest.untracked.some((entry) => entry.truncated));
+  assert.equal(manifest.coverageReady, false);
+  assert.ok(readFileSync(join(dir, '.forge', 'untracked-review.patch')).length <= 1024 * 1024);
+});
+
+test('prepare-review screens tracked secrets and requires recorded consent', () => {
+  const dir = repoAtCodeReview();
+  const secret = 'const access = "AKIA1234567890ABCDEF";\n';
+  writeFileSync(join(dir, 'app.txt'), secret);
+  let r = run(dir, ['prepare-review']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.coverageReady, false);
+  assert.doesNotMatch(readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8'), /AKIA/);
+  let manifest = JSON.parse(readFileSync(join(dir, '.forge', 'review-manifest.json'), 'utf8'));
+  assert.match(manifest.tracked.files.find((entry) => entry.path === 'app.txt').classification, /aws-access-key/);
+
+  r = run(dir, ['prepare-review', '--allow-files', '["app.txt"]']);
+  assert.equal(r.code, 1);
+  assert.match(r.json.error, /requires --user-note/);
+  r = run(dir, [
+    'prepare-review',
+    '--allow-files', '["app.txt"]',
+    '--user-note', 'include this test credential in review',
+  ]);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.coverageReady, true);
+  assert.match(readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8'), /AKIA/);
+  r = run(dir, ['prepare-review']);
+  assert.equal(r.json.coverageReady, true);
+  manifest = JSON.parse(readFileSync(join(dir, '.forge', 'review-manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.allowances.files, ['app.txt']);
+});
+
+test('prepare-review handles more than one MiB of untracked path inventory', () => {
+  const dir = repoAtCodeReview();
+  const bulk = join(dir, 'bulk');
+  mkdirSync(bulk);
+  const count = 6200;
+  for (let i = 0; i < count; i++) {
+    const name = `p${String(i).padStart(5, '0')}-${'x'.repeat(155)}.txt`;
+    writeFileSync(join(bulk, name), '');
+  }
+  const r = run(dir, ['prepare-review']);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  const paths = r.json.untracked.map((entry) => entry.path);
+  assert.equal(paths.filter((path) => path.startsWith('bulk/')).length, count);
+  assert.ok(paths.includes(`bulk/p06199-${'x'.repeat(155)}.txt`));
+  assert.ok(readFileSync(join(dir, '.forge', 'changed-files.txt')).length > 1024 * 1024);
+  const status = run(dir, ['status']);
+  assert.ok(Buffer.byteLength(JSON.stringify(status.json)) < 4096);
 });
 
 test('pre-existing fixes and builder replacement require explicit user reasons', () => {
@@ -1058,6 +1366,49 @@ test('pre-existing fixes and builder replacement require explicit user reasons',
   r = run(dir, ['builder-session', '--id', 'builder-b', '--user-note', 'original task was not recoverable']);
   assert.equal(r.code, 0);
   assert.equal(r.json.action, 'builder-session-recovered');
+});
+
+test('workspace commands anchor to the repository root when invoked from a subdirectory', () => {
+  const dir = makeRepo();
+  const sub = join(dir, 'sub');
+  mkdirSync(sub);
+  let r = run(sub, ['init']);
+  assert.equal(r.code, 0);
+  assert.ok(existsSync(join(dir, '.forge', 'state.json')));
+  assert.equal(existsSync(join(sub, '.forge')), false);
+
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  run(dir, ['set', 'phase=review']);
+  r = run(dir, ['dispatch', '--stage', 'plan']);
+  const critique = writeCritique(dir, r.json.critiqueFile, 'Looks good.\nVERDICT: APPROVED\n');
+  run(dir, ['verdict', '--stage', 'plan', '--file', critique]);
+  run(dir, ['set', 'phase=signoff']);
+  run(dir, ['confirm-signoff', '--user-note', 'yes']);
+  run(dir, ['lock-plan']);
+  run(dir, ['begin-build']);
+  writeFileSync(join(dir, 'app.txt'), 'root change visible from subdirectory\n');
+  for (const task of [1, 2]) {
+    run(dir, ['dispatch', '--stage', 'build', '--task', String(task)]);
+    run(dir, ['complete', '--task', String(task)]);
+  }
+  run(dir, ['set', 'phase=code-review']);
+  r = run(sub, ['prepare-review']);
+  assert.equal(r.code, 0);
+  assert.match(readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8'), /root change visible/);
+});
+
+test('verdict refuses to append to an unowned review log', () => {
+  const dir = makeRepo();
+  run(dir, ['init']);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  run(dir, ['set', 'phase=review']);
+  const dispatched = run(dir, ['dispatch', '--stage', 'plan']);
+  const critique = writeCritique(dir, dispatched.json.critiqueFile, 'Fine.\nVERDICT: APPROVED\n');
+  writeFileSync(join(dir, 'PLAN-REVIEW-LOG.md'), '# user log\n');
+  const r = run(dir, ['verdict', '--stage', 'plan', '--file', critique]);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /ownership marker/);
+  assert.equal(readFileSync(join(dir, 'PLAN-REVIEW-LOG.md'), 'utf8'), '# user log\n');
 });
 
 test('accept-risk override completes a capped review as done-with-findings', () => {
@@ -1107,4 +1458,109 @@ test('cleanup --delete-artifacts is ownership-gated and still removes internals'
   assert.ok(existsSync(join(foreign, 'PLAN-REVIEW-LOG.md')));
   assert.ok(!existsSync(join(foreign, '.forge')));
   assert.doesNotMatch(readFileSync(join(foreign, '.git', 'info', 'exclude'), 'utf8'), /plan-forge-flow/);
+});
+
+test('reviewer dispatch rejects session drift that makes the pinned reviewer weaker', () => {
+  const dir = makeRepo();
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-session-drift-'));
+  const env = { FORGE_PLUGIN_DATA: pluginData };
+  const nativeModels = JSON.stringify([
+    {
+      slug: 'gpt-5.6-sol',
+      priority: 1,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      spawnAvailable: true,
+    },
+    {
+      slug: 'gpt-5.6-terra',
+      priority: 2,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      spawnAvailable: true,
+    },
+  ]);
+  writeSessionCapture(dir, pluginData, {
+    sessionId: 'session-a',
+    model: 'gpt-5.6-terra',
+  });
+  assert.equal(rawRun(dir, ['init'], env).code, 0);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  assert.equal(rawRun(dir, ['set', 'phase=review'], env).code, 0);
+  let r = rawRun(dir, [
+    'configure-reviewer',
+    '--native-models', nativeModels,
+    '--reviewer-model', 'gpt-5.6-terra',
+    '--reviewer-effort', 'high',
+  ], env);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+
+  writeSessionCapture(dir, pluginData, {
+    sessionId: 'session-b',
+    model: 'gpt-5.6-sol',
+  });
+  r = rawRun(dir, ['dispatch', '--stage', 'plan', '--native-models', nativeModels], env);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /strength invariant/);
+});
+
+test('expired session captures are rejected with a JSON error', () => {
+  const dir = makeRepo();
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-expired-session-'));
+  writeSessionCapture(dir, pluginData, { observedAt: '2000-01-01T00:00:00.000Z' });
+  const r = rawRun(dir, ['models', '--native-models', '[]'], {
+    FORGE_PLUGIN_DATA: pluginData,
+    FORGE_SESSION_MAX_AGE_MS: '1000',
+  });
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /session capture.*older/);
+});
+
+test('repository-scoped marker refuses a second worktree at init time', () => {
+  const primary = makeRepo();
+  const parent = mkdtempSync(join(tmpdir(), 'forge-worktrees-'));
+  const secondary = join(parent, 'secondary');
+  sh(primary, 'git', ['worktree', 'add', '-q', '-b', `forge-test-${Date.now()}`, secondary]);
+  assert.equal(run(primary, ['init']).code, 0);
+  const r = rawRun(secondary, ['init']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /another worktree has an active forge run/);
+});
+
+test('stale-lock recovery has one winner and a CliError loser', async () => {
+  const dir = makeRepo();
+  assert.equal(run(dir, ['init']).code, 0);
+  writeFileSync(join(dir, '.forge', 'lock'), JSON.stringify({ pid: -1, ts: 0, token: 'stale' }));
+  const helper = join(dir, 'lock-helper.mjs');
+  writeFileSync(
+    helper,
+    `import { Workspace } from ${JSON.stringify(pathToFileURL(FORGE).href)};
+const ws = new Workspace(process.argv[2]);
+try {
+  ws.acquireLock();
+  console.log(JSON.stringify({ winner: true }));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  ws.releaseLock();
+} catch (error) {
+  console.log(JSON.stringify({ error: error.message, code: error.code ?? null }));
+  process.exitCode = 1;
+}
+`,
+  );
+  const launch = () => new Promise((resolveResult) => {
+    const child = spawn(process.execPath, [helper, dir], {
+      cwd: dir,
+      env: BASE_ENV,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => resolveResult({ code, stdout, stderr }));
+  });
+  const results = await Promise.all([launch(), launch()]);
+  assert.deepEqual(results.map((result) => result.code).sort(), [0, 1]);
+  const loser = results.find((result) => result.code === 1);
+  const body = JSON.parse(loser.stdout.trim());
+  assert.equal(body.code, 1);
+  assert.match(body.error, /lock|forge run/i);
 });

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Plan Forge Flow"
-  short_description: "Harden plans, build them, and review the result"
-  default_prompt: "Use $forge to grill, independently review, implement, and verify my plan."

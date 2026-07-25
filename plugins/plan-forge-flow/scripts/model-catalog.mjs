@@ -4,7 +4,6 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
 export const EFFORT_ORDER = ['low', 'medium', 'high', 'xhigh', 'max'];
-export const FORBIDDEN_EFFORTS = new Set(['ultra']);
 
 function now(context = {}) {
   return context.observedAt ?? new Date().toISOString();
@@ -271,7 +270,13 @@ export function mergeCatalogs(catalogs, extraTrace = []) {
     trace,
   };
   result.degraded = result.models.length === 0 ||
-    result.models.some((model) => !model.priority.known || !model.supportedEfforts.known);
+    result.activeModel.stale ||
+    result.activeEffort.stale ||
+    result.models.some((model) =>
+      !model.priority.known ||
+      !model.supportedEfforts.known ||
+      ['description', 'supportedEfforts', 'priority', 'visibility', 'spawnAvailable']
+        .some((name) => model[name]?.stale));
   return result;
 }
 

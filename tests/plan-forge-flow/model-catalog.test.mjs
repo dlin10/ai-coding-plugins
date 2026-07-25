@@ -93,6 +93,7 @@ test('resolver uses stale cache when CLI fails, regardless of cache age', async 
   const model = result.models.find((item) => item.slug === 'gpt-sol');
   assert.equal(model.priority.source, 'cache');
   assert.equal(model.priority.stale, true);
+  assert.equal(result.degraded, true);
   assert.ok(result.trace.some((item) => item.provider === 'codex-debug-models' && item.status === 'error'));
 });
 

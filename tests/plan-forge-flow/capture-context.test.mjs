@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -63,4 +63,49 @@ test('UserPromptSubmit hook captures effort when a future/native payload exposes
   const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', file), 'utf8'));
   assert.equal(captured.effort, 'xhigh');
   assert.equal(captured.effortKnown, true);
+});
+
+test('UserPromptSubmit hook keys symlinked workspaces by canonical real path', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-cwd-'));
+  const parent = mkdtempSync(join(tmpdir(), 'forge-hook-link-'));
+  const alias = join(parent, 'workspace');
+  symlinkSync(cwd, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  for (const path of [cwd, alias]) {
+    const result = spawnSync(process.execPath, [HOOK], {
+      encoding: 'utf8',
+      input: JSON.stringify({
+        session_id: 'session-symlink',
+        cwd: path,
+        model: 'gpt-5.6-sol',
+      }),
+      env: { ...process.env, PLUGIN_DATA: pluginData },
+    });
+    assert.equal(result.status, 0);
+  }
+  const files = readdirSync(join(pluginData, 'session-context'));
+  assert.equal(files.length, 1);
+  const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', files[0]), 'utf8'));
+  assert.equal(captured.cwd, realpathSync(cwd));
+});
+
+test('UserPromptSubmit hook keys repository subdirectories by the Git root', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-repo-'));
+  const sub = join(cwd, 'nested');
+  const init = spawnSync('git', ['init', '-q'], { cwd, encoding: 'utf8' });
+  assert.equal(init.status, 0, init.stderr);
+  mkdirSync(sub);
+  for (const path of [cwd, sub]) {
+    const result = spawnSync(process.execPath, [HOOK], {
+      encoding: 'utf8',
+      input: JSON.stringify({ session_id: 'session-root', cwd: path, model: 'gpt-5.6-sol' }),
+      env: { ...process.env, PLUGIN_DATA: pluginData },
+    });
+    assert.equal(result.status, 0);
+  }
+  const files = readdirSync(join(pluginData, 'session-context'));
+  assert.equal(files.length, 1);
+  const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', files[0]), 'utf8'));
+  assert.equal(captured.cwd, realpathSync(cwd));
 });

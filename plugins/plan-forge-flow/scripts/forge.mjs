@@ -7,12 +7,14 @@
  * git-exclude block) so the orchestrating agent supplies judgment only.
  *
  * Contract: machine-readable JSON on stdout (one object, last line), human
- * progress on stderr. Exit codes: 0 ok, 1 usage/IO/environment, 2 invalid
- * verdict (no state mutated), 3 state precondition violated.
+ * progress on stderr. Exit codes: 0 ok, 1 usage/IO/environment or unexpected
+ * failure, 2 invalid verdict, 3 state precondition violated.
  */
 import {
   existsSync,
+  closeSync,
   mkdirSync,
+  openSync,
   readFileSync,
   writeFileSync,
   renameSync,
@@ -24,7 +26,7 @@ import {
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { dirname, join, resolve, isAbsolute, sep } from 'node:path';
+import { basename, dirname, join, resolve, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import process from 'node:process';
@@ -59,8 +61,30 @@ const PHASES = ['grill', 'review', 'signoff', 'build', 'code-review', 'done', 'd
 const HEAD_BASE_REF_NAME = 'refs/plan-forge/head-base';
 const WORKTREE_BASE_REF_NAME = 'refs/plan-forge/worktree-base';
 const REVIEW_TEXT_LIMIT = 100 * 1024;
-const SECRET_LIKE_RE =
-  /(^|\/)(\.env($|\.)|\.npmrc$|\.pypirc$|\.netrc$|id_[^/]+$|\.docker\/config\.json$)|\.(pem|key|p12|pfx)$|secret|credential|password|token|private[-_.]?key/i;
+const REVIEW_AGGREGATE_LIMIT = 1024 * 1024;
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+const DEFAULT_SESSION_MAX_AGE_MS = 15 * 60 * 1000;
+const MAX_REPLAY_KEYS = 100;
+const BOOLEAN_FLAGS = new Set([
+  'amendment',
+  'cancel',
+  'conflict',
+  'delete-artifacts',
+  'fix',
+  'force',
+  'full',
+  'purge-agents',
+  'relock',
+  'retry',
+  'user-override',
+]);
+const SENSITIVE_BASENAME_RE =
+  /^(?:\.env(?:\..*)?|[^/]+\.env|\.npmrc|\.pypirc|\.netrc|id_[^/]+|service[-_.]?account(?:[^/]*)\.json|keystore\.jks|appsettings\.[^/]+\.json)$/i;
+const SENSITIVE_EXTENSION_RE = /\.(?:pem|key|p12|pfx|jks)$/i;
+const PRIVATE_KEY_RE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+const AWS_ACCESS_KEY_RE = /\bAKIA[0-9A-Z]{16}\b/;
+const HIGH_ENTROPY_ASSIGNMENT_RE =
+  /(?:^|\n)\s*["']?[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|credential)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?([A-Za-z0-9+/=_-]{24,})["']?\s*[,;]?\s*(?:$|\n)/i;
 
 // ---------------------------------------------------------------------------
 // Small helpers (exported for unit tests)
@@ -69,13 +93,39 @@ export function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
 }
 
-/** Last non-empty line decides; anything else (incl. decorated lines) is null. */
+export function classifySensitivePath(path) {
+  const normalized = path.replaceAll('\\', '/');
+  const name = basename(normalized);
+  return SENSITIVE_BASENAME_RE.test(name) ||
+    SENSITIVE_EXTENSION_RE.test(name) ||
+    /(?:^|\/)\.docker\/config\.json$/i.test(normalized);
+}
+
+export function classifySensitiveContent(data) {
+  const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
+  const assignment = HIGH_ENTROPY_ASSIGNMENT_RE.exec(text);
+  if (PRIVATE_KEY_RE.test(text)) return 'private-key';
+  if (AWS_ACCESS_KEY_RE.test(text)) return 'aws-access-key';
+  if (assignment) {
+    const value = assignment[1];
+    const classes = [
+      /[a-z]/.test(value),
+      /[A-Z]/.test(value),
+      /\d/.test(value),
+      /[+/=_-]/.test(value),
+    ].filter(Boolean).length;
+    if (classes >= 3 || /^[a-f0-9]{32,}$/i.test(value)) return 'high-entropy-assignment';
+  }
+  return null;
+}
+
+/** Last non-empty line decides; restrained Markdown decoration is tolerated. */
 export function parseVerdict(text) {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line === '') continue;
-    const m = VERDICT_RE.exec(line);
+    const m = VERDICT_RE.exec(line.replace(/^\*\*(.*)\*\*$/, '$1').replace(/[.!]$/, ''));
     return m ? m[1] : null;
   }
   return null;
@@ -210,9 +260,14 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
+      const equals = a.indexOf('=');
+      if (equals !== -1) {
+        flags[a.slice(2, equals)] = a.slice(equals + 1);
+        continue;
+      }
       const key = a.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('--')) {
+      if (!BOOLEAN_FLAGS.has(key) && next !== undefined) {
         flags[key] = next;
         i++;
       } else {
@@ -226,21 +281,58 @@ function parseArgs(argv) {
 }
 
 function git(cwd, args, opts = {}) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', ...opts }).trimEnd();
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: GIT_MAX_BUFFER,
+    ...opts,
+  }).trimEnd();
 }
 
 function tryGit(cwd, args) {
   try {
     return git(cwd, args, { stdio: ['ignore', 'pipe', 'ignore'] });
-  } catch {
+  } catch (error) {
+    if (error?.code === 'ENOBUFS' || /maxBuffer|ENOBUFS/i.test(error?.message ?? '')) {
+      throw new CliError(1, `git output exceeded the ${GIT_MAX_BUFFER}-byte safety buffer; refusing a partial result`);
+    }
     return null;
   }
 }
 
-class Workspace {
+function gitToFile(cwd, args, target, options = {}) {
+  const fd = openSync(target, options.append ? 'a' : 'w');
+  try {
+    execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: GIT_MAX_BUFFER,
+      stdio: ['ignore', fd, 'pipe'],
+    });
+  } catch (error) {
+    if (error?.code === 'ENOBUFS' || /maxBuffer|ENOBUFS/i.test(error?.message ?? '')) {
+      throw new CliError(1, 'git diff output was truncated; review preparation failed closed');
+    }
+    throw new CliError(1, `git ${args[0]} failed while preparing review evidence`);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function gitRoot(cwd) {
+  try {
+    const root = git(cwd, ['rev-parse', '--show-toplevel'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    return realpathSync(root);
+  } catch {
+    return realpathSync(cwd);
+  }
+}
+
+export class Workspace {
   constructor(cwd) {
     if (!existsSync(cwd)) throw new CliError(1, `cwd does not exist: ${cwd}`);
-    this.cwd = realpathSync(cwd);
+    this.requestedCwd = realpathSync(cwd);
+    this.cwd = gitRoot(this.requestedCwd);
     this.forgeDir = join(this.cwd, '.forge');
     this.statePath = join(this.forgeDir, 'state.json');
     this.critiquesDir = join(this.forgeDir, 'critiques');
@@ -262,10 +354,16 @@ class Workspace {
   loadState() {
     if (!this.hasState()) throw new CliError(3, 'no forge state — run init first');
     const state = JSON.parse(readFileSync(this.statePath, 'utf8'));
+    if (state.version !== STATE_VERSION) {
+      throw new CliError(3, `unsupported forge state version ${JSON.stringify(state.version)}; expected ${STATE_VERSION}`);
+    }
     state.maxFixRounds ??= 3;
     state.maxBuildRetries ??= 3;
-    state.maxVerdictRetries ??= 1;
+    state.maxVerdictRetries ??= 2;
     state.userSignoff ??= null;
+    state.replayKeys = (state.replayKeys ?? []).slice(-MAX_REPLAY_KEYS);
+    delete state.baseRef;
+    delete state.planHash;
     return state;
   }
 
@@ -298,9 +396,11 @@ class Workspace {
 
   acquireLock() {
     mkdirSync(this.forgeDir, { recursive: true });
-    const payload = JSON.stringify({ pid: process.pid, ts: Date.now() });
+    const token = `${process.pid}:${Date.now()}:${Math.random()}`;
+    const payload = JSON.stringify({ pid: process.pid, ts: Date.now(), token });
     try {
       writeFileSync(this.lockPath, payload, { flag: 'wx' });
+      this.lockToken = token;
       return;
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
@@ -313,13 +413,55 @@ class Workspace {
       stale = true;
     }
     if (!stale) throw new CliError(1, 'another forge run holds .forge/lock (stale after 10 min)');
-    unlinkSync(this.lockPath);
-    writeFileSync(this.lockPath, payload, { flag: 'wx' });
+    const recoveryPath = `${this.lockPath}.recovery`;
+    try {
+      writeFileSync(recoveryPath, payload, { flag: 'wx' });
+    } catch (error) {
+      if (error?.code === 'EEXIST') {
+        throw new CliError(1, 'another forge run won the stale-lock recovery race; retry the command');
+      }
+      throw error;
+    }
+    try {
+      let stillStale = false;
+      try {
+        const held = JSON.parse(readFileSync(this.lockPath, 'utf8'));
+        stillStale = Date.now() - held.ts > LOCK_STALE_MS;
+      } catch {
+        stillStale = true;
+      }
+      if (!stillStale) {
+        throw new CliError(1, 'another forge run refreshed the lock during stale-lock recovery');
+      }
+      try {
+        unlinkSync(this.lockPath);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') {
+          throw new CliError(1, `could not reclaim stale forge lock: ${error.message}`);
+        }
+      }
+      try {
+        writeFileSync(this.lockPath, payload, { flag: 'wx' });
+      } catch (error) {
+        if (error?.code === 'EEXIST') {
+          throw new CliError(1, 'another forge run acquired the lock during stale-lock recovery');
+        }
+        throw error;
+      }
+      this.lockToken = token;
+    } finally {
+      try {
+        unlinkSync(recoveryPath);
+      } catch {
+        // A competing cleanup may already have removed it.
+      }
+    }
   }
 
   releaseLock() {
     try {
-      unlinkSync(this.lockPath);
+      const held = JSON.parse(readFileSync(this.lockPath, 'utf8'));
+      if (this.lockToken && held.token === this.lockToken) unlinkSync(this.lockPath);
     } catch {
       /* already gone */
     }
@@ -344,6 +486,13 @@ class Workspace {
     }
     return sha256(parts.join('\n'));
   }
+
+  repositoryMarkerPath() {
+    const common = tryGit(this.cwd, ['rev-parse', '--git-common-dir']);
+    if (!common) return null;
+    const commonDir = realpathSync(isAbsolute(common) ? common : join(this.cwd, common));
+    return join(commonDir, 'plan-forge-active.json');
+  }
 }
 
 function freshState(maxRounds) {
@@ -358,7 +507,7 @@ function freshState(maxRounds) {
     fixRound: 0,
     maxFixRounds: 3,
     maxBuildRetries: 3,
-    maxVerdictRetries: 1,
+    maxVerdictRetries: 2,
     deadlock: false,
     modelSelection: null,
     modelCatalog: null,
@@ -369,13 +518,11 @@ function freshState(maxRounds) {
     taskIndex: 0,
     taskCount: null,
     pendingDispatch: null,
-    baseRef: null,
     headBaseRef: null,
     headBaseSha: null,
     worktreeBaseRef: null,
     worktreeBaseSha: null,
     untrackedBaseline: [],
-    planHash: null,
     userSignoff: null,
     replayKeys: [],
     lastVerdict: null,
@@ -406,6 +553,30 @@ function requireCurrentUserSignoff(ws, state, action) {
 function cmdInit(ws, flags) {
   if (!tryGit(ws.cwd, ['rev-parse', '--git-dir'])) {
     throw new CliError(1, 'not a git repository — Acts 3-4 need git; init refuses to run without it');
+  }
+  if (!tryGit(ws.cwd, ['rev-parse', '--verify', 'HEAD'])) {
+    throw new CliError(1, 'repository has no commits — create the initial commit before starting forge');
+  }
+  const markerPath = ws.repositoryMarkerPath();
+  if (markerPath && existsSync(markerPath)) {
+    let marker;
+    try {
+      marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+    } catch {
+      throw new CliError(3, `repository forge marker is unreadable: ${markerPath}; inspect or remove it after confirming no run is active`);
+    }
+    if (typeof marker.workspaceRoot !== 'string') {
+      throw new CliError(3, `repository forge marker has no workspace root: ${markerPath}`);
+    }
+    const markerRoot = existsSync(marker.workspaceRoot)
+      ? realpathSync(marker.workspaceRoot)
+      : resolve(marker.workspaceRoot);
+    if (markerRoot !== ws.cwd) {
+      throw new CliError(
+        3,
+        `another worktree has an active forge run at ${marker.workspaceRoot}; resume or clean it before initializing this worktree`,
+      );
+    }
   }
   const existingPinnedRefs = [HEAD_BASE_REF_NAME, WORKTREE_BASE_REF_NAME]
     .filter((ref) => Boolean(tryGit(ws.cwd, ['rev-parse', '--verify', ref])));
@@ -461,6 +632,22 @@ function cmdInit(ws, flags) {
   );
   writeFileSync(ws.logPath, `${OWNED_MARKER}\n# Plan Review Log\nMAX_ROUNDS=${maxRounds}\n`);
   ws.saveState(freshState(maxRounds));
+  if (markerPath) {
+    const marker = JSON.stringify({
+      version: 1,
+      workspaceRoot: ws.cwd,
+      statePath: ws.statePath,
+      createdAt: new Date().toISOString(),
+    }, null, 2) + '\n';
+    try {
+      writeFileSync(markerPath, marker, { flag: existsSync(markerPath) ? 'w' : 'wx' });
+    } catch (error) {
+      if (error?.code === 'EEXIST') {
+        throw new CliError(3, 'another worktree initialized forge concurrently; resume or clean that run first');
+      }
+      throw error;
+    }
+  }
 
   let gitExcluded = false;
   const excludePath = ws.excludePath();
@@ -488,16 +675,34 @@ function pluginDataDir() {
     : join(homedir(), '.codex', 'plugin-data', 'plan-forge-flow');
 }
 
+function sessionMaxAgeMs() {
+  const configured = Number(process.env.FORGE_SESSION_MAX_AGE_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SESSION_MAX_AGE_MS;
+}
+
+function sessionContextPath(cwd) {
+  const canonical = realpathSync(cwd);
+  return join(pluginDataDir(), 'session-context', `${sha256(canonical.toLowerCase())}.json`);
+}
+
 function readSessionContext(cwd, flags) {
+  let captured;
   if (typeof flags.context === 'string') {
-    return JSON.parse(readFileSync(resolve(flags.context), 'utf8'));
+    captured = JSON.parse(readFileSync(resolve(flags.context), 'utf8'));
+  } else {
+    const path = sessionContextPath(cwd);
+    if (!existsSync(path)) return { cwd: realpathSync(cwd) };
+    captured = JSON.parse(readFileSync(path, 'utf8'));
   }
-  const key = sha256(resolve(cwd).toLowerCase());
-  const path = join(pluginDataDir(), 'session-context', `${key}.json`);
-  if (!existsSync(path)) return { cwd: resolve(cwd) };
-  const captured = JSON.parse(readFileSync(path, 'utf8'));
+  const observed = Date.parse(captured.observedAt);
+  if (!Number.isFinite(observed) || Date.now() - observed > sessionMaxAgeMs()) {
+    throw new CliError(
+      3,
+      `session capture is missing a fresh timestamp or older than ${sessionMaxAgeMs()} ms; submit a new prompt before continuing`,
+    );
+  }
   return {
-    cwd: captured.cwd,
+    cwd: realpathSync(captured.cwd ?? cwd),
     sessionId: captured.sessionId,
     activeModel: captured.model,
     activeModelSource: 'prompt-hook',
@@ -519,7 +724,12 @@ async function resolveCatalog(cwd, flags) {
   }
   if (typeof flags['native-models'] === 'string') {
     const raw = flags['native-models'].trim();
-    context.nativeModels = JSON.parse(raw.startsWith('[') ? raw : readFileSync(resolve(raw), 'utf8'));
+    context.nativeModels = JSON.parse(
+      raw.startsWith('[') || raw.startsWith('{') ? raw : readFileSync(resolve(raw), 'utf8'),
+    );
+    if (!Array.isArray(context.nativeModels)) {
+      throw new CliError(1, '--native-models must resolve to a JSON array');
+    }
   }
   if (typeof flags['manual-models'] === 'string') {
     context.manualModels = flags['manual-models'].split(',').map((item) => item.trim()).filter(Boolean);
@@ -532,7 +742,9 @@ async function resolveCatalog(cwd, flags) {
     staticPolicy: new StaticPolicyProvider(),
     cachePath,
   });
-  return resolver.getCatalog(context);
+  const catalog = await resolver.getCatalog(context);
+  catalog.sessionId = context.sessionId ?? null;
+  return catalog;
 }
 
 async function cmdModels(cwd, flags) {
@@ -611,6 +823,39 @@ function cmdInstallAgents() {
   out({ action: 'agents-installed', dir, results, reloadRequired, foreign });
 }
 
+export function parseFeatureEnabled(features, name = 'multi_agent') {
+  if (typeof features !== 'string') return null;
+  const line = features.split(/\r?\n/).find((candidate) =>
+    candidate.trim().split(/\s+/)[0] === name);
+  if (!line) return null;
+  const columns = line.trim().split(/\s+/);
+  const enabled = columns.at(-1)?.toLowerCase();
+  if (enabled === 'true' || enabled === 'enabled') return true;
+  if (enabled === 'false' || enabled === 'disabled') return false;
+  return null;
+}
+
+function sessionCaptureCheck(ws) {
+  const path = sessionContextPath(ws.cwd);
+  if (!existsSync(path)) return { name: 'session_capture', ok: false, path, reason: 'missing' };
+  try {
+    const capture = JSON.parse(readFileSync(path, 'utf8'));
+    const ageMs = Date.now() - Date.parse(capture.observedAt);
+    const ok = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= sessionMaxAgeMs();
+    return {
+      name: 'session_capture',
+      ok,
+      path,
+      sessionId: capture.sessionId ?? null,
+      ageMs: Number.isFinite(ageMs) ? ageMs : null,
+      maxAgeMs: sessionMaxAgeMs(),
+      reason: ok ? null : 'expired-or-invalid',
+    };
+  } catch (error) {
+    return { name: 'session_capture', ok: false, path, reason: `unreadable: ${error.message}` };
+  }
+}
+
 function cmdDoctor(ws) {
   const checks = [];
   checks.push({ name: 'node', ok: Number(process.versions.node.split('.')[0]) >= 18, version: process.versions.node });
@@ -634,10 +879,25 @@ function cmdDoctor(ws) {
   checks.push({ name: 'codex', ok: codexOk, version: codexVersion });
   checks.push({
     name: 'multi_agent',
-    ok: typeof features === 'string' && /\bmulti_agent\b.*\b(enabled|true|stable)\b/i.test(features),
+    ok: parseFeatureEnabled(features) === true,
     observed: features ? features.split('\n').find((line) => /\bmulti_agent\b/.test(line))?.trim() ?? null : null,
   });
-  out({ action: 'doctor', ok: checks.every((check) => check.ok), checks });
+  checks.push(sessionCaptureCheck(ws));
+  const agentsDir = globalAgentsDir();
+  for (const role of AGENT_ROLES) {
+    const path = join(agentsDir, `forge_${role}.toml`);
+    let readable = false;
+    try {
+      readFileSync(path, 'utf8');
+      readable = true;
+    } catch {
+      // Report below.
+    }
+    checks.push({ name: `${role}_agent`, ok: readable, path });
+  }
+  const ok = checks.every((check) => check.ok);
+  out({ action: 'doctor', ok, checks });
+  if (!ok) process.exitCode = 1;
 }
 
 async function cmdConfigureReviewer(ws, flags) {
@@ -715,19 +975,24 @@ async function cmdConfigureReviewer(ws, flags) {
   }
   const orchestratorChanged = Boolean(state.modelSelection) &&
     JSON.stringify(state.modelSelection.orchestrator) !== JSON.stringify(selection.orchestrator);
+  const previousSessionId = state.sessionId ?? null;
+  const sessionChanged = Boolean(previousSessionId && catalog.sessionId && previousSessionId !== catalog.sessionId);
+  if (sessionChanged) note(`warning: Codex session changed from ${previousSessionId} to ${catalog.sessionId}`);
   state.modelSelection = selection;
+  state.sessionId = catalog.sessionId ?? state.sessionId ?? null;
   state.modelCatalog = catalog;
   state.modelResolutionTrace = catalog.trace ?? [];
   ws.saveState(state);
   ws.appendEvent('configure-reviewer', {
     selection,
     orchestratorChanged,
+    sessionChanged,
     override: userOverride,
     userNote,
     unknownPriorityOverride: validation.unknownPriorityOverride,
     provenance: validation.provenance,
   });
-  out({ action: 'reviewer-configured', selection, degraded: catalog.degraded, validation });
+  out({ action: 'reviewer-configured', selection, degraded: catalog.degraded, validation, sessionChanged });
 }
 
 async function cmdConfigureBuilder(ws, flags) {
@@ -791,19 +1056,24 @@ async function cmdConfigureBuilder(ws, flags) {
   }
   const orchestratorChanged =
     JSON.stringify(state.modelSelection.orchestrator) !== JSON.stringify(selection.orchestrator);
+  const previousSessionId = state.sessionId ?? null;
+  const sessionChanged = Boolean(previousSessionId && catalog.sessionId && previousSessionId !== catalog.sessionId);
+  if (sessionChanged) note(`warning: Codex session changed from ${previousSessionId} to ${catalog.sessionId}`);
   state.modelSelection = selection;
+  state.sessionId = catalog.sessionId ?? state.sessionId ?? null;
   state.modelCatalog = catalog;
   state.modelResolutionTrace = catalog.trace ?? [];
   ws.saveState(state);
   ws.appendEvent('configure-builder', {
     selection,
     orchestratorChanged,
+    sessionChanged,
     override: userOverride,
     userNote,
     nativeSchemaOverride: validation.nativeSchemaOverride,
     provenance: validation.provenance,
   });
-  out({ action: 'builder-configured', selection, degraded: catalog.degraded, validation });
+  out({ action: 'builder-configured', selection, degraded: catalog.degraded, validation, sessionChanged });
 }
 
 function cmdLockPlan(ws, flags) {
@@ -813,7 +1083,7 @@ function cmdLockPlan(ws, flags) {
     throw new CliError(3, `lock-plan runs at the sign-off transition (phase is "${state.phase}")`);
   }
   if (!relock) requireCurrentUserSignoff(ws, state, 'locking the plan');
-  if (relock && !state.amendmentReview && state.phase !== 'build') {
+  if (relock && !state.amendmentReview) {
     throw new CliError(3, 'lock-plan --relock is only legal during an amendment (phase build/review with --amendment)');
   }
   const planText = readFileSync(ws.planPath, 'utf8');
@@ -834,7 +1104,6 @@ function cmdLockPlan(ws, flags) {
   }
   state.tasks = tasks;
   state.taskCount = tasks.length;
-  state.planHash = sha256(planText);
   ws.saveState(state);
   ws.appendEvent('lock-plan', { relock, taskCount: tasks.length });
   out({ action: relock ? 'plan-relocked' : 'plan-locked', taskCount: tasks.length, tasks });
@@ -842,8 +1111,16 @@ function cmdLockPlan(ws, flags) {
 
 function cmdConfirmSignoff(ws, flags) {
   const state = ws.loadState();
-  if (state.phase !== 'signoff') {
-    throw new CliError(3, `confirm-signoff requires phase "signoff" (current: "${state.phase}")`);
+  const amendmentSignoff =
+    state.phase === 'review' &&
+    state.amendmentReview &&
+    state.lastVerdict?.stage === 'plan' &&
+    state.lastVerdict.action === 'approved';
+  if (state.phase !== 'signoff' && !amendmentSignoff) {
+    throw new CliError(
+      3,
+      `confirm-signoff requires phase "signoff" or an approved amendment review (current: "${state.phase}")`,
+    );
   }
   const userNote = typeof flags['user-note'] === 'string' ? flags['user-note'].trim() : '';
   if (!userNote) {
@@ -870,11 +1147,50 @@ const DISPATCH_STAGES = {
 
 function retryCapForStage(state, stage) {
   return stage === 'plan' || stage === 'code'
-    ? state.maxVerdictRetries ?? 1
+    ? state.maxVerdictRetries ?? 2
     : state.maxBuildRetries ?? 3;
 }
 
-function cmdDispatch(ws, flags) {
+async function revalidateReviewerDispatch(ws, state, flags) {
+  if (!state.sessionId) return;
+  const context = readSessionContext(ws.cwd, flags);
+  const currentModel = context.activeModel;
+  const sessionChanged = Boolean(context.sessionId && context.sessionId !== state.sessionId);
+  const modelChanged = Boolean(currentModel && currentModel !== state.modelSelection.orchestrator.model);
+  if (!sessionChanged && !modelChanged) return;
+  const catalog = await resolveCatalog(ws.cwd, flags);
+  const selection = {
+    ...state.modelSelection,
+    orchestrator: {
+      model: catalog.activeModel.value,
+      effort: catalog.activeEffort?.known ? catalog.activeEffort.value : null,
+      usesCurrentSession: true,
+      modelSource: catalog.activeModel.source,
+      effortSource: catalog.activeEffort?.known ? catalog.activeEffort.source : 'unobservable-current-session',
+    },
+  };
+  try {
+    validateModelSelection(selection, catalog);
+  } catch (error) {
+    throw new CliError(
+      3,
+      `current session model changed and the pinned reviewer no longer satisfies the strength invariant: ${error.message}`,
+    );
+  }
+  note(`warning: reviewer dispatch is continuing under changed session ${context.sessionId ?? '<unknown>'}`);
+  state.modelSelection = selection;
+  state.sessionId = context.sessionId ?? state.sessionId;
+  state.modelCatalog = catalog;
+  state.modelResolutionTrace = catalog.trace ?? [];
+  ws.appendEvent('session-drift', {
+    sessionChanged,
+    modelChanged,
+    sessionId: state.sessionId,
+    orchestrator: selection.orchestrator,
+  });
+}
+
+async function cmdDispatch(ws, flags) {
   const state = ws.loadState();
   const stage = flags.stage;
   const spec = DISPATCH_STAGES[stage];
@@ -888,6 +1204,10 @@ function cmdDispatch(ws, flags) {
   if (state.phase !== spec.phase) {
     throw new CliError(3, `dispatch --stage ${stage} requires phase "${spec.phase}" (current: "${state.phase}")`);
   }
+  if (stage === 'plan' || stage === 'code') {
+    await revalidateReviewerDispatch(ws, state, flags);
+  }
+  if (stage === 'build') requireCurrentUserSignoff(ws, state, 'build dispatch');
   if (stage === 'plan' && state.amendmentReview && state.amendmentReviewConsumed && !flags.cancel) {
     throw new CliError(3, 'a material amendment gets exactly one fresh review round; return the decision to the user');
   }
@@ -1026,6 +1346,9 @@ function cmdComplete(ws, flags) {
   if (!pending || pending.stage !== 'build' || pending.task !== task) {
     throw new CliError(3, `complete --task ${task} needs a pending build dispatch for task ${task}`);
   }
+  if (ws.planHash() !== pending.planHash) {
+    throw new CliError(3, `PLAN.md changed since task ${task} was dispatched; cancel or resolve the stale build before completing it`);
+  }
   state.pendingDispatch = null;
   state.taskIndex = task;
   ws.saveState(state);
@@ -1126,9 +1449,13 @@ function cmdVerdict(ws, flags) {
 
   const round = pending.round;
   const heading = stage === 'plan' ? `## Round ${round} — Reviewer` : `## Code review ${round} — Reviewer`;
+  if (!existsSync(ws.logPath) || !readFileSync(ws.logPath, 'utf8').includes(OWNED_MARKER)) {
+    throw new CliError(3, 'PLAN-REVIEW-LOG.md is missing the plan-forge ownership marker; refusing to append');
+  }
   writeFileSync(ws.logPath, `\n${heading}\n\n${content.trimEnd()}\n`, { flag: 'a' });
 
   state.replayKeys.push(replayKey);
+  state.replayKeys = state.replayKeys.slice(-MAX_REPLAY_KEYS);
   state.pendingDispatch = null;
   if (stage === 'plan') state.round = round;
   else state.fixRound = round;
@@ -1188,7 +1515,6 @@ function cmdBeginBuild(ws) {
     hash: existsSync(join(ws.cwd, rel)) ? sha256(readFileSync(join(ws.cwd, rel))) : 'missing',
   }));
 
-  state.baseRef = headBaseSha;
   state.headBaseRef = HEAD_BASE_REF_NAME;
   state.headBaseSha = headBaseSha;
   state.worktreeBaseRef = WORKTREE_BASE_REF_NAME;
@@ -1233,6 +1559,58 @@ function parseAllowedFiles(flags) {
   return new Set(values.map((value) => value.replaceAll('\\', '/')));
 }
 
+function diffPaths(cwd, refs) {
+  const output = git(cwd, ['diff', '--name-only', '-z', ...refs, '--', '.']);
+  return output.split('\0').filter(Boolean).map((path) => path.replaceAll('\\', '/'));
+}
+
+function contentSignatureForTracked(ws, path, refs) {
+  const absolute = join(ws.cwd, path);
+  if (existsSync(absolute)) {
+    try {
+      const signature = classifySensitiveContent(readFileSync(absolute));
+      if (signature) return signature;
+    } catch (error) {
+      throw new CliError(1, `cannot screen tracked file ${path} for secrets: ${error.message}`);
+    }
+  }
+  for (const ref of refs) {
+    const content = tryGit(ws.cwd, ['show', `${ref}:${path}`]);
+    if (content !== null) {
+      const signature = classifySensitiveContent(content);
+      if (signature) return signature;
+    }
+  }
+  return null;
+}
+
+function writeSelectedDiff(cwd, refs, paths, target) {
+  writeFileSync(target, '');
+  for (const path of paths) {
+    gitToFile(
+      cwd,
+      ['diff', '--no-ext-diff', '--binary', ...refs, '--', `:(top,literal)${path}`],
+      target,
+      { append: true },
+    );
+  }
+}
+
+function addReviewSection(sections, section, budget) {
+  const encoded = Buffer.from(section);
+  const remaining = Math.max(0, REVIEW_AGGREGATE_LIMIT - budget.used);
+  if (encoded.length <= remaining) {
+    sections.push(encoded);
+    budget.used += encoded.length;
+    return { included: true, truncated: false, includedBytes: encoded.length };
+  }
+  if (remaining > 0) {
+    sections.push(encoded.subarray(0, remaining));
+    budget.used += remaining;
+  }
+  return { included: remaining > 0, truncated: true, includedBytes: remaining };
+}
+
 function cmdPrepareReview(ws, flags) {
   const state = ws.loadState();
   if (state.phase !== 'code-review') {
@@ -1241,7 +1619,20 @@ function cmdPrepareReview(ws, flags) {
   if (!state.headBaseRef || !state.worktreeBaseRef) {
     throw new CliError(3, 'begin-build baselines are missing');
   }
-  const allowed = parseAllowedFiles(flags);
+  const requestedAllowances = parseAllowedFiles(flags);
+  if (typeof flags['allow-files'] === 'string' &&
+      (typeof flags['user-note'] !== 'string' || !flags['user-note'].trim())) {
+    throw new CliError(1, '--allow-files requires --user-note "<the user consent to disclose these files>"');
+  }
+  const allowed = new Set(state.reviewAllowances?.files ?? []);
+  for (const path of requestedAllowances) allowed.add(path);
+  if (requestedAllowances.size) {
+    state.reviewAllowances = {
+      files: [...allowed].sort(),
+      userNote: flags['user-note'].trim(),
+      grantedAt: new Date().toISOString(),
+    };
+  }
   const baseline = new Map((state.untrackedBaseline ?? []).map((item) => [item.path.replaceAll('\\', '/'), item.hash]));
   const untracked = (tryGit(ws.cwd, ['ls-files', '--others', '--exclude-standard']) ?? '')
     .split('\n')
@@ -1249,14 +1640,78 @@ function cmdPrepareReview(ws, flags) {
     .sort();
   const entries = [];
   const untrackedSections = [];
+  const budget = { used: 0 };
   for (const gitPath of untracked) {
     const normalized = gitPath.replaceAll('\\', '/');
+    if (normalized === 'PLAN.md' || normalized === 'PLAN-REVIEW-LOG.md') {
+      entries.push({
+        path: normalized,
+        size: null,
+        hash: null,
+        preExisting: baseline.has(normalized),
+        changedDuringRun: false,
+        classification: 'excluded-by-design',
+        included: false,
+        requiresPermission: false,
+        excludedByDesign: true,
+      });
+      continue;
+    }
     const absolute = resolve(ws.cwd, gitPath);
-    const data = readFileSync(absolute);
-    const secretLike = SECRET_LIKE_RE.test(normalized);
+    let fileStat;
+    try {
+      fileStat = statSync(absolute);
+    } catch (error) {
+      entries.push({
+        path: normalized,
+        size: null,
+        hash: null,
+        preExisting: baseline.has(normalized),
+        changedDuringRun: true,
+        classification: 'read-failed',
+        included: false,
+        requiresPermission: true,
+        withheldReason: `stat-failed:${error.code ?? 'unknown'}`,
+      });
+      continue;
+    }
+    if (fileStat.size > REVIEW_TEXT_LIMIT) {
+      entries.push({
+        path: normalized,
+        size: fileStat.size,
+        hash: null,
+        preExisting: baseline.has(normalized),
+        changedDuringRun: true,
+        classification: 'larger-than-100KB',
+        included: false,
+        requiresPermission: true,
+        withheldReason: 'larger-than-100KB',
+      });
+      continue;
+    }
+    let data;
+    try {
+      data = readFileSync(absolute);
+    } catch (error) {
+      entries.push({
+        path: normalized,
+        size: fileStat.size,
+        hash: null,
+        preExisting: baseline.has(normalized),
+        changedDuringRun: true,
+        classification: 'read-failed',
+        included: false,
+        requiresPermission: true,
+        withheldReason: `read-failed:${error.code ?? 'unknown'}`,
+      });
+      continue;
+    }
+    const contentSignature = classifySensitiveContent(data);
+    const secretLike = classifySensitivePath(normalized) || Boolean(contentSignature);
     const binary = isProbablyBinary(data);
-    const large = statSync(absolute).size > REVIEW_TEXT_LIMIT;
-    const withheldReason = secretLike ? 'secret-like' : binary ? 'binary' : large ? 'larger-than-100KB' : null;
+    const withheldReason = secretLike
+      ? `secret-like${contentSignature ? `:${contentSignature}` : '-path'}`
+      : binary ? 'binary' : null;
     const permitted = !withheldReason || allowed.has(normalized);
     const hash = sha256(data);
     const baselineHash = baseline.get(normalized);
@@ -1266,26 +1721,48 @@ function cmdPrepareReview(ws, flags) {
       size: data.length,
       hash,
       preExisting,
-      changedDuringRun: preExisting && baselineHash !== hash,
+      changedDuringRun: !preExisting || baselineHash !== hash,
       classification: withheldReason ?? 'text',
       included: permitted,
       requiresPermission: Boolean(withheldReason && !permitted),
+      withheldReason: withheldReason && !permitted ? withheldReason : null,
     };
-    entries.push(entry);
     if (permitted) {
       const body = binary
         ? `[binary content permitted; encoding=base64; sha256=${hash}; size=${data.length}]\n${data.toString('base64')}`
         : data.toString('utf8');
-      untrackedSections.push(
+      const result = addReviewSection(
+        untrackedSections,
         `\n--- PLAN-FORGE UNTRACKED: ${normalized} ---\n` +
         `preExisting=${preExisting} classification=${entry.classification}\n${body}\n`,
+        budget,
       );
+      entry.included = result.included;
+      entry.truncated = result.truncated;
+      entry.includedBytes = result.includedBytes;
+      if (result.truncated) entry.withheldReason = 'aggregate-budget-exceeded';
     }
+    entries.push(entry);
   }
   const currentUntracked = new Set(untracked.map((path) => path.replaceAll('\\', '/')));
   for (const [path, hash] of baseline) {
     if (currentUntracked.has(path)) continue;
-    entries.push({
+    if (path === 'PLAN.md' || path === 'PLAN-REVIEW-LOG.md') {
+      entries.push({
+        path,
+        size: null,
+        hash: null,
+        baselineHash: hash,
+        preExisting: true,
+        changedDuringRun: true,
+        classification: 'excluded-by-design',
+        included: false,
+        requiresPermission: false,
+        excludedByDesign: true,
+      });
+      continue;
+    }
+    const entry = {
       path,
       size: null,
       hash: null,
@@ -1295,57 +1772,126 @@ function cmdPrepareReview(ws, flags) {
       classification: 'deleted-during-run',
       included: true,
       requiresPermission: false,
-    });
-    untrackedSections.push(
+    };
+    const result = addReviewSection(
+      untrackedSections,
       `\n--- PLAN-FORGE UNTRACKED DELETION: ${path} ---\n` +
       `preExisting=true baselineSha256=${hash}\n`,
+      budget,
     );
+    entry.included = result.included;
+    entry.truncated = result.truncated;
+    entry.includedBytes = result.includedBytes;
+    if (result.truncated) entry.withheldReason = 'aggregate-budget-exceeded';
+    entries.push(entry);
   }
 
-  const trackedDiff = git(ws.cwd, ['diff', '--binary', state.headBaseRef, '--', '.']);
-  const preExistingTracked = git(ws.cwd, ['diff', '--binary', state.headBaseRef, state.worktreeBaseRef, '--', '.']);
-  const inRunTracked = git(ws.cwd, ['diff', '--binary', state.worktreeBaseRef, '--', '.']);
-  const preExistingTrackedFiles = (tryGit(ws.cwd, ['diff', '--name-only', state.headBaseRef, state.worktreeBaseRef, '--', '.']) ?? '')
-    .split('\n').filter(Boolean);
-  const reviewPath = join(ws.forgeDir, 'final-review.patch');
+  const netTrackedFiles = diffPaths(ws.cwd, [state.headBaseRef]);
+  const preExistingTrackedFiles = diffPaths(ws.cwd, [state.headBaseRef, state.worktreeBaseRef]);
+  const inRunTrackedFiles = diffPaths(ws.cwd, [state.worktreeBaseRef]);
+  const allTrackedFiles = [...new Set([
+    ...netTrackedFiles,
+    ...preExistingTrackedFiles,
+    ...inRunTrackedFiles,
+  ])].sort();
+  const trackedEntries = [];
+  const safeTracked = new Set();
+  for (const path of allTrackedFiles) {
+    const signature = contentSignatureForTracked(
+      ws,
+      path,
+      [state.headBaseRef, state.worktreeBaseRef],
+    );
+    const classification = classifySensitivePath(path)
+      ? 'secret-like-path'
+      : signature ? `secret-like:${signature}` : 'text';
+    const permitted = classification === 'text' || allowed.has(path);
+    trackedEntries.push({
+      path,
+      classification,
+      included: permitted,
+      requiresPermission: !permitted,
+      withheldReason: permitted ? null : classification,
+    });
+    if (permitted) safeTracked.add(path);
+  }
   const manifestPath = join(ws.forgeDir, 'review-manifest.json');
   const preExistingPath = join(ws.forgeDir, 'pre-existing.patch');
   const inRunPath = join(ws.forgeDir, 'in-run.patch');
-  writeFileSync(reviewPath, trackedDiff + untrackedSections.join(''));
-  writeFileSync(preExistingPath, preExistingTracked);
-  writeFileSync(inRunPath, inRunTracked);
+  const untrackedPath = join(ws.forgeDir, 'untracked-review.patch');
+  const summaryPath = join(ws.forgeDir, 'changed-files.txt');
+  const obsoleteUnionPath = join(ws.forgeDir, 'final-review.patch');
+  if (existsSync(obsoleteUnionPath)) unlinkSync(obsoleteUnionPath);
+  writeSelectedDiff(
+    ws.cwd,
+    [state.headBaseRef, state.worktreeBaseRef],
+    preExistingTrackedFiles.filter((path) => safeTracked.has(path)),
+    preExistingPath,
+  );
+  writeSelectedDiff(
+    ws.cwd,
+    [state.worktreeBaseRef],
+    inRunTrackedFiles.filter((path) => safeTracked.has(path)),
+    inRunPath,
+  );
+  writeFileSync(untrackedPath, Buffer.concat(untrackedSections));
+  writeFileSync(
+    summaryPath,
+    [
+      ...allTrackedFiles.map((path) => `tracked\t${path}`),
+      ...entries.map((entry) => `untracked:${entry.classification}\t${entry.path}`),
+    ].join('\n') + '\n',
+  );
+  const limitations = [
+    ...trackedEntries.filter((entry) => entry.requiresPermission),
+    ...entries.filter((entry) => entry.requiresPermission || entry.truncated),
+  ].map((entry) => ({ path: entry.path, reason: entry.withheldReason ?? entry.classification }));
   const manifest = {
-    version: 1,
+    version: 2,
+    workspaceRoot: ws.cwd,
+    diffScope: { cwd: ws.cwd, pathspec: '.' },
     headBaseRef: state.headBaseRef,
     headBaseSha: state.headBaseSha,
     worktreeBaseRef: state.worktreeBaseRef,
     worktreeBaseSha: state.worktreeBaseSha,
     tracked: {
-      fullPatch: '.forge/final-review.patch',
       preExistingPatch: '.forge/pre-existing.patch',
       inRunPatch: '.forge/in-run.patch',
+      nameSummary: '.forge/changed-files.txt',
       preExistingFiles: preExistingTrackedFiles,
+      files: trackedEntries,
     },
+    untrackedEvidence: '.forge/untracked-review.patch',
     untracked: entries,
-    withheld: entries.filter((entry) => entry.requiresPermission).map((entry) => entry.path),
+    withheld: limitations.map((entry) => entry.path),
+    limitations,
+    coverageReady: limitations.length === 0,
+    aggregateBudgetBytes: REVIEW_AGGREGATE_LIMIT,
+    aggregateIncludedBytes: budget.used,
+    allowances: state.reviewAllowances ?? null,
     preExistingFixAuthorization: state.preExistingFixAuthorization ?? [],
     generatedAt: new Date().toISOString(),
   };
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-  state.reviewManifest = manifest;
+  delete state.reviewManifest;
   ws.saveState(state);
   ws.appendEvent('prepare-review', {
     untracked: entries.length,
-    withheld: manifest.withheld,
-    preExistingTrackedFiles,
+    withheldCount: manifest.withheld.length,
+    preExistingTrackedFileCount: preExistingTrackedFiles.length,
   });
   out({
     action: 'review-prepared',
-    patch: '.forge/final-review.patch',
+    patches: {
+      preExisting: '.forge/pre-existing.patch',
+      inRun: '.forge/in-run.patch',
+      untracked: '.forge/untracked-review.patch',
+      changedFiles: '.forge/changed-files.txt',
+    },
     manifest: '.forge/review-manifest.json',
     untracked: entries,
     withheld: manifest.withheld,
-    coverageReady: manifest.withheld.length === 0,
+    coverageReady: manifest.coverageReady,
   });
 }
 
@@ -1423,7 +1969,7 @@ function cmdReviewerSession(ws, flags) {
   out({ action: 'fresh-reviewer-registered', id, dispatchId: pending.dispatchId, stage: pending.stage });
 }
 
-function cmdStatus(ws) {
+function cmdStatus(ws, flags) {
   if (!ws.hasState()) {
     out({ exists: false });
     return;
@@ -1438,11 +1984,51 @@ function cmdStatus(ws) {
   };
   const nextTask =
     state.taskCount && state.taskIndex < state.taskCount ? state.tasks[state.taskIndex] : null;
-  let pendingFingerprintMatches = null;
-  if (state.pendingDispatch && (state.pendingDispatch.stage === 'build' || state.pendingDispatch.stage === 'fix')) {
-    pendingFingerprintMatches = ws.treeFingerprint() === state.pendingDispatch.fingerprint;
+  const lastEvents = ws.lastEvents().map((event) =>
+    Buffer.byteLength(JSON.stringify(event)) <= 512
+      ? event
+      : { ts: event.ts ?? null, cmd: event.cmd ?? null, truncated: true });
+  const summary = {
+    exists: true,
+    version: state.version,
+    phase: state.phase,
+    amendmentReview: state.amendmentReview,
+    deadlock: state.deadlock,
+    round: state.round,
+    fixRound: state.fixRound,
+    taskIndex: state.taskIndex,
+    taskCount: state.taskCount,
+    nextTask,
+    pendingDispatch: state.pendingDispatch,
+    modelSelection: state.modelSelection,
+    sessionId: state.sessionId ?? null,
+    userSignoff: state.userSignoff,
+    lastVerdict: state.lastVerdict,
+    caps: {
+      planRounds: state.maxRounds,
+      fixRounds: state.maxFixRounds,
+      buildRetries: state.maxBuildRetries,
+      verdictRetries: state.maxVerdictRetries,
+    },
+    maxRounds: state.maxRounds,
+    maxFixRounds: state.maxFixRounds,
+    maxBuildRetries: state.maxBuildRetries,
+    maxVerdictRetries: state.maxVerdictRetries,
+    files,
+    lastEvents,
+  };
+  if (!flags.full) {
+    out(summary);
+    return;
   }
-  out({ exists: true, ...state, files, nextTask, pendingFingerprintMatches, lastEvents: ws.lastEvents() });
+  let pendingFingerprintMatches = null;
+  let treeFingerprint = null;
+  if (state.pendingDispatch &&
+      (state.pendingDispatch.stage === 'build' || state.pendingDispatch.stage === 'fix')) {
+    treeFingerprint = ws.treeFingerprint();
+    pendingFingerprintMatches = treeFingerprint === state.pendingDispatch.fingerprint;
+  }
+  out({ ...state, ...summary, treeFingerprint, pendingFingerprintMatches });
 }
 
 const SET_KEYS = new Set([
@@ -1465,7 +2051,7 @@ const SENSITIVE_KEYS = new Set([
 const TRANSITIONS = {
   grill: ['review'],
   review: ['signoff', 'build'],
-  signoff: [],
+  signoff: ['review'],
   build: ['review', 'code-review'],
   'code-review': ['done', 'done-with-findings'],
   done: [],
@@ -1508,7 +2094,7 @@ function cmdSet(ws, flags, positional) {
       const cappedInvalidVerdict =
         state.pendingDispatch?.stage === 'code' &&
         state.pendingDispatch.lastInvalidVerdict &&
-        state.pendingDispatch.retries >= (state.maxVerdictRetries ?? 1);
+        state.pendingDispatch.retries >= (state.maxVerdictRetries ?? 2);
       if (!override || !userNote || (!cappedReview && !cappedInvalidVerdict)) {
         throw new CliError(
           3,
@@ -1549,6 +2135,9 @@ function cmdSet(ws, flags, positional) {
     if (state.phase === 'review' && next === 'signoff') {
       state.userSignoff = null;
       if (state.pendingDispatch?.stage === 'plan') state.pendingDispatch = null;
+    }
+    if (state.phase === 'signoff' && next === 'review') {
+      state.userSignoff = null;
     }
     if (state.phase === 'build' && next === 'review') {
       state.amendmentReview = true;
@@ -1674,6 +2263,18 @@ function cmdCleanup(ws, flags) {
     removeExcludeBlock(excludePath);
     report.removedExcludeBlock = true;
   }
+  const markerPath = ws.repositoryMarkerPath();
+  if (markerPath && existsSync(markerPath)) {
+    try {
+      const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+      const markerRoot = typeof marker.workspaceRoot === 'string' && existsSync(marker.workspaceRoot)
+        ? realpathSync(marker.workspaceRoot)
+        : typeof marker.workspaceRoot === 'string' ? resolve(marker.workspaceRoot) : null;
+      if (markerRoot === ws.cwd) unlinkSync(markerPath);
+    } catch (error) {
+      note(`warning: repository forge marker was not removed: ${error.message}`);
+    }
+  }
   ws.appendEvent('cleanup', report);
   if (existsSync(ws.forgeDir)) {
     rmSync(ws.forgeDir, { recursive: true, force: true });
@@ -1716,11 +2317,10 @@ const LOCKING_COMMANDS = new Set([
 ]);
 
 export async function main(argv = process.argv.slice(2)) {
-  const [cmd, ...rest] = argv;
-  const { flags, positional } = parseArgs(rest);
-  const cwd = typeof flags.cwd === 'string' ? flags.cwd : process.cwd();
-
   try {
+    const [cmd, ...rest] = argv;
+    const { flags, positional } = parseArgs(rest);
+    const cwd = typeof flags.cwd === 'string' ? flags.cwd : process.cwd();
     if (cmd === 'models') {
       await cmdModels(cwd, flags);
       return;
@@ -1735,7 +2335,7 @@ export async function main(argv = process.argv.slice(2)) {
       return;
     }
     if (cmd === 'status') {
-      cmdStatus(ws);
+      cmdStatus(ws, flags);
       return;
     }
     if (!LOCKING_COMMANDS.has(cmd)) {
@@ -1763,7 +2363,7 @@ export async function main(argv = process.argv.slice(2)) {
           cmdLockPlan(ws, flags);
           break;
         case 'dispatch':
-          cmdDispatch(ws, flags);
+          await cmdDispatch(ws, flags);
           break;
         case 'complete':
           cmdComplete(ws, flags);
@@ -1805,7 +2405,8 @@ export async function main(argv = process.argv.slice(2)) {
       process.exitCode = e.code;
       return;
     }
-    throw e;
+    out({ error: e?.message ?? String(e), unexpected: true });
+    process.exitCode = 1;
   }
 }
 

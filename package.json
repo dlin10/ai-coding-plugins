@@ -1,0 +1,8 @@
+{
+  "name": "codex-plugins",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/plan-forge-flow/capture-context.test.mjs tests/plan-forge-flow/model-catalog.test.mjs tests/plan-forge-flow/forge.test.mjs"
+  }
+}
