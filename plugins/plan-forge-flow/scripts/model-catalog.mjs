@@ -354,6 +354,43 @@ function validateEffort(model, effort, role) {
   }
 }
 
+/**
+ * Every reviewer model/effort pair the rules accept without a user override,
+ * strongest first. The enumeration asks the validator itself rather than
+ * restating its rules, so the two can never disagree about what is permitted.
+ */
+export function permittedReviewers(catalog, orchestrator) {
+  const options = [];
+  for (const model of catalog.models ?? []) {
+    const efforts = model.supportedEfforts?.known
+      ? model.supportedEfforts.value.filter((effort) => EFFORT_ORDER.includes(effort))
+      : [...EFFORT_ORDER];
+    for (const effort of efforts) {
+      try {
+        validateModelSelection(
+          {
+            orchestrator: { model: orchestrator.model, effort: orchestrator.effort ?? null },
+            reviewer: { model: model.slug, effort },
+            builder: null,
+          },
+          catalog,
+        );
+      } catch {
+        continue;
+      }
+      options.push({
+        model: model.slug,
+        effort,
+        priority: model.priority.known ? model.priority.value : null,
+      });
+    }
+  }
+  const weakest = Number.MAX_SAFE_INTEGER;
+  return options.sort((left, right) =>
+    (left.priority ?? weakest) - (right.priority ?? weakest) ||
+    EFFORT_ORDER.indexOf(right.effort) - EFFORT_ORDER.indexOf(left.effort));
+}
+
 export function validateModelSelection(selection, catalog, options = {}) {
   const orchestrator = modelBySlug(catalog, selection.orchestrator.model);
   const reviewer = modelBySlug(catalog, selection.reviewer.model);

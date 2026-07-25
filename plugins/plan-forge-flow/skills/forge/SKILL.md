@@ -5,8 +5,9 @@ description: Harden an implementation plan through relentless one-question-at-a-
 
 # Plan Forge Flow
 
-Run the four-act workflow mechanically through `scripts/forge.mjs` and use
-native Codex sub-agents for all reviewer and builder work.
+Run the four-act workflow mechanically through `../../scripts/forge.mjs`, which
+lives at the plugin root rather than inside this skill folder, and use native
+Codex sub-agents for all reviewer and builder work.
 
 Before acting, read [workflow.md](references/workflow.md) completely. Its
 commands and gates are required, not suggestions.
@@ -14,6 +15,9 @@ commands and gates are required, not suggestions.
 ## Hard rules
 
 - Ask grill questions one at a time.
+- Ask every bounded-choice question through `request_user_input` when that tool
+  is available, one question per call, recommended option first. The final
+  sign-off is the sole exception and stays a typed answer.
 - For Act 1, invoke an already-available grilling skill when the session exposes
   one; otherwise use the embedded procedure in the workflow reference.
 - Finish resolving the Act 1 decision tree before writing the final plan or

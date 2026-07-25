@@ -1,7 +1,10 @@
 # Required Plan Forge workflow
 
-Set `FORGE` to the absolute path of `scripts/forge.mjs`. Every command also
-accepts `--cwd <repository>`.
+`forge.mjs` sits at the plugin root, not inside this skill folder. Resolve
+`FORGE` to the absolute path of `<skill-dir>/../../scripts/forge.mjs`, where
+`<skill-dir>` is the directory holding `SKILL.md`. Each command runs in its own
+shell, so substitute that absolute path into every command below rather than
+exporting a variable. Every command also accepts `--cwd <repository>`.
 
 ## Phase 0 — doctor, agents, and state
 
@@ -17,6 +20,21 @@ accepts `--cwd <repository>`.
    Entries in `warnings` do not stop the run, but report them to the user in the
    same message that reports progress. A stale capture is one such warning.
 5. Run `node "$FORGE" init` if this repository has no active forge state.
+
+## Asking the user
+
+When `request_user_input` is listed in the available tools for the turn, use it
+for every question that has a bounded set of answers: grill questions, the
+model and effort choices, the three-way cap decisions, the pre-existing-fix
+opt-in, and the cleanup artifact question. Send one question per call, list
+only meaningful options, and put the recommended option first. Never render a
+multiple-choice question as plain assistant text while the tool is available.
+Fall back to a plain-text question only when the tool is absent.
+
+The final sign-off gate is the one exception: it must stay a typed free-text
+answer, because `confirm-signoff` records the user's own words as the
+authorization for writing code. Never attach an auto-resolution window to a
+question whose answer authorizes code changes, risk acceptance, or deletion.
 
 The installed native Codex schema uses `fork_turns`; use `fork_turns=none` for
 reviewers and builders so model/effort can be passed
@@ -35,10 +53,14 @@ If no grilling skill is available, follow this embedded procedure:
 
 Interview the user relentlessly about every aspect of the plan until reaching a
 shared understanding. Walk down each branch of the design tree, resolving
-dependencies between decisions one by one. For each question, provide a
-recommended answer. Ask questions one at a time and wait for the answer before
-continuing. If a question can be answered by exploring the codebase, explore
-the codebase instead of asking.
+dependencies between decisions one by one. Ask questions one at a time through
+`request_user_input`, offering the recommended answer as the first option, and
+wait for the answer before continuing. If a question can be answered by
+exploring the codebase, explore the codebase instead of asking.
+
+When delegating this act to another grilling skill, pass the same instruction:
+one question per turn, asked through `request_user_input` whenever that tool is
+available.
 
 Only after the decision tree is resolved, write to the owned `PLAN.md` and
 `PLAN-REVIEW-LOG.md`. Structure the plan with a one-paragraph Goal and numbered
@@ -64,9 +86,13 @@ At the beginning of this act:
    explicit user override and a reason. `ultra` is forbidden.
 4. Save choices using:
 
-   `configure-reviewer --reviewer-model <slug> --reviewer-effort <effort>`.
+   `configure-reviewer --reviewer-model <slug> --reviewer-effort <effort>
+   --native-models '<the same JSON>'`.
 
-   If priority or fresh native-spawn availability is unconfirmed, add
+   Repeat `--native-models` here. This command re-resolves the catalog and
+   rejects any selection whose spawn availability did not come from the live
+   native schema, so omitting it fails the call and wastes a round trip.
+   If priority or fresh native-spawn availability is genuinely unconfirmed, add
    `--user-override --user-note "<the user's confirmation>"`. The reviewer
    choice is fixed for the run; later changes require the same explicit reason.
    A changed current session automatically replaces the orchestrator
@@ -162,7 +188,8 @@ Present:
 - the number of completed review rounds;
 - any remaining non-blocking suggestions.
 
-Ask: “The plan has been reviewed and approved. Build it now?”
+Ask, as plain text rather than through `request_user_input`: “The plan has been
+reviewed and approved. Build it now?”
 
 Only an explicit affirmative answer grants sign-off. An ambiguous or missing
 answer leaves the run in `signoff`; do not choose a builder, lock the plan,
@@ -181,11 +208,15 @@ present the revised plan and obtain a fresh confirmation.
 Act 3 begins only after `confirm-signoff` succeeds. Ask the user to choose the
 builder model and effort as a single choice. Persist the answer with:
 
-`configure-builder --builder-model <slug> --builder-effort <effort>`.
+`configure-builder --builder-model <slug> --builder-effort <effort>
+--native-models '<JSON from the current spawn_agent schema>'`.
+
+`configure-builder` re-resolves the catalog exactly like `configure-reviewer`,
+so pass `--native-models` here too or the call is rejected.
 
 Then call `lock-plan` followed by `begin-build`.
 
-If fresh native-spawn availability is unconfirmed, add
+If fresh native-spawn availability is genuinely unconfirmed, add
 `--user-override --user-note "<the user's confirmation>"`. The builder choice
 is then fixed for the run; changing it requires an explicit user reason.
 

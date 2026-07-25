@@ -1925,6 +1925,58 @@ test('doctor explains a missing capture instead of only naming the path', () => 
   assert.match(capture.hint, /hook is not running/i);
 });
 
+test('the CLI path documented for the orchestrator resolves to the packaged script', () => {
+  // The skill lives two levels below the plugin root, so a bare "scripts/..."
+  // sends the orchestrator looking inside the skill folder and wastes a turn.
+  const documented = fileURLToPath(new URL('../../scripts/forge.mjs', pathToFileURL(SKILL)));
+  assert.equal(documented, FORGE);
+  assert.ok(existsSync(documented));
+  for (const doc of [SKILL, WORKFLOW]) {
+    assert.match(readFileSync(doc, 'utf8'), /\.\.\/\.\.\/scripts\/forge\.mjs/);
+  }
+});
+
+test('configure-reviewer needs the native catalog the workflow tells it to repeat', () => {
+  const dir = makeRepo();
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-native-repeat-'));
+  const env = { FORGE_PLUGIN_DATA: pluginData };
+  const nativeModels = JSON.stringify([
+    {
+      slug: 'gpt-5.6-sol',
+      priority: 1,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      spawnAvailable: true,
+    },
+  ]);
+  writeSessionCapture(dir, pluginData, { model: 'gpt-5.6-sol' });
+  assert.equal(rawRun(dir, ['init'], env).code, 0);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  assert.equal(rawRun(dir, ['set', 'phase=review'], env).code, 0);
+  assert.equal(rawRun(dir, ['models', '--native-models', nativeModels], env).code, 0);
+
+  // Running models first does not carry the native provenance forward, so a
+  // workflow that omits --native-models here always burns a round trip.
+  const pin = ['configure-reviewer', '--reviewer-model', 'gpt-5.6-sol', '--reviewer-effort', 'high'];
+  const without = rawRun(dir, pin, env);
+  assert.equal(without.code, 3);
+  assert.match(without.json.error, /spawn availability is unconfirmed/);
+  assert.equal(rawRun(dir, [...pin, '--native-models', nativeModels], env).code, 0);
+
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  assert.match(workflow, /configure-reviewer[\s\S]{0,160}--native-models/);
+  assert.match(workflow, /configure-builder[\s\S]{0,160}--native-models/);
+});
+
+test('bounded questions use request_user_input while sign-off stays typed', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  assert.match(readFileSync(SKILL, 'utf8'), /request_user_input/);
+  assert.match(workflow, /## Asking the user/);
+  assert.match(workflow, /Ask questions one at a time through\n`request_user_input`/);
+  // A one-click answer must never stand in for the words confirm-signoff records.
+  assert.match(workflow, /as plain text rather than through `request_user_input`/);
+  assert.match(workflow, /Never attach an auto-resolution window/);
+});
+
 test('the hook manifest runs on Windows shells as well as POSIX ones', () => {
   const raw = readFileSync(HOOKS_MANIFEST, 'utf8');
   assert.equal(raw.charCodeAt(0), '{'.charCodeAt(0), 'a BOM makes Codex reject the manifest');
