@@ -176,6 +176,21 @@ review history, model selections, pending work, and completed plan steps are
 stored under `.forge/`. Do not run cleanup or delete that directory before
 resuming.
 
+### If the run stops on a missing session capture
+
+`$forge` refuses to start when its `UserPromptSubmit` hook has not recorded the
+session, because model selection would otherwise be guesswork. The hook is only
+approved once per command line, so after upgrading the plugin Codex asks you to
+trust it again — decline it and every run stops on this check.
+
+`doctor` reports which of the two situations applies. `everCaptured: false` means
+no capture was ever written, so confirm the plugin is enabled (`codex plugin
+list`) and that the hook is trusted, then submit a new prompt.
+`everCaptured: true` means the hook works but has not seen this repository yet,
+so submit a prompt from it. Captures live under
+`~/.codex/plugin-data/plan-forge-flow/session-context/`; set
+`FORGE_PLUGIN_DATA` to relocate them.
+
 ### Trust boundary
 
 The CLI deterministically records and audits the orchestrator's claims. It

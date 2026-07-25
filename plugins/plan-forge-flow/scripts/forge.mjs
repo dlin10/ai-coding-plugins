@@ -39,6 +39,7 @@ import {
   runCodexCli,
   validateModelSelection,
 } from './model-catalog.mjs';
+import { pluginDataDir, sessionContextPathFor } from './plugin-paths.mjs';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -687,21 +688,13 @@ function cmdInit(ws, flags) {
   });
 }
 
-function pluginDataDir() {
-  const override = process.env.FORGE_PLUGIN_DATA ?? process.env.PLUGIN_DATA;
-  return override && override.trim()
-    ? resolve(override.trim())
-    : join(homedir(), '.codex', 'plugin-data', 'plan-forge-flow');
-}
-
 function sessionMaxAgeMs() {
   const configured = Number(process.env.FORGE_SESSION_MAX_AGE_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SESSION_MAX_AGE_MS;
 }
 
 function sessionContextPath(cwd) {
-  const canonical = realpathSync(cwd);
-  return join(pluginDataDir(), 'session-context', `${sha256(canonical.toLowerCase())}.json`);
+  return sessionContextPathFor(realpathSync(cwd));
 }
 
 function readSessionContext(cwd, flags, options = {}) {
@@ -862,7 +855,22 @@ export function parseFeatureEnabled(features, name = 'multi_agent') {
 
 function sessionCaptureCheck(ws) {
   const path = sessionContextPath(ws.cwd);
-  if (!existsSync(path)) return { name: 'session_capture', ok: false, path, reason: 'missing' };
+  if (!existsSync(path)) {
+    // Distinguish "the hook never ran anywhere" from "it ran, but not for this
+    // workspace"; the two need different fixes and the bare path does not say
+    // which one happened.
+    const everCaptured = existsSync(dirname(path));
+    return {
+      name: 'session_capture',
+      ok: false,
+      path,
+      reason: 'missing',
+      everCaptured,
+      hint: everCaptured
+        ? 'The prompt hook works but has not captured this workspace yet. Ask the user to submit a prompt from this repository.'
+        : 'No capture has ever been written, so the UserPromptSubmit hook is not running. Ask the user to confirm the plugin is enabled and its hook is trusted, then submit a new prompt.',
+    };
+  }
   try {
     const capture = JSON.parse(readFileSync(path, 'utf8'));
     const ageMs = Date.now() - Date.parse(capture.observedAt);

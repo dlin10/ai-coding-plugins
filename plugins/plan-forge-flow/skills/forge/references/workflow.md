@@ -10,8 +10,10 @@ accepts `--cwd <repository>`.
    task is required so the native spawn schema can refresh. Stop this run.
 3. Run `node "$FORGE" doctor`.
 4. If `doctor` exits non-zero, stop before changing workflow state. Report every
-   failed check verbatim. A missing session capture means the prompt hook is not
-   loaded; ask the user to submit a new prompt after confirming the hook loaded.
+   failed check verbatim, including the `hint` of a failed `session_capture`
+   check: `everCaptured: false` means the hook never ran for any workspace (the
+   user must enable the plugin and trust its hook), while `everCaptured: true`
+   means only this repository is missing and a new prompt from it is enough.
    Entries in `warnings` do not stop the run, but report them to the user in the
    same message that reports progress. A stale capture is one such warning.
 5. Run `node "$FORGE" init` if this repository has no active forge state.

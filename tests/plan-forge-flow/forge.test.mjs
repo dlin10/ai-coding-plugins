@@ -48,6 +48,12 @@ const MARKETPLACE = fileURLToPath(
 const PLUGIN_MANIFEST = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/.codex-plugin/plugin.json', import.meta.url),
 );
+const CAPTURE_HOOK = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/scripts/capture-context.mjs', import.meta.url),
+);
+const HOOKS_MANIFEST = fileURLToPath(
+  new URL('../../plugins/plan-forge-flow/hooks/hooks.json', import.meta.url),
+);
 const PACKAGE_JSON = fileURLToPath(new URL('../../package.json', import.meta.url));
 const CI_WORKFLOW = fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url));
 
@@ -1883,4 +1889,48 @@ try {
   const body = JSON.parse(loser.stdout.trim());
   assert.equal(body.code, 1);
   assert.match(body.error, /lock|forge run/i);
+});
+
+test('the prompt hook writes a capture that doctor finds in the same run', () => {
+  const dir = makeRepo();
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-handoff-'));
+  // Codex points PLUGIN_DATA at a marketplace-qualified directory that only the
+  // hook process sees, so honouring it would strand the capture.
+  const env = { FORGE_PLUGIN_DATA: pluginData, PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'forge-codex-data-')) };
+  const hook = spawnSync(process.execPath, [CAPTURE_HOOK], {
+    cwd: dir,
+    encoding: 'utf8',
+    input: JSON.stringify({
+      session_id: 'session-handoff',
+      cwd: dir,
+      model: 'gpt-5.6-terra',
+      permission_mode: 'workspace-write',
+    }),
+    env: { ...BASE_ENV, ...env },
+  });
+  assert.equal(hook.status, 0, hook.stderr);
+  const r = rawRun(dir, ['doctor'], env);
+  const capture = r.json.checks.find((check) => check.name === 'session_capture');
+  assert.equal(capture.ok, true, JSON.stringify(capture));
+  assert.equal(capture.sessionId, 'session-handoff');
+});
+
+test('doctor explains a missing capture instead of only naming the path', () => {
+  const dir = makeRepo();
+  const env = { FORGE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'forge-no-capture-')) };
+  const capture = rawRun(dir, ['doctor'], env).json.checks
+    .find((check) => check.name === 'session_capture');
+  assert.equal(capture.ok, false);
+  assert.equal(capture.everCaptured, false);
+  assert.match(capture.hint, /hook is not running/i);
+});
+
+test('the hook manifest runs on Windows shells as well as POSIX ones', () => {
+  const raw = readFileSync(HOOKS_MANIFEST, 'utf8');
+  assert.equal(raw.charCodeAt(0), '{'.charCodeAt(0), 'a BOM makes Codex reject the manifest');
+  const handler = JSON.parse(raw).hooks.UserPromptSubmit[0].hooks[0];
+  // Codex runs hooks through PowerShell on Windows, where "$PLUGIN_ROOT"
+  // expands to the empty string instead of the plugin directory.
+  assert.match(handler.command, /\$PLUGIN_ROOT\//);
+  assert.match(handler.commandWindows, /\$env:PLUGIN_ROOT\\/);
 });

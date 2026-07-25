@@ -1,13 +1,9 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname } from 'node:path';
 import process from 'node:process';
-
-function sha256(text) {
-  return createHash('sha256').update(text).digest('hex');
-}
+import { sessionContextPathFor } from './plugin-paths.mjs';
 
 function canonicalWorkspace(cwd) {
   const canonical = realpathSync(cwd);
@@ -27,11 +23,10 @@ for await (const chunk of process.stdin) input += chunk;
 
 try {
   const event = JSON.parse(input || '{}');
-  const pluginData = process.env.PLUGIN_DATA;
-  if (!pluginData || !event.cwd) process.exit(0);
+  if (!event.cwd) process.exit(0);
   const cwd = canonicalWorkspace(event.cwd);
-  const dir = join(pluginData, 'session-context');
-  const target = join(dir, `${sha256(cwd.toLowerCase())}.json`);
+  const target = sessionContextPathFor(cwd);
+  const dir = dirname(target);
   const effort = event.reasoning_effort ?? event.effort ?? null;
   const payload = {
     version: 1,
