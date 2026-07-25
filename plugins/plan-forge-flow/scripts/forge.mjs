@@ -63,7 +63,10 @@ const WORKTREE_BASE_REF_NAME = 'refs/plan-forge/worktree-base';
 const REVIEW_TEXT_LIMIT = 100 * 1024;
 const REVIEW_AGGREGATE_LIMIT = 1024 * 1024;
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
-const DEFAULT_SESSION_MAX_AGE_MS = 15 * 60 * 1000;
+// The only inactivity constant Codex documents: app-server unloads an
+// unsubscribed thread after 30 min. This is a hook-health heuristic, not a
+// session TTL; Codex does not expire sessions because the user is idle.
+const DEFAULT_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 const MAX_REPLAY_KEYS = 100;
 const BOOLEAN_FLAGS = new Set([
   'amendment',
@@ -79,12 +82,16 @@ const BOOLEAN_FLAGS = new Set([
   'user-override',
 ]);
 const SENSITIVE_BASENAME_RE =
-  /^(?:\.env(?:\..*)?|[^/]+\.env|\.npmrc|\.pypirc|\.netrc|id_[^/]+|service[-_.]?account(?:[^/]*)\.json|keystore\.jks|appsettings\.[^/]+\.json)$/i;
+  /^(?:\.env(?:\..*)?|[^/]+\.env|\.npmrc|\.pypirc|\.netrc|id_[^/]+|service[-_.]?account(?:[^/]*)\.json|keystore\.jks|appsettings\.[^/]+\.json|credentials|\.git-credentials|secrets?\.(?:json|ya?ml|toml)|kubeconfig|terraform\.tfstate(?:\.backup)?)$/i;
 const SENSITIVE_EXTENSION_RE = /\.(?:pem|key|p12|pfx|jks)$/i;
 const PRIVATE_KEY_RE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
 const AWS_ACCESS_KEY_RE = /\bAKIA[0-9A-Z]{16}\b/;
-const HIGH_ENTROPY_ASSIGNMENT_RE =
-  /(?:^|\n)\s*["']?[A-Za-z0-9_.-]*(?:api[_-]?key|secret|token|password|credential)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?([A-Za-z0-9+/=_-]{24,})["']?\s*[,;]?\s*(?:$|\n)/i;
+const SECRET_KEYWORD_RE =
+  /(?:api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)/i;
+const ASSIGNMENT_RE =
+  /^[\s\-*]*["']?([A-Za-z0-9_.$-]+)["']?\s*[:=]\s*["']?([^"'\s,;]{20,})["']?/;
+const DECLARATION_PREFIX_RE =
+  /^\s*(?:(?:export|public|private|protected|internal|static|readonly|final|const|let|var|val|def|string|self\.|this\.)\s+)+/i;
 
 // ---------------------------------------------------------------------------
 // Small helpers (exported for unit tests)
@@ -98,23 +105,31 @@ export function classifySensitivePath(path) {
   const name = basename(normalized);
   return SENSITIVE_BASENAME_RE.test(name) ||
     SENSITIVE_EXTENSION_RE.test(name) ||
-    /(?:^|\/)\.docker\/config\.json$/i.test(normalized);
+    /(?:^|\/)\.docker\/config\.json$/i.test(normalized) ||
+    /(?:^|\/)\.kube\/config$/i.test(normalized);
 }
+
+function hasSecretEntropy(value) {
+  const classes = [
+    /[a-z]/.test(value),
+    /[A-Z]/.test(value),
+    /\d/.test(value),
+    /[+/=_-]/.test(value),
+  ].filter(Boolean).length;
+  return classes >= 3 || /^[a-f0-9]{32,}$/i.test(value);
+}
+
+const stripDeclarationPrefix = (line) => line.replace(DECLARATION_PREFIX_RE, '');
 
 export function classifySensitiveContent(data) {
   const text = Buffer.isBuffer(data) ? data.toString('utf8') : String(data);
-  const assignment = HIGH_ENTROPY_ASSIGNMENT_RE.exec(text);
   if (PRIVATE_KEY_RE.test(text)) return 'private-key';
   if (AWS_ACCESS_KEY_RE.test(text)) return 'aws-access-key';
-  if (assignment) {
-    const value = assignment[1];
-    const classes = [
-      /[a-z]/.test(value),
-      /[A-Z]/.test(value),
-      /\d/.test(value),
-      /[+/=_-]/.test(value),
-    ].filter(Boolean).length;
-    if (classes >= 3 || /^[a-f0-9]{32,}$/i.test(value)) return 'high-entropy-assignment';
+  for (const line of text.split('\n')) {
+    if (line.length > 4096 || !SECRET_KEYWORD_RE.test(line)) continue;
+    const match = ASSIGNMENT_RE.exec(stripDeclarationPrefix(line));
+    if (!match || !SECRET_KEYWORD_RE.test(match[1])) continue;
+    if (hasSecretEntropy(match[2])) return 'high-entropy-assignment';
   }
   return null;
 }
@@ -313,7 +328,11 @@ function gitToFile(cwd, args, target, options = {}) {
     if (error?.code === 'ENOBUFS' || /maxBuffer|ENOBUFS/i.test(error?.message ?? '')) {
       throw new CliError(1, 'git diff output was truncated; review preparation failed closed');
     }
-    throw new CliError(1, `git ${args[0]} failed while preparing review evidence`);
+    const stderr = error?.stderr?.toString().trim().slice(0, 500);
+    throw new CliError(
+      1,
+      `git ${args[0]} failed while preparing review evidence${stderr ? `: ${stderr}` : ''}`,
+    );
   } finally {
     closeSync(fd);
   }
@@ -685,7 +704,8 @@ function sessionContextPath(cwd) {
   return join(pluginDataDir(), 'session-context', `${sha256(canonical.toLowerCase())}.json`);
 }
 
-function readSessionContext(cwd, flags) {
+function readSessionContext(cwd, flags, options = {}) {
+  const requireFresh = options.requireFresh !== false;
   let captured;
   if (typeof flags.context === 'string') {
     captured = JSON.parse(readFileSync(resolve(flags.context), 'utf8'));
@@ -695,10 +715,13 @@ function readSessionContext(cwd, flags) {
     captured = JSON.parse(readFileSync(path, 'utf8'));
   }
   const observed = Date.parse(captured.observedAt);
-  if (!Number.isFinite(observed) || Date.now() - observed > sessionMaxAgeMs()) {
+  const ageMs = Number.isFinite(observed) ? Date.now() - observed : null;
+  const stale = ageMs === null || ageMs > sessionMaxAgeMs();
+  if (stale && requireFresh) {
     throw new CliError(
       3,
-      `session capture is missing a fresh timestamp or older than ${sessionMaxAgeMs()} ms; submit a new prompt before continuing`,
+      `session capture is missing a fresh timestamp or older than ${sessionMaxAgeMs()} ms; ` +
+      'submit a new prompt, or raise FORGE_SESSION_MAX_AGE_MS if this session is intentionally long-running',
     );
   }
   return {
@@ -709,11 +732,13 @@ function readSessionContext(cwd, flags) {
     activeEffort: captured.effortKnown ? captured.effort : null,
     activeEffortSource: captured.effortKnown ? 'prompt-hook' : null,
     observedAt: captured.observedAt,
+    stale,
+    ageMs,
   };
 }
 
-async function resolveCatalog(cwd, flags) {
-  const context = readSessionContext(cwd, flags);
+async function resolveCatalog(cwd, flags, options = {}) {
+  const context = readSessionContext(cwd, flags, options);
   if (typeof flags['active-model'] === 'string') {
     context.activeModel = flags['active-model'];
     context.activeModelSource = 'manual-user';
@@ -841,18 +866,67 @@ function sessionCaptureCheck(ws) {
   try {
     const capture = JSON.parse(readFileSync(path, 'utf8'));
     const ageMs = Date.now() - Date.parse(capture.observedAt);
-    const ok = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= sessionMaxAgeMs();
+    if (!Number.isFinite(ageMs)) {
+      return { name: 'session_capture', ok: false, path, reason: 'invalid-timestamp' };
+    }
+    const fresh = ageMs <= sessionMaxAgeMs();
     return {
       name: 'session_capture',
-      ok,
+      ok: true,
+      fresh,
       path,
       sessionId: capture.sessionId ?? null,
-      ageMs: Number.isFinite(ageMs) ? ageMs : null,
+      ageMs,
       maxAgeMs: sessionMaxAgeMs(),
-      reason: ok ? null : 'expired-or-invalid',
+      warning: fresh ? null : 'capture is stale',
     };
   } catch (error) {
     return { name: 'session_capture', ok: false, path, reason: `unreadable: ${error.message}` };
+  }
+}
+
+function spawnMetadataCheck() {
+  const codexHome = process.env.CODEX_HOME?.trim();
+  const path = join(codexHome ? resolve(codexHome) : join(homedir(), '.codex'), 'config.toml');
+  if (!existsSync(path)) {
+    return { name: 'spawn_metadata', ok: true, hidden: false, path };
+  }
+  try {
+    const text = readFileSync(path, 'utf8');
+    let section = '';
+    let hidden = null;
+    for (const line of text.split(/\r?\n/)) {
+      const sectionMatch = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+      if (sectionMatch) {
+        section = sectionMatch[1].trim();
+        continue;
+      }
+      const valueMatch = /^\s*([A-Za-z0-9_.-]+)\s*=\s*(true|false)\s*(?:#.*)?$/i.exec(line);
+      if (!valueMatch) continue;
+      const key = valueMatch[1].includes('.') || !section
+        ? valueMatch[1]
+        : `${section}.${valueMatch[1]}`;
+      if (key === 'multi_agent_v2.hide_spawn_agent_metadata') {
+        hidden = valueMatch[2].toLowerCase() === 'true';
+      }
+    }
+    return {
+      name: 'spawn_metadata',
+      ok: true,
+      hidden: hidden === true,
+      path,
+      warning: hidden === true
+        ? 'spawn metadata is hidden; forge cannot pin reviewer/builder models'
+        : null,
+    };
+  } catch (error) {
+    return {
+      name: 'spawn_metadata',
+      ok: true,
+      hidden: null,
+      path,
+      warning: `could not inspect Codex config for hidden spawn metadata: ${error.message}`,
+    };
   }
 }
 
@@ -874,14 +948,28 @@ function cmdDoctor(ws) {
     // Older builds may not expose the feature command.
   }
   const versionMatch = /(\d+)\.(\d+)\.(\d+)/.exec(codexVersion ?? '');
-  const codexOk = Boolean(versionMatch) &&
-    (Number(versionMatch[1]) > 0 || Number(versionMatch[2]) >= 145);
-  checks.push({ name: 'codex', ok: codexOk, version: codexVersion });
+  const codexOk = codexVersion === null
+    ? false
+    : !versionMatch || Number(versionMatch[1]) > 0 || Number(versionMatch[2]) >= 145;
+  checks.push({
+    name: 'codex',
+    ok: codexOk,
+    version: codexVersion,
+    warning: codexVersion !== null && !versionMatch
+      ? 'could not parse the Codex version; the >= 0.145 requirement is unverified'
+      : null,
+  });
+  const multiAgent = parseFeatureEnabled(features);
   checks.push({
     name: 'multi_agent',
-    ok: parseFeatureEnabled(features) === true,
+    ok: multiAgent !== false,
+    state: multiAgent === null ? 'unknown' : String(multiAgent),
+    warning: multiAgent === null
+      ? 'codex features list did not report multi_agent; forge cannot confirm subagent spawning is enabled'
+      : null,
     observed: features ? features.split('\n').find((line) => /\bmulti_agent\b/.test(line))?.trim() ?? null : null,
   });
+  checks.push(spawnMetadataCheck());
   checks.push(sessionCaptureCheck(ws));
   const agentsDir = globalAgentsDir();
   for (const role of AGENT_ROLES) {
@@ -896,7 +984,10 @@ function cmdDoctor(ws) {
     checks.push({ name: `${role}_agent`, ok: readable, path });
   }
   const ok = checks.every((check) => check.ok);
-  out({ action: 'doctor', ok, checks });
+  const warnings = checks
+    .filter((check) => check.warning)
+    .map((check) => ({ name: check.name, warning: check.warning }));
+  out({ action: 'doctor', ok, warnings, checks });
   if (!ok) process.exitCode = 1;
 }
 
@@ -1115,7 +1206,8 @@ function cmdConfirmSignoff(ws, flags) {
     state.phase === 'review' &&
     state.amendmentReview &&
     state.lastVerdict?.stage === 'plan' &&
-    state.lastVerdict.action === 'approved';
+    state.lastVerdict.action === 'approved' &&
+    state.lastVerdict.planHash === ws.planHash();
   if (state.phase !== 'signoff' && !amendmentSignoff) {
     throw new CliError(
       3,
@@ -1153,12 +1245,22 @@ function retryCapForStage(state, stage) {
 
 async function revalidateReviewerDispatch(ws, state, flags) {
   if (!state.sessionId) return;
-  const context = readSessionContext(ws.cwd, flags);
+  const context = readSessionContext(ws.cwd, flags, { requireFresh: false });
+  if (context.stale) {
+    note(
+      `warning: session capture is ${context.ageMs ?? 'unknown'} ms old; ` +
+      'drift is being checked against the last observed session state',
+    );
+    ws.appendEvent('session-capture-stale', {
+      ageMs: context.ageMs,
+      sessionId: context.sessionId,
+    });
+  }
   const currentModel = context.activeModel;
   const sessionChanged = Boolean(context.sessionId && context.sessionId !== state.sessionId);
   const modelChanged = Boolean(currentModel && currentModel !== state.modelSelection.orchestrator.model);
   if (!sessionChanged && !modelChanged) return;
-  const catalog = await resolveCatalog(ws.cwd, flags);
+  const catalog = await resolveCatalog(ws.cwd, flags, { requireFresh: false });
   const selection = {
     ...state.modelSelection,
     orchestrator: {
@@ -1204,14 +1306,6 @@ async function cmdDispatch(ws, flags) {
   if (state.phase !== spec.phase) {
     throw new CliError(3, `dispatch --stage ${stage} requires phase "${spec.phase}" (current: "${state.phase}")`);
   }
-  if (stage === 'plan' || stage === 'code') {
-    await revalidateReviewerDispatch(ws, state, flags);
-  }
-  if (stage === 'build') requireCurrentUserSignoff(ws, state, 'build dispatch');
-  if (stage === 'plan' && state.amendmentReview && state.amendmentReviewConsumed && !flags.cancel) {
-    throw new CliError(3, 'a material amendment gets exactly one fresh review round; return the decision to the user');
-  }
-
   if (flags.cancel) {
     const pending = state.pendingDispatch;
     if (!pending || pending.stage !== stage) {
@@ -1222,6 +1316,13 @@ async function cmdDispatch(ws, flags) {
     ws.appendEvent('dispatch', { stage, cancelled: true });
     out({ action: 'dispatch-cancelled', stage });
     return;
+  }
+  if (stage === 'plan' || stage === 'code') {
+    await revalidateReviewerDispatch(ws, state, flags);
+  }
+  if (stage === 'build') requireCurrentUserSignoff(ws, state, 'build dispatch');
+  if (stage === 'plan' && state.amendmentReview && state.amendmentReviewConsumed) {
+    throw new CliError(3, 'a material amendment gets exactly one fresh review round; return the decision to the user');
   }
 
   if (flags.retry) {
@@ -1290,6 +1391,10 @@ async function cmdDispatch(ws, flags) {
   }
   if (stage === 'build' || stage === 'fix') {
     pending.fingerprint = ws.treeFingerprint();
+    if (state.builderSessionObservation) {
+      pending.observedModel = state.builderSessionObservation.model;
+      pending.observedEffort = state.builderSessionObservation.effort;
+    }
   }
   state.pendingDispatch = pending;
   ws.saveState(state);
@@ -1471,7 +1576,7 @@ function cmdVerdict(ws, flags) {
     action = 'deadlock';
     state.deadlock = true;
   }
-  state.lastVerdict = { stage, action, round, coverage };
+  state.lastVerdict = { stage, action, round, coverage, planHash: pending.planHash };
   ws.saveState(state);
   ws.appendEvent('verdict', { stage, round, verdict, action, coverage });
   out({ action, stage, round, remaining: Math.max(0, cap - count) });
@@ -1564,17 +1669,18 @@ function diffPaths(cwd, refs) {
   return output.split('\0').filter(Boolean).map((path) => path.replaceAll('\\', '/'));
 }
 
-function contentSignatureForTracked(ws, path, refs) {
+function contentSignatureForTracked(ws, path, ref) {
   const absolute = join(ws.cwd, path);
   if (existsSync(absolute)) {
     try {
       const signature = classifySensitiveContent(readFileSync(absolute));
       if (signature) return signature;
+      return null;
     } catch (error) {
       throw new CliError(1, `cannot screen tracked file ${path} for secrets: ${error.message}`);
     }
   }
-  for (const ref of refs) {
+  if (ref) {
     const content = tryGit(ws.cwd, ['show', `${ref}:${path}`]);
     if (content !== null) {
       const signature = classifySensitiveContent(content);
@@ -1584,12 +1690,27 @@ function contentSignatureForTracked(ws, path, refs) {
   return null;
 }
 
+export function chunkPathspecs(paths, budget = 24 * 1024) {
+  const chunks = [[]];
+  let used = 0;
+  for (const path of paths) {
+    const spec = `:(top,literal)${path}`;
+    if (used + spec.length + 1 > budget && chunks.at(-1).length) {
+      chunks.push([]);
+      used = 0;
+    }
+    chunks.at(-1).push(spec);
+    used += spec.length + 1;
+  }
+  return chunks.filter((chunk) => chunk.length);
+}
+
 function writeSelectedDiff(cwd, refs, paths, target) {
   writeFileSync(target, '');
-  for (const path of paths) {
+  for (const chunk of chunkPathspecs(paths)) {
     gitToFile(
       cwd,
-      ['diff', '--no-ext-diff', '--binary', ...refs, '--', `:(top,literal)${path}`],
+      ['diff', '--no-ext-diff', '--binary', ...refs, '--', ...chunk],
       target,
       { append: true },
     );
@@ -1796,15 +1917,20 @@ function cmdPrepareReview(ws, flags) {
   ])].sort();
   const trackedEntries = [];
   const safeTracked = new Set();
+  const inRunTracked = new Set(inRunTrackedFiles);
   for (const path of allTrackedFiles) {
-    const signature = contentSignatureForTracked(
-      ws,
-      path,
-      [state.headBaseRef, state.worktreeBaseRef],
-    );
-    const classification = classifySensitivePath(path)
-      ? 'secret-like-path'
-      : signature ? `secret-like:${signature}` : 'text';
+    let classification;
+    if (classifySensitivePath(path)) {
+      classification = 'secret-like-path';
+    } else if (allowed.has(path)) {
+      classification = 'user-allowed';
+    } else {
+      const deletedRef = inRunTracked.has(path)
+        ? state.worktreeBaseRef
+        : state.headBaseRef;
+      const signature = contentSignatureForTracked(ws, path, deletedRef);
+      classification = signature ? `secret-like:${signature}` : 'text';
+    }
     const permitted = classification === 'text' || allowed.has(path);
     trackedEntries.push({
       path,
@@ -1921,6 +2047,26 @@ function cmdAuthorizePreExisting(ws, flags) {
   out({ action: 'pre-existing-fixes-authorized', files: state.preExistingFixAuthorization });
 }
 
+function observedSpawn(flags) {
+  return {
+    model: typeof flags['observed-model'] === 'string' ? flags['observed-model'].trim() : null,
+    effort: typeof flags['observed-effort'] === 'string' ? flags['observed-effort'].trim() : null,
+  };
+}
+
+function modelPinMismatchEvent(role, pin, observed, extra = {}) {
+  const mismatch = Boolean(
+    (observed.model && observed.model !== pin?.model) ||
+    (observed.effort && observed.effort !== pin?.effort),
+  );
+  if (!mismatch) return null;
+  note(
+    `warning: observed ${role} ${observed.model ?? '<unknown>'}/${observed.effort ?? '<unknown>'} ` +
+    `does not match pin ${pin?.model ?? '<unknown>'}/${pin?.effort ?? '<unknown>'}`,
+  );
+  return { role, ...extra, requested: pin ?? null, observed };
+}
+
 function cmdBuilderSession(ws, flags) {
   const state = ws.loadState();
   if (typeof flags.id !== 'string' || !flags.id.trim()) {
@@ -1931,12 +2077,26 @@ function cmdBuilderSession(ws, flags) {
     throw new CliError(1, 'replacing a pinned builder id requires --user-note with the recovery reason');
   }
   state.builderAgentId = flags.id.trim();
+  const observed = observedSpawn(flags);
+  state.builderSessionObservation = {
+    id: state.builderAgentId,
+    ...observed,
+  };
+  if (state.pendingDispatch?.stage === 'build' || state.pendingDispatch?.stage === 'fix') {
+    state.pendingDispatch.observedModel = observed.model;
+    state.pendingDispatch.observedEffort = observed.effort;
+  }
+  const pin = state.modelSelection?.builder;
+  const pinMismatchEvent = modelPinMismatchEvent('builder', pin, observed);
   ws.saveState(state);
+  if (pinMismatchEvent) ws.appendEvent('model-pin-not-applied', pinMismatchEvent);
   ws.appendEvent('builder-session', {
     id: state.builderAgentId,
     previous,
     recovered: Boolean(previous && previous !== state.builderAgentId),
     userNote: flags['user-note'] ?? null,
+    observedModel: observed.model,
+    observedEffort: observed.effort,
   });
   out({ action: previous ? 'builder-session-recovered' : 'builder-session-pinned', id: state.builderAgentId });
 }
@@ -1960,11 +2120,24 @@ function cmdReviewerSession(ws, flags) {
   }
   state.reviewerAgentIds.push(id);
   pending.reviewerAgentId = id;
+  const observed = observedSpawn(flags);
+  pending.observedModel = observed.model;
+  pending.observedEffort = observed.effort;
+  const pin = state.modelSelection?.reviewer;
+  const pinMismatchEvent = modelPinMismatchEvent(
+    'reviewer',
+    pin,
+    observed,
+    { dispatchId: pending.dispatchId },
+  );
   ws.saveState(state);
+  if (pinMismatchEvent) ws.appendEvent('model-pin-not-applied', pinMismatchEvent);
   ws.appendEvent('reviewer-session', {
     id,
     dispatchId: pending.dispatchId,
     stage: pending.stage,
+    observedModel: observed.model,
+    observedEffort: observed.effort,
   });
   out({ action: 'fresh-reviewer-registered', id, dispatchId: pending.dispatchId, stage: pending.stage });
 }
@@ -2114,6 +2287,13 @@ function cmdSet(ws, flags, positional) {
         if (!lv || lv.stage !== 'plan' || lv.action !== 'approved') {
           throw new CliError(3, 'review → signoff requires an approved plan verdict (or --user-override for a user-sanctioned deadlock sign-off)');
         }
+        if (lv.planHash !== ws.planHash()) {
+          throw new CliError(
+            3,
+            'PLAN.md changed after the approving review; send the current plan through another review round ' +
+            'before sign-off (or --user-override --user-note to accept an unreviewed edit)',
+          );
+        }
       }
       if (state.phase === 'build' && next === 'review') {
         if (!flags.amendment) throw new CliError(3, 'build → review requires --amendment (the amendment loop)');
@@ -2123,6 +2303,12 @@ function cmdSet(ws, flags, positional) {
         const lv = state.lastVerdict;
         if (!lv || lv.stage !== 'plan' || lv.action !== 'approved') {
           throw new CliError(3, 'amendment review must be approved before returning to build');
+        }
+        if (lv.planHash !== ws.planHash()) {
+          throw new CliError(
+            3,
+            'the amendment review approved a different PLAN.md revision; dispatch a fresh amendment review',
+          );
         }
       }
       if (state.phase === 'build' && next === 'code-review') {
@@ -2142,6 +2328,7 @@ function cmdSet(ws, flags, positional) {
     if (state.phase === 'build' && next === 'review') {
       state.amendmentReview = true;
       state.amendmentReviewConsumed = false;
+      state.lastVerdict = null;
     }
     if (state.phase === 'review' && next === 'build') state.amendmentReview = false;
     state.phase = next;

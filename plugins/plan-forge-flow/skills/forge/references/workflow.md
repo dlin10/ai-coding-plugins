@@ -10,8 +10,10 @@ accepts `--cwd <repository>`.
    task is required so the native spawn schema can refresh. Stop this run.
 3. Run `node "$FORGE" doctor`.
 4. If `doctor` exits non-zero, stop before changing workflow state. Report every
-   failed check verbatim; for a missing or expired session capture, ask the user
-   to submit a new prompt after confirming the plugin hook loaded.
+   failed check verbatim. A missing session capture means the prompt hook is not
+   loaded; ask the user to submit a new prompt after confirming the hook loaded.
+   Entries in `warnings` do not stop the run, but report them to the user in the
+   same message that reports progress. A stale capture is one such warning.
 5. Run `node "$FORGE" init` if this repository has no active forge state.
 
 The installed native Codex schema uses `fork_turns`; use `fork_turns=none` for
@@ -110,8 +112,11 @@ For each round:
    > If no blocking finding remains, approve. End with exactly one unformatted
    > line and nothing after it: `VERDICT: APPROVED` or `VERDICT: REVISE`.
 3. Register the returned native agent id with
-   `reviewer-session --id <agent-id> --dispatch-id <dispatch-id>`. Reusing any
-   reviewer id in the run is rejected.
+   `reviewer-session --id <agent-id> --dispatch-id <dispatch-id>
+   --observed-model <reported-model> --observed-effort <reported-effort>`.
+   Record the model and effort reported by the spawn result, not merely the
+   requested values. Omit an observation flag when the result does not expose
+   it. Reusing any reviewer id in the run is rejected.
 4. Save its response to the returned critique file.
 5. Call `verdict --stage plan --file <file>`.
 6. On `REVISE`, remain the final arbiter. Accept findings supported by the plan
@@ -185,7 +190,10 @@ is then fixed for the run; changing it requires an explicit user reason.
 `begin-build` fails until sign-off, builder choice, and the locked plan are
 recorded. It then pins the initial HEAD and a tracked working-tree snapshot.
 Spawn one `forge_builder` with the selected model/effort and retain its returned
-agent id. For each locked plan step:
+agent id. Register it with `builder-session --id <agent-id>
+--observed-model <reported-model> --observed-effort <reported-effort>`, using
+the model and effort reported by the spawn result rather than the requested
+values and omitting unavailable observations. For each locked plan step:
 
 1. Call `dispatch --stage build --task <n>`.
 2. Send that one step to the existing builder with `followup_task`.
@@ -228,10 +236,14 @@ After all steps, set `phase=code-review` and call `prepare-review`.
 Do not perform another reviewer selection. Reuse the exact reviewer model and
 effort pinned at the beginning of Act 2 for every fresh Act 4 reviewer.
 
-`prepare-review` constructs the tracked diff from initial HEAD and inventories
-every current untracked file. Safe text files up to 100 KB are included.
-Files larger than 100 KB are inventoried without being read and keep coverage
-partial. Binary and secret-like files within that bound are withheld until the
+`prepare-review` emits two attributed tracked patches: pre-existing changes
+between initial HEAD and the build-start snapshot, and in-run changes from that
+snapshot to the current tree. It also inventories every current untracked file.
+Safe text files up to 100 KB are included, subject to a 1 MiB aggregate budget
+for untracked content. Files larger than 100 KB are inventoried without being
+read and keep coverage partial. Tracked patches are not budgeted, so a very
+large tracked change can produce evidence the reviewer cannot read in full.
+Binary and secret-like files within the per-file bound are withheld until the
 user explicitly allows their review with
 `prepare-review --allow-files '<JSON array>' --user-note "<the user's consent>"`.
 Allowances persist for later preparations. Pre-existing findings are always
@@ -273,7 +285,7 @@ replacing the placeholders:
 > steps, unintended deviations, broken API/schema compatibility, concurrency
 > failures, missing error handling, and broken or missing tests.
 >
-> When `{performanceBlock}` requires the embedded performance review, inspect
+> When the performance instruction above requires the embedded review, inspect
 > changed performance-sensitive paths for:
 >
 > - worse algorithmic complexity, repeated work, or unbounded growth;
@@ -348,6 +360,8 @@ orchestrator-owned advisory state set with
 `set verifyCommands='<JSON array>'`; the CLI records it but does not execute it.
 If a builder reports a merge/conflict condition for a pending task, use
 `resolve-build --conflict` to clear that dispatch without advancing the task.
+Dispatch never fails solely because of session-capture age; stale capture data
+is reported and drift checks continue against the last observed session state.
 
 ## Cleanup
 

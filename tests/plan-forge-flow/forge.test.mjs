@@ -23,6 +23,7 @@ import {
   sha256,
   classifySensitivePath,
   classifySensitiveContent,
+  chunkPathspecs,
   parseFeatureEnabled,
 } from '../../plugins/plan-forge-flow/scripts/forge.mjs';
 
@@ -92,6 +93,14 @@ test('secret classifier is filename-anchored and recognizes sensitive content si
     'serviceAccount.json',
     'keystore.jks',
     'appsettings.Production.json',
+    'secrets.json',
+    'credentials',
+    '.aws/credentials',
+    '.git-credentials',
+    'kubeconfig',
+    '.kube/config',
+    'terraform.tfstate',
+    'terraform.tfstate.backup',
   ]) {
     assert.equal(classifySensitivePath(sensitive), true, `${sensitive} should be sensitive`);
   }
@@ -104,12 +113,51 @@ test('secret classifier is filename-anchored and recognizes sensitive content si
     classifySensitiveContent('api_key=AbCdEfGhIjKlMnOpQrStUv12+/'),
     'high-entropy-assignment',
   );
+  for (const declaration of [
+    'API_KEY=AbCdEfGhIjKlMnOpQrStUv12+/',
+    '"db_password": "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'const apiKey = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'export const dbPassword = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'private static readonly Secret = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'public const string ApiKey = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'api_token = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    'self.api_token = "AbCdEfGhIjKlMnOpQrStUv12+/"',
+    '- client_secret: AbCdEfGhIjKlMnOpQrStUv12+/',
+  ]) {
+    assert.equal(
+      classifySensitiveContent(declaration),
+      'high-entropy-assignment',
+      `${declaration} should be detected`,
+    );
+  }
+  assert.equal(classifySensitiveContent('// rotate the api key quarterly'), null);
+  assert.equal(
+    classifySensitiveContent('config = {"password":"AbCdEfGhIjKlMnOpQrStUv12+/"}'),
+    null,
+  );
+});
+
+test('pathspec chunking respects serialized budgets and preserves literal paths', () => {
+  const paths = ['src/file with space.js', 'src/file#hash.js', ...Array.from(
+    { length: 300 },
+    (_, index) => `src/generated-${String(index).padStart(3, '0')}.js`,
+  )];
+  const chunks = chunkPathspecs(paths, 1024);
+  assert.ok(chunks.length > 1);
+  assert.deepEqual(
+    chunks.flat(),
+    paths.map((path) => `:(top,literal)${path}`),
+  );
+  for (const chunk of chunks) {
+    assert.ok(chunk.reduce((used, spec) => used + spec.length + 1, 0) <= 1024);
+  }
 });
 
 test('feature parser reads the enabled column rather than the stability column', () => {
   assert.equal(parseFeatureEnabled('multi_agent stable true'), true);
   assert.equal(parseFeatureEnabled('multi_agent stable false'), false);
   assert.equal(parseFeatureEnabled('other stable true'), null);
+  assert.equal(parseFeatureEnabled('multi_agent stable unavailable'), null);
 });
 
 test('root verification harness and plugin hook declaration are wired', () => {
@@ -135,8 +183,13 @@ test('workflow documents declined sign-off, operational commands, and trust boun
   assert.match(workflow, /verifyCommands/);
   assert.match(workflow, /cleanup --purge-agents/);
   assert.match(workflow, /fork_turns=none/);
+  assert.match(workflow, /session-capture age/);
+  assert.match(workflow, /observed-model/);
+  assert.match(workflow, /1 MiB aggregate budget/);
+  assert.doesNotMatch(workflow, /When `\{performanceBlock\}` requires/);
   assert.match(readme, /### Trust boundary/);
   assert.match(readme, /cannot independently prove/);
+  assert.match(readme, /read-only, but they are not access-restricted/);
 });
 
 test('Act 4 review contract requires performance analysis and uses the .NET skill when available', () => {
@@ -602,6 +655,64 @@ else process.exitCode = 1;
   assert.equal(r.json.ok, true);
 });
 
+test('doctor warns for unknown capabilities, stale capture, and hidden spawn metadata', () => {
+  const dir = makeRepo();
+  const agentsDir = mkdtempSync(join(tmpdir(), 'forge-doctor-warning-agents-'));
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-doctor-warning-data-'));
+  const codexHome = mkdtempSync(join(tmpdir(), 'forge-doctor-warning-home-'));
+  const fakeCodex = join(dir, 'fake-codex.js');
+  writeFileSync(
+    fakeCodex,
+    `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log(process.env.FAKE_CODEX_VERSION);
+else if (args[0] === 'features') console.log(process.env.FAKE_CODEX_FEATURES);
+else process.exitCode = 1;
+`,
+  );
+  writeFileSync(
+    join(codexHome, 'config.toml'),
+    '[multi_agent_v2]\nhide_spawn_agent_metadata = true\n',
+  );
+  writeSessionCapture(dir, pluginData, { observedAt: '2000-01-01T00:00:00.000Z' });
+  const env = {
+    CODEX_HOME: codexHome,
+    FORGE_AGENTS_DIR: agentsDir,
+    FORGE_PLUGIN_DATA: pluginData,
+    FORGE_CODEX_PATH: fakeCodex,
+    FORGE_SESSION_MAX_AGE_MS: '1000',
+    FAKE_CODEX_VERSION: 'codex-cli preview',
+    FAKE_CODEX_FEATURES: 'another_feature stable true',
+  };
+  assert.equal(rawRun(dir, ['install-agents'], env).code, 0);
+  let r = rawRun(dir, ['doctor'], env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.checks.find((check) => check.name === 'codex').ok, true);
+  assert.equal(r.json.checks.find((check) => check.name === 'multi_agent').state, 'unknown');
+  const capture = r.json.checks.find((check) => check.name === 'session_capture');
+  assert.equal(capture.ok, true);
+  assert.equal(capture.fresh, false);
+  assert.equal(r.json.checks.find((check) => check.name === 'spawn_metadata').hidden, true);
+  for (const warning of ['codex', 'multi_agent', 'spawn_metadata', 'session_capture']) {
+    assert.ok(r.json.warnings.some((item) => item.name === warning), `missing ${warning} warning`);
+  }
+
+  r = rawRun(dir, ['doctor'], {
+    ...env,
+    FAKE_CODEX_VERSION: 'codex-cli 0.145.0',
+    FAKE_CODEX_FEATURES: 'multi_agent stable false',
+  });
+  assert.equal(r.code, 1);
+  assert.equal(r.json.checks.find((check) => check.name === 'multi_agent').state, 'false');
+
+  r = rawRun(dir, ['doctor'], {
+    ...env,
+    FORGE_CODEX_PATH: join(dir, 'missing-codex'),
+  });
+  assert.equal(r.code, 1);
+  assert.equal(r.json.checks.find((check) => check.name === 'codex').ok, false);
+});
+
 test('configure-reviewer: runs in Act 2 and enforces strength, effort order, and pinning', () => {
   const dir = makeRepo();
   run(dir, ['init']);
@@ -691,6 +802,42 @@ function repoAtSignoff() {
   assert.equal(r.json.taskCount, 2);
   return dir;
 }
+
+test('an approved plan verdict is bound to the reviewed PLAN.md revision', () => {
+  const dir = makeRepo();
+  run(dir, ['init']);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  run(dir, ['set', 'phase=review']);
+  const dispatched = run(dir, ['dispatch', '--stage', 'plan']);
+  const critique = writeCritique(
+    dir,
+    dispatched.json.critiqueFile,
+    'The reviewed plan is sound.\nVERDICT: APPROVED\n',
+  );
+  assert.equal(run(dir, ['verdict', '--stage', 'plan', '--file', critique]).code, 0);
+  const approvedHash = run(dir, ['status', '--full']).json.lastVerdict.planHash;
+  assert.equal(approvedHash, sha256(readFileSync(join(dir, 'PLAN.md'))));
+
+  const statePath = join(dir, '.forge', 'state.json');
+  const legacyState = JSON.parse(readFileSync(statePath, 'utf8'));
+  delete legacyState.lastVerdict.planHash;
+  writeFileSync(statePath, JSON.stringify(legacyState, null, 2) + '\n');
+  let r = run(dir, ['set', 'phase=signoff']);
+  assert.equal(r.code, 3, 'a verdict from an older build must fail closed');
+  legacyState.lastVerdict.planHash = approvedHash;
+  writeFileSync(statePath, JSON.stringify(legacyState, null, 2) + '\n');
+
+  writeFileSync(join(dir, 'PLAN.md'), `${PLAN_BODY}\nunreviewed replacement\n`);
+  r = run(dir, ['set', 'phase=signoff']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /changed after the approving review/);
+
+  r = run(dir, [
+    'set', 'phase=signoff', '--user-override',
+    '--user-note', 'accept this unreviewed plan edit',
+  ]);
+  assert.equal(r.code, 0);
+});
 
 test('review loop: dispatch/verdict pairing, replay guard, hash drift, deadlock, user-note gate', () => {
   const dir = makeRepo();
@@ -1026,6 +1173,13 @@ test('plan integrity guards reject unauthorized relock and stale build hashes', 
   r = run(dispatchDir, ['dispatch', '--stage', 'build', '--task', '1']);
   assert.equal(r.code, 3);
   assert.match(r.json.error, /PLAN.md changed after user sign-off/);
+
+  const cancelDir = repoAtSignoff();
+  run(cancelDir, ['begin-build']);
+  run(cancelDir, ['dispatch', '--stage', 'build', '--task', '1']);
+  writeFileSync(join(cancelDir, 'PLAN.md'), `${PLAN_BODY}\nstale after dispatch\n`);
+  r = run(cancelDir, ['dispatch', '--stage', 'build', '--cancel']);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
 });
 
 test('fingerprint: content edits to already-modified files change it', () => {
@@ -1061,11 +1215,25 @@ test('amendment loop: build→review preserves position; relock protects complet
   writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY.replace('2. Second step', '2. Second step, amended'));
   r = run(dir, ['lock-plan', '--relock']);
   assert.equal(r.code, 0);
+  assert.equal(run(dir, ['status', '--full']).json.lastVerdict, null);
+  r = run(dir, ['confirm-signoff', '--user-note', 'skip the amendment review']);
+  assert.equal(r.code, 3);
+  r = run(dir, ['set', 'phase=build']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /amendment review must be approved/);
 
   // amendment review round, then return to build with position preserved
   r = run(dir, ['dispatch', '--stage', 'plan']);
   const f = writeCritique(dir, r.json.critiqueFile, 'Amendment fine.\n\nVERDICT: APPROVED\n');
   run(dir, ['verdict', '--file', f, '--stage', 'plan']);
+  const reviewedAmendment = readFileSync(join(dir, 'PLAN.md'), 'utf8');
+  writeFileSync(join(dir, 'PLAN.md'), `${reviewedAmendment}\nunreviewed amendment edit\n`);
+  r = run(dir, ['confirm-signoff', '--user-note', 'yes, build this unreviewed edit']);
+  assert.equal(r.code, 3);
+  r = run(dir, ['set', 'phase=build']);
+  assert.equal(r.code, 3);
+  assert.match(r.json.error, /approved a different PLAN.md revision/);
+  writeFileSync(join(dir, 'PLAN.md'), reviewedAmendment);
   r = run(dir, ['confirm-signoff', '--user-note', 'yes, build the amended plan']);
   assert.equal(r.code, 0);
   r = run(dir, ['set', 'phase=build']);
@@ -1281,6 +1449,49 @@ test('prepare-review streams a multi-megabyte tracked diff completely', () => {
   assert.match(patch, /complete-tail/);
 });
 
+test('prepare-review batches hundreds of tracked paths including spaces and hash characters', () => {
+  const dir = makeRepo();
+  const bulkDir = join(dir, 'bulk');
+  mkdirSync(bulkDir);
+  const names = [
+    'file with space.txt',
+    'file#hash.txt',
+    ...Array.from({ length: 298 }, (_, index) =>
+      `file-${String(index).padStart(3, '0')}.txt`),
+  ];
+  for (const name of names) writeFileSync(join(bulkDir, name), 'before\n');
+  sh(dir, 'git', ['add', '.']);
+  sh(dir, 'git', ['commit', '-q', '-m', 'add bulk fixture']);
+
+  run(dir, ['init']);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  run(dir, ['set', 'phase=review']);
+  let r = run(dir, ['dispatch', '--stage', 'plan']);
+  writeCritique(dir, r.json.critiqueFile, 'Bulk plan is sound.\nVERDICT: APPROVED\n');
+  run(dir, ['verdict', '--stage', 'plan', '--file', r.json.critiqueFile]);
+  run(dir, ['set', 'phase=signoff']);
+  run(dir, ['confirm-signoff', '--user-note', 'Yes, build the bulk fixture']);
+  run(dir, ['lock-plan']);
+  run(dir, ['begin-build']);
+
+  for (const name of names) writeFileSync(join(bulkDir, name), `after ${name}\n`);
+  run(dir, ['dispatch', '--stage', 'build', '--task', '1']);
+  run(dir, ['complete', '--task', '1']);
+  run(dir, ['dispatch', '--stage', 'build', '--task', '2']);
+  run(dir, ['complete', '--task', '2']);
+  run(dir, ['set', 'phase=code-review']);
+
+  const started = performance.now();
+  r = run(dir, ['prepare-review']);
+  const elapsedMs = performance.now() - started;
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  assert.ok(elapsedMs < 10_000, `prepare-review took ${Math.round(elapsedMs)} ms`);
+  const patch = readFileSync(join(dir, '.forge', 'in-run.patch'), 'utf8');
+  assert.match(patch, /bulk\/file with space\.txt/);
+  assert.match(patch, /bulk\/file#hash\.txt/);
+  assert.match(patch, /after file-297\.txt/);
+});
+
 test('prepare-review records oversized, unreadable, and aggregate-budget limitations', () => {
   const dir = repoAtCodeReview();
   writeFileSync(join(dir, 'oversized.txt'), 'o'.repeat(101 * 1024));
@@ -1366,6 +1577,52 @@ test('pre-existing fixes and builder replacement require explicit user reasons',
   r = run(dir, ['builder-session', '--id', 'builder-b', '--user-note', 'original task was not recoverable']);
   assert.equal(r.code, 0);
   assert.equal(r.json.action, 'builder-session-recovered');
+});
+
+test('session registration records observed spawn metadata and warns on pin drift', () => {
+  const reviewerDir = makeRepo();
+  run(reviewerDir, ['init']);
+  writeFileSync(join(reviewerDir, 'PLAN.md'), PLAN_BODY);
+  run(reviewerDir, ['set', 'phase=review']);
+  const dispatched = rawRun(reviewerDir, ['dispatch', '--stage', 'plan']);
+  let r = rawRun(reviewerDir, [
+    'reviewer-session',
+    '--id', 'observed-reviewer',
+    '--dispatch-id', dispatched.json.dispatchId,
+    '--observed-model', 'different-reviewer-model',
+    '--observed-effort', 'low',
+  ]);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  assert.match(r.stderr, /does not match pin/);
+  let state = JSON.parse(readFileSync(join(reviewerDir, '.forge', 'state.json'), 'utf8'));
+  assert.equal(state.pendingDispatch.observedModel, 'different-reviewer-model');
+  assert.equal(state.pendingDispatch.observedEffort, 'low');
+  let events = readFileSync(join(reviewerDir, '.forge', 'events.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.ok(events.some((event) =>
+    event.cmd === 'model-pin-not-applied' && event.role === 'reviewer'));
+
+  const builderDir = repoAtSignoff();
+  run(builderDir, ['begin-build']);
+  r = rawRun(builderDir, [
+    'builder-session',
+    '--id', 'observed-builder',
+    '--observed-model', 'different-builder-model',
+    '--observed-effort', 'high',
+  ]);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  assert.match(r.stderr, /does not match pin/);
+  state = JSON.parse(readFileSync(join(builderDir, '.forge', 'state.json'), 'utf8'));
+  assert.equal(state.builderSessionObservation.model, 'different-builder-model');
+  assert.equal(state.builderSessionObservation.effort, 'high');
+  assert.equal(run(builderDir, ['dispatch', '--stage', 'build', '--task', '1']).code, 0);
+  state = JSON.parse(readFileSync(join(builderDir, '.forge', 'state.json'), 'utf8'));
+  assert.equal(state.pendingDispatch.observedModel, 'different-builder-model');
+  assert.equal(state.pendingDispatch.observedEffort, 'high');
+  events = readFileSync(join(builderDir, '.forge', 'events.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.ok(events.some((event) =>
+    event.cmd === 'model-pin-not-applied' && event.role === 'builder'));
 });
 
 test('workspace commands anchor to the repository root when invoked from a subdirectory', () => {
@@ -1512,6 +1769,69 @@ test('expired session captures are rejected with a JSON error', () => {
   });
   assert.equal(r.code, 3);
   assert.match(r.json.error, /session capture.*older/);
+});
+
+test('stale session captures warn but do not block reviewer dispatch, cancellation, or doctor', () => {
+  const dir = makeRepo();
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-stale-session-'));
+  const agentsDir = mkdtempSync(join(tmpdir(), 'forge-stale-agents-'));
+  const fakeCodex = join(dir, 'fake-codex.js');
+  writeFileSync(
+    fakeCodex,
+    `const args = process.argv.slice(2);
+if (args[0] === '--version') console.log('codex-cli 0.145.0');
+else if (args[0] === 'features') console.log('multi_agent stable true');
+else process.exitCode = 1;
+`,
+  );
+  const env = {
+    FORGE_PLUGIN_DATA: pluginData,
+    FORGE_AGENTS_DIR: agentsDir,
+    FORGE_CODEX_PATH: fakeCodex,
+    FORGE_SESSION_MAX_AGE_MS: '1000',
+  };
+  const nativeModels = JSON.stringify([
+    {
+      slug: 'gpt-5.6-sol',
+      priority: 1,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      spawnAvailable: true,
+    },
+    {
+      slug: 'gpt-5.6-terra',
+      priority: 2,
+      supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      spawnAvailable: true,
+    },
+  ]);
+  writeSessionCapture(dir, pluginData);
+  assert.equal(rawRun(dir, ['install-agents'], env).code, 0);
+  assert.equal(rawRun(dir, ['init'], env).code, 0);
+  writeFileSync(join(dir, 'PLAN.md'), PLAN_BODY);
+  assert.equal(rawRun(dir, ['set', 'phase=review'], env).code, 0);
+  let r = rawRun(dir, [
+    'configure-reviewer',
+    '--native-models', nativeModels,
+    '--reviewer-model', 'gpt-5.6-sol',
+    '--reviewer-effort', 'high',
+  ], env);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+
+  writeSessionCapture(dir, pluginData, { observedAt: '2000-01-01T00:00:00.000Z' });
+  r = rawRun(dir, ['dispatch', '--stage', 'plan'], env);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  assert.match(r.stderr, /session capture is .* ms old/);
+  const events = readFileSync(join(dir, '.forge', 'events.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse);
+  assert.ok(events.some((event) => event.cmd === 'session-capture-stale'));
+
+  r = rawRun(dir, ['dispatch', '--stage', 'plan', '--cancel'], env);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  r = rawRun(dir, ['doctor'], env);
+  assert.equal(r.code, 0, r.json?.error ?? r.stderr);
+  const capture = r.json.checks.find((check) => check.name === 'session_capture');
+  assert.equal(capture.ok, true);
+  assert.equal(capture.fresh, false);
 });
 
 test('repository-scoped marker refuses a second worktree at init time', () => {

@@ -185,6 +185,14 @@ or that a `--user-note` reproduces the user's exact words. Those remain
 orchestrator responsibilities and should be treated as auditable assertions,
 not cryptographic guarantees.
 
+Reviewer subagents are read-only, but they are not access-restricted: their
+prompt permits them to inspect any repository file needed for context.
+Withholding a file from the prepared evidence bundle therefore does not prevent
+a reviewer from opening it. The control prevents secret-like content from
+being bulk-copied into a critique that is appended to the tracked
+`PLAN-REVIEW-LOG.md`; `--allow-files` records the user's consent to that
+disclosure.
+
 ## 6. Attribution
 
 Plan Forge Flow for Codex is a Codex adaptation of the original Cursor Plan
