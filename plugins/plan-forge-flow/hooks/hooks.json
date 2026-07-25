@@ -2,9 +2,13 @@
   "hooks": {
     "UserPromptSubmit": [
       {
-        "type": "command",
-        "command": "node \"$PLUGIN_ROOT/scripts/capture-context.mjs\"",
-        "timeout": 5
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/capture-context.mjs\"",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
