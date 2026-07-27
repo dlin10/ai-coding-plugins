@@ -6,9 +6,9 @@
      aria-labelledby="title description">
   <title id="title">Plan Forge Flow workflow</title>
   <desc id="description">
-    A top-to-bottom workflow from environment setup through planning, adversarial
-    plan review, user sign-off, implementation, full code review, and completion.
-    Plan review, material amendments, and accepted code fixes form review loops.
+    A top-to-bottom workflow from read-only planning through adversarial plan
+    review, native plan-widget approval, implementation, full code review, and
+    completion. Plan review, material amendments, and accepted fixes form loops.
   </desc>
 
   <defs>
@@ -94,7 +94,7 @@
   <g>
     <rect class="node phase" x="200" y="70" width="360" height="80" rx="14"/>
     <text class="node-title" x="380" y="104" text-anchor="middle">Phase 0</text>
-    <text class="node-detail" x="380" y="130" text-anchor="middle">Doctor, agents, and state</text>
+    <text class="node-detail" x="380" y="130" text-anchor="middle">Read-only doctor and model catalog</text>
   </g>
 
   <g>
@@ -111,8 +111,8 @@
 
   <g>
     <rect class="node gate" x="200" y="490" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="524" text-anchor="middle">User gate</text>
-    <text class="node-detail" x="380" y="550" text-anchor="middle">Explicit plan sign-off</text>
+    <text class="node-title" x="380" y="524" text-anchor="middle">Native plan widget</text>
+    <text class="node-detail" x="380" y="550" text-anchor="middle">Preview, builder, implementation approval</text>
   </g>
 
   <g>

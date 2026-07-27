@@ -26,6 +26,14 @@ export function sessionContextDir() {
   return join(pluginDataDir(), 'session-context');
 }
 
+export function materializationJournalDir() {
+  return join(pluginDataDir(), 'materialization-journal');
+}
+
+export function nonceTombstoneDir() {
+  return join(pluginDataDir(), 'nonce-tombstones');
+}
+
 /** @param canonicalCwd Real path of the workspace (Git root when available). */
 export function sessionContextPathFor(canonicalCwd) {
   const digest = createHash('sha256').update(canonicalCwd.toLowerCase()).digest('hex');

@@ -8,11 +8,18 @@ import {
   readdirSync,
   realpathSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import {
+  buildApprovalWrapper,
+  issuanceItemId,
+  newNonce,
+  sha256,
+} from '../../plugins/plan-forge-flow/scripts/resume-envelope.mjs';
 
 const HOOK = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/scripts/capture-context.mjs', import.meta.url),
@@ -127,4 +134,140 @@ test('UserPromptSubmit hook keys repository subdirectories by the Git root', () 
   assert.equal(files.length, 1);
   const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', files[0]), 'utf8'));
   assert.equal(captured.cwd, realpathSync(cwd));
+});
+
+test('UserPromptSubmit derives Default mode from the matching turn and emits bounded resume context', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-cwd-'));
+  const transcriptPath = join(cwd, 'transcript.jsonl');
+  const plan = '<!-- plan-forge-flow:owned -->\n# Plan\n\n## Approach\n1. Implement.\n';
+  const nonce = newNonce();
+  const origin = {
+    sessionId: 'session-native',
+    transcriptPath,
+    turnId: 'turn-plan',
+  };
+  const envelope = {
+    version: 1,
+    humanPlanHash: sha256(plan),
+    repository: { workspaceRoot: realpathSync(cwd), gitCommonDir: realpathSync(cwd) },
+    origin: { ...origin, itemId: issuanceItemId(origin, nonce, sha256(plan)) },
+    planRevision: 1,
+    nonce,
+    completedReviewRounds: 1,
+    maxRounds: 5,
+    reviewer: { model: 'gpt-5.6-sol', effort: 'high' },
+    builder: { model: 'gpt-5.6-terra', effort: 'high' },
+    builderPlanHash: sha256(plan),
+    catalogObservation: {
+      generatedAt: '2026-07-27T00:00:00.000Z',
+      models: [
+        {
+          slug: 'gpt-5.6-sol',
+          displayName: 'Sol',
+          description: 'Reviewer',
+          priority: 1,
+          defaultEffort: 'high',
+          reasoningLevels: [{ effort: 'high', description: 'High' }],
+        },
+        {
+          slug: 'gpt-5.6-terra',
+          displayName: 'Terra',
+          description: 'Builder',
+          priority: 2,
+          defaultEffort: 'high',
+          reasoningLevels: [{ effort: 'high', description: 'High' }],
+        },
+      ],
+    },
+    reviewLog: '<!-- plan-forge-flow:owned -->\n# Log\n',
+  };
+  const wrapper = buildApprovalWrapper(plan, envelope);
+  writeFileSync(transcriptPath, [
+    JSON.stringify({ type: 'session_meta', payload: { id: 'session-native' } }),
+    JSON.stringify({
+      type: 'turn_context',
+      payload: { turn_id: 'turn-plan', collaboration_mode: { mode: 'plan' } },
+    }),
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        id: envelope.origin.itemId,
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: `<proposed_plan>\n${wrapper}</proposed_plan>` }],
+      },
+    }),
+    JSON.stringify({
+      type: 'turn_context',
+      payload: { turn_id: 'turn-native', collaboration_mode: { mode: 'default' } },
+    }),
+  ].join('\n') + '\n');
+  const result = spawnSync(process.execPath, [HOOK], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      session_id: 'session-native',
+      turn_id: 'turn-native',
+      transcript_path: transcriptPath,
+      cwd,
+      prompt: 'Implement the plan.',
+      permission_mode: 'read-only',
+    }),
+    env: { ...process.env, FORGE_PLUGIN_DATA: pluginData },
+  });
+  assert.equal(result.status, 0);
+  const hookOutput = JSON.parse(result.stdout);
+  assert.equal(hookOutput.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(hookOutput.hookSpecificOutput.additionalContext, /authenticated resume\/materialization/);
+  const file = readdirSync(join(pluginData, 'session-context'))[0];
+  const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', file), 'utf8'));
+  assert.equal(captured.collaborationMode, 'default');
+  assert.equal(captured.promptKind, 'same-context');
+  assert.equal(captured.implementationCandidate, true);
+  assert.equal(captured.permissionMode, 'read-only');
+  assert.equal(Object.hasOwn(captured, 'prompt'), false);
+});
+
+test('UserPromptSubmit does not inject context for an ordinary preceding plan', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-cwd-'));
+  const transcriptPath = join(cwd, 'transcript.jsonl');
+  writeFileSync(transcriptPath, [
+    JSON.stringify({ type: 'session_meta', payload: { id: 'session-ordinary' } }),
+    JSON.stringify({
+      type: 'turn_context',
+      payload: { turn_id: 'turn-plan', collaboration_mode: { mode: 'plan' } },
+    }),
+    JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: '<proposed_plan>\n# Ordinary plan\n</proposed_plan>' }],
+      },
+    }),
+    JSON.stringify({
+      type: 'turn_context',
+      payload: { turn_id: 'turn-implement', collaboration_mode: { mode: 'default' } },
+    }),
+  ].join('\n') + '\n');
+  const result = spawnSync(process.execPath, [HOOK], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      session_id: 'session-ordinary',
+      turn_id: 'turn-implement',
+      transcript_path: transcriptPath,
+      cwd,
+      prompt: 'Implement the plan.',
+    }),
+    env: { ...process.env, FORGE_PLUGIN_DATA: pluginData },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '');
+  const file = readdirSync(join(pluginData, 'session-context'))[0];
+  const capture = JSON.parse(readFileSync(join(pluginData, 'session-context', file), 'utf8'));
+  assert.equal(capture.promptKind, 'same-context');
+  assert.equal(capture.implementationCandidate, false);
 });
