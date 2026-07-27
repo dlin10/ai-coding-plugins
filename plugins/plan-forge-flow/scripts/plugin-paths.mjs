@@ -8,9 +8,24 @@
  * which the CLI cannot reconstruct.
  */
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import process from 'node:process';
+
+export function canonicalWorkspaceRoot(cwd) {
+  const canonical = realpathSync(cwd);
+  try {
+    return realpathSync(execFileSync(
+      'git',
+      ['-C', canonical, 'rev-parse', '--show-toplevel'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim());
+  } catch {
+    return canonical;
+  }
+}
 
 export function codexHomeDir() {
   const override = process.env.CODEX_HOME?.trim();

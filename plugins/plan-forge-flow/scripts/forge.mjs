@@ -47,6 +47,7 @@ import {
 } from './native-plan-ux.mjs';
 import { collaborationModeForTurn, readTranscript } from './transcript-auth.mjs';
 import {
+  canonicalWorkspaceRoot,
   materializationJournalDir,
   nonceTombstoneDir,
   sessionContextPathFor,
@@ -357,12 +358,7 @@ function gitToFile(cwd, args, target, options = {}) {
 }
 
 function gitRoot(cwd) {
-  try {
-    const root = git(cwd, ['rev-parse', '--show-toplevel'], { stdio: ['ignore', 'pipe', 'ignore'] });
-    return realpathSync(root);
-  } catch {
-    return realpathSync(cwd);
-  }
+  return canonicalWorkspaceRoot(cwd);
 }
 
 function processIsAlive(pid) {
@@ -759,7 +755,7 @@ function sessionMaxAgeMs() {
 }
 
 function sessionContextPath(cwd) {
-  return sessionContextPathFor(realpathSync(cwd));
+  return sessionContextPathFor(canonicalWorkspaceRoot(cwd));
 }
 
 function readSessionContext(cwd, flags, options = {}) {
@@ -835,7 +831,7 @@ async function cmdPicker(cwd, flags, positional) {
 }
 
 function canonicalRepositoryIdentity(cwd) {
-  const workspaceRoot = realpathSync(git(cwd, ['rev-parse', '--show-toplevel']));
+  const workspaceRoot = canonicalWorkspaceRoot(cwd);
   const common = git(workspaceRoot, ['rev-parse', '--git-common-dir']);
   return {
     workspaceRoot,

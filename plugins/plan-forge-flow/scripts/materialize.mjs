@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import {
+  canonicalWorkspaceRoot,
   materializationJournalDir,
   nonceTombstoneDir,
   pluginDataDir,
@@ -52,7 +53,7 @@ function git(cwd, args) {
 }
 
 function canonicalRepository(cwd) {
-  const workspaceRoot = realpathSync(git(cwd, ['rev-parse', '--show-toplevel']));
+  const workspaceRoot = canonicalWorkspaceRoot(cwd);
   const common = git(workspaceRoot, ['rev-parse', '--git-common-dir']);
   const gitCommonDir = realpathSync(isAbsolute(common) ? common : join(workspaceRoot, common));
   return { workspaceRoot, gitCommonDir };

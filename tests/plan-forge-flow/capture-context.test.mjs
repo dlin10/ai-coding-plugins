@@ -15,6 +15,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
+  canonicalWorkspaceRoot,
+} from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
+import {
   buildApprovalWrapper,
   issuanceItemId,
   newNonce,
@@ -112,7 +115,7 @@ test('UserPromptSubmit hook keys symlinked workspaces by canonical real path', (
   const files = readdirSync(join(pluginData, 'session-context'));
   assert.equal(files.length, 1);
   const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', files[0]), 'utf8'));
-  assert.equal(captured.cwd, realpathSync(cwd));
+  assert.equal(captured.cwd, canonicalWorkspaceRoot(cwd));
 });
 
 test('UserPromptSubmit hook keys repository subdirectories by the Git root', () => {
@@ -133,7 +136,7 @@ test('UserPromptSubmit hook keys repository subdirectories by the Git root', () 
   const files = readdirSync(join(pluginData, 'session-context'));
   assert.equal(files.length, 1);
   const captured = JSON.parse(readFileSync(join(pluginData, 'session-context', files[0]), 'utf8'));
-  assert.equal(captured.cwd, realpathSync(cwd));
+  assert.equal(captured.cwd, canonicalWorkspaceRoot(cwd));
 });
 
 test('UserPromptSubmit derives Default mode from the matching turn and emits bounded resume context', () => {

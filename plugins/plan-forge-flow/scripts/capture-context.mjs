@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import process from 'node:process';
-import { sessionContextPathFor } from './plugin-paths.mjs';
+import { canonicalWorkspaceRoot, sessionContextPathFor } from './plugin-paths.mjs';
 import { classifyImplementationPrompt, sha256 } from './resume-envelope.mjs';
 import {
   authorizeNativeImplementationSubmission,
@@ -11,26 +10,13 @@ import {
   readTranscript,
 } from './transcript-auth.mjs';
 
-function canonicalWorkspace(cwd) {
-  const canonical = realpathSync(cwd);
-  try {
-    return realpathSync(execFileSync(
-      'git',
-      ['-C', canonical, 'rev-parse', '--show-toplevel'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim());
-  } catch {
-    return canonical;
-  }
-}
-
 let input = '';
 for await (const chunk of process.stdin) input += chunk;
 
 try {
   const event = JSON.parse(input || '{}');
   if (!event.cwd) process.exit(0);
-  const cwd = canonicalWorkspace(event.cwd);
+  const cwd = canonicalWorkspaceRoot(event.cwd);
   const target = sessionContextPathFor(cwd);
   const dir = dirname(target);
   const effort = event.reasoning_effort ?? event.effort ?? null;

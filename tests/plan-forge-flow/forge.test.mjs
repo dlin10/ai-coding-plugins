@@ -27,7 +27,10 @@ import {
   validateBuilderSelectionBinding,
   validateModelId,
 } from '../../plugins/plan-forge-flow/scripts/forge.mjs';
-import { sessionContextPathFor } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
+import {
+  canonicalWorkspaceRoot,
+  sessionContextPathFor,
+} from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 
 const FORGE = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/scripts/forge.mjs', import.meta.url),
@@ -163,7 +166,7 @@ function makeRun() {
   git(cwd, ['add', 'tracked.txt']);
   git(cwd, ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test',
     'commit', '-q', '-m', 'baseline']);
-  const canonical = realpathSync(cwd);
+  const canonical = canonicalWorkspaceRoot(cwd);
   writeFileSync(join(canonical, 'PLAN.md'), PLAN);
   writeFileSync(join(canonical, 'PLAN-REVIEW-LOG.md'), LOG);
   mkdirSync(join(canonical, '.forge', 'critiques'), { recursive: true });

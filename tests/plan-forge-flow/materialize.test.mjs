@@ -24,7 +24,10 @@ import {
   NORMAL_IMPLEMENTATION_PROMPT,
   sha256,
 } from '../../plugins/plan-forge-flow/scripts/resume-envelope.mjs';
-import { sessionContextPathFor } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
+import {
+  canonicalWorkspaceRoot,
+  sessionContextPathFor,
+} from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 
 const FORGE = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/scripts/forge.mjs', import.meta.url),
@@ -138,7 +141,7 @@ function fixture() {
   git(repo, ['init', '-q']);
   git(repo, ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test',
     'commit', '--allow-empty', '-q', '-m', 'initial']);
-  const workspaceRoot = realpathSync(repo);
+  const workspaceRoot = canonicalWorkspaceRoot(repo);
   const commonRaw = git(repo, ['rev-parse', '--git-common-dir']);
   const gitCommonDir = realpathSync(isAbsolute(commonRaw) ? commonRaw : join(repo, commonRaw));
   const transcriptPath = join(root, 'transcript.jsonl');
