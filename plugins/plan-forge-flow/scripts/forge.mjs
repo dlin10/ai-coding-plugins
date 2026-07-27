@@ -47,6 +47,7 @@ import {
 } from './native-plan-ux.mjs';
 import { collaborationModeForTurn, readTranscript } from './transcript-auth.mjs';
 import {
+  canonicalRepositoryIdentity,
   canonicalWorkspaceRoot,
   materializationJournalDir,
   nonceTombstoneDir,
@@ -828,15 +829,6 @@ async function cmdPicker(cwd, flags, positional) {
     ? effortPicker(catalog, { role, model: flags.model, cursor })
     : modelPicker(catalog, { role, cursor });
   out({ action: 'picker-metadata', role, picker });
-}
-
-function canonicalRepositoryIdentity(cwd) {
-  const workspaceRoot = canonicalWorkspaceRoot(cwd);
-  const common = git(workspaceRoot, ['rev-parse', '--git-common-dir']);
-  return {
-    workspaceRoot,
-    gitCommonDir: realpathSync(isAbsolute(common) ? common : join(workspaceRoot, common)),
-  };
 }
 
 function issuanceCapture(cwd) {

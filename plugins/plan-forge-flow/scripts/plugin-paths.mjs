@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import process from 'node:process';
 
@@ -25,6 +25,19 @@ export function canonicalWorkspaceRoot(cwd) {
   } catch {
     return canonical;
   }
+}
+
+export function canonicalRepositoryIdentity(cwd) {
+  const workspaceRoot = canonicalWorkspaceRoot(cwd);
+  const common = execFileSync(
+    'git',
+    ['-C', workspaceRoot, 'rev-parse', '--git-common-dir'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  ).trim();
+  return {
+    workspaceRoot,
+    gitCommonDir: realpathSync(isAbsolute(common) ? common : join(workspaceRoot, common)),
+  };
 }
 
 export function codexHomeDir() {

@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import {
-  canonicalWorkspaceRoot,
+  canonicalRepositoryIdentity,
   materializationJournalDir,
   nonceTombstoneDir,
   pluginDataDir,
@@ -50,13 +50,6 @@ function git(cwd, args) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
-}
-
-function canonicalRepository(cwd) {
-  const workspaceRoot = canonicalWorkspaceRoot(cwd);
-  const common = git(workspaceRoot, ['rev-parse', '--git-common-dir']);
-  const gitCommonDir = realpathSync(isAbsolute(common) ? common : join(workspaceRoot, common));
-  return { workspaceRoot, gitCommonDir };
 }
 
 function fsyncDirectory(path) {
@@ -811,7 +804,7 @@ function journalResult(journal, recovered) {
 }
 
 export async function materializeApprovedRun({ cwd, stateFactory, amendmentStateFactory }) {
-  const repository = canonicalRepository(cwd);
+  const repository = canonicalRepositoryIdentity(cwd);
   const lock = acquireRepositoryLock(repository.gitCommonDir);
   try {
     const repositoryKey = repositoryKeyFor(repository);

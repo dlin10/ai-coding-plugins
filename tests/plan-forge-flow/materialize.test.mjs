@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
@@ -25,7 +25,7 @@ import {
   sha256,
 } from '../../plugins/plan-forge-flow/scripts/resume-envelope.mjs';
 import {
-  canonicalWorkspaceRoot,
+  canonicalRepositoryIdentity,
   sessionContextPathFor,
 } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 
@@ -141,9 +141,7 @@ function fixture() {
   git(repo, ['init', '-q']);
   git(repo, ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test',
     'commit', '--allow-empty', '-q', '-m', 'initial']);
-  const workspaceRoot = canonicalWorkspaceRoot(repo);
-  const commonRaw = git(repo, ['rev-parse', '--git-common-dir']);
-  const gitCommonDir = realpathSync(isAbsolute(commonRaw) ? commonRaw : join(repo, commonRaw));
+  const { workspaceRoot, gitCommonDir } = canonicalRepositoryIdentity(repo);
   const transcriptPath = join(root, 'transcript.jsonl');
   const rows = [model('gpt-5.6-sol', 1), model('gpt-5.6-terra', 2)];
   const fakeCodex = join(root, 'fake-codex.js');
