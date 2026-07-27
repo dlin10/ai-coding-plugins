@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/plan-forge-flow/capture-context.test.mjs tests/plan-forge-flow/model-catalog.test.mjs tests/plan-forge-flow/forge.test.mjs"
+    "test": "node --test tests/plan-forge-flow/capture-context.test.mjs tests/plan-forge-flow/model-catalog.test.mjs tests/plan-forge-flow/selection-boundary.test.mjs tests/plan-forge-flow/resume-auth.test.mjs tests/plan-forge-flow/mode-gate.test.mjs tests/plan-forge-flow/native-plan-ux.test.mjs tests/plan-forge-flow/materialize.test.mjs tests/plan-forge-flow/forge.test.mjs"
   }
 }

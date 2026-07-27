@@ -8,9 +8,37 @@
  * which the CLI cannot reconstruct.
  */
 import { createHash } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import process from 'node:process';
+
+export function canonicalWorkspaceRoot(cwd) {
+  const canonical = realpathSync(cwd);
+  try {
+    return realpathSync(execFileSync(
+      'git',
+      ['-C', canonical, 'rev-parse', '--show-toplevel'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim());
+  } catch {
+    return canonical;
+  }
+}
+
+export function canonicalRepositoryIdentity(cwd) {
+  const workspaceRoot = canonicalWorkspaceRoot(cwd);
+  const common = execFileSync(
+    'git',
+    ['-C', workspaceRoot, 'rev-parse', '--git-common-dir'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  ).trim();
+  return {
+    workspaceRoot,
+    gitCommonDir: realpathSync(isAbsolute(common) ? common : join(workspaceRoot, common)),
+  };
+}
 
 export function codexHomeDir() {
   const override = process.env.CODEX_HOME?.trim();
@@ -24,6 +52,14 @@ export function pluginDataDir() {
 
 export function sessionContextDir() {
   return join(pluginDataDir(), 'session-context');
+}
+
+export function materializationJournalDir() {
+  return join(pluginDataDir(), 'materialization-journal');
+}
+
+export function nonceTombstoneDir() {
+  return join(pluginDataDir(), 'nonce-tombstones');
 }
 
 /** @param canonicalCwd Real path of the workspace (Git root when available). */

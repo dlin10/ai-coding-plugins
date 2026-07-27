@@ -1,242 +1,181 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import {
-  CachedModelCatalogProvider,
   CodexDebugModelsProvider,
   ModelCatalogResolver,
-  SessionModelCatalogProvider,
-  StaticPolicyProvider,
-  field,
-  mergeCatalogs,
   parseCodexDebugModels,
+  permittedReviewers,
   validateModelSelection,
 } from '../../plugins/plan-forge-flow/scripts/model-catalog.mjs';
 
 const observedAt = '2026-07-24T00:00:00.000Z';
 
+function model(overrides = {}) {
+  return {
+    slug: 'gpt-5.6-sol',
+    display_name: 'GPT-5.6-Sol',
+    description: 'Latest frontier agentic coding model.',
+    default_reasoning_level: 'low',
+    supported_reasoning_levels: [
+      { effort: 'low', description: 'Fast responses with lighter reasoning' },
+      { effort: 'medium', description: 'Balances speed and reasoning depth' },
+      { effort: 'high', description: 'Greater reasoning depth' },
+      { effort: 'ultra', description: 'Automatic task delegation' },
+    ],
+    priority: 1,
+    visibility: 'list',
+    ...overrides,
+  };
+}
+
 function debugJson(rows) {
   return JSON.stringify({ models: rows });
 }
 
-function normalizedCatalog(models) {
-  return {
-    version: 1,
-    generatedAt: observedAt,
-    activeModel: field('gpt-sol', 'test', { observedAt }),
-    activeEffort: field('high', 'test', { observedAt }),
-    degraded: false,
-    trace: [],
-    models: models.map(({ slug, priority, efforts = ['low', 'medium', 'high', 'xhigh', 'max'] }) => ({
-      slug,
-      description: field('test', 'test', { observedAt }),
-      supportedEfforts: field(efforts, 'test', { observedAt }),
-      priority: priority === null
-        ? field(null, 'test', { known: false, observedAt })
-        : field(priority, 'test', { observedAt }),
-      visibility: field('list', 'test', { observedAt }),
-      spawnAvailable: field(true, 'native-schema', { observedAt }),
-    })),
-  };
-}
-
-test('resolver selects a complete session/native catalog without invoking CLI', async () => {
-  let debugCalls = 0;
-  const resolver = new ModelCatalogResolver({
-    session: new SessionModelCatalogProvider(),
-    debug: { async getCatalog() { debugCalls++; throw new Error('must not run'); } },
-    staticPolicy: new StaticPolicyProvider(),
-  });
-  const result = await resolver.getCatalog({
-    activeModel: 'gpt-sol',
-    activeEffort: 'high',
-    observedAt,
-    nativeModels: [{ slug: 'gpt-sol', priority: 1, supportedEfforts: ['low', 'high'] }],
-  });
-  assert.equal(debugCalls, 0);
-  assert.equal(result.models[0].priority.value, 1);
-  assert.equal(result.models[0].spawnAvailable.source, 'native-schema');
-});
-
-test('resolver falls back to codex debug models for incomplete session data', async () => {
-  const resolver = new ModelCatalogResolver({
-    session: new SessionModelCatalogProvider(),
-    debug: new CodexDebugModelsProvider({
-      exec: () => debugJson([{
-        slug: 'gpt-sol',
-        priority: 1,
-        visibility: 'list',
-        supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }],
-      }]),
-    }),
-    staticPolicy: new StaticPolicyProvider(),
-  });
-  const result = await resolver.getCatalog({ activeModel: 'gpt-sol', observedAt });
-  const model = result.models.find((item) => item.slug === 'gpt-sol');
-  assert.equal(model.priority.value, 1);
-  assert.deepEqual(model.supportedEfforts.value, ['low', 'high']);
-});
-
-test('resolver uses stale cache when CLI fails, regardless of cache age', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'forge-catalog-'));
-  const cachePath = join(dir, 'catalog.json');
-  writeFileSync(cachePath, JSON.stringify(normalizedCatalog([{ slug: 'gpt-sol', priority: 1 }])));
-  const resolver = new ModelCatalogResolver({
-    session: new SessionModelCatalogProvider(),
-    debug: { async getCatalog() { throw new Error('CLI unavailable'); } },
-    cache: new CachedModelCatalogProvider(cachePath),
-    staticPolicy: new StaticPolicyProvider(),
-  });
-  const result = await resolver.getCatalog({ activeModel: 'gpt-sol', observedAt: '2030-01-01T00:00:00.000Z' });
-  const model = result.models.find((item) => item.slug === 'gpt-sol');
-  assert.equal(model.priority.source, 'cache');
-  assert.equal(model.priority.stale, true);
-  assert.equal(result.degraded, true);
-  assert.ok(result.trace.some((item) => item.provider === 'codex-debug-models' && item.status === 'error'));
-});
-
-test('debug parser normalizes current and partial catalog formats', () => {
-  const current = parseCodexDebugModels(debugJson([{
-    slug: 'gpt-sol',
-    description: 'frontier',
-    priority: 1,
-    visibility: 'list',
-    supported_reasoning_levels: [{ effort: 'medium' }, { effort: 'max' }],
-  }]), observedAt);
-  assert.deepEqual(current.models[0].supportedEfforts.value, ['medium', 'max']);
-  assert.equal(current.models[0].priority.known, true);
-
-  const partial = parseCodexDebugModels(JSON.stringify([{ model: 'manual-model' }]), observedAt);
-  assert.equal(partial.models[0].priority.known, false);
-  assert.equal(partial.models[0].visibility.known, false);
-});
-
-test('partial catalogs merge by field and preserve provenance conflicts', () => {
-  const session = normalizedCatalog([{ slug: 'gpt-sol', priority: 1 }]);
-  session.models[0].description = field(null, 'session', { known: false, observedAt });
-  session.models[0].visibility = field('list', 'native-schema', { observedAt });
-  const debug = normalizedCatalog([{ slug: 'gpt-sol', priority: 9 }]);
-  debug.models[0].description = field('from debug', 'codex-debug-models', { observedAt });
-  debug.models[0].priority.source = 'codex-debug-models';
-  const merged = mergeCatalogs([session, debug]);
-  assert.equal(merged.models[0].description.value, 'from debug');
-  assert.equal(merged.models[0].description.source, 'codex-debug-models');
-  assert.equal(merged.models[0].priority.value, 1);
-  assert.ok(merged.trace.some((item) => item.status === 'conflict' && item.field === 'priority'));
-});
-
-test('unknown priority requires explicit override with a reason', () => {
-  const catalog = normalizedCatalog([
-    { slug: 'gpt-sol', priority: null },
-    { slug: 'gpt-builder', priority: 2 },
+test('parses real CLI fields and exposes the advertised default effort first for pickers', () => {
+  const catalog = parseCodexDebugModels(debugJson([model({ default_reasoning_level: 'high' })]), observedAt);
+  assert.equal(catalog.generatedAt, observedAt);
+  assert.equal(catalog.models.length, 1);
+  assert.equal(catalog.models[0].slug, 'gpt-5.6-sol');
+  assert.equal(catalog.models[0].displayName.value, 'GPT-5.6-Sol');
+  assert.equal(catalog.models[0].description.value, 'Latest frontier agentic coding model.');
+  assert.equal(catalog.models[0].defaultEffort.value, 'high');
+  assert.deepEqual(catalog.models[0].supportedEfforts.value, ['low', 'medium', 'high']);
+  assert.deepEqual(catalog.models[0].supportedReasoningLevels.value, [
+    { effort: 'low', description: 'Fast responses with lighter reasoning' },
+    { effort: 'medium', description: 'Balances speed and reasoning depth' },
+    { effort: 'high', description: 'Greater reasoning depth' },
   ]);
-  const selection = {
-    orchestrator: { model: 'gpt-sol', effort: 'high' },
-    reviewer: { model: 'gpt-sol', effort: 'high' },
-    builder: { model: 'gpt-builder', effort: 'medium' },
-  };
-  assert.throws(() => validateModelSelection(selection, catalog), /priority is unknown/);
-  assert.equal(
-    validateModelSelection(selection, catalog, { userOverride: true, userNote: 'user accepts unknown ordering' }).valid,
-    true,
+  assert.deepEqual(catalog.models[0].pickerReasoningLevels.value, [
+    { effort: 'high', description: 'Greater reasoning depth' },
+    { effort: 'low', description: 'Fast responses with lighter reasoning' },
+    { effort: 'medium', description: 'Balances speed and reasoning depth' },
+  ]);
+  assert.equal(catalog.models[0].priority.value, 1);
+  assert.equal(catalog.models[0].visibility.value, 'list');
+  assert.equal('activeModel' in catalog, false);
+  assert.equal('activeEffort' in catalog, false);
+});
+
+test('retains only list-visible models and excludes ultra efforts', () => {
+  const catalog = parseCodexDebugModels(debugJson([
+    model(),
+    model({ slug: 'hidden', visibility: 'hidden', priority: 0 }),
+  ]), observedAt);
+  assert.deepEqual(catalog.models.map((item) => item.slug), ['gpt-5.6-sol']);
+  assert.ok(!catalog.models[0].supportedEfforts.value.includes('ultra'));
+});
+
+test('sorts by ascending numeric priority and preserves source order for ties', () => {
+  const catalog = parseCodexDebugModels(debugJson([
+    model({ slug: 'second-tie', display_name: 'Second tie', priority: 2 }),
+    model({ slug: 'weakest', display_name: 'Weakest', priority: 3 }),
+    model({ slug: 'strongest', display_name: 'Strongest', priority: 1 }),
+    model({ slug: 'fourth-tie', display_name: 'Fourth tie', priority: 2 }),
+  ]), observedAt);
+  assert.deepEqual(catalog.models.map((item) => item.slug), [
+    'strongest',
+    'second-tie',
+    'fourth-tie',
+    'weakest',
+  ]);
+});
+
+test('falls back to the slug when display_name is absent or empty', () => {
+  const absent = model();
+  delete absent.display_name;
+  const catalog = parseCodexDebugModels(debugJson([
+    absent,
+    model({ slug: 'empty-name', display_name: '', priority: 2 }),
+  ]), observedAt);
+  assert.equal(catalog.models[0].displayName.value, 'gpt-5.6-sol');
+  assert.equal(catalog.models[1].displayName.value, 'empty-name');
+});
+
+test('resolver uses only codex debug models and propagates provider failure', async () => {
+  let calls = 0;
+  const failure = new Error('CLI unavailable');
+  const resolver = new ModelCatalogResolver({
+    debug: {
+      async getCatalog() {
+        calls++;
+        throw failure;
+      },
+    },
+  });
+  await assert.rejects(() => resolver.getCatalog(), failure);
+  assert.equal(calls, 1);
+});
+
+test('selection validation depends only on visible CLI membership and advertised non-ultra effort', () => {
+  const catalog = parseCodexDebugModels(debugJson([
+    model({ slug: 'stronger', display_name: 'Stronger', priority: 1 }),
+    model({ slug: 'weaker', display_name: 'Weaker', priority: 2 }),
+  ]), observedAt);
+  assert.deepEqual(validateModelSelection({
+    reviewer: { model: 'weaker', effort: 'medium' },
+    builder: { model: 'stronger', effort: 'low' },
+  }, catalog), {
+    valid: true,
+    reviewer: { model: 'weaker', effort: 'medium' },
+    builder: { model: 'stronger', effort: 'low' },
+    catalogGeneratedAt: observedAt,
+  });
+  assert.throws(
+    () => validateModelSelection({ reviewer: { model: 'missing', effort: 'high' } }, catalog),
+    /absent from the visible CLI catalog/,
+  );
+  assert.throws(
+    () => validateModelSelection({ reviewer: { model: 'stronger', effort: 'max' } }, catalog),
+    /does not advertise effort max/,
+  );
+  assert.throws(
+    () => validateModelSelection({ reviewer: { model: 'stronger', effort: 'ultra' } }, catalog),
+    /ultra is prohibited/,
   );
 });
 
-test('stale or non-native spawn availability requires explicit confirmation', () => {
-  const catalog = normalizedCatalog([
-    { slug: 'gpt-sol', priority: 1 },
-    { slug: 'gpt-builder', priority: 2 },
+test('reviewer enumeration follows CLI model order and default-first effort metadata', () => {
+  const catalog = parseCodexDebugModels(debugJson([
+    model({ slug: 'second', display_name: 'Second', priority: 2, default_reasoning_level: 'high' }),
+    model({ slug: 'first', display_name: 'First', priority: 1, default_reasoning_level: 'medium' }),
+  ]), observedAt);
+  const options = permittedReviewers(catalog);
+  assert.deepEqual(options.slice(0, 3).map(({ model: slug, effort }) => [slug, effort]), [
+    ['first', 'medium'],
+    ['first', 'low'],
+    ['first', 'high'],
   ]);
-  for (const model of catalog.models) {
-    model.spawnAvailable = field(true, 'cache', { observedAt, stale: true });
+  assert.equal(options[3].model, 'second');
+});
+
+test('provider invokes only codex debug models', async () => {
+  let invocation;
+  const provider = new CodexDebugModelsProvider({
+    exec(command, args) {
+      invocation = { command, args };
+      return debugJson([model()]);
+    },
+  });
+  const catalog = await provider.getCatalog({ observedAt });
+  assert.deepEqual(invocation, { command: 'codex', args: ['debug', 'models'] });
+  assert.deepEqual(catalog.models.map((item) => item.slug), ['gpt-5.6-sol']);
+});
+
+test('fails closed for malformed or unusable CLI catalogs', () => {
+  const malformed = [
+    ['not JSON', /invalid JSON/],
+    ['[]', /no models array/],
+    ['{"unexpected":true}', /no models array/],
+    [debugJson([]), /no visible usable models/],
+    [debugJson([model({ visibility: 'hidden' })]), /no visible usable models/],
+    [debugJson([model({ priority: '1' })]), /invalid priority/],
+    [debugJson([model({ supported_reasoning_levels: [] })]), /invalid supported_reasoning_levels/],
+    [debugJson([model({ default_reasoning_level: 'max' })]), /default_reasoning_level/],
+    [debugJson([model({ slug: '' })]), /invalid slug/],
+    [debugJson([model({ visibility: undefined })]), /invalid visibility/],
+  ];
+  for (const [input, expected] of malformed) {
+    assert.throws(() => parseCodexDebugModels(input, observedAt), expected);
   }
-  const selection = {
-    orchestrator: { model: 'gpt-sol', effort: 'high' },
-    reviewer: { model: 'gpt-sol', effort: 'high' },
-    builder: { model: 'gpt-builder', effort: 'medium' },
-  };
-  assert.throws(() => validateModelSelection(selection, catalog), /spawn availability is unconfirmed/);
-  const result = validateModelSelection(selection, catalog, {
-    userOverride: true,
-    userNote: 'confirmed from the current native spawn tool schema',
-  });
-  assert.equal(result.nativeSchemaOverride, true);
-});
-
-test('reviewer strength and same-model effort rules are enforced', () => {
-  const catalog = normalizedCatalog([
-    { slug: 'gpt-sol', priority: 1 },
-    { slug: 'gpt-terra', priority: 2 },
-  ]);
-  assert.throws(() => validateModelSelection({
-    orchestrator: { model: 'gpt-sol', effort: 'high' },
-    reviewer: { model: 'gpt-terra', effort: 'high' },
-    builder: { model: 'gpt-terra', effort: 'medium' },
-  }, catalog), /at least as strong/);
-  assert.throws(() => validateModelSelection({
-    orchestrator: { model: 'gpt-sol', effort: 'xhigh' },
-    reviewer: { model: 'gpt-sol', effort: 'high' },
-    builder: { model: 'gpt-terra', effort: 'medium' },
-  }, catalog), /must not be lower/);
-});
-
-test('unobservable current effort uses the highest same-model reviewer effort without asking', () => {
-  const catalog = normalizedCatalog([
-    { slug: 'gpt-sol', priority: 1 },
-    { slug: 'gpt-builder', priority: 2 },
-  ]);
-  const base = {
-    orchestrator: { model: 'gpt-sol', effort: null, usesCurrentSession: true },
-    builder: { model: 'gpt-builder', effort: 'medium' },
-  };
-  assert.throws(() => validateModelSelection({
-    ...base,
-    reviewer: { model: 'gpt-sol', effort: 'high' },
-  }, catalog), /must use max/);
-  const result = validateModelSelection({
-    ...base,
-    reviewer: { model: 'gpt-sol', effort: 'max' },
-  }, catalog);
-  assert.equal(result.valid, true);
-  assert.equal(result.orchestratorEffortKnown, false);
-});
-
-test('ultra is prohibited even when a provider advertises it', () => {
-  const catalog = normalizedCatalog([
-    { slug: 'gpt-sol', priority: 1, efforts: ['high', 'ultra'] },
-    { slug: 'gpt-builder', priority: 2 },
-  ]);
-  assert.throws(() => validateModelSelection({
-    orchestrator: { model: 'gpt-sol', effort: 'high' },
-    reviewer: { model: 'gpt-sol', effort: 'ultra' },
-    builder: { model: 'gpt-builder', effort: 'medium' },
-  }, catalog), /ultra is prohibited/);
-});
-
-test('degraded static mode exposes unknown fields instead of inventing them', async () => {
-  const resolver = new ModelCatalogResolver({
-    session: { async getCatalog() { throw new Error('no session'); } },
-    debug: { async getCatalog() { throw new Error('no CLI'); } },
-    cache: { async getCatalog() { throw new Error('no cache'); } },
-    staticPolicy: new StaticPolicyProvider(),
-  });
-  const result = await resolver.getCatalog({ activeModel: 'manual-model', manualModels: ['builder-model'], observedAt });
-  assert.equal(result.degraded, true);
-  const model = result.models.find((item) => item.slug === 'manual-model');
-  assert.equal(model.priority.known, false);
-  assert.equal(model.visibility.known, false);
-  assert.equal(model.supportedEfforts.known, true);
-});
-
-test('incompatible codex debug output fails closed and cache remains readable', async () => {
-  assert.throws(() => parseCodexDebugModels('{"unexpected":true}', observedAt), /no models array/);
-  const dir = mkdtempSync(join(tmpdir(), 'forge-catalog-'));
-  const cachePath = join(dir, 'catalog.json');
-  writeFileSync(cachePath, JSON.stringify(normalizedCatalog([{ slug: 'gpt-sol', priority: 1 }])));
-  const provider = new CachedModelCatalogProvider(cachePath);
-  const cached = await provider.getCatalog();
-  assert.equal(cached.models[0].priority.value, 1);
-  assert.equal(JSON.parse(readFileSync(cachePath, 'utf8')).models[0].priority.source, 'test');
 });

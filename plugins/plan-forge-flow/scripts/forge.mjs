@@ -31,15 +31,33 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import process from 'node:process';
 import {
-  CachedModelCatalogProvider,
   CodexDebugModelsProvider,
   ModelCatalogResolver,
-  SessionModelCatalogProvider,
-  StaticPolicyProvider,
   runCodexCli,
   validateModelSelection,
 } from './model-catalog.mjs';
-import { pluginDataDir, sessionContextPathFor } from './plugin-paths.mjs';
+import {
+  createPlanUxState,
+  effortPicker,
+  finalProposedPlanOutput,
+  issueApprovalEnvelope,
+  modelPicker,
+  recordBuilderSelection,
+  recordFullPlanPreview,
+} from './native-plan-ux.mjs';
+import { collaborationModeForTurn, readTranscript } from './transcript-auth.mjs';
+import {
+  canonicalRepositoryIdentity,
+  canonicalWorkspaceRoot,
+  materializationJournalDir,
+  nonceTombstoneDir,
+  sessionContextPathFor,
+} from './plugin-paths.mjs';
+import { requireDefaultMode } from './mode-gate.mjs';
+import {
+  extractApprovalWrapper,
+  repositoryIdentityEquals,
+} from './resume-envelope.mjs';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,7 +70,6 @@ const EXCLUDE_END = '# <<< plan-forge-flow (managed) <<<';
 // Only `.forge/` needs excluding now — the subagents live in the global
 // ~/.codex/agents dir, never in the target repo's working tree.
 const EXCLUDE_ENTRIES = ['.forge/'];
-const LOCK_STALE_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_PLAN_ROUNDS = 5;
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._\[\]=,-]*$/;
 const AGENT_ROLES = ['reviewer', 'builder'];
@@ -78,6 +95,7 @@ const BOOLEAN_FLAGS = new Set([
   'force',
   'full',
   'purge-agents',
+  'purge-ledger',
   'relock',
   'retry',
   'user-override',
@@ -93,6 +111,7 @@ const ASSIGNMENT_RE =
   /^[\s\-*]*["']?([A-Za-z0-9_.$-]+)["']?\s*[:=]\s*["']?([^"'\s,;]{20,})["']?/;
 const DECLARATION_PREFIX_RE =
   /^\s*(?:(?:export|public|private|protected|internal|static|readonly|final|const|let|var|val|def|string|self\.|this\.)\s+)+/i;
+const STATE_LOCK_CRASH_EXIT_CODE = 87;
 
 // ---------------------------------------------------------------------------
 // Small helpers (exported for unit tests)
@@ -340,11 +359,42 @@ function gitToFile(cwd, args, target, options = {}) {
 }
 
 function gitRoot(cwd) {
+  return canonicalWorkspaceRoot(cwd);
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid < 1) return false;
   try {
-    const root = git(cwd, ['rev-parse', '--show-toplevel'], { stdio: ['ignore', 'pipe', 'ignore'] });
-    return realpathSync(root);
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function parseStateLock(path, label) {
+  let value;
+  try {
+    value = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    return realpathSync(cwd);
+    throw new CliError(1, `${label} is unreadable: ${path}`);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Number.isInteger(value.pid) || value.pid < 1 ||
+      !Number.isFinite(value.ts) ||
+      typeof value.token !== 'string' || !value.token) {
+    throw new CliError(1, `${label} has an invalid schema: ${path}`);
+  }
+  return value;
+}
+
+function sameLock(left, right) {
+  return Boolean(left && right && left.pid === right.pid && left.token === right.token);
+}
+
+function stateLockCrash(label) {
+  if (process.env.FORGE_STATE_LOCK_CRASH_AT === label) {
+    process.exit(STATE_LOCK_CRASH_EXIT_CODE);
   }
 }
 
@@ -372,7 +422,9 @@ export class Workspace {
   }
 
   loadState() {
-    if (!this.hasState()) throw new CliError(3, 'no forge state — run init first');
+    if (!this.hasState()) {
+      throw new CliError(3, 'no forge state — run resume from an authenticated native implementation prompt first');
+    }
     const state = JSON.parse(readFileSync(this.statePath, 'utf8'));
     if (state.version !== STATE_VERSION) {
       throw new CliError(3, `unsupported forge state version ${JSON.stringify(state.version)}; expected ${STATE_VERSION}`);
@@ -380,7 +432,9 @@ export class Workspace {
     state.maxFixRounds ??= 3;
     state.maxBuildRetries ??= 3;
     state.maxVerdictRetries ??= 2;
-    state.userSignoff ??= null;
+    state.implementationApproval ??= null;
+    state.builderSelectionPlanHash ??= null;
+    if (state.modelSelection?.orchestrator) delete state.modelSelection.orchestrator;
     state.replayKeys = (state.replayKeys ?? []).slice(-MAX_REPLAY_KEYS);
     delete state.baseRef;
     delete state.planHash;
@@ -417,51 +471,149 @@ export class Workspace {
   acquireLock() {
     mkdirSync(this.forgeDir, { recursive: true });
     const token = `${process.pid}:${Date.now()}:${Math.random()}`;
-    const payload = JSON.stringify({ pid: process.pid, ts: Date.now(), token });
-    try {
-      writeFileSync(this.lockPath, payload, { flag: 'wx' });
-      this.lockToken = token;
-      return;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-    }
-    let stale = false;
-    try {
-      const held = JSON.parse(readFileSync(this.lockPath, 'utf8'));
-      stale = Date.now() - held.ts > LOCK_STALE_MS;
-    } catch {
-      stale = true;
-    }
-    if (!stale) throw new CliError(1, 'another forge run holds .forge/lock (stale after 10 min)');
     const recoveryPath = `${this.lockPath}.recovery`;
+    const replacement = { pid: process.pid, ts: Date.now(), token };
+    let guard = null;
+    if (!existsSync(recoveryPath)) {
+      try {
+        writeFileSync(this.lockPath, JSON.stringify(replacement), { flag: 'wx' });
+        this.lockToken = token;
+        return;
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error;
+      }
+    }
+
+    const held = existsSync(this.lockPath)
+      ? parseStateLock(this.lockPath, 'Forge state lock')
+      : null;
+    if (!existsSync(recoveryPath) && held && processIsAlive(held.pid)) {
+      throw new CliError(1, 'another forge run holds .forge/lock');
+    }
+
+    const freshGuard = {
+      version: 1,
+      pid: process.pid,
+      ts: Date.now(),
+      token: `${token}:recovery`,
+      phase: 'observed',
+      observed: held ? { pid: held.pid, token: held.token } : null,
+      replacement: { pid: process.pid, token },
+      abandoned: [],
+    };
     try {
-      writeFileSync(recoveryPath, payload, { flag: 'wx' });
+      writeFileSync(recoveryPath, JSON.stringify(freshGuard), { flag: 'wx' });
+      guard = freshGuard;
     } catch (error) {
-      if (error?.code === 'EEXIST') {
+      if (error?.code !== 'EEXIST') throw error;
+      const staleGuard = parseStateLock(recoveryPath, 'Forge lock recovery guard');
+      if (staleGuard.version !== 1 ||
+          (staleGuard.phase !== 'observed' && staleGuard.phase !== 'reclaiming') ||
+          !Object.hasOwn(staleGuard, 'observed') ||
+          !staleGuard.replacement ||
+          !Number.isInteger(staleGuard.replacement.pid) ||
+          typeof staleGuard.replacement.token !== 'string' ||
+          !Array.isArray(staleGuard.abandoned) ||
+          staleGuard.abandoned.some((lock) =>
+            !Number.isInteger(lock?.pid) || typeof lock?.token !== 'string')) {
+        throw new CliError(1, `Forge lock recovery guard has an invalid schema: ${recoveryPath}`);
+      }
+      if (processIsAlive(staleGuard.pid)) {
         throw new CliError(1, 'another forge run won the stale-lock recovery race; retry the command');
       }
-      throw error;
-    }
-    try {
-      let stillStale = false;
+      const claimPath = `${recoveryPath}.stale-${sha256(token).slice(0, 16)}`;
       try {
-        const held = JSON.parse(readFileSync(this.lockPath, 'utf8'));
-        stillStale = Date.now() - held.ts > LOCK_STALE_MS;
-      } catch {
-        stillStale = true;
+        renameSync(recoveryPath, claimPath);
+      } catch (claimError) {
+        if (claimError?.code === 'ENOENT' || claimError?.code === 'EEXIST') {
+          throw new CliError(1, 'another forge run reclaimed the crashed recovery guard; retry the command');
+        }
+        throw claimError;
       }
-      if (!stillStale) {
-        throw new CliError(1, 'another forge run refreshed the lock during stale-lock recovery');
-      }
+      let installedReplacementGuard = false;
       try {
-        unlinkSync(this.lockPath);
-      } catch (error) {
-        if (error?.code !== 'ENOENT') {
-          throw new CliError(1, `could not reclaim stale forge lock: ${error.message}`);
+        const claimed = parseStateLock(claimPath, 'claimed Forge lock recovery guard');
+        if (claimed.pid !== staleGuard.pid || claimed.token !== staleGuard.token) {
+          throw new CliError(1, 'Forge lock recovery guard changed before atomic reclamation');
+        }
+        const abandoned = [...staleGuard.abandoned, staleGuard.replacement].slice(-16);
+        guard = {
+          ...staleGuard,
+          pid: process.pid,
+          ts: Date.now(),
+          token: freshGuard.token,
+          replacement: freshGuard.replacement,
+          abandoned,
+        };
+        try {
+          writeFileSync(recoveryPath, JSON.stringify(guard), { flag: 'wx' });
+          installedReplacementGuard = true;
+        } catch (replacementError) {
+          if (replacementError?.code === 'EEXIST') {
+            throw new CliError(1, 'another forge run replaced the crashed recovery guard first');
+          }
+          throw replacementError;
+        }
+      } finally {
+        try {
+          if (!installedReplacementGuard && !existsSync(recoveryPath)) {
+            renameSync(claimPath, recoveryPath);
+          } else {
+            unlinkSync(claimPath);
+          }
+        } catch {
+          // A crash or competing inspection may retain the claimed evidence.
         }
       }
+    }
+    stateLockCrash('after-recovery-guard');
+
+    try {
+      const current = existsSync(this.lockPath)
+        ? parseStateLock(this.lockPath, 'Forge state lock')
+        : null;
+      if (guard.phase === 'observed') {
+        if (!sameLock(current, guard.observed)) {
+          throw new CliError(1, 'Forge state lock token or PID changed during recovery');
+        }
+        if (current && processIsAlive(current.pid)) {
+          throw new CliError(1, 'Forge state lock owner is still alive');
+        }
+        const ownedGuard = parseStateLock(recoveryPath, 'Forge lock recovery guard');
+        if (ownedGuard.token !== guard.token || ownedGuard.pid !== process.pid) {
+          throw new CliError(1, 'Forge lock recovery guard ownership changed before unlink');
+        }
+        guard.phase = 'reclaiming';
+        const temp = `${recoveryPath}.${process.pid}.tmp`;
+        writeFileSync(temp, JSON.stringify(guard), { flag: 'wx' });
+        const revalidated = parseStateLock(recoveryPath, 'Forge lock recovery guard');
+        if (revalidated.token !== guard.token || revalidated.pid !== process.pid) {
+          unlinkSync(temp);
+          throw new CliError(1, 'Forge lock recovery guard changed before phase transition');
+        }
+        renameSync(temp, recoveryPath);
+      }
+
+      const beforeUnlink = existsSync(this.lockPath)
+        ? parseStateLock(this.lockPath, 'Forge state lock')
+        : null;
+      const knownLocks = [guard.observed, guard.replacement, ...guard.abandoned].filter(Boolean);
+      const matchedLock = knownLocks.find((candidate) => sameLock(beforeUnlink, candidate));
+      if (beforeUnlink && (!matchedLock || processIsAlive(matchedLock.pid))) {
+        throw new CliError(1, 'Forge state lock token or PID changed before unlink');
+      }
+      if (beforeUnlink) {
+        const ownedGuard = parseStateLock(recoveryPath, 'Forge lock recovery guard');
+        const finalLock = parseStateLock(this.lockPath, 'Forge state lock');
+        if (ownedGuard.token !== guard.token || ownedGuard.pid !== process.pid ||
+            !knownLocks.some((candidate) => sameLock(finalLock, candidate))) {
+          throw new CliError(1, 'Forge lock or recovery token changed before unlink');
+        }
+        unlinkSync(this.lockPath);
+      }
+      stateLockCrash('after-stale-lock-unlink');
       try {
-        writeFileSync(this.lockPath, payload, { flag: 'wx' });
+        writeFileSync(this.lockPath, JSON.stringify(replacement), { flag: 'wx' });
       } catch (error) {
         if (error?.code === 'EEXIST') {
           throw new CliError(1, 'another forge run acquired the lock during stale-lock recovery');
@@ -469,11 +621,16 @@ export class Workspace {
         throw error;
       }
       this.lockToken = token;
+      stateLockCrash('after-recovery-lock-acquired');
     } finally {
       try {
-        unlinkSync(recoveryPath);
+        const ownedGuard = parseStateLock(recoveryPath, 'Forge lock recovery guard');
+        if (this.lockToken === token && guard &&
+            ownedGuard.token === guard.token && ownedGuard.pid === process.pid) {
+          unlinkSync(recoveryPath);
+        }
       } catch {
-        // A competing cleanup may already have removed it.
+        // A crash or competing recovery may already have retained or removed it.
       }
     }
   }
@@ -530,6 +687,7 @@ function freshState(maxRounds) {
     maxVerdictRetries: 2,
     deadlock: false,
     modelSelection: null,
+    builderSelectionPlanHash: null,
     modelCatalog: null,
     modelResolutionTrace: [],
     builderAgentId: null,
@@ -543,7 +701,7 @@ function freshState(maxRounds) {
     worktreeBaseRef: null,
     worktreeBaseSha: null,
     untrackedBaseline: [],
-    userSignoff: null,
+    implementationApproval: null,
     replayKeys: [],
     lastVerdict: null,
     verifyCommands: [],
@@ -552,17 +710,39 @@ function freshState(maxRounds) {
   };
 }
 
-function requireCurrentUserSignoff(ws, state, action) {
-  if (!state.userSignoff) {
+function requireCurrentImplementationApproval(ws, state, action) {
+  const approval = state.implementationApproval;
+  if (!approval) {
     throw new CliError(
       3,
-      `${action} requires explicit user sign-off — run confirm-signoff --user-note "<the user's exact affirmative words>"`,
+      `${action} requires an approved native implementation action`,
     );
   }
-  if (state.userSignoff.planHash !== ws.planHash()) {
+  if (approval.planHash !== ws.planHash()) {
     throw new CliError(
       3,
-      `PLAN.md changed after user sign-off — present the revised plan and run confirm-signoff again before ${action}`,
+      `PLAN.md changed after implementation approval — present the revised plan for native approval before ${action}`,
+    );
+  }
+}
+
+export function validateBuilderSelectionBinding(state, humanPlanHash) {
+  if (!state.modelSelection?.builder) {
+    throw new Error('approved builder selection is missing');
+  }
+  if (state.builderSelectionPlanHash !== humanPlanHash) {
+    throw new Error('builder selection does not match the current human plan');
+  }
+  return state.modelSelection.builder;
+}
+
+function requireCurrentBuilderSelection(ws, state, action) {
+  try {
+    validateBuilderSelectionBinding(state, ws.planHash());
+  } catch (error) {
+    throw new CliError(
+      3,
+      `${error.message}; select a builder again before ${action}`,
     );
   }
 }
@@ -570,131 +750,13 @@ function requireCurrentUserSignoff(ws, state, action) {
 // ---------------------------------------------------------------------------
 // Subcommands
 
-function cmdInit(ws, flags) {
-  if (!tryGit(ws.cwd, ['rev-parse', '--git-dir'])) {
-    throw new CliError(1, 'not a git repository — Acts 3-4 need git; init refuses to run without it');
-  }
-  if (!tryGit(ws.cwd, ['rev-parse', '--verify', 'HEAD'])) {
-    throw new CliError(1, 'repository has no commits — create the initial commit before starting forge');
-  }
-  const markerPath = ws.repositoryMarkerPath();
-  if (markerPath && existsSync(markerPath)) {
-    let marker;
-    try {
-      marker = JSON.parse(readFileSync(markerPath, 'utf8'));
-    } catch {
-      throw new CliError(3, `repository forge marker is unreadable: ${markerPath}; inspect or remove it after confirming no run is active`);
-    }
-    if (typeof marker.workspaceRoot !== 'string') {
-      throw new CliError(3, `repository forge marker has no workspace root: ${markerPath}`);
-    }
-    const markerRoot = existsSync(marker.workspaceRoot)
-      ? realpathSync(marker.workspaceRoot)
-      : resolve(marker.workspaceRoot);
-    if (markerRoot !== ws.cwd) {
-      throw new CliError(
-        3,
-        `another worktree has an active forge run at ${marker.workspaceRoot}; resume or clean it before initializing this worktree`,
-      );
-    }
-  }
-  const existingPinnedRefs = [HEAD_BASE_REF_NAME, WORKTREE_BASE_REF_NAME]
-    .filter((ref) => Boolean(tryGit(ws.cwd, ['rev-parse', '--verify', ref])));
-  if (!ws.hasState() && existingPinnedRefs.length) {
-    throw new CliError(
-      3,
-      `pinned forge refs already exist (${existingPinnedRefs.join(', ')}); ` +
-      'another worktree/run may be active — resume or clean that run first',
-    );
-  }
-  const maxRounds = flags.rounds ? parsePositiveInt(flags.rounds, 'rounds') : DEFAULT_MAX_PLAN_ROUNDS;
-  if (maxRounds > DEFAULT_MAX_PLAN_ROUNDS) {
-    throw new CliError(
-      1,
-      `initial rounds cannot exceed ${DEFAULT_MAX_PLAN_ROUNDS}; extend one round at a time only after reaching the cap`,
-    );
-  }
-
-  for (const p of [ws.planPath, ws.logPath]) {
-    if (existsSync(p) && !readFileSync(p, 'utf8').includes(OWNED_MARKER)) {
-      throw new CliError(3, `${p} exists and is not plan-forge-owned — move it aside first (never archived, even with --force)`);
-    }
-  }
-  if (ws.hasState()) {
-    if (!flags.force) {
-      const state = ws.loadState();
-      throw new CliError(3, 'forge state exists — resume, or rerun with --force to archive and restart', {
-        action: 'state-exists',
-        phase: state.phase,
-      });
-    }
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const archiveDir = join(ws.forgeDir, `archive-${ts}`);
-    mkdirSync(archiveDir, { recursive: true });
-    for (const entry of readdirSync(ws.forgeDir)) {
-      if (entry.startsWith('archive-') || entry === 'lock') continue;
-      renameSync(join(ws.forgeDir, entry), join(archiveDir, entry));
-    }
-    for (const [p, name] of [
-      [ws.planPath, 'PLAN.md'],
-      [ws.logPath, 'PLAN-REVIEW-LOG.md'],
-    ]) {
-      if (existsSync(p)) renameSync(p, join(archiveDir, name));
-    }
-    note(`archived previous run to ${archiveDir}`);
-    for (const ref of existingPinnedRefs) git(ws.cwd, ['update-ref', '-d', ref]);
-  }
-
-  mkdirSync(ws.critiquesDir, { recursive: true });
-  writeFileSync(
-    ws.planPath,
-    `${OWNED_MARKER}\n# Plan: <task>\n_Locked via forge grill_\n\n## Goal\n<!-- one paragraph, filled at plan lock -->\n\n## Approach\n<!-- numbered steps; each number becomes ONE builder dispatch: independently implementable, independently verifiable -->\n1. <step>\n\n## Key decisions & tradeoffs\n\n## Risks / open questions\n\n## Out of scope\n`,
-  );
-  writeFileSync(ws.logPath, `${OWNED_MARKER}\n# Plan Review Log\nMAX_ROUNDS=${maxRounds}\n`);
-  ws.saveState(freshState(maxRounds));
-  if (markerPath) {
-    const marker = JSON.stringify({
-      version: 1,
-      workspaceRoot: ws.cwd,
-      statePath: ws.statePath,
-      createdAt: new Date().toISOString(),
-    }, null, 2) + '\n';
-    try {
-      writeFileSync(markerPath, marker, { flag: existsSync(markerPath) ? 'w' : 'wx' });
-    } catch (error) {
-      if (error?.code === 'EEXIST') {
-        throw new CliError(3, 'another worktree initialized forge concurrently; resume or clean that run first');
-      }
-      throw error;
-    }
-  }
-
-  let gitExcluded = false;
-  const excludePath = ws.excludePath();
-  if (excludePath) {
-    upsertExcludeBlock(excludePath);
-    gitExcluded = true;
-  } else {
-    note('warning: could not locate git exclude file; .forge/ will show in git status');
-  }
-  ws.appendEvent('init', { maxRounds, force: Boolean(flags.force) });
-  out({
-    action: 'initialized',
-    planFile: 'PLAN.md',
-    logFile: 'PLAN-REVIEW-LOG.md',
-    stateFile: '.forge/state.json',
-    maxRounds,
-    gitExcluded,
-  });
-}
-
 function sessionMaxAgeMs() {
   const configured = Number(process.env.FORGE_SESSION_MAX_AGE_MS);
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SESSION_MAX_AGE_MS;
 }
 
 function sessionContextPath(cwd) {
-  return sessionContextPathFor(realpathSync(cwd));
+  return sessionContextPathFor(canonicalWorkspaceRoot(cwd));
 }
 
 function readSessionContext(cwd, flags, options = {}) {
@@ -730,61 +792,178 @@ function readSessionContext(cwd, flags, options = {}) {
   };
 }
 
-async function resolveCatalog(cwd, flags, options = {}) {
-  const context = readSessionContext(cwd, flags, options);
-  if (typeof flags['active-model'] === 'string') {
-    context.activeModel = flags['active-model'];
-    context.activeModelSource = 'manual-user';
-  }
-  if (typeof flags['active-effort'] === 'string') {
-    context.activeEffort = flags['active-effort'];
-    context.activeEffortSource = 'manual-user';
-  }
-  if (typeof flags['native-models'] === 'string') {
-    const raw = flags['native-models'].trim();
-    context.nativeModels = JSON.parse(
-      raw.startsWith('[') || raw.startsWith('{') ? raw : readFileSync(resolve(raw), 'utf8'),
+async function resolveCatalog(_cwd, flags) {
+  const obsoleteFlags = ['native-models', 'manual-model', 'manual-models', 'active-model', 'active-effort'];
+  const obsolete = obsoleteFlags.find((name) => Object.hasOwn(flags, name));
+  if (obsolete) {
+    throw new CliError(
+      1,
+      `--${obsolete} is no longer supported; model discovery uses codex debug models exclusively`,
     );
-    if (!Array.isArray(context.nativeModels)) {
-      throw new CliError(1, '--native-models must resolve to a JSON array');
-    }
   }
-  if (typeof flags['manual-models'] === 'string') {
-    context.manualModels = flags['manual-models'].split(',').map((item) => item.trim()).filter(Boolean);
-  }
-  const cachePath = join(pluginDataDir(), 'model-catalog.json');
   const resolver = new ModelCatalogResolver({
-    session: new SessionModelCatalogProvider(),
     debug: new CodexDebugModelsProvider(),
-    cache: new CachedModelCatalogProvider(cachePath),
-    staticPolicy: new StaticPolicyProvider(),
-    cachePath,
   });
-  const catalog = await resolver.getCatalog(context);
-  catalog.sessionId = context.sessionId ?? null;
-  return catalog;
+  return resolver.getCatalog();
 }
 
 async function cmdModels(cwd, flags) {
   const catalog = await resolveCatalog(cwd, flags);
-  const ws = new Workspace(cwd);
-  if (ws.hasState()) {
-    ws.acquireLock();
+  out({ available: catalog.models.length > 0, catalog });
+}
+
+async function cmdPicker(cwd, flags, positional) {
+  if (positional.length > 0) throw new CliError(1, 'picker accepts flags only');
+  if (Object.keys(flags).some(
+    (name) => !['cwd', 'role', 'cursor', 'model'].includes(name),
+  )) {
+    throw new CliError(1, 'picker accepts only --role, --cursor, --model, and --cwd');
+  }
+  const role = flags.role;
+  if (role !== 'reviewer' && role !== 'builder') {
+    throw new CliError(1, 'picker requires --role reviewer|builder');
+  }
+  const cursor = flags.cursor === undefined ? 0 : Number(flags.cursor);
+  const catalog = await resolveCatalog(cwd, flags);
+  const picker = typeof flags.model === 'string'
+    ? effortPicker(catalog, { role, model: flags.model, cursor })
+    : modelPicker(catalog, { role, cursor });
+  out({ action: 'picker-metadata', role, picker });
+}
+
+function issuanceCapture(cwd) {
+  const repository = canonicalRepositoryIdentity(cwd);
+  const path = sessionContextPathFor(repository.workspaceRoot);
+  if (!existsSync(path)) throw new CliError(3, 'fresh Plan-mode UserPromptSubmit capture is missing');
+  let capture;
+  try {
+    capture = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    throw new CliError(3, 'Plan-mode UserPromptSubmit capture is malformed');
+  }
+  const age = Date.now() - Date.parse(capture.observedAt);
+  if (capture.version !== 2 || capture.cwd !== repository.workspaceRoot ||
+      typeof capture.sessionId !== 'string' || typeof capture.turnId !== 'string' ||
+      typeof capture.transcriptPath !== 'string' ||
+      !Number.isFinite(age) || age < 0 || age > sessionMaxAgeMs()) {
+    throw new CliError(3, 'Plan-mode UserPromptSubmit capture is stale or schema-incompatible');
+  }
+  const transcript = readTranscript(capture.transcriptPath);
+  if (transcript.sessionId !== capture.sessionId) throw new CliError(3, 'Plan-mode capture session mismatch');
+  const mode = collaborationModeForTurn(transcript, capture.turnId);
+  if (mode.mode !== 'plan') throw new CliError(3, `approval issuance requires Plan mode (observed ${mode.mode})`);
+  return {
+    repository,
+    transcript,
+    origin: {
+      sessionId: capture.sessionId,
+      transcriptPath: transcript.path,
+      turnId: capture.turnId,
+    },
+  };
+}
+
+function highestEligibleTranscriptRevision(repository, transcript) {
+  let highest = 0;
+  for (const record of transcript.records) {
+    if (record.kind !== 'message' || record.role !== 'assistant' ||
+        record.phase !== 'final_answer' || record.mode !== 'plan') {
+      continue;
+    }
+    const match = /^<proposed_plan>\n([\s\S]*)<\/proposed_plan>\s*$/.exec(record.text);
+    if (!match) continue;
+    let wrapper;
     try {
-      const state = ws.loadState();
-      state.modelCatalog = catalog;
-      state.modelResolutionTrace = catalog.trace ?? [];
-      ws.saveState(state);
-      ws.appendEvent('models', {
-        degraded: catalog.degraded,
-        modelCount: catalog.models.length,
-        trace: catalog.trace ?? [],
-      });
-    } finally {
-      ws.releaseLock();
+      wrapper = extractApprovalWrapper(match[1]);
+    } catch {
+      continue;
+    }
+    const envelope = wrapper.envelope;
+    try {
+      if (repositoryIdentityEquals(envelope.repository, repository) &&
+          envelope.origin.sessionId === transcript.sessionId &&
+          realpathSync(envelope.origin.transcriptPath) === transcript.path &&
+          envelope.origin.turnId === record.turnId) {
+        highest = Math.max(highest, envelope.planRevision);
+      }
+    } catch {
+      // Only wrappers with a still-resolvable matching origin are eligible.
     }
   }
-  out({ available: catalog.models.length > 0, catalog });
+  return highest;
+}
+
+function highestRepositoryRevision(repository, transcript) {
+  const repositoryKey = sha256(
+    `${process.platform === 'win32' ? repository.workspaceRoot.toLowerCase() : repository.workspaceRoot}\n` +
+    `${process.platform === 'win32' ? repository.gitCommonDir.toLowerCase() : repository.gitCommonDir}`,
+  );
+  let highest = 0;
+  const dir = nonceTombstoneDir();
+  if (existsSync(dir)) {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.json')) continue;
+      const tombstone = JSON.parse(readFileSync(join(dir, entry), 'utf8'));
+      if (tombstone.repositoryKey === repositoryKey) {
+        highest = Math.max(highest, Number(tombstone.planRevision) || 0);
+      }
+    }
+  }
+  const statePath = join(repository.workspaceRoot, '.forge', 'state.json');
+  if (existsSync(statePath)) {
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    highest = Math.max(highest, Number(state.materialization?.planRevision) || 0);
+  }
+  highest = Math.max(highest, highestEligibleTranscriptRevision(repository, transcript));
+  return highest;
+}
+
+async function cmdIssueApproval(cwd, flags, positional) {
+  if (positional.length > 0 || Object.keys(flags).some((name) => name !== 'cwd')) {
+    throw new CliError(1, 'issue-approval accepts bounded JSON on stdin and optional --cwd');
+  }
+  const input = readFileSync(0);
+  if (input.length <= 0 || input.length > 2 * 1024 * 1024) {
+    throw new CliError(1, 'approval stdin size is invalid');
+  }
+  const request = JSON.parse(input.toString('utf8'));
+  const keys = Object.keys(request).sort();
+  const expectedKeys = [
+    'builder',
+    'completedReviewRounds',
+    'humanPlan',
+    'maxRounds',
+    'reviewLog',
+    'reviewer',
+  ];
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+    throw new CliError(1, `approval input keys must be exactly: ${expectedKeys.join(', ')}`);
+  }
+  const { repository, transcript, origin } = issuanceCapture(cwd);
+  const catalog = await resolveCatalog(cwd, {});
+  let state = createPlanUxState(
+    request.humanPlan,
+    highestRepositoryRevision(repository, transcript) + 1,
+  );
+  state = recordFullPlanPreview(state, state.humanPlan);
+  state = recordBuilderSelection(state, request.builder, catalog);
+  const issued = issueApprovalEnvelope(state, {
+    reviewer: request.reviewer,
+    catalog,
+    reviewLog: request.reviewLog,
+    completedReviewRounds: request.completedReviewRounds,
+    maxRounds: request.maxRounds,
+    repository,
+    origin,
+  });
+  out({
+    action: 'approval-issued',
+    planRevision: issued.envelope.planRevision,
+    humanPlanHash: issued.envelope.humanPlanHash,
+    envelope: issued.envelope,
+    wrapper: issued.wrapper,
+    proposedPlanOutput: finalProposedPlanOutput(issued.state),
+  });
 }
 
 function shippedAgentPath(role) {
@@ -999,180 +1178,198 @@ function cmdDoctor(ws) {
   if (!ok) process.exitCode = 1;
 }
 
-async function cmdConfigureReviewer(ws, flags) {
-  const state = ws.loadState();
-  if (!state.modelSelection && state.phase !== 'review') {
-    throw new CliError(3, 'initial reviewer selection belongs at the beginning of Act 2 (phase "review")');
-  }
-  const required = [
-    'reviewer-model',
-    'reviewer-effort',
-  ];
-  for (const name of required) {
-    if (typeof flags[name] !== 'string' || !flags[name].trim()) {
-      throw new CliError(1, `configure-reviewer requires --${name} <value>`);
-    }
-  }
-  if (flags['builder-model'] || flags['builder-effort']) {
-    throw new CliError(1, 'builder selection belongs at the beginning of Act 3; use configure-builder');
-  }
-  if (flags['orchestrator-model'] || flags['orchestrator-effort']) {
-    throw new CliError(
-      1,
-      'orchestrator model/effort cannot be selected; forge always uses the current Codex session',
-    );
-  }
-  const userOverride = Boolean(flags['user-override']);
-  const userNote = typeof flags['user-note'] === 'string' && flags['user-note'].trim()
-    ? flags['user-note'].trim()
-    : null;
-  if (userOverride && !userNote) {
-    throw new CliError(1, '--user-override requires --user-note "<the user reason>"');
-  }
-  let catalog;
+async function selectionCatalog(cwd, flags) {
   if (typeof flags.catalog === 'string') {
-    catalog = JSON.parse(readFileSync(resolve(flags.catalog), 'utf8'));
-    if (catalog.catalog) catalog = catalog.catalog;
-  } else {
-    catalog = await resolveCatalog(ws.cwd, flags);
+    throw new CliError(1, '--catalog is no longer supported; selections require a fresh codex debug models catalog');
   }
-  if (!catalog.activeModel?.known) {
-    throw new CliError(
-      3,
-      'current orchestrator model is unavailable from the session hook; submit a new prompt or start a new Codex task',
-    );
-  }
-  const selection = {
-    orchestrator: {
-      model: catalog.activeModel.value,
-      effort: catalog.activeEffort?.known ? catalog.activeEffort.value : null,
-      usesCurrentSession: true,
-      modelSource: catalog.activeModel.source,
-      effortSource: catalog.activeEffort?.known ? catalog.activeEffort.source : 'unobservable-current-session',
-    },
-    reviewer: { model: flags['reviewer-model'].trim(), effort: flags['reviewer-effort'].trim() },
-    builder: state.modelSelection?.builder ?? null,
-  };
-  for (const [role, selected] of [
-    ['orchestrator', selection.orchestrator],
-    ['reviewer', selection.reviewer],
-  ]) {
-    if (!validateModelId(selected.model)) throw new CliError(1, `${role} model fails the slug grammar`);
-  }
-  let validation;
-  try {
-    validation = validateModelSelection(selection, catalog, { userOverride, userNote });
-  } catch (error) {
-    throw new CliError(3, error.message);
-  }
-  const pinnedChanged = state.modelSelection &&
-    JSON.stringify(state.modelSelection.reviewer) !== JSON.stringify(selection.reviewer);
-  if (pinnedChanged) {
-    if (!userOverride || !userNote) {
-      throw new CliError(3, 'reviewer choice is pinned for this run; changing it requires --user-override --user-note');
-    }
-  }
-  const orchestratorChanged = Boolean(state.modelSelection) &&
-    JSON.stringify(state.modelSelection.orchestrator) !== JSON.stringify(selection.orchestrator);
-  const previousSessionId = state.sessionId ?? null;
-  const sessionChanged = Boolean(previousSessionId && catalog.sessionId && previousSessionId !== catalog.sessionId);
-  if (sessionChanged) note(`warning: Codex session changed from ${previousSessionId} to ${catalog.sessionId}`);
-  state.modelSelection = selection;
-  state.sessionId = catalog.sessionId ?? state.sessionId ?? null;
-  state.modelCatalog = catalog;
-  state.modelResolutionTrace = catalog.trace ?? [];
-  ws.saveState(state);
-  ws.appendEvent('configure-reviewer', {
-    selection,
-    orchestratorChanged,
-    sessionChanged,
-    override: userOverride,
-    userNote,
-    unknownPriorityOverride: validation.unknownPriorityOverride,
-    provenance: validation.provenance,
-  });
-  out({ action: 'reviewer-configured', selection, degraded: catalog.degraded, validation, sessionChanged });
+  return resolveCatalog(cwd, flags);
 }
 
-async function cmdConfigureBuilder(ws, flags) {
-  const state = ws.loadState();
-  if (state.phase !== 'signoff') {
-    throw new CliError(3, 'builder selection belongs at the beginning of Act 3 (phase "signoff")');
+function rejectSelectionOverrides(flags) {
+  if (flags['user-override'] || flags['user-note']) {
+    throw new CliError(1, 'model selection overrides are no longer supported');
   }
-  if (!state.modelSelection?.reviewer) {
-    throw new CliError(3, 'configure the reviewer in Act 2 before selecting a builder');
+  if (flags['orchestrator-model'] || flags['orchestrator-effort']) {
+    throw new CliError(1, 'orchestrator model and effort are not part of reviewer or builder selection');
   }
-  requireCurrentUserSignoff(ws, state, 'builder selection');
-  for (const name of ['builder-model', 'builder-effort']) {
-    if (typeof flags[name] !== 'string' || !flags[name].trim()) {
-      throw new CliError(1, `configure-builder requires --${name} <value>`);
+}
+
+function selectedPair(flags, role) {
+  const pair = {};
+  for (const name of ['model', 'effort']) {
+    const flag = `${role}-${name}`;
+    if (typeof flags[flag] !== 'string' || !flags[flag].trim()) {
+      throw new CliError(1, `configure-${role} requires --${flag} <value>`);
     }
+    pair[name] = flags[flag].trim();
   }
-  const userOverride = Boolean(flags['user-override']);
-  const userNote = typeof flags['user-note'] === 'string' && flags['user-note'].trim()
-    ? flags['user-note'].trim()
-    : null;
-  if (userOverride && !userNote) {
-    throw new CliError(1, '--user-override requires --user-note "<the user reason>"');
+  if (!validateModelId(pair.model)) throw new CliError(1, `${role} model fails the slug grammar`);
+  pair.effort = pair.effort.toLowerCase();
+  return pair;
+}
+
+async function cmdConfigureReviewer(cwd, flags) {
+  if (flags['builder-model'] || flags['builder-effort'] || flags['plan-hash']) {
+    throw new CliError(1, 'configure-reviewer accepts only a reviewer model and effort');
   }
-  let catalog;
-  if (typeof flags.catalog === 'string') {
-    catalog = JSON.parse(readFileSync(resolve(flags.catalog), 'utf8'));
-    if (catalog.catalog) catalog = catalog.catalog;
-  } else {
-    catalog = await resolveCatalog(ws.cwd, flags);
-  }
-  if (!catalog.activeModel?.known) {
-    throw new CliError(
-      3,
-      'current orchestrator model is unavailable from the session hook; submit a new prompt or start a new Codex task',
-    );
-  }
-  const selection = {
-    orchestrator: {
-      model: catalog.activeModel.value,
-      effort: catalog.activeEffort?.known ? catalog.activeEffort.value : null,
-      usesCurrentSession: true,
-      modelSource: catalog.activeModel.source,
-      effortSource: catalog.activeEffort?.known ? catalog.activeEffort.source : 'unobservable-current-session',
-    },
-    reviewer: state.modelSelection.reviewer,
-    builder: { model: flags['builder-model'].trim(), effort: flags['builder-effort'].trim() },
-  };
-  if (!validateModelId(selection.builder.model)) {
-    throw new CliError(1, 'builder model fails the slug grammar');
-  }
+  rejectSelectionOverrides(flags);
+  const reviewer = selectedPair(flags, 'reviewer');
+  const catalog = await selectionCatalog(cwd, flags);
   let validation;
   try {
-    validation = validateModelSelection(selection, catalog, { userOverride, userNote });
+    validation = validateModelSelection({ reviewer }, catalog);
   } catch (error) {
     throw new CliError(3, error.message);
   }
-  const builderChanged = state.modelSelection.builder &&
-    JSON.stringify(state.modelSelection.builder) !== JSON.stringify(selection.builder);
-  if (builderChanged && (!userOverride || !userNote)) {
-    throw new CliError(3, 'builder choice is pinned for this run; changing it requires --user-override --user-note');
-  }
-  const orchestratorChanged =
-    JSON.stringify(state.modelSelection.orchestrator) !== JSON.stringify(selection.orchestrator);
-  const previousSessionId = state.sessionId ?? null;
-  const sessionChanged = Boolean(previousSessionId && catalog.sessionId && previousSessionId !== catalog.sessionId);
-  if (sessionChanged) note(`warning: Codex session changed from ${previousSessionId} to ${catalog.sessionId}`);
-  state.modelSelection = selection;
-  state.sessionId = catalog.sessionId ?? state.sessionId ?? null;
-  state.modelCatalog = catalog;
-  state.modelResolutionTrace = catalog.trace ?? [];
-  ws.saveState(state);
-  ws.appendEvent('configure-builder', {
-    selection,
-    orchestratorChanged,
-    sessionChanged,
-    override: userOverride,
-    userNote,
-    nativeSchemaOverride: validation.nativeSchemaOverride,
-    provenance: validation.provenance,
+  out({
+    action: 'reviewer-selected',
+    reviewer,
+    catalogObservation: {
+      generatedAt: catalog.generatedAt,
+      source: 'codex-debug-models',
+    },
+    validation,
   });
-  out({ action: 'builder-configured', selection, degraded: catalog.degraded, validation, sessionChanged });
+}
+
+async function cmdConfigureBuilder(cwd, flags) {
+  if (flags['reviewer-model'] || flags['reviewer-effort']) {
+    throw new CliError(1, 'configure-builder accepts only a builder model, effort, and human-plan hash');
+  }
+  rejectSelectionOverrides(flags);
+  const builder = selectedPair(flags, 'builder');
+  if (typeof flags['plan-hash'] !== 'string' || !/^[a-f0-9]{64}$/i.test(flags['plan-hash'])) {
+    throw new CliError(1, 'configure-builder requires --plan-hash <sha256 of the immutable human plan>');
+  }
+  const humanPlanHash = flags['plan-hash'].toLowerCase();
+  const catalog = await selectionCatalog(cwd, flags);
+  let validation;
+  try {
+    validation = validateModelSelection({ builder }, catalog);
+  } catch (error) {
+    throw new CliError(3, error.message);
+  }
+  out({
+    action: 'builder-selected',
+    builder,
+    humanPlanHash,
+    catalogObservation: {
+      generatedAt: catalog.generatedAt,
+      source: 'codex-debug-models',
+    },
+    validation,
+  });
+}
+
+/*
+ * Reviewer and builder choices are intentionally not persisted by the
+ * read-only commands above. Task 3's approval validator calls this factory
+ * only after it has authenticated the native implementation action and
+ * approved envelope.
+ */
+export function stateFromApprovedEnvelope(envelope, catalog, implementationApproval) {
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
+    throw new Error('approved envelope is required');
+  }
+  const humanPlanHash = envelope.humanPlanHash;
+  if (typeof humanPlanHash !== 'string' || !/^[a-f0-9]{64}$/i.test(humanPlanHash)) {
+    throw new Error('approved envelope has an invalid humanPlanHash');
+  }
+  const reviewer = envelope.reviewer;
+  const builder = envelope.builder;
+  const validation = validateModelSelection({ reviewer, builder }, catalog);
+  if (envelope.builderPlanHash !== humanPlanHash) {
+    throw new Error('builder selection is not bound to the approved human plan hash');
+  }
+  if (!implementationApproval || implementationApproval.planHash !== humanPlanHash) {
+    throw new Error('implementation approval does not match the approved human plan hash');
+  }
+  const reviewRounds = envelope.completedReviewRounds;
+  if (!Number.isInteger(reviewRounds) || reviewRounds < 1) {
+    throw new Error('approved envelope has an invalid completedReviewRounds');
+  }
+  const state = freshState(
+    Number.isInteger(envelope.maxRounds) && envelope.maxRounds >= reviewRounds
+      ? envelope.maxRounds
+      : Math.max(DEFAULT_MAX_PLAN_ROUNDS, reviewRounds),
+  );
+  state.phase = 'signoff';
+  state.round = reviewRounds;
+  state.modelSelection = { reviewer: validation.reviewer, builder: validation.builder };
+  state.builderSelectionPlanHash = humanPlanHash.toLowerCase();
+  state.modelCatalog = structuredClone(catalog);
+  state.modelResolutionTrace = structuredClone(catalog.trace ?? []);
+  state.implementationApproval = {
+    ...structuredClone(implementationApproval),
+    planHash: humanPlanHash.toLowerCase(),
+  };
+  return state;
+}
+
+export function stateFromApprovedAmendment(
+  existing,
+  envelope,
+  catalog,
+  implementationApproval,
+  humanPlan,
+) {
+  if (!existing?.amendmentReview || (existing.phase !== 'build' && existing.phase !== 'review')) {
+    throw new Error('active Forge state is not awaiting an amendment approval');
+  }
+  const verdict = existing.lastVerdict;
+  if (!existing.amendmentReviewConsumed || verdict?.stage !== 'plan' ||
+      verdict.action !== 'approved' || verdict.verdict !== 'APPROVED' ||
+      verdict.planHash !== envelope.humanPlanHash ||
+      !Number.isInteger(verdict.round) || verdict.round !== existing.round ||
+      typeof verdict.critiqueHash !== 'string' ||
+      !existing.replayKeys?.includes(`plan:${verdict.planHash}:${verdict.critiqueHash}`) ||
+      verdict.reviewLogHash !== sha256(envelope.reviewLog) ||
+      envelope.completedReviewRounds !== existing.round) {
+    throw new Error('amendment requires a consumed APPROVED review bound to the amended plan and durable log');
+  }
+  const validation = validateModelSelection({
+    reviewer: envelope.reviewer,
+    builder: envelope.builder,
+  }, catalog);
+  if (JSON.stringify(validation.reviewer) !== JSON.stringify(existing.modelSelection?.reviewer)) {
+    throw new Error('amendment must retain the pinned reviewer selection');
+  }
+  if (envelope.builderPlanHash !== envelope.humanPlanHash ||
+      implementationApproval?.planHash !== envelope.humanPlanHash) {
+    throw new Error('amendment approval is not bound to the revised human plan');
+  }
+  const tasks = parseApproachTasks(humanPlan);
+  for (const old of existing.tasks ?? []) {
+    if (old.number > existing.taskIndex) continue;
+    const replacement = tasks.find((task) => task.number === old.number);
+    if (!replacement || replacement.hash !== old.hash) {
+      throw new Error(`amendment would change completed task ${old.number} ("${old.title}")`);
+    }
+  }
+  const state = structuredClone(existing);
+  const builderChanged =
+    validation.builder.model !== existing.modelSelection?.builder?.model ||
+    validation.builder.effort !== existing.modelSelection?.builder?.effort;
+  state.phase = 'build';
+  state.amendmentReview = false;
+  state.amendmentReviewConsumed = false;
+  state.pendingDispatch = null;
+  state.tasks = tasks;
+  state.taskCount = tasks.length;
+  state.modelSelection = {
+    reviewer: validation.reviewer,
+    builder: validation.builder,
+  };
+  state.builderSelectionPlanHash = envelope.humanPlanHash;
+  state.implementationApproval = {
+    ...structuredClone(implementationApproval),
+    planHash: envelope.humanPlanHash,
+  };
+  if (builderChanged) {
+    state.builderAgentId = null;
+    state.builderSessionObservation = null;
+  }
+  return state;
 }
 
 function cmdLockPlan(ws, flags) {
@@ -1181,7 +1378,7 @@ function cmdLockPlan(ws, flags) {
   if (!relock && state.phase !== 'signoff') {
     throw new CliError(3, `lock-plan runs at the sign-off transition (phase is "${state.phase}")`);
   }
-  if (!relock) requireCurrentUserSignoff(ws, state, 'locking the plan');
+  if (!relock) requireCurrentImplementationApproval(ws, state, 'locking the plan');
   if (relock && !state.amendmentReview) {
     throw new CliError(3, 'lock-plan --relock is only legal during an amendment (phase build/review with --amendment)');
   }
@@ -1208,36 +1405,6 @@ function cmdLockPlan(ws, flags) {
   out({ action: relock ? 'plan-relocked' : 'plan-locked', taskCount: tasks.length, tasks });
 }
 
-function cmdConfirmSignoff(ws, flags) {
-  const state = ws.loadState();
-  const amendmentSignoff =
-    state.phase === 'review' &&
-    state.amendmentReview &&
-    state.lastVerdict?.stage === 'plan' &&
-    state.lastVerdict.action === 'approved' &&
-    state.lastVerdict.planHash === ws.planHash();
-  if (state.phase !== 'signoff' && !amendmentSignoff) {
-    throw new CliError(
-      3,
-      `confirm-signoff requires phase "signoff" or an approved amendment review (current: "${state.phase}")`,
-    );
-  }
-  const userNote = typeof flags['user-note'] === 'string' ? flags['user-note'].trim() : '';
-  if (!userNote) {
-    throw new CliError(1, 'confirm-signoff requires --user-note "<the user\'s exact affirmative words>"');
-  }
-  state.userSignoff = {
-    confirmedAt: new Date().toISOString(),
-    userNote,
-    planHash: ws.planHash(),
-    reviewRound: state.round,
-    reviewAction: state.lastVerdict?.action ?? null,
-  };
-  ws.saveState(state);
-  ws.appendEvent('confirm-signoff', state.userSignoff);
-  out({ action: 'user-signoff-confirmed', userSignoff: state.userSignoff });
-}
-
 const DISPATCH_STAGES = {
   plan: { phase: 'review' },
   code: { phase: 'code-review' },
@@ -1249,55 +1416,6 @@ function retryCapForStage(state, stage) {
   return stage === 'plan' || stage === 'code'
     ? state.maxVerdictRetries ?? 2
     : state.maxBuildRetries ?? 3;
-}
-
-async function revalidateReviewerDispatch(ws, state, flags) {
-  if (!state.sessionId) return;
-  const context = readSessionContext(ws.cwd, flags, { requireFresh: false });
-  if (context.stale) {
-    note(
-      `warning: session capture is ${context.ageMs ?? 'unknown'} ms old; ` +
-      'drift is being checked against the last observed session state',
-    );
-    ws.appendEvent('session-capture-stale', {
-      ageMs: context.ageMs,
-      sessionId: context.sessionId,
-    });
-  }
-  const currentModel = context.activeModel;
-  const sessionChanged = Boolean(context.sessionId && context.sessionId !== state.sessionId);
-  const modelChanged = Boolean(currentModel && currentModel !== state.modelSelection.orchestrator.model);
-  if (!sessionChanged && !modelChanged) return;
-  const catalog = await resolveCatalog(ws.cwd, flags, { requireFresh: false });
-  const selection = {
-    ...state.modelSelection,
-    orchestrator: {
-      model: catalog.activeModel.value,
-      effort: catalog.activeEffort?.known ? catalog.activeEffort.value : null,
-      usesCurrentSession: true,
-      modelSource: catalog.activeModel.source,
-      effortSource: catalog.activeEffort?.known ? catalog.activeEffort.source : 'unobservable-current-session',
-    },
-  };
-  try {
-    validateModelSelection(selection, catalog);
-  } catch (error) {
-    throw new CliError(
-      3,
-      `current session model changed and the pinned reviewer no longer satisfies the strength invariant: ${error.message}`,
-    );
-  }
-  note(`warning: reviewer dispatch is continuing under changed session ${context.sessionId ?? '<unknown>'}`);
-  state.modelSelection = selection;
-  state.sessionId = context.sessionId ?? state.sessionId;
-  state.modelCatalog = catalog;
-  state.modelResolutionTrace = catalog.trace ?? [];
-  ws.appendEvent('session-drift', {
-    sessionChanged,
-    modelChanged,
-    sessionId: state.sessionId,
-    orchestrator: selection.orchestrator,
-  });
 }
 
 async function cmdDispatch(ws, flags) {
@@ -1325,10 +1443,10 @@ async function cmdDispatch(ws, flags) {
     out({ action: 'dispatch-cancelled', stage });
     return;
   }
-  if (stage === 'plan' || stage === 'code') {
-    await revalidateReviewerDispatch(ws, state, flags);
+  if (stage === 'build') requireCurrentImplementationApproval(ws, state, 'build dispatch');
+  if (stage === 'build' || stage === 'fix') {
+    requireCurrentBuilderSelection(ws, state, `${stage} dispatch`);
   }
-  if (stage === 'build') requireCurrentUserSignoff(ws, state, 'build dispatch');
   if (stage === 'plan' && state.amendmentReview && state.amendmentReviewConsumed) {
     throw new CliError(3, 'a material amendment gets exactly one fresh review round; return the decision to the user');
   }
@@ -1584,7 +1702,16 @@ function cmdVerdict(ws, flags) {
     action = 'deadlock';
     state.deadlock = true;
   }
-  state.lastVerdict = { stage, action, round, coverage, planHash: pending.planHash };
+  state.lastVerdict = {
+    stage,
+    action,
+    verdict,
+    round,
+    coverage,
+    planHash: pending.planHash,
+    critiqueHash: sha256(content),
+    reviewLogHash: sha256(readFileSync(ws.logPath)),
+  };
   ws.saveState(state);
   ws.appendEvent('verdict', { stage, round, verdict, action, coverage });
   out({ action, stage, round, remaining: Math.max(0, cap - count) });
@@ -1593,11 +1720,9 @@ function cmdVerdict(ws, flags) {
 function cmdBeginBuild(ws) {
   const state = ws.loadState();
   if (state.phase !== 'signoff') throw new CliError(3, `begin-build requires phase "signoff" (current: "${state.phase}")`);
-  requireCurrentUserSignoff(ws, state, 'begin-build');
+  requireCurrentImplementationApproval(ws, state, 'begin-build');
+  requireCurrentBuilderSelection(ws, state, 'begin-build');
   if (!state.taskCount) throw new CliError(3, 'run lock-plan before begin-build');
-  if (!state.modelSelection?.builder) {
-    throw new CliError(3, 'ask the user for the builder model/effort and run configure-builder before begin-build');
-  }
   if (!state.headBaseRef && [HEAD_BASE_REF_NAME, WORKTREE_BASE_REF_NAME]
     .some((ref) => Boolean(tryGit(ws.cwd, ['rev-parse', '--verify', ref])))) {
     throw new CliError(3, 'another forge run in this Git repository already owns the pinned baseline refs');
@@ -2182,8 +2307,8 @@ function cmdStatus(ws, flags) {
     nextTask,
     pendingDispatch: state.pendingDispatch,
     modelSelection: state.modelSelection,
-    sessionId: state.sessionId ?? null,
-    userSignoff: state.userSignoff,
+    builderSelectionPlanHash: state.builderSelectionPlanHash,
+    implementationApproval: state.implementationApproval,
     lastVerdict: state.lastVerdict,
     caps: {
       planRounds: state.maxRounds,
@@ -2318,6 +2443,8 @@ function cmdSet(ws, flags, positional) {
             'the amendment review approved a different PLAN.md revision; dispatch a fresh amendment review',
           );
         }
+        requireCurrentImplementationApproval(ws, state, 'returning to build after an amendment');
+        requireCurrentBuilderSelection(ws, state, 'returning to build after an amendment');
       }
       if (state.phase === 'build' && next === 'code-review') {
         if (state.taskIndex !== state.taskCount) {
@@ -2327,16 +2454,17 @@ function cmdSet(ws, flags, positional) {
       }
     }
     if (state.phase === 'review' && next === 'signoff') {
-      state.userSignoff = null;
+      state.implementationApproval = null;
       if (state.pendingDispatch?.stage === 'plan') state.pendingDispatch = null;
     }
     if (state.phase === 'signoff' && next === 'review') {
-      state.userSignoff = null;
+      state.implementationApproval = null;
     }
     if (state.phase === 'build' && next === 'review') {
       state.amendmentReview = true;
       state.amendmentReviewConsumed = false;
       state.lastVerdict = null;
+      state.implementationApproval = null;
     }
     if (state.phase === 'review' && next === 'build') state.amendmentReview = false;
     state.phase = next;
@@ -2407,6 +2535,7 @@ function cmdCleanup(ws, flags) {
     removedArtifacts: [],
     keptArtifacts: [],
     artifactDeletionBlocked: false,
+    removedLedgerEntries: 0,
   };
 
   const artifactTargets = [
@@ -2447,6 +2576,13 @@ function cmdCleanup(ws, flags) {
       }
     }
   }
+  if (flags['purge-ledger']) {
+    for (const dir of [materializationJournalDir(), nonceTombstoneDir()]) {
+      if (!existsSync(dir)) continue;
+      report.removedLedgerEntries += readdirSync(dir).length;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
   for (const ref of [HEAD_BASE_REF_NAME, WORKTREE_BASE_REF_NAME]) {
     if (tryGit(ws.cwd, ['rev-parse', '--verify', ref])) {
       git(ws.cwd, ['update-ref', '-d', ref]);
@@ -2479,6 +2615,7 @@ function cmdCleanup(ws, flags) {
     action: 'cleaned',
     ...report,
     purgedAgents: Boolean(flags['purge-agents']),
+    purgedLedger: Boolean(flags['purge-ledger']),
     deleteArtifactsRequested: Boolean(flags['delete-artifacts']),
   });
 }
@@ -2489,14 +2626,18 @@ function parsePositiveInt(value, name) {
   return n;
 }
 
+function requireDefaultModeForCommand(cwd, action) {
+  try {
+    requireDefaultMode(cwd, action);
+  } catch (error) {
+    throw new CliError(3, error.message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 
 const LOCKING_COMMANDS = new Set([
-  'init',
-  'configure-reviewer',
-  'configure-builder',
-  'confirm-signoff',
   'lock-plan',
   'dispatch',
   'complete',
@@ -2520,8 +2661,37 @@ export async function main(argv = process.argv.slice(2)) {
       await cmdModels(cwd, flags);
       return;
     }
+    if (cmd === 'picker') {
+      await cmdPicker(cwd, flags, positional);
+      return;
+    }
+    if (cmd === 'issue-approval') {
+      await cmdIssueApproval(cwd, flags, positional);
+      return;
+    }
+    if (cmd === 'configure-reviewer') {
+      await cmdConfigureReviewer(cwd, flags);
+      return;
+    }
+    if (cmd === 'configure-builder') {
+      await cmdConfigureBuilder(cwd, flags);
+      return;
+    }
     if (cmd === 'install-agents') {
+      requireDefaultModeForCommand(cwd, 'install-agents');
       cmdInstallAgents();
+      return;
+    }
+    if (cmd === 'resume') {
+      if (positional.length > 0 || Object.keys(flags).some((name) => name !== 'cwd')) {
+        throw new CliError(1, 'resume accepts only --cwd; approval data comes from the authenticated native prompt');
+      }
+      const { materializeApprovedRun } = await import('./materialize.mjs');
+      out(await materializeApprovedRun({
+        cwd,
+        stateFactory: stateFromApprovedEnvelope,
+        amendmentStateFactory: stateFromApprovedAmendment,
+      }));
       return;
     }
     const ws = new Workspace(cwd);
@@ -2536,24 +2706,13 @@ export async function main(argv = process.argv.slice(2)) {
     if (!LOCKING_COMMANDS.has(cmd)) {
       throw new CliError(
         1,
-        `unknown command "${cmd ?? ''}" — expected doctor|init|models|configure-reviewer|configure-builder|confirm-signoff|install-agents|lock-plan|dispatch|complete|resolve-build|verdict|begin-build|prepare-review|authorize-preexisting|builder-session|reviewer-session|status|set|cleanup`,
+        `unknown command "${cmd ?? ''}" — expected doctor|models|picker|issue-approval|configure-reviewer|configure-builder|resume|install-agents|lock-plan|dispatch|complete|resolve-build|verdict|begin-build|prepare-review|authorize-preexisting|builder-session|reviewer-session|status|set|cleanup`,
       );
     }
+    requireDefaultModeForCommand(cwd, cmd);
     ws.acquireLock();
     try {
       switch (cmd) {
-        case 'init':
-          cmdInit(ws, flags);
-          break;
-        case 'configure-reviewer':
-          await cmdConfigureReviewer(ws, flags);
-          break;
-        case 'configure-builder':
-          await cmdConfigureBuilder(ws, flags);
-          break;
-        case 'confirm-signoff':
-          cmdConfirmSignoff(ws, flags);
-          break;
         case 'lock-plan':
           cmdLockPlan(ws, flags);
           break;

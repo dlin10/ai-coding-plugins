@@ -1,414 +1,281 @@
 # Required Plan Forge workflow
 
-`forge.mjs` sits at the plugin root, not inside this skill folder. Resolve
-`FORGE` to the absolute path of `<skill-dir>/../../scripts/forge.mjs`, where
-`<skill-dir>` is the directory holding `SKILL.md`. Each command runs in its own
-shell, so substitute that absolute path into every command below rather than
-exporting a variable. Every command also accepts `--cwd <repository>`.
+`forge.mjs` sits at the plugin root. Resolve `FORGE` to the absolute path of
+`<skill-dir>/../../scripts/forge.mjs`, where `<skill-dir>` contains `SKILL.md`.
+Substitute that path into every command; shell variables do not persist across
+tool calls. Every command accepts `--cwd <repository>`.
 
-## Phase 0 — doctor, agents, and state
+Read [native-plan-ux.md](native-plan-ux.md) as part of this workflow. Its byte,
+picker, preview, envelope, and final-output contracts are mandatory.
 
-1. Run `node "$FORGE" install-agents`.
-2. If either managed agent was installed or updated, tell the user a new Codex
-   task is required so the native spawn schema can refresh. Stop this run.
-3. Run `node "$FORGE" doctor`.
-4. If `doctor` exits non-zero, stop before changing workflow state. Report every
-   failed check verbatim, including the `hint` of a failed `session_capture`
-   check: `everCaptured: false` means the hook never ran for any workspace (the
-   user must enable the plugin and trust its hook), while `everCaptured: true`
-   means only this repository is missing and a new prompt from it is enough.
-   Entries in `warnings` do not stop the run, but report them to the user in the
-   same message that reports progress. A stale capture is one such warning.
-5. Run `node "$FORGE" init` if this repository has no active forge state.
+## Phase 0 — read-only readiness
+
+Acts 1–2 run in Codex Plan mode and are strictly read-only:
+
+- `doctor`, `models`, `picker`, `issue-approval`, repository inspection,
+  `request_user_input`, and read-only native reviewers are allowed.
+- Do not run any mutating state command. Do not create `.forge/`,
+  `PLAN.md`, `PLAN-REVIEW-LOG.md`, refs, excludes, repository files, plugin
+  journals, or global agent files.
+- If the managed `forge_reviewer` or `forge_builder` definition is absent or
+  stale, stop. Ask for a Default-mode setup turn, run `install-agents` there,
+  and start a new Plan-mode task after Codex reloads the agent schema.
+
+Run `node "$FORGE" doctor`. Report failed checks and warnings. A setup failure
+stops the workflow; a missing materialization capture is expected before the
+native implementation turn and does not authorize mutation.
+
+Run `node "$FORGE" models`. `codex debug models` is the only catalog source.
+If it fails or has no visible usable models, stop. Do not use a native-schema,
+session, cached, inferred, static, or manually supplied fallback.
 
 ## Asking the user
 
-When `request_user_input` is listed in the available tools for the turn, use it
-for every question that has a bounded set of answers: grill questions, the
-model and effort choices, the three-way cap decisions, the pre-existing-fix
-opt-in, and the cleanup artifact question. Send one question per call, list
-only meaningful options, and put the recommended option first. Never render a
-multiple-choice question as plain assistant text while the tool is available.
-Fall back to a plain-text question only when the tool is absent.
+Use `request_user_input` for every bounded choice when available, exactly one
+question per call. This includes grill choices, model/effort pages, cap
+decisions, pre-existing-fix authorization, and cleanup. Put the recommended
+choice first. Never attach auto-resolution to code authorization, risk
+acceptance, or deletion.
 
-The final sign-off gate is the one exception: it must stay a typed free-text
-answer, because `confirm-signoff` records the user's own words as the
-authorization for writing code. Never attach an auto-resolution window to a
-question whose answer authorizes code changes, risk acceptance, or deletion.
+Use the paginated model and effort definitions in `native-plan-ux.md`. The
+native `<proposed_plan>` selector is the implementation approval surface.
 
-The installed native Codex schema uses `fork_turns`; use `fork_turns=none` for
-reviewers and builders so model/effort can be passed
-explicitly and the supplied evidence is the only inherited context.
-Use native Codex sub-agents directly. Do not replace them with `codex exec` or
-other nested Codex CLI subprocesses.
+Use native Codex agents directly. Spawn reviewers with `fork_turns=none` so
+the supplied evidence is their complete context. Pass the selected model and
+effort explicitly. Never replace native agents with `codex exec`.
 
-## Act 1 — grill and lock the plan
+## Act 1 — grill and canonical plan
 
-If a grilling skill is already available in the current session—for example
-`grill-me`, `grilling`, or a similarly described skill—invoke it for this act.
-Instruct it to stop once the decision tree is resolved and hand control back to
-`$forge`. Do not run the embedded procedure in parallel with that skill.
+If a grilling skill is available, invoke it and require one question at a time
+through `request_user_input`. Tell it to return after the decision tree is
+resolved. Otherwise:
 
-If no grilling skill is available, follow this embedded procedure:
+1. Resolve one decision-tree branch at a time.
+2. Inspect the repository instead of asking questions the code can answer.
+3. Surface assumptions, alternatives, and material tradeoffs.
+4. Continue until the goal, approach, boundaries, verification, and unresolved
+   risks are decision-complete.
 
-Interview the user relentlessly about every aspect of the plan until reaching a
-shared understanding. Walk down each branch of the design tree, resolving
-dependencies between decisions one by one. Ask questions one at a time through
-`request_user_input`, offering the recommended answer as the first option, and
-wait for the answer before continuing. If a question can be answered by
-exploring the codebase, explore the codebase instead of asking.
-
-When delegating this act to another grilling skill, pass the same instruction:
-one question per turn, asked through `request_user_input` whenever that tool is
-available.
-
-Only after the decision tree is resolved, write to the owned `PLAN.md` and
-`PLAN-REVIEW-LOG.md`. Structure the plan with a one-paragraph Goal and numbered
-`## Approach` steps. Each numbered step must be independently implementable and
-verifiable.
-
-Move to review with `set phase=review`.
+Keep the complete draft in model-visible conversation state. Normalize it to
+the canonical UTF-8/LF human-plan domain with one terminal newline and the
+Forge ownership marker. It must contain a one-paragraph Goal and numbered
+`## Approach` steps, each independently implementable and verifiable. Keep the
+complete review log and counters in conversation too. Write nothing.
 
 ## Act 2 — independent plan review
 
-At the beginning of this act:
+### Reviewer picker
 
-1. Run `node "$FORGE" models --native-models '<JSON>'`, where the JSON contains
-   the model slugs and effort levels advertised by the current `spawn_agent`
-   schema.
-2. Do not ask the user for the orchestrator model or effort. The orchestrator
-   is the current Codex session, and `configure-reviewer` derives it from session
-   discovery. If its effort is not observable and the reviewer uses the same
-   model, select the highest allowed reviewer effort.
-3. Choose the reviewer model/effort. Reviewer priority must be numerically no
-   greater than the current orchestrator priority. For the same model, reviewer
-   effort must be at least the current effort. Unknown priority requires
-   explicit user override and a reason. `ultra` is forbidden.
-4. Save choices using:
+At the beginning of Act 2, use the fresh CLI catalog and the paginated picker
+to choose the reviewer model, then its non-`ultra` effort. Model priority
+controls display order only; it never makes a reviewer eligible or ineligible.
+Obtain each page from `node "$FORGE" picker --role reviewer`, adding
+`--cursor <n>` for `More…` and `--model <slug>` for effort pages.
+Do not inspect, ask for, compare with, or derive policy from the orchestrator's
+model or effort. Keep the reviewer selection in conversation until approved
+materialization.
 
-   `configure-reviewer --reviewer-model <slug> --reviewer-effort <effort>
-   --native-models '<the same JSON>'`.
+### Review rounds
 
-   Repeat `--native-models` here. This command re-resolves the catalog and
-   rejects any selection whose spawn availability did not come from the live
-   native schema, so omitting it fails the call and wastes a round trip.
-   If priority or fresh native-spawn availability is genuinely unconfirmed, add
-   `--user-override --user-note "<the user's confirmation>"`. The reviewer
-   choice is fixed for the run; later changes require the same explicit reason.
-   A changed current session automatically replaces the orchestrator
-   observation without requiring user confirmation.
+For every round, spawn a fresh `forge_reviewer`. Supply the complete canonical
+human plan, complete settled review log, current round, and cap directly:
 
-For each round:
+> Adversarial plan review — round `{round}` of `{maxRounds}`.
+>
+> You have no memory of earlier rounds. The prompt contains the complete
+> current human plan and complete review record. Do not repeat resolved
+> findings. Verify that claimed fixes address earlier findings, and do not
+> relitigate an accepted decision unless new repository evidence invalidates
+> it.
+>
+> Inspect repository files needed to test the plan's assumptions. You are
+> read-only. Try to falsify the plan without manufacturing objections.
+>
+> Check feasibility; repository assumptions; security, concurrency, and data
+> integrity; API/schema/migration compatibility; rollback and operations;
+> failure handling and observability; edge cases; tests and verification;
+> ordering, dependencies, scope gaps, and unnecessary complexity.
+>
+> `REVISE` only for concrete evidence-backed issues material to correctness,
+> security, data integrity, feasibility, compatibility, operability, or
+> verification. Put optional improvements under `Non-blocking suggestions`.
+>
+> For each blocking finding include `Evidence:`, `Impact:`, and `Minimum fix:`.
+> End with exactly one unformatted line and nothing after it:
+> `VERDICT: APPROVED` or `VERDICT: REVISE`.
 
-1. Call `dispatch --stage plan`.
-2. Spawn a new `forge_reviewer` with a unique task name and the pinned reviewer
-   model/effort. Supply this prompt, replacing the placeholders:
+On `REVISE`, remain the final arbiter. Accept supported findings, reject
+unsupported ones, revise the complete plan, and append an orchestrator response
+to the in-conversation review log:
 
-   > Adversarial plan review — round `{round}` of `{maxRounds}`.
-   >
-   > You have no memory of earlier rounds. First read
-   > `PLAN-REVIEW-LOG.md` in full. Do not repeat resolved findings, and verify
-   > that claimed fixes genuinely address earlier findings. Do not relitigate
-   > an explicitly accepted decision unless new repository evidence invalidates
-   > it.
-   >
-   > Then read `PLAN.md` and inspect any repository files needed to test its
-   > assumptions. You are read-only. Actively try to falsify the plan, but do
-   > not manufacture objections.
-   >
-   > Check for:
-   >
-   > - incorrect repository assumptions or infeasible steps;
-   > - security, concurrency, race-condition, and data-integrity risks;
-   > - API, schema, migration, compatibility, and rollback conflicts;
-   > - missing failure handling, recovery, observability, or operational steps;
-   > - unhandled edge cases and inadequate tests or verification;
-   > - broken ordering, hidden dependencies, scope gaps, or unnecessary
-   >   complexity where a materially safer simpler approach exists.
-   >
-   > `REVISE` only for concrete, evidence-backed problems material to
-   > correctness, security, data integrity, feasibility, compatibility,
-   > operability, or verification. Put optional improvements under
-   > `Non-blocking suggestions`; approval with such suggestions is allowed.
-   >
-   > For each blocking finding provide:
-   >
-   > - `Evidence:` repository path, symbol, contract, or plan section;
-   > - `Impact:` the concrete failure or risk;
-   > - `Minimum fix:` the smallest adequate plan correction.
-   >
-   > If no blocking finding remains, approve. End with exactly one unformatted
-   > line and nothing after it: `VERDICT: APPROVED` or `VERDICT: REVISE`.
-3. Register the returned native agent id with
-   `reviewer-session --id <agent-id> --dispatch-id <dispatch-id>
-   --observed-model <reported-model> --observed-effort <reported-effort>`.
-   Record the model and effort reported by the spawn result, not merely the
-   requested values. Omit an observation flag when the result does not expose
-   it. Reusing any reviewer id in the run is rejected.
-4. Save its response to the returned critique file.
-5. Call `verdict --stage plan --file <file>`.
-6. On `REVISE`, remain the final arbiter. Accept findings supported by the plan
-   and repository, reject unsupported findings, revise `PLAN.md`, and append:
+```markdown
+### Orchestrator response — Round <n>
+**Accepted:** <finding → change and reason>
+**Rejected:** <finding → reason>
+```
 
-   ```markdown
-   ### Orchestrator response — Round <n>
-   **Accepted:** <finding → change and reason>
-   **Rejected:** <finding → reason>
-   ```
+Pass the full replacement plan and full updated log to the next fresh reviewer.
+Never patch an excerpt or rely on inherited reviewer memory.
 
-   Then repeat with a fresh reviewer.
+The initial plan-review cap is five. At a capped `REVISE`, ask the user to
+choose exactly one:
 
-The initial cap is five rounds. At a capped `REVISE`, present the unresolved
-findings and ask the user to choose:
+1. Authorize one additional round.
+2. Accept the named review risk and continue to native approval.
+3. Stop with the transcript state intact.
 
-1. One additional review round:
-   `set maxRounds=<current+1> --user-note "<the user's exact words>"`.
-2. Advance to sign-off despite the findings:
-   `set phase=signoff --user-override --user-note "<accepted review risk>"`.
-3. Stop the workflow: leave state unchanged and do not clean up automatically.
+Increment the cap by one only after choice 1. Record the user's exact risk words
+in the review log for choice 2. Never choose for the user.
 
-For an invalid or missing plan verdict, use `dispatch --stage plan --retry` up
-to `maxVerdictRetries`. At that cap, ask the same three-way question:
+An invalid or missing verdict may be retried twice initially with a fresh
+reviewer. At that cap, offer the same three choices: one additional format
+retry, accept the named risk and advance, or stop. Never infer a verdict.
 
-1. One additional format retry:
-   `set maxVerdictRetries=<current+1> --user-note "<the user's exact words>"`,
-   then retry.
-2. Advance to sign-off with the explicit risk override above.
-3. Stop with the pending dispatch preserved.
+## Preview, builder picker, and native approval
 
-Never infer a verdict from prose.
-After approval, set `phase=signoff` and enter the user gate below.
+After the plan settles:
 
-## Sign-off — final user gate before code
+1. Show the complete canonical human-plan Markdown in a normal assistant
+   preview.
+2. Only after that preview is visible, run the paginated builder model picker
+   and effort picker from the fresh CLI catalog.
+3. Bind the builder selection to the exact previewed human-plan hash.
+4. Create the strict versioned resume envelope and wrapper described in
+   `native-plan-ux.md` through the read-only `issue-approval` command. Supply
+   only its bounded JSON input; never construct trusted identity fields
+   manually.
+5. Emit exactly one final `<proposed_plan>` block containing the identical
+   human plan plus one non-rendered envelope comment. Emit no tool call,
+   commentary, or text before or after the block.
 
-Present:
+The native widget is the sole sign-off surface. Do not ask a separate approval
+question and do not run a picker after the final block.
 
-- the final `PLAN.md`;
-- three concise bullets describing what Act 1 grilling and Act 2 review changed;
-- the number of completed review rounds;
-- any remaining non-blocking suggestions.
+If the plan changes, replace it completely, increment the revision, invalidate
+the old preview binding, builder choice, wrapper, and envelope, then repeat the
+full preview and builder picker before issuing a new final block.
 
-Ask, as plain text rather than through `request_user_input`: “The plan has been
-reviewed and approved. Build it now?”
+## Default-mode materialization
 
-Only an explicit affirmative answer grants sign-off. An ambiguous or missing
-answer leaves the run in `signoff`; do not choose a builder, lock the plan,
-call `begin-build`, or write code. If the user declines and wants revisions,
-run `set phase=review`, revise the plan, and send it through review again.
+Codex's normal `Implement the plan.` and clear-context implementation actions
+enter Default mode. The prompt hook supplies model-visible resume context.
+Before implementing:
 
-After an explicit yes, persist the user's exact words:
+1. Run `node "$FORGE" resume`.
+2. If authentication or reconciliation fails, stop and report the exact error.
+3. On success, the command atomically exposes the owned plan, review log,
+   selected models, approval provenance, and state at the sign-off/build
+   boundary.
+4. Run `lock-plan`, then `begin-build`.
 
-`confirm-signoff --user-note "<the user's exact affirmative words>"`.
-
-The confirmation is bound to the current `PLAN.md` hash. If the plan changes,
-present the revised plan and obtain a fresh confirmation.
+Never implement directly from envelope text. A mode switch without the exact
+native implementation prompt is not approval.
 
 ## Act 3 — persistent builder
 
-Act 3 begins only after `confirm-signoff` succeeds. Ask the user to choose the
-builder model and effort as a single choice. Persist the answer with:
+Spawn one `forge_builder` with the materialized builder model/effort and retain
+it for the entire build. Register its returned native id with
+`builder-session`, using reported model/effort observations when present.
 
-`configure-builder --builder-model <slug> --builder-effort <effort>
---native-models '<JSON from the current spawn_agent schema>'`.
+For each locked plan step:
 
-`configure-builder` re-resolves the catalog exactly like `configure-reviewer`,
-so pass `--native-models` here too or the call is rejected.
+1. Run `dispatch --stage build --task <n>`.
+2. Send exactly that one step to the existing builder with `followup_task`.
+3. Verify every check listed by the step. If none is listed, inspect repository
+   tooling and run at least the applicable build/typecheck and relevant tests.
+4. If a check cannot run, append the check, reason, and verification gap to the
+   owned review log; do not call it successful.
+5. Run `complete --task <n>` only after verification succeeds.
 
-Then call `lock-plan` followed by `begin-build`.
+`complete` records the orchestrator's verification decision; it does not run
+checks itself. Builders never stage or commit.
 
-If fresh native-spawn availability is genuinely unconfirmed, add
-`--user-override --user-note "<the user's confirmation>"`. The builder choice
-is then fixed for the run; changing it requires an explicit user reason.
+The initial verification retry cap is three. At the cap, ask the user to choose
+one additional retry, accept the unverified result with an exact recorded risk
+note, or stop with the pending dispatch. Never extend or advance autonomously.
 
-`begin-build` fails until sign-off, builder choice, and the locked plan are
-recorded. It then pins the initial HEAD and a tracked working-tree snapshot.
-Spawn one `forge_builder` with the selected model/effort and retain its returned
-agent id. Register it with `builder-session --id <agent-id>
---observed-model <reported-model> --observed-effort <reported-effort>`, using
-the model and effort reported by the spawn result rather than the requested
-values and omitting unavailable observations. For each locked plan step:
+On resume, recover the live builder when possible. Otherwise spawn one
+replacement, register it, and record the recovery.
 
-1. Call `dispatch --stage build --task <n>`.
-2. Send that one step to the existing builder with `followup_task`.
-3. Verify the result. Verification is the orchestrator's responsibility:
-   `forge.mjs` does not run compilation, typechecking, or tests, and
-   `complete --task` is only a procedural gate recording the orchestrator's
-   verification decision. Run every verification command or check listed in
-   the corresponding locked plan step. If that step lists none, inspect the
-   repository tooling and run, at minimum, the applicable build and/or
-   typecheck plus relevant tests. If the project or environment prevents an
-   expected check from running, append the check, the reason it could not run,
-   and the resulting verification gap to `PLAN-REVIEW-LOG.md`; do not count
-   that check as successful. `dispatch --stage build --retry` permits up to
-   three verification retries initially.
-4. Call `complete --task <n>` only after verification succeeds.
+A material amendment receives exactly one fresh plan-review round. If approved,
+show the full amended plan and repeat the native approval contract before
+returning to build; a `REVISE` returns to the user rather than iterating
+autonomously. The approval input must contain the complete durable review log
+including that consumed `APPROVED` verdict. If the amended builder selection
+differs from the existing pin, spawn and register a replacement builder before
+the next dispatch; never send work to the old agent under the new pin.
 
-At the verification cap, ask the user to choose:
+After all tasks, set `phase=code-review` and run `prepare-review`.
 
-1. One additional retry:
-   `set maxBuildRetries=<current+1> --user-note "<the user's exact words>"`,
-   then retry.
-2. Accept the unverified result and advance:
-   `complete --task <n> --user-override --user-note "<accepted risk>"`.
-   Continue to the next plan step, or Act 4 when this was the final step.
-3. Stop with the pending build dispatch preserved.
+## Act 4 — full code review and fixes
 
-On resume, recover the live builder from the agent list when available;
-otherwise spawn one replacement and record the recovery in the event log.
+Reuse the exact reviewer model/effort materialized from Act 2; do not run a
+second reviewer picker. Spawn a fresh reviewer for every code-review round.
 
-A material plan amendment enters `set phase=review --amendment`, receives
-exactly one fresh reviewer round, and is relocked. Present an approved amended
-plan to the user and run `confirm-signoff` again before returning to
-`set phase=build`; every build dispatch rechecks that sign-off hash. `REVISE`
-is returned to the user; do not iterate autonomously.
+`prepare-review` emits attributed pre-existing and in-run tracked patches,
+inventories every untracked file, and records withheld evidence. Safe text
+untracked files up to 100 KB are included subject to the 1 MiB aggregate
+budget. Oversized files remain inventoried and keep coverage partial. Binary
+and secret-like files require explicit user authorization through
+`prepare-review --allow-files '<JSON array>' --user-note "<consent>"`.
+Pre-existing findings are labeled and may be fixed only after separate opt-in.
 
-After all steps, set `phase=code-review` and call `prepare-review`.
+Select a performance block from the changed paths. For .NET changes, require
+the reviewer to use `Analyzing Dotnet Performance` when available; otherwise
+provide the embedded performance checklist.
 
-## Act 4 — full review and fixes
-
-Do not perform another reviewer selection. Reuse the exact reviewer model and
-effort pinned at the beginning of Act 2 for every fresh Act 4 reviewer.
-
-`prepare-review` emits two attributed tracked patches: pre-existing changes
-between initial HEAD and the build-start snapshot, and in-run changes from that
-snapshot to the current tree. It also inventories every current untracked file.
-Safe text files up to 100 KB are included, subject to a 1 MiB aggregate budget
-for untracked content. Files larger than 100 KB are inventoried without being
-read and keep coverage partial. Tracked patches are not budgeted, so a very
-large tracked change can produce evidence the reviewer cannot read in full.
-Binary and secret-like files within the per-file bound are withheld until the
-user explicitly allows their review with
-`prepare-review --allow-files '<JSON array>' --user-note "<the user's consent>"`.
-Allowances persist for later preparations. Pre-existing findings are always
-shown and labeled.
-
-Build a `{performanceBlock}` before spawning. If the changed-file summary
-contains .NET code or another performance-sensitive path, make it require
-performance analysis. When selected, performance review is required. For .NET
-changes, if the `Analyzing Dotnet Performance` skill is available, instruct the
-reviewer to invoke it; otherwise include the embedded checklist below. If no
-changed path is performance-sensitive, set
-`{performanceBlock}` to a single sentence saying no dedicated performance
-block was selected; the normal correctness review still applies.
-
-For each round, dispatch `code` and spawn a fresh reviewer with this prompt,
-replacing the placeholders:
+For each round, dispatch `code` and supply the reviewer:
 
 > Adversarial code review — fix round `{fixRound}` of `{maxFixRounds}`.
 >
-> {performanceBlock}
+> Read `PLAN.md`, `PLAN-REVIEW-LOG.md`, `.forge/review-manifest.json`,
+> `.forge/changed-files.txt`, `.forge/pre-existing.patch`,
+> `.forge/in-run.patch`, and `.forge/untracked-review.patch` in that order.
+> Inspect other repository files as needed. You are read-only.
 >
-> Read, in order:
+> Judge the implementation against the accepted plan. Find concrete bugs,
+> security/data-integrity defects, incomplete steps, compatibility or
+> concurrency failures, missing error handling/tests, and material performance
+> regressions. Do not relitigate accepted design choices without new evidence.
 >
-> 1. `PLAN.md` for the required implementation and accepted tradeoffs;
-> 2. `PLAN-REVIEW-LOG.md` for settled decisions and earlier findings;
-> 3. `.forge/review-manifest.json` for scope and withheld evidence;
-> 4. `.forge/changed-files.txt` for the name-only scope summary;
-> 5. `.forge/pre-existing.patch` and `.forge/in-run.patch` in full to attribute
->    tracked findings correctly;
-> 6. `.forge/untracked-review.patch` for permitted untracked content.
+> Attribute every blocking finding as `IN-RUN` or `PRE-EXISTING` and include
+> `Evidence:`, `Impact:`, and `Minimum fix:`.
 >
-> You may inspect any repository file needed for context. You are read-only.
-> Actively try to falsify the implementation, but do not manufacture defects.
-> Judge the implementation against the accepted plan, not against a different
-> design you would have preferred. Do not relitigate accepted decisions unless
-> new code evidence invalidates them.
->
-> Look for concrete bugs, security or data-integrity defects, incomplete plan
-> steps, unintended deviations, broken API/schema compatibility, concurrency
-> failures, missing error handling, and broken or missing tests.
->
-> When the performance instruction above requires the embedded review, inspect
-> changed performance-sensitive paths for:
->
-> - worse algorithmic complexity, repeated work, or unbounded growth;
-> - avoidable hot-path allocations, excessive materialization, or GC pressure;
-> - blocking async calls, lock contention, thread-pool starvation, or unsafe
->   parallelism;
-> - N+1 operations, excessive database/network/file-system round trips, or
->   missed batching;
-> - cache, pooling, buffering, and resource-lifetime regressions;
-> - material startup, latency, throughput, or memory regressions.
->
-> Tie each performance finding to changed code and a plausible workload. Prefer
-> existing benchmarks, profiles, telemetry, or complexity evidence. Do not
-> require speculative micro-optimizations or claim measured impact without
-> measurements.
->
-> For every blocking finding provide:
->
-> - `Attribution:` `IN-RUN` or `PRE-EXISTING`;
-> - `Evidence:` file and precise location;
-> - `Impact:` the concrete failure or risk;
-> - `Minimum fix:` the smallest adequate correction.
->
-> `REVISE` only for evidence-backed material defects. Put optional improvements
-> under `Non-blocking suggestions`; approval with such suggestions is allowed.
-> Report pre-existing findings, but do not request their repair as part of this
-> run unless the manifest records user authorization.
->
-> Before the verdict, include exactly one line: `COVERAGE: FULL` if every
-> supplied patch and permitted untracked file was reviewed, or
-> `COVERAGE: PARTIAL — <reason>` naming what was not reviewed. Never approve
-> partial coverage. End with exactly one unformatted line and nothing after it:
-> `VERDICT: APPROVED` or `VERDICT: REVISE`.
+> Before the verdict include exactly one `COVERAGE: FULL` or
+> `COVERAGE: PARTIAL — <reason>` line. End with exactly one
+> `VERDICT: APPROVED` or `VERDICT: REVISE` line and nothing after it.
 
-Register the reviewer with `reviewer-session`, save the response, and consume
-it with `verdict`.
-`APPROVED` requires `COVERAGE: FULL`. On `REVISE`, remain the final arbiter,
-record accepted and rejected findings with reasons in `PLAN-REVIEW-LOG.md`, and
-send only accepted in-run findings to the persistent builder as a `fix`
-dispatch.
+Register the fresh reviewer, save its critique in `.forge/critiques`, and
+consume it with `verdict --stage code`. Approval requires `COVERAGE: FULL`.
+Never infer malformed coverage or approve partial evidence.
 
-Verify each fix. Its initial retry cap is `maxBuildRetries`. At that cap, ask
-the user to authorize one additional retry by incrementing
-`maxBuildRetries`, accept the unverified fix with
-`complete --fix --user-override --user-note "<accepted risk>"`, or stop with
-the pending dispatch preserved.
+On `REVISE`, record accepted/rejected findings with reasons and send only
+accepted in-run findings to the persistent builder as a `fix` dispatch. Verify
+each fix before `complete --fix`.
 
-The initial fix-round cap is three. At a capped `REVISE`, ask the user to choose:
+The initial fix-round cap is three, verification retry cap is three, and
+verdict-format retry cap is two. At any cap ask the user to authorize exactly
+one extra attempt, accept the named risk and advance, or stop. Preserve pending
+state when stopping.
 
-1. One additional fix round:
-   `set maxFixRounds=<current+1> --user-note "<the user's exact words>"`.
-   Then dispatch the accepted findings to the builder and run another review.
-2. Advance and retain the findings:
-   `set phase=done-with-findings --user-override --user-note "<accepted risk>"`.
-3. Stop with the run unresolved.
+The run ends as `done` after full-coverage approval or
+`done-with-findings` only after explicit user risk acceptance.
 
-For an invalid code-review verdict or coverage line, retry up to
-`maxVerdictRetries`. At that cap, ask whether to increment
-`maxVerdictRetries` by one and retry, advance to `done-with-findings` with the
-explicit risk override, or stop with the pending dispatch preserved. Never
-infer a verdict or treat partial coverage as approval.
+## State, ownership, and cleanup
 
-## State and Git integrity
+After materialization, use `forge.mjs` for every state transition. Never
+hand-edit `.forge/state.json`, refs, or managed exclude blocks. `status` is the
+normal resume view; use `status --full` for diagnosis.
 
-Use `forge.mjs` for every state transition. Never hand-edit
-`.forge/state.json`, forge refs, or the managed exclude block. Reviewers and
-builders must not commit or stage changes; the working tree is the handoff.
-
-`status` returns a compact orchestration summary; use `status --full` only for
-diagnosis, including `pendingFingerprintMatches`. `verifyCommands` is
-orchestrator-owned advisory state set with
-`set verifyCommands='<JSON array>'`; the CLI records it but does not execute it.
-If a builder reports a merge/conflict condition for a pending task, use
-`resolve-build --conflict` to clear that dispatch without advancing the task.
-Dispatch never fails solely because of session-capture age; stale capture data
-is reported and drift checks continue against the last observed session state.
-
-## Cleanup
-
-Always ask: “Delete the forge-owned `PLAN.md` and
-`PLAN-REVIEW-LOG.md` files?” The default is no.
+Always ask whether to delete the forge-owned `PLAN.md` and
+`PLAN-REVIEW-LOG.md`; default to keeping them:
 
 - No or no answer: `cleanup`
 - Explicit yes: `cleanup --delete-artifacts`
 
-The CLI always removes `.forge/`, managed exclude blocks, and pinned refs.
-Artifact deletion is pair-safe and rechecks the ownership marker immediately
-before deletion. A missing or replaced marker blocks artifact deletion without
-blocking internal cleanup.
-
-Managed global agents are shared by all repositories. Remove them only for an
-explicit machine-wide uninstall request with `cleanup --purge-agents`; files
-without the generated marker are preserved.
+Cleanup always removes `.forge/`, managed excludes, and pinned refs. Artifact
+deletion is pair-safe and rechecks both ownership markers. Normal cleanup keeps
+the nonce tombstone. Purge the machine-wide replay ledger only on an explicit
+machine-wide request. Remove generated global agents only on an explicit
+machine-wide uninstall with `cleanup --purge-agents`; preserve hand-authored
+files.
