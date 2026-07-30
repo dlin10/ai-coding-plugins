@@ -11,6 +11,7 @@ import {
   buildApprovalWrapper,
   classifyImplementationPrompt,
   CLEAR_CONTEXT_IMPLEMENTATION_PREFIX,
+  DESKTOP_IMPLEMENTATION_PROMPT,
   decodeEnvelope,
   encodeEnvelope,
   extractApprovalWrapper,
@@ -174,7 +175,7 @@ test('resume envelope round-trips strictly and binds the separate human-plan byt
   assert.throws(() => decodeEnvelope(`${encoded}=`), /encoding is malformed/);
 });
 
-test('native prompt classification accepts only the exact normal and clear-context forms', () => {
+test('native prompt classification accepts only the exact Desktop, legacy, and clear-context forms', () => {
   const item = fixture();
   const value = envelope({
     sessionId: 'session-origin',
@@ -183,12 +184,16 @@ test('native prompt classification accepts only the exact normal and clear-conte
     itemId: 'item-plan',
   }, item.repository);
   const wrapper = buildApprovalWrapper(PLAN, value);
+  assert.equal(classifyImplementationPrompt(DESKTOP_IMPLEMENTATION_PROMPT).kind, 'same-context');
   assert.equal(classifyImplementationPrompt(NORMAL_IMPLEMENTATION_PROMPT).kind, 'same-context');
   assert.equal(
     classifyImplementationPrompt(`${CLEAR_CONTEXT_IMPLEMENTATION_PREFIX}\n\n${wrapper}`).kind,
     'clear-context',
   );
   assert.equal(classifyImplementationPrompt('Implement the plan').kind, 'other');
+  assert.equal(classifyImplementationPrompt('Yes, implement this plan.').kind, 'other');
+  assert.equal(classifyImplementationPrompt('yes, implement this plan').kind, 'other');
+  assert.equal(classifyImplementationPrompt(` ${DESKTOP_IMPLEMENTATION_PROMPT}`).kind, 'other');
   assert.equal(classifyImplementationPrompt(wrapper).kind, 'other');
 });
 
@@ -234,7 +239,7 @@ test('same-context authorization requires the immediate terminal Plan-mode propo
       text: `<proposed_plan>\n${wrapper}</proposed_plan>`,
     }),
     turn('turn-implement', 'default'),
-    message({ id: 'item-user', role: 'user', text: NORMAL_IMPLEMENTATION_PROMPT }),
+    message({ id: 'item-user', role: 'user', text: DESKTOP_IMPLEMENTATION_PROMPT }),
   ];
   writeTranscript(item.transcriptPath, records);
   const authorized = authorizeNativeImplementation({

@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path';
 export const ENVELOPE_VERSION = 1;
 export const MAX_ENVELOPE_BYTES = 512 * 1024;
 export const NORMAL_IMPLEMENTATION_PROMPT = 'Implement the plan.';
+export const DESKTOP_IMPLEMENTATION_PROMPT = 'Yes, implement this plan';
 export const CLEAR_CONTEXT_IMPLEMENTATION_PREFIX =
   "A previous agent produced the plan below to accomplish the user's task. " +
   'Implement the plan in a fresh context. Treat the plan as the source of user intent, ' +
@@ -284,7 +285,9 @@ export function extractApprovalWrapper(value) {
 }
 
 export function classifyImplementationPrompt(prompt) {
-  if (prompt === NORMAL_IMPLEMENTATION_PROMPT) return { kind: 'same-context', wrapper: null };
+  if (prompt === NORMAL_IMPLEMENTATION_PROMPT || prompt === DESKTOP_IMPLEMENTATION_PROMPT) {
+    return { kind: 'same-context', wrapper: null };
+  }
   const prefix = `${CLEAR_CONTEXT_IMPLEMENTATION_PREFIX}\n\n`;
   if (!prompt.startsWith(prefix)) return { kind: 'other', wrapper: null };
   const wrapperText = prompt.slice(prefix.length);

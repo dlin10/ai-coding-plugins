@@ -157,8 +157,9 @@ full preview and builder picker before issuing a new final block.
 
 ## Default-mode materialization
 
-Codex's normal `Implement the plan.` and clear-context implementation actions
-enter Default mode. The prompt hook supplies model-visible resume context.
+Codex Desktop's `Yes, implement this plan`, legacy `Implement the plan.`, and
+clear-context implementation actions enter Default mode. The prompt hook
+supplies model-visible resume context.
 Before implementing:
 
 1. Run `node "$FORGE" resume`.

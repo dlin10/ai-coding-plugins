@@ -208,7 +208,7 @@ function implementationTurn(transcript, turnId, expectedPrompt = null, allowMiss
 
 function sameContextCandidate(current, context, prompt, promptText) {
   const classification = classifyImplementationPrompt(promptText);
-  if (classification.kind !== 'same-context') fail('current prompt is not the exact normal implementation literal');
+  if (classification.kind !== 'same-context') fail('current prompt is not a supported exact implementation literal');
   const anchor = Math.min(context.index, prompt?.index ?? context.index);
   const priorActivity = current.records.filter((record) =>
     record.index < anchor &&

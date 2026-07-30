@@ -90,8 +90,9 @@ the plan revision, and invalidate the previous preview binding, builder
 selection, wrapper, and envelope. Show the complete revised preview, repeat the
 builder picker, and issue a new final wrapper.
 
-Native `Implement the plan.` and clear-context implementation actions are
-handled only after Codex enters Default mode. The new context must run
+Native Desktop `Yes, implement this plan`, legacy `Implement the plan.`, and
+clear-context implementation actions are handled only after Codex enters
+Default mode. The new context must run
 `forge.mjs resume`; it must not implement directly. Materialization authenticates
 the transcript relationship and wrapper before persisting the reviewer/builder
 selections or any Forge artifact.
