@@ -83,8 +83,9 @@ preview and picker.
 
 ### Default-mode resume and materialization
 
-Both native implementation actions are supported: same-context
-`Implement the plan.` and clear-context implementation. The prompt hook derives
+Both native implementation actions are supported: same-context Desktop
+`Yes, implement this plan`, legacy `Implement the plan.`, and clear-context
+implementation. The prompt hook derives
 Default mode from the matching transcript `turn_context`, authenticates the
 immediate Forge wrapper relationship (or terminal carried origin), stores no
 arbitrary prompt text, and only then tells the new context to run

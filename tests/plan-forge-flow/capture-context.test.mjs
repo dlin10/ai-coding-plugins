@@ -19,6 +19,7 @@ import {
 } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 import {
   buildApprovalWrapper,
+  DESKTOP_IMPLEMENTATION_PROMPT,
   issuanceItemId,
   newNonce,
   sha256,
@@ -214,7 +215,7 @@ test('UserPromptSubmit derives Default mode from the matching turn and emits bou
       turn_id: 'turn-native',
       transcript_path: transcriptPath,
       cwd,
-      prompt: 'Implement the plan.',
+      prompt: DESKTOP_IMPLEMENTATION_PROMPT,
       permission_mode: 'read-only',
     }),
     env: { ...process.env, FORGE_PLUGIN_DATA: pluginData },
