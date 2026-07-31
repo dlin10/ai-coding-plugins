@@ -16,6 +16,12 @@ function canonicalWorkspace(cwd) {
   }
 }
 
+function sameWorkspace(left, right) {
+  return process.platform === 'win32'
+    ? left.toLowerCase() === right.toLowerCase()
+    : left === right;
+}
+
 export function capturedMode(cwd) {
   const workspaceRoot = canonicalWorkspace(cwd);
   const path = sessionContextPathFor(workspaceRoot);
@@ -26,7 +32,7 @@ export function capturedMode(cwd) {
   } catch {
     return { mode: 'unknown', reason: 'malformed-capture', workspaceRoot };
   }
-  if (capture.version !== 2 || capture.cwd !== workspaceRoot ||
+  if (capture.version !== 2 || !sameWorkspace(capture.cwd, workspaceRoot) ||
       typeof capture.observedAt !== 'string') {
     return { mode: 'unknown', reason: 'schema-incompatible-capture', workspaceRoot };
   }

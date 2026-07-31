@@ -22,7 +22,7 @@ function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 }
 
-function fixture(mode) {
+function fixture(mode, transformCapturedCwd = (cwd) => cwd) {
   const root = mkdtempSync(join(tmpdir(), 'forge-mode-gate-'));
   const repo = join(root, 'repo');
   const pluginData = join(root, 'plugin-data');
@@ -40,7 +40,7 @@ function fixture(mode) {
     mkdirSync(join(pluginData, 'session-context'), { recursive: true });
     writeFileSync(capturePath, JSON.stringify({
       version: 2,
-      cwd,
+      cwd: transformCapturedCwd(cwd),
       collaborationMode: mode,
       observedAt: new Date().toISOString(),
     }));
@@ -79,6 +79,14 @@ test('start-plan succeeds only with a fresh Plan-mode capture and does not mutat
   assert.deepEqual(JSON.parse(result.stdout), { action: 'start-plan', mode: 'plan' });
   assert.equal(git(item.cwd, ['status', '--short']), before);
   assert.equal(existsSync(join(item.cwd, '.forge')), false);
+});
+
+test('start-plan accepts equivalent Windows workspace path casing', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const item = fixture('plan', (cwd) => cwd.toUpperCase());
+  const result = run(item, ['start-plan']);
+  assert.equal(result.status, 0, result.stdout);
 });
 
 test('start-plan fails closed outside Plan mode', () => {
