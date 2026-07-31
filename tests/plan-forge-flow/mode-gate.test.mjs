@@ -5,14 +5,16 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { sessionContextPathFor } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
+import {
+  canonicalWorkspaceRoot,
+  sessionContextPathFor,
+} from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 
 const FORGE = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/scripts/forge.mjs', import.meta.url),
@@ -30,7 +32,7 @@ function fixture(mode, transformCapturedCwd = (cwd) => cwd) {
   git(repo, ['init', '-q']);
   git(repo, ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test',
     'commit', '--allow-empty', '-q', '-m', 'initial']);
-  const cwd = realpathSync(repo);
+  const cwd = canonicalWorkspaceRoot(repo);
   if (mode) {
     const previous = process.env.FORGE_PLUGIN_DATA;
     process.env.FORGE_PLUGIN_DATA = pluginData;
