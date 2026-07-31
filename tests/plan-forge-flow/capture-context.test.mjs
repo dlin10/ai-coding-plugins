@@ -58,6 +58,43 @@ test('UserPromptSubmit hook fails open for malformed input', () => {
   assert.equal(result.status, 0);
 });
 
+test('UserPromptSubmit blocks an explicit Forge start outside Plan mode', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-cwd-'));
+  const result = spawnSync(process.execPath, [HOOK], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      session_id: 'session-default-forge',
+      cwd,
+      prompt: 'Use $forge to plan and implement this change.',
+      permission_mode: 'default',
+    }),
+    env: { ...process.env, FORGE_PLUGIN_DATA: pluginData },
+  });
+  assert.equal(result.status, 0);
+  const hookOutput = JSON.parse(result.stdout);
+  assert.equal(hookOutput.decision, 'block');
+  assert.match(hookOutput.reason, /Act 1 requires Plan mode/);
+  assert.match(hookOutput.reason, /\/plan or Shift\+Tab/);
+});
+
+test('UserPromptSubmit allows an explicit Forge start in Plan mode', () => {
+  const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'forge-hook-cwd-'));
+  const result = spawnSync(process.execPath, [HOOK], {
+    encoding: 'utf8',
+    input: JSON.stringify({
+      session_id: 'session-plan-forge',
+      cwd,
+      prompt: 'Use $forge to plan and implement this change.',
+      permission_mode: 'plan',
+    }),
+    env: { ...process.env, FORGE_PLUGIN_DATA: pluginData },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, '');
+});
+
 test('UserPromptSubmit hook writes where the CLI looks, ignoring Codex PLUGIN_DATA', () => {
   const pluginData = mkdtempSync(join(tmpdir(), 'forge-hook-shared-'));
   const codexPluginData = mkdtempSync(join(tmpdir(), 'forge-hook-codex-'));

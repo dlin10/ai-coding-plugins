@@ -71,6 +71,26 @@ test('removed pre-materialization state command cannot mutate in Plan or unknown
   }
 });
 
+test('start-plan succeeds only with a fresh Plan-mode capture and does not mutate the repository', () => {
+  const item = fixture('plan');
+  const before = git(item.cwd, ['status', '--short']);
+  const result = run(item, ['start-plan']);
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), { action: 'start-plan', mode: 'plan' });
+  assert.equal(git(item.cwd, ['status', '--short']), before);
+  assert.equal(existsSync(join(item.cwd, '.forge')), false);
+});
+
+test('start-plan fails closed outside Plan mode', () => {
+  for (const mode of ['default', null]) {
+    const item = fixture(mode);
+    const result = run(item, ['start-plan']);
+    assert.equal(result.status, 3);
+    assert.match(result.stdout, /requires a fresh Plan-mode UserPromptSubmit capture/);
+    assert.equal(existsSync(join(item.cwd, '.forge')), false);
+  }
+});
+
 test('removed pre-materialization state command is unavailable in Default mode too', () => {
   const item = fixture('default');
   const result = run(item, ['init']);

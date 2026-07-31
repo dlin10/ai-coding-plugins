@@ -53,7 +53,7 @@ import {
   nonceTombstoneDir,
   sessionContextPathFor,
 } from './plugin-paths.mjs';
-import { requireDefaultMode } from './mode-gate.mjs';
+import { requireDefaultMode, requirePlanMode } from './mode-gate.mjs';
 import {
   extractApprovalWrapper,
   repositoryIdentityEquals,
@@ -2634,6 +2634,14 @@ function requireDefaultModeForCommand(cwd, action) {
   }
 }
 
+function requirePlanModeForCommand(cwd, action) {
+  try {
+    requirePlanMode(cwd, action);
+  } catch (error) {
+    throw new CliError(3, error.message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 
@@ -2657,6 +2665,14 @@ export async function main(argv = process.argv.slice(2)) {
     const [cmd, ...rest] = argv;
     const { flags, positional } = parseArgs(rest);
     const cwd = typeof flags.cwd === 'string' ? flags.cwd : process.cwd();
+    if (cmd === 'start-plan') {
+      if (positional.length > 0 || Object.keys(flags).some((name) => name !== 'cwd')) {
+        throw new CliError(1, 'start-plan accepts only --cwd');
+      }
+      requirePlanModeForCommand(cwd, 'start-plan');
+      out({ action: 'start-plan', mode: 'plan' });
+      return;
+    }
     if (cmd === 'models') {
       await cmdModels(cwd, flags);
       return;
@@ -2706,7 +2722,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (!LOCKING_COMMANDS.has(cmd)) {
       throw new CliError(
         1,
-        `unknown command "${cmd ?? ''}" — expected doctor|models|picker|issue-approval|configure-reviewer|configure-builder|resume|install-agents|lock-plan|dispatch|complete|resolve-build|verdict|begin-build|prepare-review|authorize-preexisting|builder-session|reviewer-session|status|set|cleanup`,
+        `unknown command "${cmd ?? ''}" — expected start-plan|doctor|models|picker|issue-approval|configure-reviewer|configure-builder|resume|install-agents|lock-plan|dispatch|complete|resolve-build|verdict|begin-build|prepare-review|authorize-preexisting|builder-session|reviewer-session|status|set|cleanup`,
       );
     }
     requireDefaultModeForCommand(cwd, cmd);

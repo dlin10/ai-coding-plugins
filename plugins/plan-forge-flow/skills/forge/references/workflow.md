@@ -21,6 +21,10 @@ Acts 1–2 run in Codex Plan mode and are strictly read-only:
   stale, stop. Ask for a Default-mode setup turn, run `install-agents` there,
   and start a new Plan-mode task after Codex reloads the agent schema.
 
+Before any other workflow action, run `node "$FORGE" start-plan`. If it fails,
+stop and tell the user to toggle Plan mode with `/plan` or Shift+Tab, then
+resubmit the `$forge` prompt. Never continue Act 1 after a failed preflight.
+
 Run `node "$FORGE" doctor`. Report failed checks and warnings. A setup failure
 stops the workflow; a missing materialization capture is expected before the
 native implementation turn and does not authorize mutation.

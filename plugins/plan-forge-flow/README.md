@@ -166,6 +166,11 @@ Open a Codex Plan-mode task in the target repository:
 Use $forge to plan, review, and implement <your change>.
 ```
 
+An explicit `$forge` prompt submitted outside Plan mode is blocked with
+instructions to toggle Plan mode using `/plan` or Shift+Tab. Forge also runs a
+read-only `start-plan` preflight before Act 1 so implicit skill activation
+fails closed when the prompt hook cannot establish Plan mode.
+
 Before native approval, recovery depends on the retained Plan-mode transcript;
 there is intentionally no repository-local Forge state. After approval,
 `resume` materializes the run and `status` reports its durable phase, selected

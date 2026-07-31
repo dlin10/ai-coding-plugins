@@ -56,3 +56,14 @@ export function requireDefaultMode(cwd, action) {
   }
   return observed;
 }
+
+export function requirePlanMode(cwd, action) {
+  const observed = capturedMode(cwd);
+  if (observed.mode !== 'plan') {
+    throw new Error(
+      `${action} requires a fresh Plan-mode UserPromptSubmit capture ` +
+      `(observed ${observed.mode}: ${observed.reason ?? 'no reason'})`,
+    );
+  }
+  return observed;
+}
