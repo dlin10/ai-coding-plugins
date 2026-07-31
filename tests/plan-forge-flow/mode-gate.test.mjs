@@ -5,14 +5,16 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { sessionContextPathFor } from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
+import {
+  canonicalWorkspaceRoot,
+  sessionContextPathFor,
+} from '../../plugins/plan-forge-flow/scripts/plugin-paths.mjs';
 
 const FORGE = fileURLToPath(
   new URL('../../plugins/plan-forge-flow/scripts/forge.mjs', import.meta.url),
@@ -22,7 +24,7 @@ function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 }
 
-function fixture(mode) {
+function fixture(mode, transformCapturedCwd = (cwd) => cwd) {
   const root = mkdtempSync(join(tmpdir(), 'forge-mode-gate-'));
   const repo = join(root, 'repo');
   const pluginData = join(root, 'plugin-data');
@@ -30,7 +32,7 @@ function fixture(mode) {
   git(repo, ['init', '-q']);
   git(repo, ['-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.test',
     'commit', '--allow-empty', '-q', '-m', 'initial']);
-  const cwd = realpathSync(repo);
+  const cwd = canonicalWorkspaceRoot(repo);
   if (mode) {
     const previous = process.env.FORGE_PLUGIN_DATA;
     process.env.FORGE_PLUGIN_DATA = pluginData;
@@ -40,7 +42,7 @@ function fixture(mode) {
     mkdirSync(join(pluginData, 'session-context'), { recursive: true });
     writeFileSync(capturePath, JSON.stringify({
       version: 2,
-      cwd,
+      cwd: transformCapturedCwd(cwd),
       collaborationMode: mode,
       observedAt: new Date().toISOString(),
     }));
@@ -68,6 +70,34 @@ test('removed pre-materialization state command cannot mutate in Plan or unknown
     assert.equal(existsSync(join(item.cwd, 'PLAN-REVIEW-LOG.md')), false);
     assert.equal(existsSync(join(item.cwd, '.git', 'plan-forge-active.json')), false);
     assert.equal(readFileSync(excludePath, 'utf8'), beforeExclude);
+  }
+});
+
+test('start-plan succeeds only with a fresh Plan-mode capture and does not mutate the repository', () => {
+  const item = fixture('plan');
+  const before = git(item.cwd, ['status', '--short']);
+  const result = run(item, ['start-plan']);
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), { action: 'start-plan', mode: 'plan' });
+  assert.equal(git(item.cwd, ['status', '--short']), before);
+  assert.equal(existsSync(join(item.cwd, '.forge')), false);
+});
+
+test('start-plan accepts equivalent Windows workspace path casing', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const item = fixture('plan', (cwd) => cwd.toUpperCase());
+  const result = run(item, ['start-plan']);
+  assert.equal(result.status, 0, result.stdout);
+});
+
+test('start-plan fails closed outside Plan mode', () => {
+  for (const mode of ['default', null]) {
+    const item = fixture(mode);
+    const result = run(item, ['start-plan']);
+    assert.equal(result.status, 3);
+    assert.match(result.stdout, /requires a fresh Plan-mode UserPromptSubmit capture/);
+    assert.equal(existsSync(join(item.cwd, '.forge')), false);
   }
 });
 

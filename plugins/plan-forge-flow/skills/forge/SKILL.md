@@ -16,6 +16,8 @@ and gates are required, not suggestions.
 ## Hard rules
 
 - Ask grill questions one at a time.
+- Run the `start-plan` preflight before any Act 1 action and stop if it does not
+  confirm a fresh Plan-mode prompt.
 - Ask every bounded-choice question through `request_user_input` when that tool
   is available, one question per call, recommended option first. Use the
   required two-option pagination contract for model and effort pickers.
