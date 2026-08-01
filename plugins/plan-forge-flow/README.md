@@ -115,7 +115,9 @@ The approval wrapper uses canonical UTF-8/LF plan and review bytes, exact
 repository identity, transcript origin, one-time nonce, normalized runtime
 model selections, and builder-to-plan hash binding. Materialization writes only
 the owned `PLAN.md`, `PLAN-REVIEW-LOG.md`, and nested state after all checks
-pass. Forge asks for model and effort separately for reviewer and builder in
+pass. `approval resume` passes the validated wrapper text directly to
+materialization; wrapper file paths are not accepted. Forge asks for model and
+effort separately for reviewer and builder in
 free text; runtime rejection or an ambiguous answer can be retried up to three
 times per role, and `ultra` is always forbidden.
 

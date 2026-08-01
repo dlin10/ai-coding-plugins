@@ -60,17 +60,6 @@ internal static class StateStore
         catch (Exception error) { throw new CliFailure("state", $"state is malformed: {error.Message}", 3); }
     }
 
-    public static JsonObject Ensure(string workspace, string? planHash = null)
-    {
-        try { return Load(workspace); }
-        catch (CliFailure failure) when (failure.Message == "no Forge state exists")
-        {
-            var state = CreateEmpty(planHash);
-            DurableFiles.WriteJson(StatePath(workspace), state);
-            return state;
-        }
-    }
-
     private static void RequireKeys(JsonObject value, IReadOnlyCollection<string> expected, string label)
     {
         var actual = value.Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray();

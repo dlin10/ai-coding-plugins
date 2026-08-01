@@ -12,8 +12,6 @@ internal static class TranscriptReader
     internal sealed record Record(int Index, string Type, string? TurnId, string? Mode, string? Role, string? Phase, string? Text, JsonObject Raw, string Kind = "other", string? Id = null);
     internal sealed record Transcript(string Path, string SessionId, IReadOnlyList<Record> Records);
 
-    public static IReadOnlyList<Record> Read(string path) => ReadDocument(path).Records;
-
     public static Transcript ReadDocument(string path)
     {
         if (!File.Exists(path)) throw new CliFailure("state", $"transcript is missing: {path}", 3);

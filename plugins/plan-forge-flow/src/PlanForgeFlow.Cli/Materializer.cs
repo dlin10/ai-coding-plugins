@@ -12,9 +12,8 @@ internal static class Materializer
     private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ExcludeEnd;
     private static readonly IReadOnlyList<string> ReviewEvidenceFiles = ["pre-existing.patch", "in-run.patch", "untracked-review.patch", "changed-files.txt"];
 
-    public static JsonObject Materialize(RepositoryIdentity repository, string wrapperPathOrText, bool purgeReplayLedger = false)
+    public static JsonObject Materialize(RepositoryIdentity repository, string wrapper, bool purgeReplayLedger = false)
     {
-        var wrapper = File.Exists(wrapperPathOrText) ? File.ReadAllText(wrapperPathOrText) : wrapperPathOrText;
         if (Encoding.UTF8.GetByteCount(wrapper) > 4 * 1024 * 1024) throw new CliFailure("state", "approval wrapper exceeds the size bound", 3);
         var parsed = ResumeEnvelope.Parse(wrapper);
         var envelopeRepository = parsed.Envelope["repository"]!.AsObject();

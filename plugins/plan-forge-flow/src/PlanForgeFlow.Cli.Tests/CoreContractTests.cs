@@ -147,7 +147,8 @@ public sealed class CoreContractTests
         var workspace = CreateTempDirectory();
         try
         {
-            var state = StateStore.Ensure(workspace, "hash");
+            var state = StateStore.CreateEmpty("hash");
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
 
             Assert.Equal(3, state["version"]!.GetValue<int>());
             foreach (var group in new[] { "workflow", "models", "agents", "dispatch", "baselines", "review", "approval", "materialization" })
@@ -471,7 +472,7 @@ public sealed class CoreContractTests
         {
             File.WriteAllText(path, "{not-json}\n");
 
-            var error = Assert.Throws<CliFailure>(() => TranscriptReader.Read(path));
+            var error = Assert.Throws<CliFailure>(() => TranscriptReader.ReadDocument(path));
 
             Assert.Equal("state", error.Code);
             Assert.Equal(3, error.ExitCode);
