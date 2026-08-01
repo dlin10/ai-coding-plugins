@@ -12,7 +12,7 @@ internal static class RepositoryPaths
 
         try
         {
-            var result = ProcessExecution.Run("git", ["-C", full, "rev-parse", "--show-toplevel"]);
+            var result = new GitClient(full).Run(["rev-parse", "--show-toplevel"]);
             if (result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Stdout))
             {
                 return CanonicalPath(result.Stdout.Trim());
@@ -29,7 +29,7 @@ internal static class RepositoryPaths
     public static RepositoryIdentity Identify(string cwd)
     {
         var workspace = CanonicalWorkspaceRoot(cwd);
-        var result = ProcessExecution.Run("git", ["-C", workspace, "rev-parse", "--git-common-dir"]);
+        var result = new GitClient(workspace).Run(["rev-parse", "--git-common-dir"]);
         if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.Stdout))
         {
             throw new CliFailure("environment", "workspace is not a Git repository");
@@ -63,14 +63,14 @@ internal static class RepositoryPaths
                    : full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
-    public static string CodexHome()
+    private static string CodexHome()
     {
         var overridePath = Environment.GetEnvironmentVariable("CODEX_HOME");
         if (!string.IsNullOrWhiteSpace(overridePath)) return Path.GetFullPath(overridePath);
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
     }
 
-    public static string PluginData()
+    private static string PluginData()
     {
         var overridePath = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         return string.IsNullOrWhiteSpace(overridePath)
@@ -78,7 +78,7 @@ internal static class RepositoryPaths
                    : Path.GetFullPath(overridePath);
     }
 
-    public static string AgentsDirectory()
+    internal static string AgentsDirectory()
     {
         var overridePath = Environment.GetEnvironmentVariable("FORGE_AGENTS_DIR");
         return string.IsNullOrWhiteSpace(overridePath)
@@ -86,7 +86,7 @@ internal static class RepositoryPaths
                    : Path.GetFullPath(overridePath);
     }
 
-    public static string SessionContextDirectory() => Path.Combine(PluginData(), "session-context");
+    private static string SessionContextDirectory() => Path.Combine(PluginData(), "session-context");
     public static string LastNoncePath(RepositoryIdentity repository)
         => Path.Combine(PluginData(), "last-nonce", Hashing.Sha256Hex($"{repository.WorkspaceRoot}\n{repository.GitCommonDir}") + ".txt");
 

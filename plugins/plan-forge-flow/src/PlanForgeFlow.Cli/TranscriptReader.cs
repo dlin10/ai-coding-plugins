@@ -42,7 +42,7 @@ internal static class TranscriptReader
                     if (string.IsNullOrWhiteSpace(observed)) throw new FormatException("session metadata is malformed");
                     if (sessionId is not null && !string.Equals(sessionId, observed, StringComparison.Ordinal)) throw new FormatException("session metadata is ambiguous");
                     sessionId = observed;
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw, "other"));
+                    result.Add(new Record(index, type, turn, mode, null, null, null, raw));
                 }
                 else if (type == "turn_context")
                 {

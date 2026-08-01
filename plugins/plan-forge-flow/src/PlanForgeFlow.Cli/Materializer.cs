@@ -9,8 +9,6 @@ internal static class Materializer
     private const string ExcludeBegin = "# >>> plan-forge-flow (managed) >>>";
     private const string ExcludeEnd = "# <<< plan-forge-flow (managed) <<<";
     private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ExcludeEnd;
-    private const string GeneratedAgentMarker = "# plan-forge-flow:generated";
-    private static readonly IReadOnlyList<string> ReviewEvidenceFiles = ["pre-existing.patch", "in-run.patch", "untracked-review.patch", "changed-files.txt"];
 
     public static JsonObject Materialize(RepositoryIdentity repository, string wrapper)
     {
@@ -32,19 +30,19 @@ internal static class Materializer
         var lastNoncePath = RepositoryPaths.LastNoncePath(repository);
         if (File.Exists(lastNoncePath))
         {
-            EnsureRegularFile(lastNoncePath, "last materialization nonce");
+            OwnershipGuards.EnsureRegularFile(lastNoncePath, "last materialization nonce");
             if (string.Equals(File.ReadAllText(lastNoncePath).Trim(), nonce, StringComparison.Ordinal)) throw new CliFailure("state", "approval nonce has already been used", 3);
         }
 
         var forgeDirectory = Path.Combine(repository.WorkspaceRoot, ".forge");
-        EnsureSafeDirectory(forgeDirectory);
+        OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
         Directory.CreateDirectory(forgeDirectory);
-        EnsureSafeDirectory(forgeDirectory);
+        OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
         ValidateManagedExclude(repository);
         var planPath = Path.Combine(repository.WorkspaceRoot, "PLAN.md");
         var reviewPath = Path.Combine(repository.WorkspaceRoot, "PLAN-REVIEW-LOG.md");
-        EnsureOwnedArtifact(planPath);
-        EnsureOwnedArtifact(reviewPath);
+        OwnershipGuards.EnsureOwnedArtifact(planPath);
+        OwnershipGuards.EnsureOwnedArtifact(reviewPath);
 
         JsonObject? existingState = null;
         var statePath = StateStore.StatePath(repository.WorkspaceRoot);
@@ -59,10 +57,10 @@ internal static class Materializer
         if (amendment)
         {
             state["workflow"]! ["amendment"] = true;
-            state["dispatch"] = new JsonObject { ["id"] = null, ["stage"] = null, ["taskNumber"] = null, ["retry"] = 0, ["pending"] = false, ["attempt"] = 0, ["lastVerificationPassed"] = null, ["model"] = null, ["effort"] = null, ["conflict"] = null };
+            state["dispatch"] = ForgeStateSchema.CreateDispatch();
             state["agents"]!["builderId"] = null;
             state["agents"]!["lastBuilderDispatchId"] = null;
-            state["review"] = new JsonObject { ["coverage"] = null, ["verdict"] = null, ["fixRound"] = 0, ["authorizedPaths"] = new JsonArray(), ["manifest"] = null, ["critiqueFile"] = null, ["verdictFile"] = null, ["verdictHash"] = null, ["critiqueFiles"] = existingState!["review"]!["critiqueFiles"]?.DeepClone() ?? new JsonArray() };
+            state["review"] = ForgeStateSchema.CreateReview(existingState!["review"]!["critiqueFiles"]);
         }
         state["workflow"]!["phase"] = amendment ? existingState!["workflow"]!["phase"]!.DeepClone() : "materialized";
         state["workflow"]!["round"] = plan["completedReviewRounds"]!.DeepClone();
@@ -101,9 +99,9 @@ internal static class Materializer
     {
         var forgeDirectory = Path.Combine(workspace, ".forge");
         var hadForgeDirectory = Directory.Exists(forgeDirectory);
-        using (var stateLock = ForgeStateLock.Acquire(workspace))
+        using (ForgeStateLock.Acquire(workspace))
         {
-            EnsureSafeDirectory(forgeDirectory);
+            OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
             if (hadForgeDirectory)
             {
                 foreach (var path in CollectOwnedForgeFiles(workspace, forgeDirectory)) File.Delete(path);
@@ -112,7 +110,7 @@ internal static class Materializer
             var critiques = Path.Combine(forgeDirectory, "critiques");
             if (Directory.Exists(critiques))
             {
-                EnsureSafeDirectory(critiques);
+                OwnershipGuards.EnsureSafeDirectory(critiques);
                 if (Directory.GetFileSystemEntries(critiques).Length == 0) Directory.Delete(critiques, false);
             }
         }
@@ -123,10 +121,10 @@ internal static class Materializer
         RemoveManagedExclude(repository);
         foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
         {
-            var existing = ProcessExecution.Run("git", ["-C", workspace, "rev-parse", "--verify", reference]);
+            var existing = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
             if (existing.ExitCode == 0)
             {
-                var removed = ProcessExecution.Run("git", ["-C", workspace, "update-ref", "-d", reference]);
+                var removed = new GitClient(workspace).Run(["update-ref", "-d", reference]);
                 if (removed.ExitCode != 0) throw new CliFailure("environment", $"could not remove Git baseline ref {reference}");
             }
         }
@@ -144,12 +142,12 @@ internal static class Materializer
         if (purgeAgents)
         {
             var agents = RepositoryPaths.AgentsDirectory();
-            EnsureSafeDirectory(agents);
+            OwnershipGuards.EnsureSafeDirectory(agents);
             foreach (var name in new[] { "forge_builder.toml", "forge_reviewer.toml" })
             {
                 var path = Path.Combine(agents, name);
                 if (!File.Exists(path)) continue;
-                if (IsOwnedAgentFile(path)) File.Delete(path);
+                if (OwnershipGuards.IsOwnedAgentFile(path)) File.Delete(path);
             }
         }
     }
@@ -158,7 +156,7 @@ internal static class Materializer
     {
         var statePath = Path.Combine(forgeDirectory, "state.json");
         if (!File.Exists(statePath)) return [];
-        EnsureOwnedForgeFile(statePath);
+        OwnershipGuards.EnsureOwnedForgeFile(statePath);
         var state = StateStore.Load(workspace);
         var materialization = state["materialization"]!.AsObject();
         if (materialization["generation"]?.GetValue<string>() != "v2" || materialization["committed"]?.GetValue<bool>() != true || string.IsNullOrWhiteSpace(materialization["transactionId"]?.GetValue<string>()))
@@ -173,10 +171,10 @@ internal static class Materializer
             var hash = item["hash"]?.GetValue<string>();
             var absolute = string.IsNullOrWhiteSpace(path) ? string.Empty : Path.GetFullPath(path);
             if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path) || !IsPathWithin(workspace, absolute) || !IsPathWithin(forgeDirectory, absolute) || !HashingPattern(hash)) throw new CliFailure("state", "state.review.critiqueFiles contains an unauthorized path or hash", 3);
-            EnsureSafeDirectory(Path.GetDirectoryName(absolute)!);
-            EnsureOwnedForgeFile(absolute);
+            OwnershipGuards.EnsureSafeDirectory(Path.GetDirectoryName(absolute)!);
+            OwnershipGuards.EnsureOwnedForgeFile(absolute);
             if (Hashing.Sha256File(absolute) != hash) throw new CliFailure("state", $"owned critique changed outside Forge: {absolute}", 3);
-            if (!owned.Any(item => string.Equals(item, absolute, PathComparison()))) owned.Add(absolute);
+            if (!owned.Any(s => string.Equals(s, absolute, PathComparison()))) owned.Add(absolute);
         }
 
         var verdictFile = state["review"]!["verdictFile"]?.GetValue<string>();
@@ -185,7 +183,7 @@ internal static class Materializer
         {
             var absolute = Path.GetFullPath(verdictFile);
             if (!IsPathWithin(workspace, absolute) || !IsPathWithin(forgeDirectory, absolute) || !HashingPattern(verdictHash)) throw new CliFailure("state", "state.review.verdictFile is unauthorized", 3);
-            EnsureOwnedForgeFile(absolute);
+            OwnershipGuards.EnsureOwnedForgeFile(absolute);
             if (Hashing.Sha256File(absolute) != verdictHash) throw new CliFailure("state", "owned verdict file changed outside Forge", 3);
             if (!owned.Any(item => string.Equals(item, absolute, PathComparison()))) owned.Add(absolute);
         }
@@ -196,20 +194,20 @@ internal static class Materializer
             var onDisk = ReadOwnedForgeObject(reviewManifestPath, "review manifest");
             if (!string.Equals(onDisk.ToJsonString(), manifest.ToJsonString(), StringComparison.Ordinal)) throw new CliFailure("state", "review manifest is not owned by the current state", 3);
             if (manifest["evidenceHashes"] is not JsonObject hashes) throw new CliFailure("state", "review manifest lacks evidence ownership hashes", 3);
-            var expectedNames = ReviewEvidenceFiles.OrderBy(name => name, StringComparer.Ordinal).ToArray();
+            var expectedNames = ReviewEvidence.Files.OrderBy(name => name, StringComparer.Ordinal).ToArray();
             var actualNames = hashes.Select(item => item.Key).OrderBy(name => name, StringComparer.Ordinal).ToArray();
             if (!actualNames.SequenceEqual(expectedNames, StringComparer.Ordinal)) throw new CliFailure("state", "review manifest evidence ownership fields are not exact", 3);
-            foreach (var name in ReviewEvidenceFiles)
+            foreach (var name in ReviewEvidence.Files)
             {
                 var path = Path.Combine(forgeDirectory, name);
-                EnsureOwnedForgeFile(path);
+                OwnershipGuards.EnsureOwnedForgeFile(path);
                 var hash = hashes[name]?.GetValue<string>();
                 if (!HashingPattern(hash) || Hashing.Sha256File(path) != hash) throw new CliFailure("state", $"review evidence is not owned or has changed: {name}", 3);
                 if (!owned.Contains(path, StringComparer.Ordinal)) owned.Add(path);
             }
             owned.Add(reviewManifestPath);
         }
-        else if (ReviewEvidenceFiles.Any(name => File.Exists(Path.Combine(forgeDirectory, name)) || File.Exists(Path.Combine(forgeDirectory, "review-manifest.json"))))
+        else if (ReviewEvidence.Files.Any(name => File.Exists(Path.Combine(forgeDirectory, name)) || File.Exists(Path.Combine(forgeDirectory, "review-manifest.json"))))
         {
             throw new CliFailure("state", "review evidence is not bound to a valid state manifest; refusing cleanup", 3);
         }
@@ -217,7 +215,7 @@ internal static class Materializer
         var changedFilesPath = Path.Combine(forgeDirectory, "changed-files.txt");
         if (File.Exists(changedFilesPath) && !owned.Contains(changedFilesPath, StringComparer.Ordinal))
         {
-            EnsureOwnedForgeFile(changedFilesPath);
+            OwnershipGuards.EnsureOwnedForgeFile(changedFilesPath);
             owned.Add(changedFilesPath);
         }
         return owned;
@@ -225,7 +223,7 @@ internal static class Materializer
 
     private static JsonObject ReadOwnedForgeObject(string path, string label)
     {
-        EnsureOwnedForgeFile(path);
+        OwnershipGuards.EnsureOwnedForgeFile(path);
         try
         {
             return JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException("object expected");
@@ -277,68 +275,13 @@ internal static class Materializer
         if ((begin >= 0) != (end >= 0) || (begin >= 0 && end < begin) || beginCount > 1 || endCount > 1) throw new CliFailure("state", "Git exclude contains a malformed Forge managed block", 3);
     }
 
-    internal static void EnsureSafeDirectory(string path)
-    {
-        var full = Path.GetFullPath(path);
-        for (var current = new DirectoryInfo(full); current is not null; current = current.Parent)
-        {
-            if (current.Exists && (current.Attributes & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", $"refusing to materialize through a symlinked directory: {current.FullName}", 3);
-            try
-            {
-                if (current.LinkTarget is not null) throw new CliFailure("state", $"refusing to materialize through a symlinked directory: {current.FullName}", 3);
-            }
-            catch (PlatformNotSupportedException) { }
-        }
-    }
-
-    private static void EnsureRegularFile(string path, string label)
-    {
-        try
-        {
-            var attributes = File.GetAttributes(path);
-            if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw new CliFailure("state", $"{label} must be a regular file: {path}", 3);
-            if (new FileInfo(path).LinkTarget is not null) throw new CliFailure("state", $"{label} must not be a symlink: {path}", 3);
-        }
-        catch (PlatformNotSupportedException) { }
-        catch (FileNotFoundException) { throw new CliFailure("state", $"{label} disappeared: {path}", 3); }
-        catch (DirectoryNotFoundException) { throw new CliFailure("state", $"{label} disappeared: {path}", 3); }
-    }
-
-    private static void EnsureOwnedArtifact(string path)
-    {
-        try
-        {
-            var attributes = File.GetAttributes(path);
-            if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw new CliFailure("state", $"refusing to overwrite a symlinked or non-file artifact: {path}", 3);
-        }
-        catch (FileNotFoundException) { return; }
-        catch (DirectoryNotFoundException) { return; }
-        if (File.ReadLines(path).FirstOrDefault() != CanonicalText.OwnedMarker) throw new CliFailure("state", $"existing artifact is not Forge-owned: {path}", 3);
-    }
-
-    private static void EnsureOwnedForgeFile(string path)
-    {
-        EnsureRegularFile(path, "Forge-owned cleanup target");
-    }
-
-    internal static bool IsOwnedAgentFile(string path)
-    {
-        EnsureOwnedForgeFile(path);
-        return File.ReadLines(path).FirstOrDefault() == GeneratedAgentMarker;
-    }
-
-    internal static void EnsureOwnedAgentFile(string path)
-    {
-        if (!IsOwnedAgentFile(path)) throw new CliFailure("state", $"refusing to overwrite a foreign generated agent: {path}", 3);
-    }
-
     private static string ExcludePath(RepositoryIdentity repository)
     {
-        var result = ProcessExecution.Run("git", ["-C", repository.WorkspaceRoot, "rev-parse", "--git-path", "info/exclude"]);
+        var result = new GitClient(repository.WorkspaceRoot).Run(["rev-parse", "--git-path", "info/exclude"]);
         var raw = result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Stdout) ? result.Stdout.Trim() : Path.Combine(repository.GitCommonDir, "info", "exclude");
         var path = Path.IsPathRooted(raw) ? raw : Path.Combine(repository.WorkspaceRoot, raw);
         var full = Path.GetFullPath(path);
-        EnsureSafeDirectory(Path.GetDirectoryName(full)!);
+        OwnershipGuards.EnsureSafeDirectory(Path.GetDirectoryName(full)!);
         return full;
     }
 
@@ -383,7 +326,7 @@ internal static class Materializer
     {
         var path = RepositoryPaths.LastNoncePath(repository);
         if (!File.Exists(path)) return;
-        EnsureRegularFile(path, "last materialization nonce");
+        OwnershipGuards.EnsureRegularFile(path, "last materialization nonce");
         File.Delete(path);
     }
 }

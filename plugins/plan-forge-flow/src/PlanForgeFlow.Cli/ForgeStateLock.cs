@@ -17,9 +17,9 @@ internal sealed class ForgeStateLock : IDisposable
     public static ForgeStateLock Acquire(string workspace)
     {
         var forge = Path.Combine(workspace, ".forge");
-        Materializer.EnsureSafeDirectory(forge);
+        OwnershipGuards.EnsureSafeDirectory(forge);
         Directory.CreateDirectory(forge);
-        Materializer.EnsureSafeDirectory(forge);
+        OwnershipGuards.EnsureSafeDirectory(forge);
         var path = Path.Combine(forge, "lock");
         EnsureSafeLockPath(path);
         var token = Hashing.Nonce();
