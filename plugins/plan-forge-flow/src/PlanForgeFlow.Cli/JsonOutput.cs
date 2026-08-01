@@ -15,6 +15,7 @@ internal static class JsonOutput
                                                    {
                                                        null => null,
                                                        JsonNode node => node.DeepClone(),
+                                                       ForgeState state => state.ToJson(),
                                                        JsonElement element => JsonNode.Parse(element.GetRawText()),
                                                        string text => JsonValue.Create(text),
                                                        bool boolean => JsonValue.Create(boolean),

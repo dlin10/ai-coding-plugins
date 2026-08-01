@@ -82,22 +82,22 @@ internal static class ReviewEvidence
                                     .Distinct(StringComparer.Ordinal)
                                     .ToArray();
 
-    public static JsonArray BaselineEntries(string workspace, IEnumerable<string> paths)
+    public static List<BaselineEntry> BaselineEntries(string workspace, IEnumerable<string> paths)
     {
-        var entries = new JsonArray();
+        var entries = new List<BaselineEntry>();
         foreach (var relative in paths.OrderBy(path => path, StringComparer.Ordinal))
         {
             var absolute = Path.GetFullPath(Path.Combine(workspace, relative));
             if (!IsContained(workspace, absolute)) throw new CliFailure("state", $"untracked baseline path escapes the workspace: {relative}", 3);
             if (!File.Exists(absolute)) continue;
             if ((File.GetAttributes(absolute) & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", $"untracked baseline path is symlinked: {relative}", 3);
-            entries.Add((JsonNode)new JsonObject { ["path"] = relative, ["hash"] = Hashing.Sha256File(absolute) });
+            entries.Add(new BaselineEntry(relative, Hashing.Sha256File(absolute)));
         }
 
         return entries;
     }
 
-    public static string TreeFingerprint(string workspace, JsonObject state)
+    public static string TreeFingerprint(string workspace, ForgeState state)
     {
         var paths = PathList(workspace, ["diff", "--name-only", "-z", "refs/plan-forge/head-base", "--", "."], "could not fingerprint the tracked review tree")
                    .Concat(PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not fingerprint the untracked review tree"))
@@ -127,15 +127,13 @@ internal static class ReviewEvidence
     public static string DiffOutput(string workspace, IReadOnlyList<string> args, IReadOnlyList<string> paths, string errorMessage)
         => new GitClient(workspace).DiffOutput(args, paths, errorMessage);
 
-    public static Dictionary<string, string> BaselineUntracked(JsonObject state)
+    public static Dictionary<string, string> BaselineUntracked(ForgeState state)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (state["baselines"]!["untracked"] is not JsonArray entries) return result;
-        foreach (var entry in entries)
+        foreach (var entry in state.Baselines.Untracked)
         {
-            if (entry is not JsonObject item) continue;
-            var path = item["path"]?.GetValue<string>().Replace('\\', '/');
-            var hash = item["hash"]?.GetValue<string>();
+            var path = entry.Path.Replace('\\', '/');
+            var hash = entry.Hash;
             if (!string.IsNullOrWhiteSpace(path) && Regex.IsMatch(hash ?? string.Empty, "^[a-f0-9]{64}$", RegexOptions.CultureInvariant)) result[path] = hash!;
         }
 

@@ -26,6 +26,8 @@ internal static class DurableFiles
 
     public static void WriteJson(string path, JsonNode node) => WriteAtomic(path, node.ToJsonString() + "\n");
 
+    public static void WriteJson(string path, ForgeState state) => WriteJson(path, state.ToJson());
+
     private static void EnsureSafeParent(string directory)
     {
         for (var current = new DirectoryInfo(Path.GetFullPath(directory)); current is not null; current = current.Parent)

@@ -18,6 +18,13 @@ internal static class OwnershipGuards
         }
     }
 
+    public static void EnsureDirectory(string path)
+    {
+        EnsureSafeDirectory(path);
+        Directory.CreateDirectory(path);
+        EnsureSafeDirectory(path);
+    }
+
     public static void EnsureRegularFile(string path, string label)
     {
         try

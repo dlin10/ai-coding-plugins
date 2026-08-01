@@ -27,7 +27,7 @@ internal sealed partial class CliApplication
         return paths;
     }
     
-    private static (string Verdict, string? Coverage, string Path, string Hash) ReadReviewDecision(string critiquePath, string workspace, string expectedStage)
+    private static (string Verdict, string? Coverage, string Path, string Hash) ReadReviewDecision(string critiquePath, string workspace, DispatchStage expectedStage)
     {
         var forgeRoot = Path.Combine(workspace, ".forge");
         var path = critiquePath + ".json";
@@ -39,7 +39,7 @@ internal sealed partial class CliApplication
             var verdict = value["verdict"]?.GetValue<string>().ToUpperInvariant();
             var coverage = value["coverage"]?.GetValue<string>().ToUpperInvariant();
             if (verdict is not ("APPROVED" or "REVISE")) throw new FormatException("verdict must be APPROVED or REVISE");
-            if (expectedStage == "plan")
+            if (expectedStage == DispatchStage.Plan)
             {
                 if (coverage is not null) throw new FormatException("plan decisions must not include coverage");
             }
@@ -59,11 +59,11 @@ internal sealed partial class CliApplication
         if (string.IsNullOrWhiteSpace(note) || note.Length > 16 * 1024) throw new CliFailure("usage", "accepting risk requires a bounded --authorization-note");
     }
     
-    private static void RequirePlanHash(JsonObject state, ParsedArgs parsed)
+    private static void RequirePlanHash(ForgeState state, ParsedArgs parsed)
     {
         var supplied = parsed.Get("plan-sha256");
         if (supplied is null) return;
-        if (!Regex.IsMatch(supplied, "^[a-f0-9]{64}$") || !string.Equals(supplied, state["approval"]!["planHash"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "--plan-sha256 does not match the materialized plan", 3);
+        if (!Regex.IsMatch(supplied, "^[a-f0-9]{64}$") || !string.Equals(supplied, state.Approval.PlanHash, StringComparison.Ordinal)) throw new CliFailure("state", "--plan-sha256 does not match the materialized plan", 3);
     }
     
     private static string? FindPluginFile(string relative)
@@ -102,46 +102,58 @@ internal sealed partial class CliApplication
         }
     }
     
-    private static JsonObject Set(string workspace, ParsedArgs parsed)
+    private static JsonObject Set(CommandContext context)
     {
+        var workspace = context.Workspace;
+        var parsed = context.Args;
+        var originalState = context.RequireState();
         var key = parsed.GetRequired("key");
         var value = parsed.GetRequired("value");
-        var state = StateStore.Update(workspace, current =>
+        var state = StateStore.Update(workspace, originalState, current =>
         {
             if (key == "phase")
             {
-                if (value is not ("materialized" or "locked" or "build" or "code-review" or "done" or "done-with-findings")) throw new CliFailure("usage", "phase is unsupported");
-                var old = current["workflow"]!["phase"]!.GetValue<string>();
-                if (old != value)
+                var target = value switch
                 {
-                    var legal = (old, value) switch
+                    "materialized" => ForgePhase.Materialized,
+                    "locked" => ForgePhase.Locked,
+                    "build" => ForgePhase.Build,
+                    "code-review" => ForgePhase.CodeReview,
+                    "done" => ForgePhase.Done,
+                    "done-with-findings" => ForgePhase.DoneWithFindings,
+                    _ => throw new CliFailure("usage", "phase is unsupported"),
+                };
+                var old = current.Workflow.Phase;
+                if (old != target)
+                {
+                    var legal = (old, target) switch
                     {
-                        ("materialized", "locked") => HasLockEvidence(workspace, current),
-                        ("locked", "build") => HasBuildEvidence(current),
-                        ("build", "code-review") => !current["dispatch"]!["pending"]!.GetValue<bool>() && (current["workflow"]!["taskCount"]?.GetValue<int>() ?? 0) > 0 && current["workflow"]!["nextTaskNumber"]!.GetValue<int>() > current["workflow"]!["taskCount"]!.GetValue<int>(),
-                        ("code-review", "done") => current["review"]!["verdict"]?.GetValue<string>() == "APPROVED" && current["review"]!["coverage"]?.GetValue<string>() == "FULL",
-                        ("code-review", "done-with-findings") => parsed.Has("accept-risk"),
-                        ("code-review", "build") => parsed.Has("amendment"),
+                        (ForgePhase.Materialized, ForgePhase.Locked) => HasLockEvidence(workspace, current),
+                        (ForgePhase.Locked, ForgePhase.Build) => HasBuildEvidence(current),
+                        (ForgePhase.Build, ForgePhase.CodeReview) => !current.Dispatch.Pending && (current.Workflow.TaskCount ?? 0) > 0 && current.Workflow.NextTaskNumber > current.Workflow.TaskCount,
+                        (ForgePhase.CodeReview, ForgePhase.Done) => current.Review.Verdict == "APPROVED" && current.Review.Coverage == "FULL",
+                        (ForgePhase.CodeReview, ForgePhase.DoneWithFindings) => parsed.Has("accept-risk"),
+                        (ForgePhase.CodeReview, ForgePhase.Build) => parsed.Has("amendment"),
                         _ => false,
                     };
-                    if (!legal) throw new CliFailure("state", $"illegal phase transition {old} -> {value}", 3);
+                    if (!legal) throw new CliFailure("state", $"illegal phase transition {old.ToWireName()} -> {target.ToWireName()}", 3);
                 }
-                if (value == "done")
+                if (target == ForgePhase.Done)
                 {
                     RequireApprovedReviewEvidence(workspace, current);
                 }
-                if (value == "code-review" && old == "build" && current["dispatch"]!["pending"]!.GetValue<bool>()) throw new CliFailure("state", "cannot enter code-review with a pending dispatch", 3);
-                if (value == "done-with-findings") RequireAuthorizationNote(parsed);
-                if (old == "code-review" && value == "build")
+                if (target == ForgePhase.CodeReview && old == ForgePhase.Build && current.Dispatch.Pending) throw new CliFailure("state", "cannot enter code-review with a pending dispatch", 3);
+                if (target == ForgePhase.DoneWithFindings) RequireAuthorizationNote(parsed);
+                if (old == ForgePhase.CodeReview && target == ForgePhase.Build)
                 {
                     RequireAuthorizationNote(parsed);
-                    current["workflow"]!["amendment"] = true;
-                    current["review"]!["verdict"] = null;
-                    current["review"]!["coverage"] = null;
-                    current["models"]!["builder"] = null;
-                    current["agents"]!["builderId"] = null;
+                    current.Workflow.Amendment = true;
+                    current.Review.Verdict = null;
+                    current.Review.Coverage = null;
+                    current.Models.Builder = null;
+                    current.Agents.BuilderId = null;
                 }
-                current["workflow"]!["phase"] = value;
+                current.Workflow.Phase = target;
             }
             else if (key == "round" || key == "fix-round")
             {
@@ -150,24 +162,22 @@ internal sealed partial class CliApplication
             else if (key == "max-rounds")
             {
                 if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number < 0) throw new CliFailure("usage", "max-rounds must be a non-negative integer");
-                var workflow = current["workflow"]!.AsObject();
-                var currentCap = workflow["maxRounds"]!.GetValue<int>();
+                var currentCap = current.Workflow.MaxRounds;
                 if (number != currentCap + 1) throw new CliFailure("state", $"max-rounds may only be extended by exactly one round ({currentCap} -> {currentCap + 1})", 3);
-                if (workflow["round"]!.GetValue<int>() < currentCap || current["review"]!["verdict"]?.GetValue<string>() != "REVISE") throw new CliFailure("state", "max-rounds may only be extended after the current review cap is reached", 3);
+                if (current.Workflow.Round < currentCap || current.Review.Verdict != "REVISE") throw new CliFailure("state", "max-rounds may only be extended after the current review cap is reached", 3);
                 if (!parsed.Has("accept-risk")) throw new CliFailure("state", "max-rounds extension requires --accept-risk with --authorization-note", 3);
                 RequireAuthorizationNote(parsed);
-                workflow["maxRounds"] = number;
+                current.Workflow.MaxRounds = number;
             }
             else if (key == "max-fix-rounds")
             {
                 if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number < 0) throw new CliFailure("usage", "max-fix-rounds must be a non-negative integer");
-                var workflow = current["workflow"]!.AsObject();
-                var currentCap = workflow["maxFixRounds"]!.GetValue<int>();
+                var currentCap = current.Workflow.MaxFixRounds;
                 if (number != currentCap + 1) throw new CliFailure("state", $"max-fix-rounds may only be extended by exactly one round ({currentCap} -> {currentCap + 1})", 3);
-                if (current["review"]!["fixRound"]!.GetValue<int>() < currentCap || current["review"]!["verdict"]?.GetValue<string>() != "REVISE") throw new CliFailure("state", "max-fix-rounds may only be extended after the current fix cap is reached", 3);
+                if (current.Review.FixRound < currentCap || current.Review.Verdict != "REVISE") throw new CliFailure("state", "max-fix-rounds may only be extended after the current fix cap is reached", 3);
                 if (!parsed.Has("accept-risk")) throw new CliFailure("state", "max-fix-rounds extension requires --accept-risk with --authorization-note", 3);
                 RequireAuthorizationNote(parsed);
-                workflow["maxFixRounds"] = number;
+                current.Workflow.MaxFixRounds = number;
             }
             else if (key == "coverage")
             {
@@ -179,24 +189,24 @@ internal sealed partial class CliApplication
             }
             else throw new CliFailure("usage", $"unsupported state key: {key}");
         });
-        return state;
+        return state.ToJson();
     }
     
-    private static bool HasLockEvidence(string workspace, JsonObject state)
+    private static bool HasLockEvidence(string workspace, ForgeState state)
     {
         var planPath = Path.Combine(workspace, "PLAN.md");
         if (!File.Exists(planPath) || (File.GetAttributes(planPath) & FileAttributes.ReparsePoint) != 0) return false;
         if (File.ReadLines(planPath).FirstOrDefault() != CanonicalText.OwnedMarker) return false;
-        var expectedHash = state["approval"]!["planHash"]?.GetValue<string>();
+        var expectedHash = state.Approval.PlanHash;
         if (string.IsNullOrWhiteSpace(expectedHash) || !string.Equals(expectedHash, Hashing.Sha256Hex(CanonicalText.NormalizePlan(File.ReadAllText(planPath))), StringComparison.Ordinal)) return false;
-        var tasks = state["workflow"]!["tasks"] as JsonArray;
-        return tasks is { Count: > 0 } && state["workflow"]!["taskCount"]?.GetValue<int>() == tasks.Count;
+        var tasks = state.Workflow.Tasks;
+        return tasks is { Count: > 0 } && state.Workflow.TaskCount == tasks.Count;
     }
     
-    private static bool HasBuildEvidence(JsonObject state)
+    private static bool HasBuildEvidence(ForgeState state)
     {
-        return !string.IsNullOrWhiteSpace(state["baselines"]!["head"]?.GetValue<string>()) &&
-               !string.IsNullOrWhiteSpace(state["baselines"]!["worktree"]?.GetValue<string>()) &&
-               state["models"]!["builder"] is JsonObject;
+        return !string.IsNullOrWhiteSpace(state.Baselines.Head) &&
+               !string.IsNullOrWhiteSpace(state.Baselines.Worktree) &&
+               state.Models.Builder is not null;
     }
 }

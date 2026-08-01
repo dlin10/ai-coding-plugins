@@ -86,7 +86,7 @@ public sealed class CoreContractTests
             var materialized = Materializer.Materialize(repository, wrapper);
 
             Assert.Equal("forge-materialized", materialized["action"]!.GetValue<string>());
-            Assert.Equal(3, StateStore.Load(workspace)["version"]!.GetValue<int>());
+            Assert.Equal(ForgeState.Version, StateStore.Load(workspace).ToJson()["version"]!.GetValue<int>());
             Assert.Equal("<!-- plan-forge-flow:owned -->", File.ReadLines(Path.Combine(workspace, "PLAN.md")).First());
             Assert.True(File.Exists(RepositoryPaths.LastNoncePath(repository)));
             Assert.Throws<CliFailure>(() => Materializer.Materialize(repository, wrapper));
@@ -100,7 +100,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void StateStoreCreatesV3GroupsAndRejectsFlatV2State()
+    public void StateStoreCreatesV4GroupsAndRejectsPriorState()
     {
         var workspace = CreateTempDirectory();
         try
@@ -108,17 +108,25 @@ public sealed class CoreContractTests
             var state = StateStore.CreateEmpty("hash");
             DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
 
-            Assert.Equal(3, state["version"]!.GetValue<int>());
+            var serialized = state.ToJson();
+            Assert.Equal(ForgeState.Version, serialized["version"]!.GetValue<int>());
             foreach (var group in new[] { "workflow", "models", "agents", "dispatch", "baselines", "review", "approval", "materialization" })
             {
-                Assert.IsType<JsonObject>(state[group]);
+                Assert.IsType<JsonObject>(serialized[group]);
             }
-            Assert.Equal(["builder", "reviewer"], state["models"]!.AsObject().Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray());
+            Assert.Equal(["builder", "reviewer"], serialized["models"]!.AsObject().Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray());
 
-            state["models"]!["catalogObservation"] = new JsonObject { ["generatedAt"] = "old" };
-            DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
+            serialized["models"]!["catalogObservation"] = new JsonObject { ["generatedAt"] = "old" };
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), serialized);
             var catalogStateError = Assert.Throws<CliFailure>(() => StateStore.Load(workspace));
             Assert.Equal("state", catalogStateError.Code);
+
+            serialized["models"]!.AsObject().Remove("catalogObservation");
+            serialized["version"] = 3;
+            serialized["generation"] = "v2";
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), serialized);
+            var v3Error = Assert.Throws<CliFailure>(() => StateStore.Load(workspace));
+            Assert.Equal("state", v3Error.Code);
 
             var old = new JsonObject { ["version"] = 2, ["phase"] = "materialized" };
             DurableFiles.WriteJson(StateStore.StatePath(workspace), old);
@@ -153,7 +161,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public async Task FixRoundRequiresBuilderCompletionBeforeReviewerDispatch()
+    public void FixRoundRequiresBuilderCompletionBeforeReviewerDispatch()
     {
         var workspace = CreateTempDirectory();
         var data = CreateTempDirectory();
@@ -165,30 +173,30 @@ public sealed class CoreContractTests
             var capture = new SessionCapture(2, "session", workspace, "turn", Path.Combine(workspace, "transcript.jsonl"), "model", "default", "medium", true, "default", null, "other", false, null, null, DateTimeOffset.UtcNow.ToString("O"));
             DurableFiles.WriteJson(RepositoryPaths.SessionCapturePath(workspace), capture.ToJson());
             var state = StateStore.CreateEmpty("hash");
-            state["workflow"]!["phase"] = "code-review";
-            state["models"]!["reviewer"] = new JsonObject { ["model"] = "reviewer-model", ["effort"] = "high" };
-            state["models"]!["builder"] = new JsonObject { ["model"] = "builder-model", ["effort"] = "low" };
+            state.Workflow.Phase = ForgePhase.CodeReview;
+            state.Models.Reviewer = new PinnedSelection("reviewer-model", "high");
+            state.Models.Builder = new PinnedSelection("builder-model", "low");
             DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
 
             using var output = new StringWriter();
             Console.SetOut(output);
-            var firstCode = await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix-build", "--model", "builder-model", "--effort", "low"]);
+            var firstCode = new CliApplication().Run(["build", "dispatch", "--workspace", workspace, "--stage", "fix-build", "--model", "builder-model", "--effort", "low"]);
             Assert.True(firstCode == 0, output.ToString());
             var firstDispatch = JsonNode.Parse(output.ToString())!["data"]!["id"]!.GetValue<string>();
             output.GetStringBuilder().Clear();
-            Assert.Equal(0, await new CliApplication().RunAsync(["session", "builder", "--workspace", workspace, "--id", "builder-1", "--dispatch-id", firstDispatch, "--model", "builder-model", "--effort", "low"]));
+            Assert.Equal(0, new CliApplication().Run(["session", "builder", "--workspace", workspace, "--id", "builder-1", "--dispatch-id", firstDispatch, "--model", "builder-model", "--effort", "low"]));
             output.GetStringBuilder().Clear();
-            Assert.Equal(0, await new CliApplication().RunAsync(["build", "complete", "--workspace", workspace, "--dispatch-id", firstDispatch]));
+            Assert.Equal(0, new CliApplication().Run(["build", "complete", "--workspace", workspace, "--dispatch-id", firstDispatch]));
             output.GetStringBuilder().Clear();
-            Assert.Equal(3, await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix-review", "--model", "reviewer-model", "--effort", "high"]));
-            Assert.Equal("fix-build", StateStore.Load(workspace)["dispatch"]!["stage"]!.GetValue<string>());
+            Assert.Equal(3, new CliApplication().Run(["build", "dispatch", "--workspace", workspace, "--stage", "fix-review", "--model", "reviewer-model", "--effort", "high"]));
+            Assert.Equal(DispatchStage.FixBuild, StateStore.Load(workspace).Dispatch.Stage);
             var capped = StateStore.Load(workspace);
-            capped["review"]!["fixRound"] = 3;
-            capped["review"]!["verdict"] = "REVISE";
+            capped.Review.FixRound = 3;
+            capped.Review.Verdict = "REVISE";
             DurableFiles.WriteJson(StateStore.StatePath(workspace), capped);
             output.GetStringBuilder().Clear();
-            Assert.Equal(0, await new CliApplication().RunAsync(["run", "set", "--workspace", workspace, "--key", "max-fix-rounds", "--value", "4", "--accept-risk", "--authorization-note", "explicit cap extension"]));
-            Assert.Equal(4, StateStore.Load(workspace)["workflow"]!["maxFixRounds"]!.GetValue<int>());
+            Assert.Equal(0, new CliApplication().Run(["run", "set", "--workspace", workspace, "--key", "max-fix-rounds", "--value", "4", "--accept-risk", "--authorization-note", "explicit cap extension"]));
+            Assert.Equal(4, StateStore.Load(workspace).Workflow.MaxFixRounds);
         }
         finally
         {
@@ -197,6 +205,16 @@ public sealed class CoreContractTests
             DeleteDirectory(workspace);
             DeleteDirectory(data);
         }
+    }
+
+    [Fact]
+    public void FixReviewVerdictAcceptsPendingFixReviewDispatch()
+    {
+        var dispatch = new DispatchState { Id = "fix-review-dispatch", Pending = true, Stage = DispatchStage.FixReview };
+
+        Assert.Equal(DispatchStage.FixReview, DispatchStages.RequirePendingReviewVerdict(dispatch, "fix-review"));
+        Assert.Equal(DispatchStage.FixReview, DispatchStages.RequirePendingReviewVerdict(dispatch, null));
+        Assert.Throws<CliFailure>(() => DispatchStages.RequirePendingReviewVerdict(dispatch with { Stage = DispatchStage.FixBuild }, "fix-build"));
     }
 
     [Fact]
@@ -295,14 +313,14 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public async Task GroupedCliReturnsStableJsonErrorEnvelope()
+    public void GroupedCliReturnsStableJsonErrorEnvelope()
     {
         var oldOut = Console.Out;
         using var output = new StringWriter();
         Console.SetOut(output);
         try
         {
-            var exitCode = await new CliApplication().RunAsync(["unknown", "command"]);
+            var exitCode = new CliApplication().Run(["unknown", "command"]);
             var json = JsonNode.Parse(output.ToString())!.AsObject();
 
             Assert.Equal(1, exitCode);
@@ -317,7 +335,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public async Task ApprovalIssueDoesNotLaunchCodexOrEmbedCatalog()
+    public void ApprovalIssueDoesNotLaunchCodexOrEmbedCatalog()
     {
         var workspace = CreateTempDirectory();
         var data = CreateTempDirectory();
@@ -346,7 +364,7 @@ public sealed class CoreContractTests
             Console.SetOut(output);
             Console.SetIn(new StringReader(request.ToJsonString()));
 
-            var exitCode = await new CliApplication().RunAsync(["approval", "issue", "--workspace", workspace]);
+            var exitCode = new CliApplication().Run(["approval", "issue", "--workspace", workspace]);
             var root = JsonNode.Parse(output.ToString())!.AsObject();
             var proposed = root["data"]!["proposedPlanOutput"]!.GetValue<string>();
 
@@ -366,7 +384,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public async Task RemovedCatalogCommandsAreRejectedAndDoctorHasNoCodexField()
+    public void RemovedCatalogCommandsAreRejectedAndDoctorHasNoCodexField()
     {
         var workspace = CreateTempDirectory();
         var oldOut = Console.Out;
@@ -374,13 +392,13 @@ public sealed class CoreContractTests
         Console.SetOut(output);
         try
         {
-            var catalogExit = await new CliApplication().RunAsync(["catalog", "models", "--workspace", workspace]);
+            var catalogExit = new CliApplication().Run(["catalog", "models", "--workspace", workspace]);
             var catalogError = JsonNode.Parse(output.ToString())!.AsObject();
             Assert.Equal(1, catalogExit);
             Assert.Equal("usage", catalogError["error"]!["code"]!.GetValue<string>());
 
             output.GetStringBuilder().Clear();
-            var doctorExit = await new CliApplication().RunAsync(["run", "doctor", "--workspace", workspace]);
+            var doctorExit = new CliApplication().Run(["run", "doctor", "--workspace", workspace]);
             var doctor = JsonNode.Parse(output.ToString())!.AsObject();
             Assert.Equal(0, doctorExit);
             Assert.Null(doctor["data"]!["codex"]);
@@ -446,7 +464,17 @@ public sealed class CoreContractTests
 
     private static void DeleteDirectory(string path)
     {
-        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        for (var attempt = 0; attempt < 3 && Directory.Exists(path); attempt++)
+        {
+            try
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            catch (UnauthorizedAccessException) when (attempt < 2)
+            {
+                Thread.Sleep(100);
+            }
+        }
     }
 
     private static string FindPluginRoot()

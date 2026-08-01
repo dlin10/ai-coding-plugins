@@ -24,7 +24,6 @@ internal static class Materializer
         var plan = parsed.Envelope["plan"]!.AsObject();
         var selections = parsed.Envelope["selections"]!.AsObject();
         var planRevision = plan["planRevision"]!.GetValue<int>();
-        var transactionId = Hashing.Sha256Hex(nonce + "\n" + plan["humanPlanHash"]!.GetValue<string>())[..32];
         using var stateLock = ForgeStateLock.Acquire(repository.WorkspaceRoot);
 
         var lastNoncePath = RepositoryPaths.LastNoncePath(repository);
@@ -35,16 +34,14 @@ internal static class Materializer
         }
 
         var forgeDirectory = Path.Combine(repository.WorkspaceRoot, ".forge");
-        OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
-        Directory.CreateDirectory(forgeDirectory);
-        OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
+        OwnershipGuards.EnsureDirectory(forgeDirectory);
         ValidateManagedExclude(repository);
         var planPath = Path.Combine(repository.WorkspaceRoot, "PLAN.md");
         var reviewPath = Path.Combine(repository.WorkspaceRoot, "PLAN-REVIEW-LOG.md");
         OwnershipGuards.EnsureOwnedArtifact(planPath);
         OwnershipGuards.EnsureOwnedArtifact(reviewPath);
 
-        JsonObject? existingState = null;
+        ForgeState? existingState = null;
         var statePath = StateStore.StatePath(repository.WorkspaceRoot);
         if (File.Exists(statePath)) existingState = StateStore.Load(repository.WorkspaceRoot);
         var amendment = existingState is not null;
@@ -53,26 +50,25 @@ internal static class Materializer
         DurableFiles.WriteAtomic(planPath, parsed.HumanPlan);
         DurableFiles.WriteAtomic(reviewPath, plan["reviewLog"]!.GetValue<string>());
 
-        var state = existingState?.DeepClone().AsObject() ?? StateStore.CreateEmpty(plan["humanPlanHash"]!.GetValue<string>());
+        var state = existingState?.DeepCopy() ?? StateStore.CreateEmpty(plan["humanPlanHash"]!.GetValue<string>());
         if (amendment)
         {
-            state["workflow"]! ["amendment"] = true;
-            state["dispatch"] = ForgeStateSchema.CreateDispatch();
-            state["agents"]!["builderId"] = null;
-            state["agents"]!["lastBuilderDispatchId"] = null;
-            state["review"] = ForgeStateSchema.CreateReview(existingState!["review"]!["critiqueFiles"]);
+            state.Workflow.Amendment = true;
+            state.Dispatch = ForgeStateSchema.CreateDispatch();
+            state.Agents.BuilderId = null;
+            state.Agents.LastBuilderDispatchId = null;
+            state.Review = ForgeStateSchema.CreateReview(existingState!.Review.CritiqueFiles);
         }
-        state["workflow"]!["phase"] = amendment ? existingState!["workflow"]!["phase"]!.DeepClone() : "materialized";
-        state["workflow"]!["round"] = plan["completedReviewRounds"]!.DeepClone();
-        state["workflow"]!["maxRounds"] = plan["maxRounds"]!.DeepClone();
-        state["models"]!["reviewer"] = selections["reviewer"]!.DeepClone();
-        state["models"]!["builder"] = selections["builder"]!.DeepClone();
-        state["approval"]!["planHash"] = plan["humanPlanHash"]!.GetValue<string>();
-        state["approval"]!["nonce"] = nonce;
-        state["approval"]!["revision"] = planRevision;
-        state["materialization"]!["transactionId"] = transactionId;
-        state["materialization"]!["committed"] = true;
-        state["updatedAt"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        state.Workflow.Phase = amendment ? existingState!.Workflow.Phase : ForgePhase.Materialized;
+        state.Workflow.Round = plan["completedReviewRounds"]!.GetValue<int>();
+        state.Workflow.MaxRounds = plan["maxRounds"]!.GetValue<int>();
+        state.Models.Reviewer = PinnedSelection.FromJson(selections["reviewer"], "reviewer");
+        state.Models.Builder = PinnedSelection.FromJson(selections["builder"], "builder");
+        state.Approval.PlanHash = plan["humanPlanHash"]!.GetValue<string>();
+        state.Approval.Nonce = nonce;
+        state.Approval.Revision = planRevision;
+        state.Materialization.Committed = true;
+        state.UpdatedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         DurableFiles.WriteJson(statePath, state);
         UpsertManagedExclude(repository);
         DurableFiles.WriteAtomic(lastNoncePath, nonce + "\n");
@@ -90,7 +86,7 @@ internal static class Materializer
     internal static int NextPlanRevision(RepositoryIdentity repository)
     {
         var statePath = StateStore.StatePath(repository.WorkspaceRoot);
-        var highest = File.Exists(statePath) ? StateStore.Load(repository.WorkspaceRoot)["approval"]!["revision"]?.GetValue<int>() ?? 0 : 0;
+        var highest = File.Exists(statePath) ? StateStore.Load(repository.WorkspaceRoot).Approval.Revision : 0;
         if (highest == int.MaxValue) throw new CliFailure("state", "approval plan revision space is exhausted", 3);
         return highest + 1;
     }
@@ -158,17 +154,15 @@ internal static class Materializer
         if (!File.Exists(statePath)) return [];
         OwnershipGuards.EnsureOwnedForgeFile(statePath);
         var state = StateStore.Load(workspace);
-        var materialization = state["materialization"]!.AsObject();
-        if (materialization["generation"]?.GetValue<string>() != "v2" || materialization["committed"]?.GetValue<bool>() != true || string.IsNullOrWhiteSpace(materialization["transactionId"]?.GetValue<string>()))
+        var materialization = state.Materialization;
+        if (materialization.Generation != ForgeState.Generation || !materialization.Committed)
             throw new CliFailure("state", "cleanup requires a committed materialization", 3);
 
         var owned = new List<string> { statePath };
-        if (state["review"]!["critiqueFiles"] is not JsonArray critiqueFiles) throw new CliFailure("state", "state.review.critiqueFiles is malformed", 3);
-        foreach (var entry in critiqueFiles)
+        foreach (var entry in state.Review.CritiqueFiles)
         {
-            if (entry is not JsonObject item || !item.Select(pair => pair.Key).OrderBy(key => key, StringComparer.Ordinal).SequenceEqual(new[] { "hash", "path" }, StringComparer.Ordinal)) throw new CliFailure("state", "state.review.critiqueFiles contains a malformed entry", 3);
-            var path = item["path"]?.GetValue<string>();
-            var hash = item["hash"]?.GetValue<string>();
+            var path = entry.Path;
+            var hash = entry.Hash;
             var absolute = string.IsNullOrWhiteSpace(path) ? string.Empty : Path.GetFullPath(path);
             if (string.IsNullOrWhiteSpace(path) || !Path.IsPathRooted(path) || !IsPathWithin(workspace, absolute) || !IsPathWithin(forgeDirectory, absolute) || !HashingPattern(hash)) throw new CliFailure("state", "state.review.critiqueFiles contains an unauthorized path or hash", 3);
             OwnershipGuards.EnsureSafeDirectory(Path.GetDirectoryName(absolute)!);
@@ -177,8 +171,8 @@ internal static class Materializer
             if (!owned.Any(s => string.Equals(s, absolute, PathComparison()))) owned.Add(absolute);
         }
 
-        var verdictFile = state["review"]!["verdictFile"]?.GetValue<string>();
-        var verdictHash = state["review"]!["verdictHash"]?.GetValue<string>();
+        var verdictFile = state.Review.VerdictFile;
+        var verdictHash = state.Review.VerdictHash;
         if (!string.IsNullOrWhiteSpace(verdictFile))
         {
             var absolute = Path.GetFullPath(verdictFile);
@@ -188,7 +182,7 @@ internal static class Materializer
             if (!owned.Any(item => string.Equals(item, absolute, PathComparison()))) owned.Add(absolute);
         }
 
-        if (state["review"]!["manifest"] is JsonObject manifest)
+        if (state.Review.Manifest is JsonObject manifest)
         {
             var reviewManifestPath = Path.Combine(forgeDirectory, "review-manifest.json");
             var onDisk = ReadOwnedForgeObject(reviewManifestPath, "review manifest");
@@ -242,23 +236,23 @@ internal static class Materializer
 
     private static StringComparison PathComparison() => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    private static void ValidateAmendment(JsonObject state, string humanPlan, int revision)
+    private static void ValidateAmendment(ForgeState state, string humanPlan, int revision)
     {
-        var phase = state["workflow"]!["phase"]?.GetValue<string>();
-        if (phase is not ("build" or "code-review")) throw new CliFailure("state", "an approval resume may amend only an active build or code-review run", 3);
-        var oldRevision = state["approval"]!["revision"]?.GetValue<int>() ?? 0;
+        var phase = state.Workflow.Phase;
+        if (phase is not (ForgePhase.Build or ForgePhase.CodeReview)) throw new CliFailure("state", "an approval resume may amend only an active build or code-review run", 3);
+        var oldRevision = state.Approval.Revision;
         if (revision <= oldRevision) throw new CliFailure("state", $"amendment revision {revision} is not newer than the active revision {oldRevision}", 3);
-        var oldHash = state["approval"]!["planHash"]?.GetValue<string>();
+        var oldHash = state.Approval.PlanHash;
         var newHash = Hashing.Sha256Hex(humanPlan);
         if (string.Equals(oldHash, newHash, StringComparison.Ordinal)) throw new CliFailure("state", "amendment plan is byte-identical to the active plan", 3);
-        var completed = Math.Max(0, (state["workflow"]!["nextTaskNumber"]?.GetValue<int>() ?? 1) - 1);
-        var oldTasks = state["workflow"]!["tasks"] as JsonArray;
+        var completed = Math.Max(0, state.Workflow.NextTaskNumber - 1);
+        var oldTasks = state.Workflow.Tasks;
         var newTasks = CanonicalText.ParseTasks(humanPlan);
         if (completed > newTasks.Count) throw new CliFailure("state", "amendment removes already completed tasks", 3);
         for (var index = 0; index < completed; index++)
         {
-            var oldTask = oldTasks is not null && index < oldTasks.Count ? oldTasks[index]?.AsObject() : null;
-            if (oldTask is null || oldTask["hash"]?.GetValue<string>() != newTasks[index].Hash) throw new CliFailure("state", $"amendment changes completed task {index + 1}", 3);
+            var oldTask = oldTasks is not null && index < oldTasks.Count ? oldTasks[index] : null;
+            if (oldTask is null || oldTask.Hash != newTasks[index].Hash) throw new CliFailure("state", $"amendment changes completed task {index + 1}", 3);
         }
     }
 

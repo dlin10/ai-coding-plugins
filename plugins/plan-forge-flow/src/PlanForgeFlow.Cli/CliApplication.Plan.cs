@@ -72,35 +72,37 @@ internal sealed partial class CliApplication
         return TranscriptAuthorizer.AuthorizeCurrent(capture.TranscriptPath, capture.TurnId, capture.SessionId).Wrapper;
     }
     
-    private static JsonObject LockPlan(string workspace, ParsedArgs parsed)
+    private static ForgeState LockPlan(CommandContext context)
     {
+        var workspace = context.Workspace;
+        var parsed = context.Args;
         var planPath = Path.Combine(workspace, "PLAN.md");
         if (!File.Exists(planPath)) throw new CliFailure("state", "PLAN.md is missing", 3);
         var plan = CanonicalText.NormalizePlan(File.ReadAllText(planPath));
-        var state = StateStore.Load(workspace);
-        var phase = state["workflow"]!["phase"]!.GetValue<string>();
-        if (phase is not "materialized" and not "locked")
+        var state = context.RequireState();
+        var phase = state.Workflow.Phase;
+        if (phase is not (ForgePhase.Materialized or ForgePhase.Locked))
         {
-            if (!(parsed.Has("relock") && parsed.Has("amendment") && phase is ("build" or "code-review")))
+            if (!(parsed.Has("relock") && parsed.Has("amendment") && phase is (ForgePhase.Build or ForgePhase.CodeReview)))
             {
-                throw new CliFailure("state", $"plan lock is not legal in phase {phase}", 3);
+                throw new CliFailure("state", $"plan lock is not legal in phase {phase.ToWireName()}", 3);
             }
         }
     
-        var expectedHash = state["approval"]!["planHash"]?.GetValue<string>();
+        var expectedHash = state.Approval.PlanHash;
         var actualHash = Hashing.Sha256Hex(plan);
         if (!string.Equals(expectedHash, actualHash, StringComparison.Ordinal)) throw new CliFailure("state", "PLAN.md changed since approval; implementation approval is stale", 3);
         var tasks = CanonicalText.ParseTasks(plan);
         var completedTasks = 0;
         if (parsed.Has("relock") && parsed.Has("amendment"))
         {
-            completedTasks = Math.Max(0, (state["workflow"]!["nextTaskNumber"]?.GetValue<int>() ?? 1) - 1);
-            var oldTasks = state["workflow"]!["tasks"] as JsonArray;
+            completedTasks = Math.Max(0, state.Workflow.NextTaskNumber - 1);
+            var oldTasks = state.Workflow.Tasks;
             if (completedTasks > tasks.Count) throw new CliFailure("state", "relock removes completed tasks", 3);
             for (var index = 0; index < completedTasks; index++)
             {
-                var oldTask = oldTasks is not null && index < oldTasks.Count ? oldTasks[index]?.AsObject() : null;
-                if (oldTask is null || oldTask["hash"]?.GetValue<string>() != tasks[index].Hash) throw new CliFailure("state", $"relock changes completed task {index + 1}", 3);
+                var oldTask = oldTasks is not null && index < oldTasks.Count ? oldTasks[index] : null;
+                if (oldTask is null || oldTask.Hash != tasks[index].Hash) throw new CliFailure("state", $"relock changes completed task {index + 1}", 3);
             }
         }
         var head = new GitClient(workspace).Run(["rev-parse", "HEAD"]);
@@ -108,17 +110,16 @@ internal sealed partial class CliApplication
         var untrackedPaths = ReviewEvidence.PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not establish the untracked plan baseline");
         return StateStore.Update(workspace, state, current =>
         {
-            var workflow = current["workflow"]!.AsObject();
-            workflow["phase"] = "locked";
-            workflow["tasks"] = new JsonArray(tasks.Select(task => (JsonNode)task.ToJson()).ToArray());
-            workflow["taskCount"] = tasks.Count;
-            workflow["nextTaskNumber"] = completedTasks + 1;
-            workflow["amendment"] = parsed.Has("amendment");
+            current.Workflow.Phase = ForgePhase.Locked;
+            current.Workflow.Tasks = tasks.ToList();
+            current.Workflow.TaskCount = tasks.Count;
+            current.Workflow.NextTaskNumber = completedTasks + 1;
+            current.Workflow.Amendment = parsed.Has("amendment");
             if (!(parsed.Has("relock") && parsed.Has("amendment")))
             {
-                current["baselines"]!["head"] = head.Stdout.Trim();
-                current["baselines"]!["worktree"] = head.Stdout.Trim();
-                current["baselines"]!["untracked"] = ReviewEvidence.BaselineEntries(workspace, untrackedPaths);
+                current.Baselines.Head = head.Stdout.Trim();
+                current.Baselines.Worktree = head.Stdout.Trim();
+                current.Baselines.Untracked = ReviewEvidence.BaselineEntries(workspace, untrackedPaths);
             }
         });
     }

@@ -1,57 +1,43 @@
-using System.CommandLine;
-
 namespace PlanForgeFlow;
 
-internal static class CliCommandTree
+internal sealed record CliCommandDefinition(string Name, IReadOnlySet<string> Options, string? RequiredMode, bool LoadsState);
+
+internal static class CliCommands
 {
-    private static readonly HashSet<string> BooleanOptions = new(StringComparer.Ordinal)
+    private static readonly IReadOnlySet<string> BooleanOptions = new HashSet<string>(StringComparer.Ordinal)
     {
         "cancel", "retry", "relock", "amendment", "full", "accept-risk", "delete-owned-artifacts", "purge-generated-agents", "verification-passed",
     };
 
-    public static RootCommand Build()
-    {
-        var root = new RootCommand("Plan Forge Flow grouped CLI");
-        foreach (var item in Definitions())
+    private static readonly IReadOnlyDictionary<string, CliCommandDefinition> Definitions =
+        new Dictionary<string, CliCommandDefinition>(StringComparer.Ordinal)
         {
-            var parts = item.Key.Split(' ', 2);
-            var group = root.Subcommands.FirstOrDefault(command => command.Name == parts[0]);
-            if (group is null)
-            {
-                group = new Command(parts[0]);
-                root.Subcommands.Add(group);
-            }
+            ["plan start"] = Define("plan start", "plan", false, "workspace", "session-context"),
+            ["plan lock"] = Define("plan lock", "default", true, "workspace", "relock", "amendment"),
+            ["approval issue"] = Define("approval issue", "plan", false, "workspace"),
+            ["approval resume"] = Define("approval resume", "default", false, "workspace"),
+            ["agents install"] = Define("agents install", "default", false, "workspace"),
+            ["build dispatch"] = Define("build dispatch", "default", true, "workspace", "stage", "task-number", "retry", "cancel", "dispatch-id", "model", "effort", "plan-sha256", "authorization-note", "accept-risk"),
+            ["build complete"] = Define("build complete", "default", true, "workspace", "task-number", "dispatch-id", "verification-passed", "authorization-note", "accept-risk"),
+            ["build resolve"] = Define("build resolve", "default", true, "workspace", "conflict", "dispatch-id"),
+            ["build begin"] = Define("build begin", "default", true, "workspace", "amendment", "relock"),
+            ["review prepare"] = Define("review prepare", "default", true, "workspace", "allow-paths", "full", "plan-sha256", "authorization-note"),
+            ["review authorize-preexisting"] = Define("review authorize-preexisting", "default", true, "workspace", "authorized-paths", "authorization-note", "accept-risk"),
+            ["review verdict"] = Define("review verdict", "default", true, "workspace", "stage", "critique-file", "accept-risk", "authorization-note"),
+            ["session builder"] = Define("session builder", "default", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
+            ["session reviewer"] = Define("session reviewer", "default", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
+            ["run doctor"] = Define("run doctor", null, false, "workspace"),
+            ["run status"] = Define("run status", null, false, "workspace"),
+            ["run set"] = Define("run set", "default", true, "workspace", "key", "value", "amendment", "accept-risk", "authorization-note"),
+            ["run cleanup"] = Define("run cleanup", "default", false, "workspace", "delete-owned-artifacts", "purge-generated-agents"),
+        };
 
-            var leaf = new Command(parts[1]);
-            foreach (var option in item.Value)
-            {
-                leaf.Options.Add(BooleanOptions.Contains(option) ? new Option<bool>($"--{option}") : new Option<string?>($"--{option}"));
-            }
-            group.Subcommands.Add(leaf);
-        }
+    public static IReadOnlyCollection<string> Names => Definitions.Keys.ToArray();
 
-        return root;
-    }
+    public static bool TryGet(string name, out CliCommandDefinition definition) => Definitions.TryGetValue(name, out definition!);
 
-    private static IEnumerable<KeyValuePair<string, IReadOnlySet<string>>> Definitions()
-    {
-        yield return new("plan start", new HashSet<string>(["workspace", "session-context"]));
-        yield return new("plan lock", new HashSet<string>(["workspace", "relock", "amendment"]));
-        yield return new("approval issue", new HashSet<string>(["workspace"]));
-        yield return new("approval resume", new HashSet<string>(["workspace"]));
-        yield return new("agents install", new HashSet<string>(["workspace"]));
-        yield return new("build dispatch", new HashSet<string>(["workspace", "stage", "task-number", "retry", "cancel", "dispatch-id", "model", "effort", "plan-sha256", "authorization-note", "accept-risk"]));
-        yield return new("build complete", new HashSet<string>(["workspace", "task-number", "dispatch-id", "verification-passed", "authorization-note", "accept-risk"]));
-        yield return new("build resolve", new HashSet<string>(["workspace", "conflict", "dispatch-id"]));
-        yield return new("build begin", new HashSet<string>(["workspace", "amendment", "relock"]));
-        yield return new("review prepare", new HashSet<string>(["workspace", "allow-paths", "full", "plan-sha256", "authorization-note"]));
-        yield return new("review authorize-preexisting", new HashSet<string>(["workspace", "authorized-paths", "authorization-note", "accept-risk"]));
-        yield return new("review verdict", new HashSet<string>(["workspace", "stage", "critique-file", "accept-risk", "authorization-note"]));
-        yield return new("session builder", new HashSet<string>(["workspace", "id", "dispatch-id", "model", "effort", "authorization-note"]));
-        yield return new("session reviewer", new HashSet<string>(["workspace", "id", "dispatch-id", "model", "effort", "authorization-note"]));
-        yield return new("run doctor", new HashSet<string>(["workspace"]));
-        yield return new("run status", new HashSet<string>(["workspace"]));
-        yield return new("run set", new HashSet<string>(["workspace", "key", "value", "amendment", "accept-risk", "authorization-note"]));
-        yield return new("run cleanup", new HashSet<string>(["workspace", "delete-owned-artifacts", "purge-generated-agents"]));
-    }
+    public static bool IsBoolean(string option) => BooleanOptions.Contains(option);
+
+    private static CliCommandDefinition Define(string name, string? mode, bool loadsState, params string[] options)
+        => new(name, options.ToHashSet(StringComparer.Ordinal), mode, loadsState);
 }

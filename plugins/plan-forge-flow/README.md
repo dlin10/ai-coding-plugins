@@ -105,9 +105,10 @@ and `builder`. The resulting approval wire format is nested envelope v3:
 `version`, `plan`, `repository`, `origin`, `nonce`, and `selections`; no model
 catalog snapshot is embedded. v1/v2 approvals are rejected.
 
-Materialized `.forge/state.json` is nested state v3 with explicit `generation`
-metadata; its `models` group contains only `reviewer` and `builder`. Flat v2,
-old catalog-bearing state, or unknown state is rejected without migration.
+Materialized `.forge/state.json` is nested state v4 with explicit `generation`
+metadata; its `models` group contains only `reviewer` and `builder`. State v3
+and earlier, old catalog-bearing state, or unknown state is rejected without
+migration.
 Materialization uses atomic artifact/state writes, one workspace lock, and a
 single last-used nonce file; it has no crash journal or legacy replay migration.
 
