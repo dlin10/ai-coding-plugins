@@ -41,6 +41,8 @@ Use the bundled .NET executable at `../../bin/planforge` (or
   stop. Do not extend caps autonomously.
 - Pre-existing findings require separate opt-in. Cleanup keeps owned plan files
   unless the user explicitly requests `--delete-owned-artifacts`.
+- Reviewers write the decision in `<critique-file>.json`; verdicts are not parsed
+  from free-form critique text.
 
 ## Command boundary
 

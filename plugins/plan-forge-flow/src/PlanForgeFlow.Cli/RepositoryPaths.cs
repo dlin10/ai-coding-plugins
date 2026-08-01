@@ -87,8 +87,8 @@ internal static class RepositoryPaths
     }
 
     public static string SessionContextDirectory() => Path.Combine(PluginData(), "session-context");
-    public static string JournalDirectory() => Path.Combine(PluginData(), "materialization-journal-v2");
-    public static string TombstoneDirectory() => Path.Combine(PluginData(), "nonce-tombstones-v2");
+    public static string LastNoncePath(RepositoryIdentity repository)
+        => Path.Combine(PluginData(), "last-nonce", Hashing.Sha256Hex($"{repository.WorkspaceRoot}\n{repository.GitCommonDir}") + ".txt");
 
     public static string SessionCapturePath(string workspaceRoot)
     {

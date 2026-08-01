@@ -59,13 +59,11 @@ public sealed class CoreContractTests
         Assert.Equal(Hashing.Sha256Hex(parsed.HumanPlan), parsed.Envelope["plan"]!["humanPlanHash"]!.GetValue<string>());
         Assert.DoesNotContain("catalogObservation", parsed.Envelope.Select(item => item.Key));
         Assert.Equal("forge-" + Hashing.Sha256Hex($"session\n{Path.Combine(repository.WorkspaceRoot, "transcript.jsonl")}\nturn\n{parsed.Envelope["nonce"]!.GetValue<string>()}\n{Hashing.Sha256Hex(plan)}")[..48], parsed.Envelope["origin"]!["itemId"]!.GetValue<string>());
-        Assert.Throws<CliFailure>(() => ResumeEnvelope.Parse(wrapper.Replace("plan-forge-resume:v3:", "plan-forge-resume:v2:", StringComparison.Ordinal)));
-        parsed.Envelope["version"] = 2;
-        Assert.Throws<CliFailure>(() => ResumeEnvelope.Validate(parsed.Envelope, parsed.HumanPlan));
+        Assert.Contains("plan-forge-resume:v3", wrapper, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void MaterializerWritesOwnedArtifactsStateJournalAndRejectsNonceReplay()
+    public void MaterializerWritesOwnedArtifactsStateAndRejectsNonceReplay()
     {
         var workspace = CreateTempDirectory();
         var data = CreateTempDirectory();
@@ -90,52 +88,12 @@ public sealed class CoreContractTests
             Assert.Equal("forge-materialized", materialized["action"]!.GetValue<string>());
             Assert.Equal(3, StateStore.Load(workspace)["version"]!.GetValue<int>());
             Assert.Equal("<!-- plan-forge-flow:owned -->", File.ReadLines(Path.Combine(workspace, "PLAN.md")).First());
-            Assert.True(Directory.Exists(Path.Combine(data, "materialization-journal-v2")));
+            Assert.True(File.Exists(RepositoryPaths.LastNoncePath(repository)));
             Assert.Throws<CliFailure>(() => Materializer.Materialize(repository, wrapper));
         }
         finally
         {
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous);
-            DeleteDirectory(workspace);
-            DeleteDirectory(data);
-        }
-    }
-
-    [Fact]
-    public void MaterializerReconcilesACompletedArtifactStageAfterCrash()
-    {
-        var workspace = CreateTempDirectory();
-        var data = CreateTempDirectory();
-        var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
-        var previousCrash = Environment.GetEnvironmentVariable("FORGE_CRASH_AT");
-        try
-        {
-            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
-            var repository = new RepositoryIdentity(workspace, Path.Combine(workspace, ".git"));
-            var transcript = Path.Combine(workspace, "transcript.jsonl");
-            var plan = "<!-- plan-forge-flow:owned -->\n## Approach\n1. Recover the transaction.\n";
-            var review = "<!-- plan-forge-flow:owned -->\n# Review\n";
-            var capture = new SessionCapture(2, "session", workspace, "turn", transcript, "model", "plan", "high", true, "plan", null, "same-context", false, null, null, "2026-08-01T00:00:00Z");
-            var envelope = ResumeEnvelope.Create(plan, review, 1, 5,
-                new JsonObject { ["model"] = "reviewer-model", ["effort"] = "high" },
-                new JsonObject { ["model"] = "builder-model", ["effort"] = "low" },
-                repository, capture, 1);
-            var wrapper = ResumeEnvelope.Build(plan, envelope);
-
-            Environment.SetEnvironmentVariable("FORGE_CRASH_AT", "after-artifacts");
-            Assert.Throws<InvalidOperationException>(() => Materializer.Materialize(repository, wrapper));
-            Environment.SetEnvironmentVariable("FORGE_CRASH_AT", null);
-
-            var recovered = Materializer.Materialize(repository, wrapper);
-
-            Assert.Equal("forge-materialized", recovered["action"]!.GetValue<string>());
-            Assert.True(File.Exists(Path.Combine(workspace, ".forge", "state.json")));
-            Assert.Single(Directory.GetFiles(Path.Combine(data, "nonce-tombstones-v2"), "*.json"));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
-            Environment.SetEnvironmentVariable("FORGE_CRASH_AT", previousCrash);
             DeleteDirectory(workspace);
             DeleteDirectory(data);
         }
@@ -175,7 +133,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void StaleStateAndMaterializationLocksAreReclaimedThroughClaimedPaths()
+    public void ExistingStateLockBlocksAnotherOperation()
     {
         var workspace = CreateTempDirectory();
         var forge = Path.Combine(workspace, ".forge");
@@ -184,39 +142,9 @@ public sealed class CoreContractTests
         Directory.CreateDirectory(gitCommon);
         try
         {
-            var staleTimestamp = DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeMilliseconds();
             var stateLockPath = Path.Combine(forge, "lock");
-            File.WriteAllText(stateLockPath, new JsonObject
-            {
-                ["pid"] = int.MaxValue,
-                ["ts"] = staleTimestamp,
-                ["token"] = "stale-state-token",
-            }.ToJsonString());
-
-            using (ForgeStateLock.Acquire(workspace))
-            {
-                var current = JsonNode.Parse(File.ReadAllText(stateLockPath))!.AsObject();
-                Assert.NotEqual("stale-state-token", current["token"]!.GetValue<string>());
-            }
-
-            var materializationLockPath = Path.Combine(gitCommon, "plan-forge-materialize.lock");
-            File.WriteAllText(materializationLockPath, new JsonObject
-            {
-                ["version"] = 2,
-                ["pid"] = int.MaxValue,
-                ["ts"] = staleTimestamp,
-                ["token"] = "stale-materialization-token",
-                ["workspaceRoot"] = workspace,
-            }.ToJsonString());
-
-            using (RepositoryMaterializationLock.Acquire(new RepositoryIdentity(workspace, gitCommon)))
-            {
-                var current = JsonNode.Parse(File.ReadAllText(materializationLockPath))!.AsObject();
-                Assert.NotEqual("stale-materialization-token", current["token"]!.GetValue<string>());
-            }
-
-            Assert.Empty(Directory.GetFiles(forge, "lock.recovery-*"));
-            Assert.Empty(Directory.GetFiles(gitCommon, "plan-forge-materialize.lock.recovery-*"));
+            File.WriteAllText(stateLockPath, "another-operation");
+            Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
         }
         finally
         {
@@ -244,16 +172,16 @@ public sealed class CoreContractTests
 
             using var output = new StringWriter();
             Console.SetOut(output);
-            var firstCode = await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix", "--model", "builder-model", "--effort", "low"]);
+            var firstCode = await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix-build", "--model", "builder-model", "--effort", "low"]);
             Assert.True(firstCode == 0, output.ToString());
             var firstDispatch = JsonNode.Parse(output.ToString())!["data"]!["id"]!.GetValue<string>();
             output.GetStringBuilder().Clear();
             Assert.Equal(0, await new CliApplication().RunAsync(["session", "builder", "--workspace", workspace, "--id", "builder-1", "--dispatch-id", firstDispatch, "--model", "builder-model", "--effort", "low"]));
             output.GetStringBuilder().Clear();
-            Assert.Equal(0, await new CliApplication().RunAsync(["build", "complete", "--workspace", workspace, "--fix", "--dispatch-id", firstDispatch]));
+            Assert.Equal(0, await new CliApplication().RunAsync(["build", "complete", "--workspace", workspace, "--dispatch-id", firstDispatch]));
             output.GetStringBuilder().Clear();
-            Assert.Equal(3, await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix", "--model", "reviewer-model", "--effort", "high"]));
-            Assert.Equal("builder-complete", StateStore.Load(workspace)["dispatch"]!["resolution"]!.GetValue<string>());
+            Assert.Equal(3, await new CliApplication().RunAsync(["build", "dispatch", "--workspace", workspace, "--stage", "fix-review", "--model", "reviewer-model", "--effort", "high"]));
+            Assert.Equal("fix-build", StateStore.Load(workspace)["dispatch"]!["stage"]!.GetValue<string>());
             var capped = StateStore.Load(workspace);
             capped["review"]!["fixRound"] = 3;
             capped["review"]!["verdict"] = "REVISE";

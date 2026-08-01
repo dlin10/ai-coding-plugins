@@ -19,9 +19,9 @@ internal static class StateStore
             ["workflow"] = new JsonObject { ["phase"] = "materialized", ["round"] = 0, ["maxRounds"] = 5, ["fixRound"] = 0, ["maxFixRounds"] = 3, ["maxBuildRetries"] = 3, ["taskCount"] = null, ["nextTaskNumber"] = 1, ["amendment"] = false, ["tasks"] = null },
             ["models"] = new JsonObject { ["reviewer"] = null, ["builder"] = null },
             ["agents"] = new JsonObject { ["builderId"] = null, ["lastBuilderDispatchId"] = null, ["reviewerIds"] = new JsonArray(), ["lastReviewerId"] = null, ["lastReviewerDispatchId"] = null },
-            ["dispatch"] = new JsonObject { ["id"] = null, ["stage"] = null, ["taskNumber"] = null, ["retry"] = 0, ["pending"] = false, ["attempt"] = 0, ["lastVerificationPassed"] = null, ["model"] = null, ["effort"] = null, ["resolution"] = null },
+            ["dispatch"] = new JsonObject { ["id"] = null, ["stage"] = null, ["taskNumber"] = null, ["retry"] = 0, ["pending"] = false, ["attempt"] = 0, ["lastVerificationPassed"] = null, ["model"] = null, ["effort"] = null, ["conflict"] = null },
             ["baselines"] = new JsonObject { ["head"] = null, ["worktree"] = null, ["untracked"] = new JsonArray() },
-            ["review"] = new JsonObject { ["coverage"] = null, ["verdict"] = null, ["fixRound"] = 0, ["authorizedPaths"] = new JsonArray(), ["manifest"] = null, ["critiqueFile"] = null, ["critiqueFiles"] = new JsonArray() },
+            ["review"] = new JsonObject { ["coverage"] = null, ["verdict"] = null, ["fixRound"] = 0, ["authorizedPaths"] = new JsonArray(), ["manifest"] = null, ["critiqueFile"] = null, ["verdictFile"] = null, ["verdictHash"] = null, ["critiqueFiles"] = new JsonArray() },
             ["approval"] = new JsonObject { ["planHash"] = planHash, ["nonce"] = null, ["revision"] = 0 },
             ["materialization"] = new JsonObject { ["transactionId"] = null, ["generation"] = "v2", ["committed"] = false },
         };
@@ -48,9 +48,9 @@ internal static class StateStore
             RequireKeys(value["workflow"]!.AsObject(), ["phase", "round", "maxRounds", "fixRound", "maxFixRounds", "maxBuildRetries", "taskCount", "nextTaskNumber", "amendment", "tasks"], "state.workflow");
             RequireKeys(value["models"]!.AsObject(), ["reviewer", "builder"], "state.models");
             RequireKeys(value["agents"]!.AsObject(), ["builderId", "lastBuilderDispatchId", "reviewerIds", "lastReviewerId", "lastReviewerDispatchId"], "state.agents");
-            RequireKeys(value["dispatch"]!.AsObject(), ["id", "stage", "taskNumber", "retry", "pending", "attempt", "lastVerificationPassed", "model", "effort", "resolution"], "state.dispatch");
+            RequireKeys(value["dispatch"]!.AsObject(), ["id", "stage", "taskNumber", "retry", "pending", "attempt", "lastVerificationPassed", "model", "effort", "conflict"], "state.dispatch");
             RequireKeys(value["baselines"]!.AsObject(), ["head", "worktree", "untracked"], "state.baselines");
-            RequireKeys(value["review"]!.AsObject(), ["coverage", "verdict", "fixRound", "authorizedPaths", "manifest", "critiqueFile", "critiqueFiles"], "state.review");
+            RequireKeys(value["review"]!.AsObject(), ["coverage", "verdict", "fixRound", "authorizedPaths", "manifest", "critiqueFile", "verdictFile", "verdictHash", "critiqueFiles"], "state.review");
             RequireKeys(value["approval"]!.AsObject(), ["planHash", "nonce", "revision"], "state.approval");
             RequireKeys(value["materialization"]!.AsObject(), ["transactionId", "generation", "committed"], "state.materialization");
             if (value["materialization"]!["generation"]?.GetValue<string>() != "v2") throw new CliFailure("state", "state materialization generation is unsupported", 3);

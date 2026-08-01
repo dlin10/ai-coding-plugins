@@ -16,21 +16,21 @@ internal sealed class CliApplication
             ["plan start"] = Set("workspace", "session-context"),
             ["plan lock"] = Set("workspace", "relock", "amendment"),
             ["approval issue"] = Set("workspace"),
-            ["approval resume"] = Set("workspace", "purge-replay-ledger"),
+            ["approval resume"] = Set("workspace"),
             ["agents install"] = Set("workspace"),
-            ["build dispatch"] = Set("workspace", "stage", "task-number", "retry", "cancel", "fix", "dispatch-id", "model", "effort", "plan-sha256", "authorization-note", "accept-risk"),
-            ["build complete"] = Set("workspace", "task-number", "dispatch-id", "fix", "verification-passed", "authorization-note", "accept-risk"),
+            ["build dispatch"] = Set("workspace", "stage", "task-number", "retry", "cancel", "dispatch-id", "model", "effort", "plan-sha256", "authorization-note", "accept-risk"),
+            ["build complete"] = Set("workspace", "task-number", "dispatch-id", "verification-passed", "authorization-note", "accept-risk"),
             ["build resolve"] = Set("workspace", "conflict", "dispatch-id"),
             ["build begin"] = Set("workspace", "amendment", "relock"),
             ["review prepare"] = Set("workspace", "allow-paths", "full", "plan-sha256", "authorization-note"),
             ["review authorize-preexisting"] = Set("workspace", "authorized-paths", "authorization-note", "accept-risk"),
-            ["review verdict"] = Set("workspace", "stage", "verdict", "coverage", "critique-file", "fix", "accept-risk", "authorization-note"),
+            ["review verdict"] = Set("workspace", "stage", "critique-file", "accept-risk", "authorization-note"),
             ["session builder"] = Set("workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
             ["session reviewer"] = Set("workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
             ["run doctor"] = Set("workspace"),
             ["run status"] = Set("workspace"),
             ["run set"] = Set("workspace", "key", "value", "amendment", "accept-risk", "authorization-note"),
-            ["run cleanup"] = Set("workspace", "delete-owned-artifacts", "purge-generated-agents", "purge-replay-ledger"),
+            ["run cleanup"] = Set("workspace", "delete-owned-artifacts", "purge-generated-agents"),
         };
 
     public async Task<int> RunAsync(string[] args)
@@ -70,7 +70,7 @@ internal sealed class CliApplication
                     break;
                 case "approval resume":
                     RequireMode(workspace, "default");
-                    JsonOutput.Success(command, Materializer.Materialize(RepositoryPaths.Identify(workspace), ResolveApprovalWrapper(workspace), parsed.Has("purge-replay-ledger")));
+                    JsonOutput.Success(command, Materializer.Materialize(RepositoryPaths.Identify(workspace), ResolveApprovalWrapper(workspace)));
                     break;
                 case "agents install":
                     RequireMode(workspace, "default");
@@ -130,8 +130,8 @@ internal sealed class CliApplication
                     break;
                 case "run cleanup":
                     RequireMode(workspace, "default");
-                    Materializer.Cleanup(workspace, parsed.Has("delete-owned-artifacts"), parsed.Has("purge-replay-ledger"), parsed.Has("purge-generated-agents"));
-                    JsonOutput.Success(command, new JsonObject { ["cleaned"] = true, ["deletedArtifacts"] = parsed.Has("delete-owned-artifacts"), ["purgedReplayLedger"] = parsed.Has("purge-replay-ledger"), ["purgedAgents"] = parsed.Has("purge-generated-agents") });
+                    Materializer.Cleanup(workspace, parsed.Has("delete-owned-artifacts"), parsed.Has("purge-generated-agents"));
+                    JsonOutput.Success(command, new JsonObject { ["cleaned"] = true, ["deletedArtifacts"] = parsed.Has("delete-owned-artifacts"), ["purgedAgents"] = parsed.Has("purge-generated-agents") });
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'", 1);
@@ -181,7 +181,7 @@ internal sealed class CliApplication
 
     private static readonly IReadOnlySet<string> BooleanOptionNames = new HashSet<string>(StringComparer.Ordinal)
     {
-        "cancel", "retry", "fix", "relock", "amendment", "full", "accept-risk", "delete-owned-artifacts", "purge-generated-agents", "purge-replay-ledger", "verification-passed",
+        "cancel", "retry", "relock", "amendment", "full", "accept-risk", "delete-owned-artifacts", "purge-generated-agents", "verification-passed",
     };
 
     private static IReadOnlySet<string> Set(params string[] values) => values.ToHashSet(StringComparer.Ordinal);
@@ -413,14 +413,14 @@ internal sealed class CliApplication
         return StateStore.Update(workspace, state, current =>
         {
             current["dispatch"]!["pending"] = false;
-            current["dispatch"]!["resolution"] = parsed.Get("conflict");
+            current["dispatch"]!["conflict"] = parsed.Get("conflict");
         });
     }
 
     private static JsonObject Dispatch(string workspace, ParsedArgs parsed)
     {
-        var stage = parsed.Has("fix") ? "fix" : parsed.GetRequired("stage").ToLowerInvariant();
-        if (stage is not ("plan" or "code" or "build" or "fix")) throw new CliFailure("usage", "--stage must be plan|code|build|fix");
+        var stage = parsed.GetRequired("stage").ToLowerInvariant();
+        if (stage is not ("plan" or "code" or "build" or "fix-build" or "fix-review")) throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review");
         var taskText = parsed.Get("task-number");
         var taskNumber = 0;
         if (stage == "build" && !int.TryParse(taskText, NumberStyles.None, CultureInfo.InvariantCulture, out taskNumber)) throw new CliFailure("usage", "build dispatch requires numeric --task-number");
@@ -428,7 +428,7 @@ internal sealed class CliApplication
         RequirePlanHash(state, parsed);
         var pinnedSelection = ResolvePinnedSelection(state, stage, parsed);
         var currentPhase = state["workflow"]!["phase"]!.GetValue<string>();
-        var expectedPhase = stage == "build" ? "build" : stage is "code" or "fix" ? "code-review" : "locked";
+        var expectedPhase = stage == "build" ? "build" : stage is "code" or "fix-build" or "fix-review" ? "code-review" : "locked";
         if (currentPhase != expectedPhase) throw new CliFailure("state", $"{stage} dispatch requires phase {expectedPhase} (current: {currentPhase})", 3);
         if (parsed.Has("cancel"))
         {
@@ -454,8 +454,8 @@ internal sealed class CliApplication
         }
 
         if (state["dispatch"]!["pending"]!.GetValue<bool>()) throw new CliFailure("state", "a dispatch is already pending; consume it, cancel it, or retry it", 3);
-        var fixReviewDispatch = stage == "fix" && string.Equals(state["dispatch"]!["resolution"]?.GetValue<string>(), "builder-complete", StringComparison.Ordinal);
-        if (stage == "fix" && state["review"]!["fixRound"]!.GetValue<int>() > state["workflow"]!["maxFixRounds"]!.GetValue<int>()) throw new CliFailure("state", "fix retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 3);
+        var fixReviewDispatch = stage == "fix-review";
+        if (stage is "fix-build" or "fix-review" && state["review"]!["fixRound"]!.GetValue<int>() > state["workflow"]!["maxFixRounds"]!.GetValue<int>()) throw new CliFailure("state", "fix retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 3);
         if (stage == "build")
         {
             foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
@@ -482,15 +482,14 @@ internal sealed class CliApplication
             value["dispatch"]!["pending"] = true;
             value["dispatch"]!["model"] = pinnedSelection["model"]!.DeepClone();
             value["dispatch"]!["effort"] = pinnedSelection["effort"]!.DeepClone();
-            value["dispatch"]!["resolution"] = fixReviewDispatch ? "review-pending" : null;
+            value["dispatch"]!["conflict"] = null;
         });
         return state["dispatch"]!.AsObject();
     }
 
     private static JsonObject ResolvePinnedSelection(JsonObject state, string stage, ParsedArgs parsed)
     {
-        var fixReviewDispatch = stage == "fix" && string.Equals(state["dispatch"]!["resolution"]?.GetValue<string>(), "builder-complete", StringComparison.Ordinal);
-        var role = stage is "plan" or "code" || fixReviewDispatch ? "reviewer" : "builder";
+        var role = stage is "plan" or "code" or "fix-review" ? "reviewer" : "builder";
         var selection = state["models"]![role] as JsonObject;
         if (selection is null) throw new CliFailure("state", $"{stage} dispatch requires a pinned {role} selection", 3);
         var model = selection["model"]?.GetValue<string>();
@@ -573,16 +572,16 @@ internal sealed class CliApplication
         if (review["critiqueFiles"] is not JsonArray critiqueFiles || !critiqueFiles.Any(item => item is JsonObject entry && string.Equals(entry["path"]?.GetValue<string>(), absolute, PathComparison()) && string.Equals(entry["hash"]?.GetValue<string>(), critiqueHash, StringComparison.Ordinal))) throw new CliFailure("state", "approved critique file is not bound to the recorded review history", 3);
         try
         {
-            var critique = File.ReadAllText(absolute);
-            if (ParseVerdict(critique, null) != "APPROVED" || ParseCoverage(critique, null) != "FULL") throw new FormatException("critique does not contain an approved full verdict");
+            var decision = ReadReviewDecision(absolute, workspace, "code");
+            if (review["verdictFile"]?.GetValue<string>() != decision.Path || review["verdictHash"]?.GetValue<string>() != decision.Hash || decision.Verdict != "APPROVED" || decision.Coverage != "FULL") throw new FormatException("review decision is not an approved full verdict");
         }
-        catch (CliFailure error) when (error.Code == "verdict")
+        catch (CliFailure error) when (error.Code is "usage" or "verdict")
         {
-            throw new CliFailure("state", "approved critique file no longer contains an approved full verdict", 3);
+            throw new CliFailure("state", "approved critique decision is missing or invalid", 3);
         }
         catch (Exception error)
         {
-            throw new CliFailure("state", $"approved critique file is invalid: {error.Message}", 3);
+            throw new CliFailure("state", $"approved critique decision is invalid: {error.Message}", 3);
         }
     }
 
@@ -605,8 +604,7 @@ internal sealed class CliApplication
         var dispatch = state["dispatch"]!.AsObject();
         if (!dispatch["pending"]!.GetValue<bool>()) throw new CliFailure("state", "complete requires a pending dispatch", 3);
         var stage = dispatch["stage"]?.GetValue<string>();
-        if (stage is not ("build" or "fix")) throw new CliFailure("state", "complete applies only to build or fix dispatches", 3);
-        if (stage == "fix" && dispatch["resolution"]?.GetValue<string>() is not null) throw new CliFailure("state", "fix completion requires the builder dispatch, before reviewer dispatch", 3);
+        if (stage is not ("build" or "fix-build")) throw new CliFailure("state", "complete applies only to build or fix-build dispatches", 3);
         if (parsed.Get("dispatch-id") is { } suppliedDispatchId && !string.Equals(suppliedDispatchId, dispatch["id"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "complete dispatch-id does not match the pending dispatch", 3);
         if (string.IsNullOrWhiteSpace(state["agents"]!["builderId"]?.GetValue<string>())) throw new CliFailure("state", "complete requires a registered builder session", 3);
         if (!string.Equals(state["agents"]!["lastBuilderDispatchId"]?.GetValue<string>(), dispatch["id"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "complete requires a builder session for the current dispatch", 3);
@@ -624,10 +622,6 @@ internal sealed class CliApplication
             {
                 value["workflow"]!["nextTaskNumber"] = taskNumber + 1;
                 if (taskNumber >= value["workflow"]!["taskCount"]!.GetValue<int>()) value["workflow"]!["phase"] = "code-review";
-            }
-            else
-            {
-                value["dispatch"]!["resolution"] = "builder-complete";
             }
         });
         return state["dispatch"]!.AsObject();
@@ -694,51 +688,9 @@ internal sealed class CliApplication
         long aggregateBytes = 0;
         foreach (var relative in allPaths)
         {
-            ValidateReviewPath(relative);
-            var sensitiveAuthorized = sensitiveAllowed.Contains(relative);
-            if (preExisting.Contains(relative) && !stateAllowed.Contains(relative))
-            {
-                withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = "pre-existing change requires explicit authorization" });
-                continue;
-            }
-
-            if (SensitiveInput.IsSensitivePath(relative) && !sensitiveAuthorized)
-            {
-                throw new CliFailure("verdict", $"review evidence includes a sensitive path; explicitly allow it with --allow-paths or review authorize-preexisting: {relative}", 2);
-            }
-
-            var absolute = Path.GetFullPath(Path.Combine(workspace, relative));
-            if (!IsContained(workspace, absolute)) throw new CliFailure("state", $"review path escapes the workspace: {relative}", 3);
-            if (!File.Exists(absolute))
-            {
-                if (untracked.Contains(relative) || baselineUntracked.ContainsKey(relative))
-                {
-                    withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = "untracked evidence is unavailable" });
-                }
-                continue;
-            }
-            var attributes = File.GetAttributes(absolute);
-            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", $"review evidence includes a symlinked path: {relative}", 3);
-            var length = new FileInfo(absolute).Length;
-            if (length > 100 * 1024 || aggregateBytes + length > 1024 * 1024)
-            {
-                withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = "evidence size bound" });
-                continue;
-            }
-
-            if (IsBinaryFile(absolute))
-            {
-                if (!sensitiveAuthorized) withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = "binary evidence requires explicit authorization" });
-                else aggregateBytes += length;
-                continue;
-            }
-
-            var content = File.ReadAllText(absolute);
-            if (SensitiveInput.IsSensitiveContent(content) && !sensitiveAuthorized)
-            {
-                throw new CliFailure("verdict", $"review evidence includes withheld sensitive content: {relative}", 2);
-            }
-            aggregateBytes += length;
+            var decision = InspectReviewFile(workspace, relative, preExisting, stateAllowed, sensitiveAllowed, untracked, baselineUntracked, aggregateBytes);
+            if (decision.Reason is not null) withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = decision.Reason });
+            else aggregateBytes += decision.Bytes;
         }
 
         if (parsed.Has("full") && withheld.Count > 0) throw new CliFailure("verdict", "full review evidence is unavailable; resolve the withheld paths or use partial coverage", 2, withheld.DeepClone());
@@ -777,9 +729,6 @@ internal sealed class CliApplication
         var preExistingPatch = GitDiffOutput(workspace, ["diff", "--binary", headBase, worktreeBase], reviewablePreExisting, "could not capture pre-existing review evidence");
         var inRunPatch = GitDiffOutput(workspace, ["diff", "--binary", worktreeBase], reviewableInRun, "could not capture in-run review evidence");
         var untrackedPatch = BuildUntrackedEvidence(workspace, reviewableUntracked, sensitiveAllowed);
-        RequireSensitivePatchAuthorization(preExistingPatch, reviewablePreExisting, sensitiveAllowed, "pre-existing");
-        RequireSensitivePatchAuthorization(inRunPatch, reviewableInRun, sensitiveAllowed, "in-run");
-        RequireSensitivePatchAuthorization(untrackedPatch, reviewableUntracked, sensitiveAllowed, "untracked");
         DurableFiles.WriteAtomic(Path.Combine(forge, "pre-existing.patch"), preExistingPatch);
         DurableFiles.WriteAtomic(Path.Combine(forge, "in-run.patch"), inRunPatch);
         DurableFiles.WriteAtomic(Path.Combine(forge, "untracked-review.patch"), untrackedPatch);
@@ -802,6 +751,33 @@ internal sealed class CliApplication
             current["review"]!["manifest"] = manifest.DeepClone();
         });
         return manifest;
+    }
+
+    private static (string? Reason, long Bytes) InspectReviewFile(
+        string workspace,
+        string relative,
+        ISet<string> preExisting,
+        ISet<string> stateAllowed,
+        ISet<string> sensitiveAllowed,
+        ISet<string> untracked,
+        IReadOnlyDictionary<string, string> baselineUntracked,
+        long aggregateBytes)
+    {
+        ValidateReviewPath(relative);
+        var sensitiveAuthorized = sensitiveAllowed.Contains(relative);
+        if (preExisting.Contains(relative) && !stateAllowed.Contains(relative)) return ("pre-existing change requires explicit authorization", 0);
+        if (SensitiveInput.IsSensitivePath(relative) && !sensitiveAuthorized) throw new CliFailure("verdict", $"review evidence includes a sensitive path; explicitly allow it with --allow-paths or review authorize-preexisting: {relative}", 2);
+
+        var absolute = Path.GetFullPath(Path.Combine(workspace, relative));
+        if (!IsContained(workspace, absolute)) throw new CliFailure("state", $"review path escapes the workspace: {relative}", 3);
+        if (!File.Exists(absolute)) return untracked.Contains(relative) || baselineUntracked.ContainsKey(relative) ? ("untracked evidence is unavailable", 0) : (null, 0);
+        var attributes = File.GetAttributes(absolute);
+        if ((attributes & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", $"review evidence includes a symlinked path: {relative}", 3);
+        var length = new FileInfo(absolute).Length;
+        if (length > 100 * 1024 || aggregateBytes + length > 1024 * 1024) return ("evidence size bound", 0);
+        if (IsBinaryFile(absolute)) return sensitiveAuthorized ? (null, length) : ("binary evidence requires explicit authorization", 0);
+        if (SensitiveInput.IsSensitiveContent(File.ReadAllText(absolute)) && !sensitiveAuthorized) throw new CliFailure("verdict", $"review evidence includes withheld sensitive content: {relative}", 2);
+        return (null, length);
     }
 
     private static string[] GitPathList(string workspace, IReadOnlyList<string> args, string errorMessage)
@@ -959,14 +935,6 @@ internal sealed class CliApplication
         catch (DecoderFallbackException) { return true; }
     }
 
-    private static void RequireSensitivePatchAuthorization(string patch, IEnumerable<string> paths, ISet<string> sensitiveAllowed, string label)
-    {
-        var binaryPatch = patch.Contains("GIT binary patch", StringComparison.Ordinal) || patch.Contains("Binary files ", StringComparison.Ordinal);
-        if (!binaryPatch && !SensitiveInput.IsSensitiveContent(patch)) return;
-        var unauthorized = paths.Where(path => !sensitiveAllowed.Contains(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
-        if (unauthorized.Length > 0) throw new CliFailure("verdict", $"{label} review evidence contains sensitive or binary content; explicitly allow every affected path with --allow-paths", 2, new JsonArray(unauthorized.Select(path => (JsonNode)path).ToArray()));
-    }
-
     private static JsonObject AuthorizePreexisting(string workspace, ParsedArgs parsed)
     {
         var raw = parsed.GetRequired("authorized-paths");
@@ -996,13 +964,12 @@ internal sealed class CliApplication
         var state = StateStore.Load(workspace);
         var dispatch = state["dispatch"]!.AsObject();
         if (!dispatch["pending"]!.GetValue<bool>() || dispatch["stage"]?.GetValue<string>() is not ("plan" or "code" or "fix")) throw new CliFailure("state", "review verdict requires a pending plan, code, or fix dispatch", 3);
-        var expectedStage = parsed.Has("fix") ? "fix" : parsed.Get("stage") ?? dispatch["stage"]?.GetValue<string>();
-        if (expectedStage is not ("plan" or "code" or "fix") || !string.Equals(expectedStage, dispatch["stage"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "review verdict stage does not match the pending dispatch", 3);
-        if (expectedStage == "fix" && !string.Equals(dispatch["resolution"]?.GetValue<string>(), "review-pending", StringComparison.Ordinal)) throw new CliFailure("state", "fix review verdict requires a completed builder dispatch", 3);
-        if (expectedStage is "code" or "fix") RequireFreshReviewManifest(workspace, state);
+        var expectedStage = parsed.Get("stage") ?? dispatch["stage"]?.GetValue<string>();
+        if (expectedStage is not ("plan" or "code" or "fix-review") || !string.Equals(expectedStage, dispatch["stage"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "review verdict stage does not match the pending dispatch", 3);
+        if (expectedStage is "code" or "fix-review") RequireFreshReviewManifest(workspace, state);
         if (state["agents"]!["reviewerIds"] is not JsonArray reviewerIds || reviewerIds.Count == 0 || !string.Equals(state["agents"]!["lastReviewerDispatchId"]?.GetValue<string>(), dispatch["id"]?.GetValue<string>(), StringComparison.Ordinal)) throw new CliFailure("state", "review verdict requires a registered fresh reviewer session for this dispatch", 3);
         if (expectedStage == "plan" && state["workflow"]!["phase"]?.GetValue<string>() != "locked") throw new CliFailure("state", "plan review verdict requires locked phase", 3);
-        if (expectedStage is "code" or "fix" && state["workflow"]!["phase"]?.GetValue<string>() != "code-review") throw new CliFailure("state", "code review verdict requires code-review phase", 3);
+        if (expectedStage is "code" or "fix-review" && state["workflow"]!["phase"]?.GetValue<string>() != "code-review") throw new CliFailure("state", "code review verdict requires code-review phase", 3);
         var critiquePath = parsed.GetRequired("critique-file");
         var absoluteCritique = Path.GetFullPath(Path.IsPathRooted(critiquePath) ? critiquePath : Path.Combine(workspace, critiquePath));
         var forgeRoot = Path.Combine(workspace, ".forge");
@@ -1011,9 +978,10 @@ internal sealed class CliApplication
         if ((File.GetAttributes(absoluteCritique) & FileAttributes.ReparsePoint) != 0 || new FileInfo(absoluteCritique).Length > 100 * 1024) throw new CliFailure("usage", "critique-file is oversized or symlinked");
         var critique = File.ReadAllText(absoluteCritique);
         if (SensitiveInput.IsSensitiveContent(critique)) throw new CliFailure("verdict", "critique-file contains withheld sensitive content", 2);
-        var verdict = ParseVerdict(critique, parsed.Get("verdict"));
-        var coverage = expectedStage == "plan" ? null : ParseCoverage(critique, parsed.Get("coverage"));
-        if (expectedStage is "code" or "fix" && verdict == "APPROVED")
+        var decision = ReadReviewDecision(absoluteCritique, workspace, expectedStage);
+        var verdict = decision.Verdict;
+        var coverage = decision.Coverage;
+        if (expectedStage is "code" or "fix-review" && verdict == "APPROVED")
         {
             if (coverage != "FULL" || state["review"]!["manifest"]!["coverage"]?.GetValue<string>() != "FULL") throw new CliFailure("verdict", "approval requires a fresh FULL review manifest and FULL critique coverage", 2);
         }
@@ -1034,10 +1002,13 @@ internal sealed class CliApplication
         state = StateStore.Update(workspace, state, value =>
         {
             if (Hashing.Sha256File(absoluteCritique) != critiqueHash) throw new CliFailure("state", "critique changed while the verdict was being recorded", 3);
+            if (Hashing.Sha256File(decision.Path) != decision.Hash) throw new CliFailure("state", "review decision changed while the verdict was being recorded", 3);
             value["dispatch"]!["pending"] = false;
             value["review"]!["verdict"] = verdict;
             value["review"]!["coverage"] = coverage;
             value["review"]!["critiqueFile"] = absoluteCritique;
+            value["review"]!["verdictFile"] = decision.Path;
+            value["review"]!["verdictHash"] = decision.Hash;
             var critiqueFiles = value["review"]!["critiqueFiles"]!.AsArray();
             for (var index = critiqueFiles.Count - 1; index >= 0; index--)
             {
@@ -1045,10 +1016,9 @@ internal sealed class CliApplication
             }
             if (critiqueFiles.Count >= 256) throw new CliFailure("state", "critique history exceeds the size bound", 3);
             critiqueFiles.Add((JsonNode)new JsonObject { ["path"] = absoluteCritique, ["hash"] = critiqueHash });
-            if (expectedStage == "fix") value["dispatch"]!["resolution"] = null;
             if (expectedStage == "plan") value["workflow"]!["round"] = nextRound;
             else if (verdict == "REVISE") value["review"]!["fixRound"] = nextRound;
-            if (expectedStage is "code" or "fix") value["workflow"]!["phase"] = verdict == "APPROVED" ? "done" : "code-review";
+            if (expectedStage is "code" or "fix-review") value["workflow"]!["phase"] = verdict == "APPROVED" ? "done" : "code-review";
         });
         return new JsonObject { ["action"] = verdict == "APPROVED" ? "approved" : nextRound > roundCap ? "deadlock" : "revise", ["stage"] = expectedStage, ["verdict"] = verdict, ["coverage"] = coverage, ["round"] = nextRound, ["review"] = state["review"]!.DeepClone() };
     }
@@ -1060,8 +1030,8 @@ internal sealed class CliApplication
         var dispatch = state["dispatch"]!.AsObject();
         if (!dispatch["pending"]!.GetValue<bool>() || string.IsNullOrWhiteSpace(parsed.Get("dispatch-id")) || parsed.Get("dispatch-id") != dispatch["id"]?.GetValue<string>()) throw new CliFailure("state", "session dispatch-id does not match the pending dispatch", 3);
         var stage = dispatch["stage"]?.GetValue<string>();
-        if ((role == "builder" && (stage is not ("build" or "fix") || stage == "fix" && dispatch["resolution"]?.GetValue<string>() is not null)) ||
-            (role == "reviewer" && (stage is not ("plan" or "code" or "fix") || stage == "fix" && !string.Equals(dispatch["resolution"]?.GetValue<string>(), "review-pending", StringComparison.Ordinal))))
+        if ((role == "builder" && stage is not ("build" or "fix-build")) ||
+            (role == "reviewer" && stage is not ("plan" or "code" or "fix-review")))
         {
             throw new CliFailure("state", $"{role} session does not match pending {stage} dispatch", 3);
         }
@@ -1125,35 +1095,30 @@ internal sealed class CliApplication
         return true;
     }
 
-    private static string ParseVerdict(string content, string? explicitValue)
+    private static (string Verdict, string? Coverage, string Path, string Hash) ReadReviewDecision(string critiquePath, string workspace, string expectedStage)
     {
-        var value = explicitValue?.ToUpperInvariant();
-        if (value is not (null or "APPROVED" or "REVISE")) throw new CliFailure("usage", "--verdict must be APPROVED or REVISE");
-        var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        var last = lines.LastOrDefault(line => !string.IsNullOrWhiteSpace(line))?.Trim();
-        var match = last is null ? null : Regex.Match(last.Replace("**", string.Empty, StringComparison.Ordinal).TrimEnd('.', '!'), "^VERDICT:\\s*(APPROVED|REVISE)$");
-        var observed = match?.Success == true ? match.Groups[1].Value : null;
-        if (value is null && observed is null) throw new CliFailure("verdict", "critique must end with exactly VERDICT: APPROVED or VERDICT: REVISE", 2);
-        if (value is not null && observed is not null && !string.Equals(value, observed, StringComparison.Ordinal)) throw new CliFailure("verdict", "explicit verdict does not match critique", 2);
-        if (value is null) value = observed;
-        return value!;
-    }
-
-    private static string ParseCoverage(string content, string? explicitValue)
-    {
-        var value = explicitValue?.ToUpperInvariant();
-        if (value is not (null or "FULL" or "PARTIAL")) throw new CliFailure("usage", "--coverage must be FULL or PARTIAL");
-        var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        var verdictIndex = Array.FindLastIndex(lines, line => !string.IsNullOrWhiteSpace(line));
-        var hits = lines.Select((line, index) => new { Line = line.Trim(), Index = index })
-                        .Where(item => item.Line.StartsWith("COVERAGE:", StringComparison.Ordinal))
-                        .Select(item => new { item.Index, Match = Regex.Match(item.Line, "^COVERAGE:\\s*(FULL|PARTIAL)(?:\\s+[—-].*)?$") })
-                        .Where(item => item.Match.Success)
-                        .ToArray();
-        if (hits.Length != 1 || hits[0].Index >= verdictIndex) throw new CliFailure("verdict", "critique must contain exactly one COVERAGE line before the final verdict", 2);
-        var observed = hits[0].Match.Groups[1].Value;
-        if (value is not null && observed is not null && !string.Equals(value, observed, StringComparison.Ordinal)) throw new CliFailure("verdict", "explicit coverage does not match critique", 2);
-        return value ?? observed!;
+        var forgeRoot = Path.Combine(workspace, ".forge");
+        var path = critiquePath + ".json";
+        if (!IsContained(forgeRoot, path) || !File.Exists(path)) throw new CliFailure("verdict", $"review decision file is missing next to the critique: {path}", 2);
+        if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || new FileInfo(path).Length > 16 * 1024) throw new CliFailure("verdict", "review decision file is oversized or symlinked", 2);
+        try
+        {
+            var value = JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException("JSON object expected");
+            var verdict = value["verdict"]?.GetValue<string>()?.ToUpperInvariant();
+            var coverage = value["coverage"]?.GetValue<string>()?.ToUpperInvariant();
+            if (verdict is not ("APPROVED" or "REVISE")) throw new FormatException("verdict must be APPROVED or REVISE");
+            if (expectedStage == "plan")
+            {
+                if (coverage is not null) throw new FormatException("plan decisions must not include coverage");
+            }
+            else if (coverage is not ("FULL" or "PARTIAL"))
+            {
+                throw new FormatException("code decisions must include FULL or PARTIAL coverage");
+            }
+            return (verdict, coverage, path, Hashing.Sha256File(path));
+        }
+        catch (CliFailure) { throw; }
+        catch (Exception error) { throw new CliFailure("verdict", $"review decision file is malformed: {error.Message}", 2); }
     }
 
     private static void RequireAuthorizationNote(ParsedArgs parsed)

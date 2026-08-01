@@ -66,18 +66,18 @@ Options are command-specific:
 ```text
 plan start                 --session-context
 plan lock                  --relock --amendment
-approval resume            --purge-replay-ledger
-build dispatch             --stage --task-number --retry --cancel --fix --dispatch-id --model --effort --plan-sha256 --authorization-note --accept-risk
-build complete             --task-number --dispatch-id --fix --verification-passed --authorization-note --accept-risk
+approval resume            (no additional options)
+build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --plan-sha256 --authorization-note --accept-risk
+build complete             --task-number --dispatch-id --verification-passed --authorization-note --accept-risk
 build resolve              --conflict --dispatch-id
 build begin                --amendment --relock
 review prepare             --allow-paths --full --plan-sha256 --authorization-note
 review authorize-preexisting --authorized-paths --authorization-note --accept-risk
-review verdict             --stage --verdict --coverage --critique-file --fix --accept-risk --authorization-note
+review verdict             --stage --critique-file --accept-risk --authorization-note
 session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
 run status                 (no additional options)
 run set                    --key --value --amendment --accept-risk --authorization-note
-run cleanup                --delete-owned-artifacts --purge-generated-agents --purge-replay-ledger
+run cleanup                --delete-owned-artifacts --purge-generated-agents
 ```
 
 `--workspace` is available on every grouped CLI command; `hook capture-context`
@@ -85,8 +85,8 @@ reads its JSON input from stdin. `--authorized-paths` is a bounded JSON array,
 and `--authorization-note` is bounded text.
 
 Every builder or reviewer session must report the exact pinned `--model` and
-`--effort`; fix reviews register the builder and complete `build complete
---fix` before a reviewer session can consume the review dispatch.
+`--effort`; a fix review uses explicit `fix-build` and `fix-review` dispatch
+stages, with the builder completed before the reviewer is registered.
 
 `approval issue` accepts exactly the bounded stdin keys
 `humanPlan`, `reviewLog`, `completedReviewRounds`, `maxRounds`, `reviewer`,
@@ -96,10 +96,9 @@ catalog snapshot is embedded. v1/v2 approvals are rejected.
 
 Materialized `.forge/state.json` is nested state v3 with explicit `generation`
 metadata; its `models` group contains only `reviewer` and `builder`. Flat v2,
-old catalog-bearing state, or unknown state is rejected without migration. New replay
-records use the v2 journal/tombstone namespace; completed acknowledged v1
-tombstones remain untouched, while pending v1 journals block until recovered or
-explicitly purged with `--purge-replay-ledger`.
+old catalog-bearing state, or unknown state is rejected without migration.
+Materialization uses atomic artifact/state writes, one workspace lock, and a
+single last-used nonce file; it has no crash journal or legacy replay migration.
 
 ## Trust boundary and hook behavior
 
@@ -114,8 +113,8 @@ Codex hook JSON root; they are not wrapped in the interactive CLI envelope.
 The approval wrapper uses canonical UTF-8/LF plan and review bytes, exact
 repository identity, transcript origin, one-time nonce, normalized runtime
 model selections, and builder-to-plan hash binding. Materialization writes only
-the owned `PLAN.md`, `PLAN-REVIEW-LOG.md`, and nested state after all checks
-pass. `approval resume` passes the validated wrapper text directly to
+the owned `PLAN.md`, `PLAN-REVIEW-LOG.md`, and nested state. `approval resume`
+passes the generated wrapper text directly to
 materialization; wrapper file paths are not accepted. Forge asks for model and
 effort separately for reviewer and builder in
 free text; runtime rejection or an ambiguous answer can be retried up to three
@@ -143,10 +142,9 @@ archives. The package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
 Operational overrides retain the existing names: `CODEX_HOME`,
-`FORGE_PLUGIN_DATA`, `FORGE_AGENTS_DIR`, `FORGE_SESSION_MAX_AGE_MS`,
-`FORGE_STATE_LOCK_CRASH_AT`, and `FORGE_CRASH_AT`. Replay recovery is
-generation-aware: acknowledged v1 tombstones are preserved, while pending v1
-journals require recovery or an explicit `--purge-replay-ledger` decision.
+`FORGE_PLUGIN_DATA`, `FORGE_AGENTS_DIR`, and `FORGE_SESSION_MAX_AGE_MS`.
+Each critique is accompanied by a small JSON decision file at
+`<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
 
 ## Attribution
 
