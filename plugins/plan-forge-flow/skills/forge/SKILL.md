@@ -16,7 +16,7 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
 - Ask grill questions one at a time and keep the complete canonical plan and
   review record in conversation until native approval.
 - Act 1 and Act 2 do not create repository artifacts before native approval.
-  Use only `plan start`, `run doctor`, and `approval issue`; never invoke a
+  Use only `plan start` and `run doctor`; never invoke a
   catalog command or launch Codex CLI to enumerate models.
 - Ask separately for the reviewer and builder model/effort as free text. Resolve
   the answer against the currently available multi-agent runtime, accept only a
@@ -28,20 +28,17 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
   `forge_builder` for the implementation.
 - Show the complete canonical plan before selecting a builder. Validate the
   builder by spawning it in a no-edit hold state, then emit exactly one native
-  `<proposed_plan>` block with the v3 wrapper after the builder is bound to the
-  plan hash.
-- Never implement directly from wrapper text. In Default mode run
-  `planforge approval resume --workspace <repo>`; materialization must pass
-  transcript, origin, repository, nonce, ownership, and state-generation
-  checks first.
+  `<proposed_plan>` block containing the plain canonical plan.
+- In the first Default-mode turn, let the hook select that plan and run
+  `planforge plan materialize --workspace <repo>` with the review metadata on
+  stdin before implementation.
 - Never stage or commit changes from agents. Never hand-edit `.forge/state.json`.
-- A plan revision invalidates the previous preview, builder binding, wrapper,
-  and approval. Close the held builder, then repeat preview, free-text builder
-  selection, and approval.
+- A plan revision invalidates the previous preview and builder hold. Close the
+  held builder, then repeat preview and free-text builder selection.
 - At every cap, ask the user whether to retry once, accept the named risk, or
   stop. Do not extend caps autonomously.
-- Pre-existing findings require separate opt-in. Cleanup keeps owned plan files
-  unless the user explicitly requests `--delete-owned-artifacts`.
+- Pre-existing findings require separate opt-in. Cleanup always removes the
+  current run's `.forge/` artifacts.
 - Reviewers write the decision in `<critique-file>.json`; verdicts are not parsed
   from free-form critique text.
 

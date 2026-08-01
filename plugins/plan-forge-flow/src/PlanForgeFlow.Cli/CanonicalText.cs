@@ -6,24 +6,27 @@ namespace PlanForgeFlow;
 
 internal static class CanonicalText
 {
-    public const string OwnedMarker = "<!-- plan-forge-flow:owned -->";
-
     public static string NormalizePlan(string value)
     {
-        if (value is null) throw new CliFailure("usage", "human plan is required");
-        if (value.Contains('\0')) throw new CliFailure("usage", "human plan contains a NUL byte");
-        if (Encoding.UTF8.GetByteCount(value) > 256 * 1024) throw new CliFailure("usage", "human plan exceeds the size bound");
-        if (value.Length > 0 && value[0] == '\uFEFF') value = value[1..];
-        value = value.Replace("\r\n", "\n").Replace('\r', '\n');
-        value = value.TrimEnd('\n') + "\n";
-        if (!value.StartsWith(OwnedMarker + "\n", StringComparison.Ordinal))
-        {
-            throw new CliFailure("usage", "human plan lacks the Forge ownership marker");
-        }
+        value = NormalizeText(value, "human plan");
         if (value.Contains("<proposed_plan>", StringComparison.Ordinal) || value.Contains("</proposed_plan>", StringComparison.Ordinal))
         {
             throw new CliFailure("usage", "human plan contains a proposed-plan terminator");
         }
+
+        return value;
+    }
+
+    public static string NormalizeReviewLog(string value) => NormalizeText(value, "review log");
+
+    private static string NormalizeText(string value, string label)
+    {
+        if (value is null) throw new CliFailure("usage", $"{label} is required");
+        if (value.Contains('\0')) throw new CliFailure("usage", $"{label} contains a NUL byte");
+        if (Encoding.UTF8.GetByteCount(value) > 256 * 1024) throw new CliFailure("usage", $"{label} exceeds the size bound");
+        if (value.Length > 0 && value[0] == '\uFEFF') value = value[1..];
+        value = value.Replace("\r\n", "\n").Replace('\r', '\n');
+        value = value.TrimEnd('\n') + "\n";
 
         for (var index = 0; index < value.Length; index++)
         {
@@ -37,12 +40,6 @@ internal static class CanonicalText
             throw new CliFailure("usage", "human plan contains an unpaired surrogate");
         }
 
-        return value;
-    }
-
-    public static string NormalizeReviewLog(string value)
-    {
-        value = NormalizePlan(value);
         return value;
     }
 

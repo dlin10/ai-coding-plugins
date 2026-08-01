@@ -201,23 +201,10 @@ internal sealed record ReviewState
     public List<CritiqueEntry> CritiqueFiles { get; set; } = [];
 }
 
-internal sealed record ApprovalState
-{
-    public string? PlanHash { get; set; }
-    public string? Nonce { get; set; }
-    public int Revision { get; set; }
-}
-
-internal sealed record MaterializationState
-{
-    public string Generation { get; set; } = ForgeState.Generation;
-    public bool Committed { get; set; }
-}
-
 internal sealed record ForgeState
 {
-    public const int Version = 4;
-    public const string Generation = "v3";
+    public const int Version = 5;
+    public const string Generation = "v4";
 
     public string CreatedAt { get; set; } = string.Empty;
     public string UpdatedAt { get; set; } = string.Empty;
@@ -227,17 +214,14 @@ internal sealed record ForgeState
     public DispatchState Dispatch { get; set; } = new();
     public BaselinesState Baselines { get; set; } = new();
     public ReviewState Review { get; set; } = new();
-    public ApprovalState Approval { get; set; } = new();
-    public MaterializationState Materialization { get; set; } = new();
 
-    public static ForgeState CreateEmpty(string? planHash = null)
+    public static ForgeState CreateEmpty()
     {
         var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         return new ForgeState
         {
             CreatedAt = now,
             UpdatedAt = now,
-            Approval = new ApprovalState { PlanHash = planHash },
         };
     }
 
@@ -283,8 +267,6 @@ internal sealed record ForgeState
             ["verdictFile"] = Review.VerdictFile, ["verdictHash"] = Review.VerdictHash,
             ["critiqueFiles"] = new JsonArray(Review.CritiqueFiles.Select(entry => (JsonNode)entry.ToJson()).ToArray()),
         },
-        ["approval"] = new JsonObject { ["planHash"] = Approval.PlanHash, ["nonce"] = Approval.Nonce, ["revision"] = Approval.Revision },
-        ["materialization"] = new JsonObject { ["generation"] = Materialization.Generation, ["committed"] = Materialization.Committed },
     };
 
     public static ForgeState FromJson(JsonObject value)
@@ -296,8 +278,6 @@ internal sealed record ForgeState
         var dispatch = Object(value, "dispatch");
         var baselines = Object(value, "baselines");
         var review = Object(value, "review");
-        var approval = Object(value, "approval");
-        var materialization = Object(value, "materialization");
         return new ForgeState
         {
             CreatedAt = RequiredString(value, "createdAt", "state"),
@@ -339,14 +319,6 @@ internal sealed record ForgeState
                 VerdictHash = OptionalString(review, "verdictHash", "review"),
                 CritiqueFiles = RequiredArray(review, "critiqueFiles", "review").Select(ParseCritique).ToList(),
             },
-            Approval = new ApprovalState
-            {
-                PlanHash = OptionalString(approval, "planHash", "approval"), Nonce = OptionalString(approval, "nonce", "approval"), Revision = RequiredInt(approval, "revision", "approval"),
-            },
-            Materialization = new MaterializationState
-            {
-                Generation = RequiredString(materialization, "generation", "materialization"), Committed = RequiredBool(materialization, "committed", "materialization"),
-            },
         };
     }
 
@@ -359,21 +331,17 @@ internal sealed record ForgeState
             ["dispatch"] = ["id", "stage", "taskNumber", "retry", "pending", "lastVerificationPassed", "model", "effort", "conflict"],
             ["baselines"] = ["head", "worktree", "untracked"],
             ["review"] = ["coverage", "verdict", "fixRound", "authorizedPaths", "manifest", "critiqueFile", "verdictFile", "verdictHash", "critiqueFiles"],
-            ["approval"] = ["planHash", "nonce", "revision"],
-            ["materialization"] = ["generation", "committed"],
         };
 
     private static void Validate(JsonObject value)
     {
-        if (value["version"]?.GetValue<int>() != Version || value["generation"]?.GetValue<string>() != Generation) throw new CliFailure("state", "unsupported Forge state version; expected nested state v4 generation v3", 3);
+        if (value["version"]?.GetValue<int>() != Version || value["generation"]?.GetValue<string>() != Generation) throw new CliFailure("state", "unsupported Forge state version; expected nested state v5 generation v4", 3);
         RequireExact(value, ["version", "generation", "createdAt", "updatedAt", .. GroupFields.Keys], "state");
         foreach (var (group, fields) in GroupFields)
         {
             var groupValue = Object(value, group);
             RequireExact(groupValue, fields, $"state.{group}");
         }
-
-        if (Object(value, "materialization")["generation"]?.GetValue<string>() != Generation) throw new CliFailure("state", "state materialization generation is unsupported", 3);
     }
 
     private static PlanTask ParseTask(JsonNode? node)
@@ -448,7 +416,7 @@ internal sealed record ForgeState
 
 internal static class ForgeStateSchema
 {
-    public static ForgeState CreateEmpty(string? planHash = null) => ForgeState.CreateEmpty(planHash);
+    public static ForgeState CreateEmpty() => ForgeState.CreateEmpty();
     public static DispatchState CreateDispatch() => new();
     public static ReviewState CreateReview(IEnumerable<CritiqueEntry>? critiqueFiles = null) => new() { CritiqueFiles = critiqueFiles?.ToList() ?? [] };
     public static void Validate(JsonObject value) => ForgeState.FromJson(value);

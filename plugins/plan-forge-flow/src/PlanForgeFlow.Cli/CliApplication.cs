@@ -23,7 +23,6 @@ internal sealed partial class CliApplication
             var parsed = ParsedArgs.Parse(args.Skip(optionOffset));
             ValidateOptions(definition, parsed);
             var context = CommandContext.Create(definition, parsed);
-            if (definition.RequiredMode is not null) RequireMode(context.Workspace, definition.RequiredMode, command == "plan start" ? parsed.Get("session-context") : null);
             switch (command)
             {
                 case "plan start":
@@ -32,11 +31,8 @@ internal sealed partial class CliApplication
                 case "plan lock":
                     JsonOutput.Success(command, LockPlan(context));
                     break;
-                case "approval issue":
-                    JsonOutput.Success(command, IssueApproval(context.Args, context.Workspace));
-                    break;
-                case "approval resume":
-                    JsonOutput.Success(command, Materializer.Materialize(RepositoryPaths.Identify(context.Workspace), ResolveApprovalWrapper(context.Workspace)));
+                case "plan materialize":
+                    JsonOutput.Success(command, MaterializePlan(context));
                     break;
                 case "agents install":
                     JsonOutput.Success(command, InstallAgents());
@@ -85,8 +81,8 @@ internal sealed partial class CliApplication
                     JsonOutput.Success(command, Set(context));
                     break;
                 case "run cleanup":
-                    Materializer.Cleanup(context.Workspace, context.Args.Has("delete-owned-artifacts"), context.Args.Has("purge-generated-agents"));
-                    JsonOutput.Success(command, new JsonObject { ["cleaned"] = true, ["deletedArtifacts"] = context.Args.Has("delete-owned-artifacts"), ["purgedAgents"] = context.Args.Has("purge-generated-agents") });
+                    Materializer.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"));
+                    JsonOutput.Success(command, new JsonObject { ["cleaned"] = true, ["purgedAgents"] = context.Args.Has("purge-generated-agents") });
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");
@@ -143,15 +139,5 @@ internal sealed partial class CliApplication
                                          CliCommands.Names.Select(name => (JsonNode)name).Append("hook capture-context").ToArray()),
         });
     }
-
-    private static void RequireMode(string workspace, string expected, string? explicitCapturePath = null)
-    {
-        var capture = SessionCapture.Read(workspace, explicitCapturePath);
-        if (capture?.CollaborationMode != expected) throw new CliFailure("environment", $"command requires a fresh {expected}-mode capture");
-    }
-
-
-
-
 
 }

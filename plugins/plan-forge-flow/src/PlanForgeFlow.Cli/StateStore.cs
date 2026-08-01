@@ -7,7 +7,7 @@ internal static class StateStore
 {
     public static string StatePath(string workspace) => Path.Combine(workspace, ".forge", "state.json");
 
-    public static ForgeState CreateEmpty(string? planHash = null) => ForgeStateSchema.CreateEmpty(planHash);
+    public static ForgeState CreateEmpty() => ForgeStateSchema.CreateEmpty();
 
     public static ForgeState Load(string workspace)
     {

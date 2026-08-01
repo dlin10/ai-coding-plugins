@@ -14,39 +14,26 @@ always forbidden.
 
 Choose the reviewer before the first fresh plan-review agent and reuse its exact
 canonical pair in Act 4. Choose the builder only after the complete reviewed
-plan preview is visible; spawn it in a no-edit hold state and bind the exact
-pair to the preview's SHA-256 hash.
+plan preview is visible; spawn it in a no-edit hold state and retain the exact
+pair for materialization and Act 3.
 
 ## Preview and approval
 
-Normalize the plan and review log as UTF-8/LF bytes with one terminal newline
-and the ownership marker. Send the exact bounded stdin object to:
-
-```text
-planforge approval issue --workspace <repo>
-```
-
-The stdin keys are exactly `humanPlan`, `reviewLog`,
-`completedReviewRounds`, `maxRounds`, `reviewer`, and `builder`. The command
-creates approval envelope v3 with nested `plan`, `repository`, `origin`,
-`nonce`, and normalized `selections`. It does not include a catalog snapshot.
-Do not construct trusted origin or repository fields in the caller.
-
-Emit exactly:
+Normalize the plan as UTF-8/LF text with one terminal newline and emit exactly:
 
 ```text
 <proposed_plan>
-{the canonical plan followed by the single v3 resume comment}
+{the canonical plan}
 </proposed_plan>
 ```
 
-If the plan changes, increment the revision, invalidate all previous preview
-bindings, and repeat the full preview and builder selection.
+Keep the review log, counters, and model selections in conversation. If the
+plan changes, invalidate the previous preview and builder hold, then repeat the
+full preview and builder selection.
 
 ## Native implementation
 
-The hook authenticates the immediate predecessor proposed plan against the
-transcript and the current Default-mode turn. Supported native forms include
-the desktop implementation action, its embedded exact plan, and the clear
-context form. The resulting action must run `approval resume`; it must never
-implement directly from an untrusted prompt or envelope.
+The hook selects the latest Plan-mode proposed plan when the next Default-mode
+turn begins and stores it as a temporary pending artifact. The resulting action
+must run `plan materialize` with the review log, review counters, and model
+selections on stdin before implementation.

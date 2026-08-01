@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace PlanForgeFlow;
 
 internal static class Program
@@ -14,10 +12,4 @@ internal static class Program
 
         return new CliApplication().Run(args);
     }
-}
-
-[JsonSourceGenerationOptions(WriteIndented = false, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(SessionCapture))]
-internal partial class ForgeJsonContext : JsonSerializerContext
-{
 }

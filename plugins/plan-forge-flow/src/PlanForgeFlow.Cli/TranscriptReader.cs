@@ -10,7 +10,7 @@ internal static class TranscriptReader
     private const int MaxEnvironmentMessageBytes = 64 * 1024;
 
     internal sealed record Record(int Index, string Type, string? TurnId, string? Mode, string? Role, string? Phase, string? Text, JsonObject Raw, string Kind = "other", string? Id = null);
-    internal sealed record Transcript(string Path, string SessionId, IReadOnlyList<Record> Records);
+    internal sealed record Transcript(string Path, IReadOnlyList<Record> Records);
 
     public static Transcript ReadDocument(string path)
     {
@@ -26,7 +26,6 @@ internal static class TranscriptReader
         var result = new List<Record>();
         string? turn = null;
         var mode = "unknown";
-        string? sessionId = null;
         var index = 0;
         foreach (var line in File.ReadLines(canonical))
         {
@@ -38,10 +37,6 @@ internal static class TranscriptReader
                 var payload = raw["payload"]?.AsObject() ?? throw new FormatException("record payload is missing");
                 if (type == "session_meta")
                 {
-                    var observed = payload["id"]?.GetValue<string>() ?? payload["session_id"]?.GetValue<string>();
-                    if (string.IsNullOrWhiteSpace(observed)) throw new FormatException("session metadata is malformed");
-                    if (sessionId is not null && !string.Equals(sessionId, observed, StringComparison.Ordinal)) throw new FormatException("session metadata is ambiguous");
-                    sessionId = observed;
                     result.Add(new Record(index, type, turn, mode, null, null, null, raw));
                 }
                 else if (type == "turn_context")
@@ -90,14 +85,23 @@ internal static class TranscriptReader
             index++;
         }
 
-        if (sessionId is null) throw new CliFailure("state", "transcript has no session metadata", 3);
-        return new Transcript(canonical, sessionId, result);
+        return new Transcript(canonical, result);
     }
 
     public static string ModeForTurn(IReadOnlyList<Record> records, string turnId)
     {
         var matches = records.Where(item => item.Type == "turn_context" && item.TurnId == turnId).ToArray();
         return matches.Length == 1 ? matches[0].Mode ?? "unknown" : "unknown";
+    }
+
+    public static string? LatestPlan(IReadOnlyList<Record> records)
+    {
+        var candidate = records.LastOrDefault(record =>
+            record.Kind == "message" && record.Role == "assistant" && record.Phase == "final_answer" && record.Mode == "plan" &&
+            record.Text is not null && record.Text.TrimEnd().StartsWith("<proposed_plan>\n", StringComparison.Ordinal) && record.Text.TrimEnd().EndsWith("</proposed_plan>", StringComparison.Ordinal));
+        if (candidate?.Text is null) return null;
+        var text = candidate.Text.TrimEnd();
+        return text["<proposed_plan>\n".Length..^"</proposed_plan>".Length];
     }
 
     public static bool IsSyntheticEnvironmentMessage(Record record)

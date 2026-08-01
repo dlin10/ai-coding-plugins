@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 
 namespace PlanForgeFlow;
 
@@ -57,13 +56,6 @@ internal sealed partial class CliApplication
     {
         var note = parsed.Get("authorization-note");
         if (string.IsNullOrWhiteSpace(note) || note.Length > 16 * 1024) throw new CliFailure("usage", "accepting risk requires a bounded --authorization-note");
-    }
-    
-    private static void RequirePlanHash(ForgeState state, ParsedArgs parsed)
-    {
-        var supplied = parsed.Get("plan-sha256");
-        if (supplied is null) return;
-        if (!Regex.IsMatch(supplied, "^[a-f0-9]{64}$") || !string.Equals(supplied, state.Approval.PlanHash, StringComparison.Ordinal)) throw new CliFailure("state", "--plan-sha256 does not match the materialized plan", 3);
     }
     
     private static string? FindPluginFile(string relative)
@@ -194,11 +186,8 @@ internal sealed partial class CliApplication
     
     private static bool HasLockEvidence(string workspace, ForgeState state)
     {
-        var planPath = Path.Combine(workspace, "PLAN.md");
+        var planPath = Path.Combine(workspace, ".forge", "PLAN.md");
         if (!File.Exists(planPath) || (File.GetAttributes(planPath) & FileAttributes.ReparsePoint) != 0) return false;
-        if (File.ReadLines(planPath).FirstOrDefault() != CanonicalText.OwnedMarker) return false;
-        var expectedHash = state.Approval.PlanHash;
-        if (string.IsNullOrWhiteSpace(expectedHash) || !string.Equals(expectedHash, Hashing.Sha256Hex(CanonicalText.NormalizePlan(File.ReadAllText(planPath))), StringComparison.Ordinal)) return false;
         var tasks = state.Workflow.Tasks;
         return tasks is { Count: > 0 } && state.Workflow.TaskCount == tasks.Count;
     }

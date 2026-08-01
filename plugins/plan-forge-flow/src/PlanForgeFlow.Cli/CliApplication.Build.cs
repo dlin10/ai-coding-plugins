@@ -107,7 +107,6 @@ internal sealed partial class CliApplication
         var taskText = parsed.Get("task-number");
         var taskNumber = 0;
         if (stage == DispatchStage.Build && !int.TryParse(taskText, NumberStyles.None, CultureInfo.InvariantCulture, out taskNumber)) throw new CliFailure("usage", "build dispatch requires numeric --task-number");
-        RequirePlanHash(state, parsed);
         var pinnedSelection = ResolvePinnedSelection(state, stage, parsed);
         var definition = stage.Definition();
         if (state.Workflow.Phase != definition.ExpectedPhase) throw new CliFailure("state", $"{stage.ToWireName()} dispatch requires phase {definition.ExpectedPhase.ToWireName()} (current: {state.Workflow.Phase.ToWireName()})", 3);

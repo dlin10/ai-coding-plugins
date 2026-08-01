@@ -29,32 +29,35 @@ the named risk, or stop.
 
 After review settles, show the complete plan, ask for the builder pair in free
 text, and spawn the builder in a no-edit hold state to validate the runtime
-selection. Then run `approval issue` with the bounded stdin contract. The native
-widget is the sole approval surface.
+selection. Emit the plain native `<proposed_plan>` block; the native widget is
+the sole approval surface.
 
 ## Default-mode materialization
 
-The hook provides a bounded v2 session capture. In the authenticated Default
-turn run:
+On the first Default turn, the hook saves the latest Plan-mode proposed plan as
+a temporary pending artifact. Run:
 
 ```text
-planforge approval resume --workspace <repo>
+planforge plan materialize --workspace <repo>
 planforge plan lock --workspace <repo>
 planforge build begin --workspace <repo>
 ```
 
-For an approved amendment, use the same resume command, then relock and begin
-the retained workflow with the amendment gates:
+`plan materialize` receives stdin JSON with exactly `reviewLog`,
+`completedReviewRounds`, `maxRounds`, `reviewer`, and `builder`; the plan comes
+from the hook-selected pending artifact. For an approved amendment, use the
+same command with `--amendment`, then relock and begin the retained workflow
+with the amendment gates:
 
 ```text
-planforge approval resume --workspace <repo>
+planforge plan materialize --workspace <repo> --amendment
 planforge plan lock --workspace <repo> --relock --amendment
 planforge build begin --workspace <repo> --amendment
 ```
 
-Materialization consumes the generated wrapper for the current repository,
-writes the two owned artifacts and state atomically under one workspace lock,
-and rejects a repeated last-used nonce. There is no v1 journal recovery path.
+Initial materialization clears the previous `.forge/` directory, then writes
+the plan, review log, and state atomically under one workspace lock. There is
+no envelope, nonce, or replay journal.
 
 ## Act 3 — persistent builder
 
@@ -87,7 +90,6 @@ with `--accept-risk --authorization-note` after the cap is reached.
 
 ## Cleanup
 
-Run `planforge run cleanup --workspace <repo>` after asking whether the user
-wants owned plan artifacts deleted. Add `--delete-owned-artifacts` only after
-an explicit yes. `--purge-generated-agents` is a separate explicit cleanup
-operation.
+Run `planforge run cleanup --workspace <repo>` to delete the current `.forge/`
+directory and pending plan. `--purge-generated-agents` is a separate explicit
+cleanup operation.

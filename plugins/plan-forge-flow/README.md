@@ -62,8 +62,7 @@ envelope (`ok`, `command`, `data`) or one JSON error envelope (`ok`, `command`,
 errors, 2 for verdict failures, and 3 for state failures.
 
 ```text
-plan start|lock
-approval issue|resume
+plan start|lock|materialize
 agents install
 build dispatch|complete|resolve|begin
 review prepare|authorize-preexisting|verdict
@@ -75,20 +74,20 @@ hook capture-context
 Options are command-specific:
 
 ```text
-plan start                 --session-context
+plan start
 plan lock                  --relock --amendment
-approval resume            (no additional options)
-build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --plan-sha256 --authorization-note --accept-risk
+plan materialize           --amendment  (stdin JSON)
+build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --authorization-note --accept-risk
 build complete             --task-number --dispatch-id --verification-passed --authorization-note --accept-risk
 build resolve              --conflict --dispatch-id
 build begin                --amendment --relock
-review prepare             --allow-paths --full --plan-sha256 --authorization-note
+review prepare             --allow-paths --full --authorization-note
 review authorize-preexisting --authorized-paths --authorization-note --accept-risk
 review verdict             --stage --critique-file --accept-risk --authorization-note
 session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
 run status                 (no additional options)
 run set                    --key --value --amendment --accept-risk --authorization-note
-run cleanup                --delete-owned-artifacts --purge-generated-agents
+run cleanup                --purge-generated-agents
 ```
 
 `--workspace` is available on every grouped CLI command; `hook capture-context`
@@ -99,40 +98,36 @@ Every builder or reviewer session must report the exact pinned `--model` and
 `--effort`; a fix review uses explicit `fix-build` and `fix-review` dispatch
 stages, with the builder completed before the reviewer is registered.
 
-`approval issue` accepts exactly the bounded stdin keys
-`humanPlan`, `reviewLog`, `completedReviewRounds`, `maxRounds`, `reviewer`,
-and `builder`. The resulting approval wire format is nested envelope v3:
-`version`, `plan`, `repository`, `origin`, `nonce`, and `selections`; no model
-catalog snapshot is embedded. v1/v2 approvals are rejected.
+`plan materialize` reads the plan selected by the hook and accepts exactly the
+bounded stdin keys `reviewLog`, `completedReviewRounds`, `maxRounds`,
+`reviewer`, and `builder`. The hook selects the latest Plan-mode
+`<proposed_plan>` from the current transcript; the caller supplies the review
+metadata and normalized model choices manually.
 
-Materialized `.forge/state.json` is nested state v4 with explicit `generation`
-metadata; its `models` group contains only `reviewer` and `builder`. State v3
-and earlier, old catalog-bearing state, or unknown state is rejected without
-migration.
-Materialization uses atomic artifact/state writes, one workspace lock, and a
-single last-used nonce file; it has no crash journal or legacy replay migration.
+Materialized `.forge/state.json` is nested state v5 with explicit `generation`
+metadata; its `models` group contains only `reviewer` and `builder`. Earlier
+state is rejected without migration. Materialization atomically writes session
+artifacts under `.forge/` while a workspace lock is held; a fresh run removes
+the previous `.forge/` directory first.
 
-## Trust boundary and hook behavior
+## Hook behavior
 
 The `UserPromptSubmit` hook invokes the RID-aware launcher at
 `sh bin/planforge-launcher.sh hook capture-context` (or
 `bin/planforge-launcher.ps1` on Windows) with a five-second timeout. The
-launcher selects the matching bundled executable from `bin/<rid>/`. The hook derives
-collaboration mode from the matching transcript turn, authorizes only an
-immediate native implementation submission bound to the approved wrapper, and
-stores bounded v2 session capture. Malformed or unrelated hook input produces
-no stdout and exits 0. Valid native hook responses are written directly at the
-Codex hook JSON root; they are not wrapped in the interactive CLI envelope.
+launcher selects the matching bundled executable from `bin/<rid>/`. On the
+first Default-mode turn after planning, the hook selects the latest Plan-mode
+`<proposed_plan>` and stores a temporary per-workspace pending plan outside the
+repository. Malformed or unrelated hook input produces no stdout and exits 0.
+The hook response is written directly at the Codex hook JSON root; it is not an
+interactive CLI envelope.
 
-The approval wrapper uses canonical UTF-8/LF plan and review bytes, exact
-repository identity, transcript origin, one-time nonce, normalized runtime
-model selections, and builder-to-plan hash binding. Materialization writes only
-the owned `PLAN.md`, `PLAN-REVIEW-LOG.md`, and nested state. `approval resume`
-passes the generated wrapper text directly to
-materialization; wrapper file paths are not accepted. Forge asks for model and
-effort separately for reviewer and builder in
-free text; runtime rejection or an ambiguous answer can be retried up to three
-times per role, and `ultra` is always forbidden.
+Plans and review logs use canonical UTF-8/LF bytes but no ownership marker.
+`plan materialize` writes `.forge/PLAN.md`, `.forge/PLAN-REVIEW-LOG.md`, and
+nested state; `run cleanup` removes the entire `.forge/` directory and the
+pending plan. Forge asks for model and effort separately for reviewer and
+builder in free text; runtime rejection or an ambiguous answer can be retried
+up to three times per role, and `ultra` is always forbidden.
 
 ## Development
 
@@ -156,8 +151,8 @@ Use `build/package.ps1` to publish the six RIDs, refresh `bin/<rid>/` with
 package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
-Operational overrides retain the existing names: `CODEX_HOME`,
-`FORGE_PLUGIN_DATA`, `FORGE_AGENTS_DIR`, and `FORGE_SESSION_MAX_AGE_MS`.
+Operational overrides are `CODEX_HOME`, `FORGE_PLUGIN_DATA`, and
+`FORGE_AGENTS_DIR`.
 Each critique is accompanied by a small JSON decision file at
 `<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
 

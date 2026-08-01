@@ -44,5 +44,3 @@ internal static class ModelSelections
         return new JsonObject { ["model"] = model, ["effort"] = effort.ToLowerInvariant() };
     }
 }
-
-internal sealed record NativeAuthorization(string Kind, string HumanPlan, JsonObject Envelope, string Wrapper);

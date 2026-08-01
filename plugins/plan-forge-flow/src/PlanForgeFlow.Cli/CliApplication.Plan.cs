@@ -5,37 +5,21 @@ namespace PlanForgeFlow;
 
 internal sealed partial class CliApplication
 {
-    private static JsonObject IssueApproval(ParsedArgs parsed, string workspace)
+    private static JsonObject MaterializePlan(CommandContext context)
     {
         var input = Console.In.ReadToEnd();
-        if (Encoding.UTF8.GetByteCount(input) > 2 * 1024 * 1024) throw new CliFailure("usage", "approval input exceeds the size bound");
-        var request = JsonNode.Parse(input)?.AsObject() ?? throw new CliFailure("usage", "approval input must be a JSON object");
+        if (Encoding.UTF8.GetByteCount(input) > 2 * 1024 * 1024) throw new CliFailure("usage", "materialization input exceeds the size bound");
+        var request = JsonNode.Parse(input)?.AsObject() ?? throw new CliFailure("usage", "materialization input must be a JSON object");
         var keys = request.Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray();
-        if (!keys.SequenceEqual(new[] { "builder", "completedReviewRounds", "humanPlan", "maxRounds", "reviewLog", "reviewer" }, StringComparer.Ordinal)) throw new CliFailure("usage", "approval input keys are not exact");
-        var repository = RepositoryPaths.Identify(workspace);
-        var capture = SessionCapture.Read(workspace);
-        var humanPlan = RequestString(request, "humanPlan");
+        if (!keys.SequenceEqual(new[] { "builder", "completedReviewRounds", "maxRounds", "reviewLog", "reviewer" }, StringComparer.Ordinal)) throw new CliFailure("usage", "materialization input keys are not exact");
         var reviewLog = RequestString(request, "reviewLog");
         var completedRounds = RequestInt(request, "completedReviewRounds");
         var maxRounds = RequestInt(request, "maxRounds");
-        if (request["reviewer"] is not JsonObject reviewer || request["builder"] is not JsonObject builder) throw new CliFailure("usage", "approval reviewer and builder must be JSON objects");
-        var envelope = ResumeEnvelope.Create(
-                                             humanPlan,
-                                             reviewLog,
-                                             completedRounds,
-                                             maxRounds,
-                                             reviewer,
-                                             builder,
-                                             repository,
-                                             capture,
-                                             Materializer.NextPlanRevision(repository));
-        var wrapper = ResumeEnvelope.Build(humanPlan, envelope);
-        return new JsonObject
-        {
-            ["planRevision"] = envelope["plan"]!["planRevision"]!.DeepClone(),
-            ["humanPlanHash"] = envelope["plan"]!["humanPlanHash"]!.DeepClone(),
-            ["proposedPlanOutput"] = "<proposed_plan>\n" + wrapper + "</proposed_plan>",
-        };
+        if (request["reviewer"] is not JsonObject reviewer || request["builder"] is not JsonObject builder) throw new CliFailure("usage", "materialization reviewer and builder must be JSON objects");
+        var pending = PendingPlan.Read(context.Workspace);
+        var result = Materializer.Materialize(RepositoryPaths.Identify(context.Workspace), pending.Plan, reviewLog, completedRounds, maxRounds, reviewer, builder, context.Args.Has("amendment"));
+        PendingPlan.Delete(context.Workspace);
+        return result;
     }
     
     private static string RequestString(JsonObject request, string key)
@@ -48,7 +32,7 @@ internal sealed partial class CliApplication
         }
         catch (Exception error)
         {
-            throw new CliFailure("usage", $"approval input {key} {error.Message}");
+            throw new CliFailure("usage", $"materialization input {key} {error.Message}");
         }
     }
     
@@ -61,22 +45,15 @@ internal sealed partial class CliApplication
         }
         catch (Exception error)
         {
-            throw new CliFailure("usage", $"approval input {key} {error.Message}");
+            throw new CliFailure("usage", $"materialization input {key} {error.Message}");
         }
-    }
-    
-    private static string ResolveApprovalWrapper(string workspace)
-    {
-        var capture = SessionCapture.Read(workspace) ?? throw new CliFailure("state", "no fresh session capture is available for approval resume", 3);
-        if (string.IsNullOrWhiteSpace(capture.TranscriptPath) || string.IsNullOrWhiteSpace(capture.TurnId) || string.IsNullOrWhiteSpace(capture.SessionId)) throw new CliFailure("state", "session capture lacks transcript provenance", 3);
-        return TranscriptAuthorizer.AuthorizeCurrent(capture.TranscriptPath, capture.TurnId, capture.SessionId).Wrapper;
     }
     
     private static ForgeState LockPlan(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
-        var planPath = Path.Combine(workspace, "PLAN.md");
+        var planPath = Path.Combine(workspace, ".forge", "PLAN.md");
         if (!File.Exists(planPath)) throw new CliFailure("state", "PLAN.md is missing", 3);
         var plan = CanonicalText.NormalizePlan(File.ReadAllText(planPath));
         var state = context.RequireState();
@@ -89,9 +66,6 @@ internal sealed partial class CliApplication
             }
         }
     
-        var expectedHash = state.Approval.PlanHash;
-        var actualHash = Hashing.Sha256Hex(plan);
-        if (!string.Equals(expectedHash, actualHash, StringComparison.Ordinal)) throw new CliFailure("state", "PLAN.md changed since approval; implementation approval is stale", 3);
         var tasks = CanonicalText.ParseTasks(plan);
         var completedTasks = 0;
         if (parsed.Has("relock") && parsed.Has("amendment"))

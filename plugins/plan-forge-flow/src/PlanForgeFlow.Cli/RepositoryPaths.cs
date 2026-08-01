@@ -86,13 +86,11 @@ internal static class RepositoryPaths
                    : Path.GetFullPath(overridePath);
     }
 
-    private static string SessionContextDirectory() => Path.Combine(PluginData(), "session-context");
-    public static string LastNoncePath(RepositoryIdentity repository)
-        => Path.Combine(PluginData(), "last-nonce", Hashing.Sha256Hex($"{repository.WorkspaceRoot}\n{repository.GitCommonDir}") + ".txt");
+    private static string PendingPlanDirectory() => Path.Combine(PluginData(), "pending-plans");
 
-    public static string SessionCapturePath(string workspaceRoot)
+    public static string PendingPlanPath(string workspaceRoot)
     {
         var key = OperatingSystem.IsWindows() ? workspaceRoot.ToLowerInvariant() : workspaceRoot;
-        return Path.Combine(SessionContextDirectory(), Hashing.Sha256Hex(key) + ".json");
+        return Path.Combine(PendingPlanDirectory(), Hashing.Sha256Hex(key) + ".json");
     }
 }

@@ -38,18 +38,6 @@ internal static class OwnershipGuards
         catch (DirectoryNotFoundException) { throw new CliFailure("state", $"{label} disappeared: {path}", 3); }
     }
 
-    public static void EnsureOwnedArtifact(string path)
-    {
-        try
-        {
-            var attributes = File.GetAttributes(path);
-            if ((attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0) throw new CliFailure("state", $"refusing to overwrite a symlinked or non-file artifact: {path}", 3);
-        }
-        catch (FileNotFoundException) { return; }
-        catch (DirectoryNotFoundException) { return; }
-        if (File.ReadLines(path).FirstOrDefault() != CanonicalText.OwnedMarker) throw new CliFailure("state", $"existing artifact is not Forge-owned: {path}", 3);
-    }
-
     public static void EnsureOwnedForgeFile(string path)
         => EnsureRegularFile(path, "Forge-owned cleanup target");
 

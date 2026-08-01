@@ -64,7 +64,6 @@ internal sealed partial class CliApplication
         var workspace = context.Workspace;
         var parsed = context.Args;
         var state = context.RequireState();
-        RequirePlanHash(state, parsed);
         if (state.Workflow.Phase != ForgePhase.CodeReview) throw new CliFailure("state", "review prepare requires code-review phase", 3);
         var forge = Path.Combine(workspace, ".forge");
         OwnershipGuards.EnsureDirectory(forge);

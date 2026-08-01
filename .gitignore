@@ -11,3 +11,4 @@ scratch/
 plugins/plan-forge-flow/bin/planforge
 plugins/plan-forge-flow/bin/planforge.exe
 plugins/plan-forge-flow/artifacts/
+*.user
