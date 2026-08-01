@@ -5,8 +5,9 @@ description: Harden an implementation plan through one-question-at-a-time grilli
 
 # Plan Forge Flow
 
-Use the bundled .NET executable at `../../bin/planforge` (or
-`../../bin/planforge.exe` on Windows). Read [workflow.md](references/workflow.md),
+Use the bundled RID-aware launcher at `../../bin/planforge-launcher.sh` on Unix or
+`../../bin/planforge-launcher.ps1` on Windows. It selects the matching
+self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/workflow.md),
 [native-plan-ux.md](references/native-plan-ux.md), and
 [model-selection.md](references/model-selection.md) before acting.
 

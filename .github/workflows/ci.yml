@@ -93,7 +93,7 @@ jobs:
           $zip = Get-ChildItem "$env:GITHUB_WORKSPACE/smoke-artifacts" -Filter '*.zip' -File | Select-Object -First 1
           $extract = Join-Path $env:RUNNER_TEMP 'planforge-smoke'
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
-          $exe = Join-Path $extract "plugins/plan-forge-flow/bin/${{ matrix.executable }}"
+          $exe = Join-Path $extract "plugins/plan-forge-flow/bin/${{ matrix.rid }}/${{ matrix.executable }}"
           if ('${{ matrix.rid }}' -notlike 'win-*') { & chmod +x $exe }
           $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'planforge-bundle-extract'
           $timer = [Diagnostics.Stopwatch]::StartNew()

@@ -12,7 +12,6 @@ $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
 $project = Join-Path $pluginRoot 'src/PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
 $version = $metadata.version
-$hostRid = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $pluginRoot 'artifacts' }
 $outputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot '..\..'))
@@ -96,11 +95,6 @@ foreach ($rid in $Rids) {
         $installed = Join-Path $pluginRoot "bin/$rid"
         New-Item -ItemType Directory -Force -Path $installed | Out-Null
         Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $installed $expectedExecutable)
-        if ($rid -eq $hostRid) {
-            $fixedBin = Join-Path $pluginRoot 'bin'
-            New-Item -ItemType Directory -Force -Path $fixedBin | Out-Null
-            Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $fixedBin $expectedExecutable)
-        }
     }
 
     $bundlePlugin = Join-Path $bundle 'plugins/plan-forge-flow'
@@ -112,9 +106,15 @@ foreach ($rid in $Rids) {
     foreach ($file in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $bundlePlugin
     }
-    Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundlePlugin "bin/$expectedExecutable")
+    foreach ($launcher in @('planforge-launcher.sh', 'planforge-launcher.ps1')) {
+        Copy-Item -LiteralPath (Join-Path $pluginRoot "bin/$launcher") -Destination (Join-Path $bundlePlugin "bin/$launcher")
+    }
+    $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
+    New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
+    Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundleRidBin $expectedExecutable)
     if (-not $rid.StartsWith('win-', [StringComparison]::Ordinal) -and (Get-Command chmod -ErrorAction SilentlyContinue)) {
-        & chmod +x (Join-Path $bundlePlugin "bin/$expectedExecutable")
+        & chmod +x (Join-Path $bundlePlugin 'bin/planforge-launcher.sh')
+        & chmod +x (Join-Path $bundleRidBin $expectedExecutable)
     }
 
     $marketplace = [ordered]@{
@@ -131,8 +131,7 @@ foreach ($rid in $Rids) {
     }
     $marketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.agents/plugins/marketplace.json') -Encoding utf8
 
-    $bundleFiles = @(Get-ChildItem -LiteralPath $bundle -Recurse -File)
-    if (-not ($bundleFiles | Where-Object FullName -like "*$expectedExecutable")) { throw "bundle for $rid does not contain the fixed executable path" }
+    if (-not (Test-Path -LiteralPath (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable") -PathType Leaf)) { throw "bundle for $rid does not contain the RID-specific executable" }
     $zip = Get-Command zip -ErrorAction SilentlyContinue
     if ($zip) {
         Push-Location $bundle

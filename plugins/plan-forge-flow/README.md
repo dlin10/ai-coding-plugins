@@ -3,7 +3,8 @@
 Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. The
 runtime is a typed .NET 10 executable named `planforge`; the supported install
-surface is a versioned per-RID local-marketplace bundle.
+surface is a repository marketplace containing all supported RID-specific
+executables.
 
 ## Requirements
 
@@ -18,29 +19,39 @@ not require a preinstalled .NET runtime or Node.js.
 
 ## Installation
 
-Download the archive for the host RID (`win-x64`, `win-arm64`, `linux-x64`,
-`linux-arm64`, `osx-x64`, or `osx-arm64`) from the versioned release and extract
-it. The extracted directory is the marketplace root and contains:
+The public repository is the repository marketplace. Clone it with Git LFS
+enabled, then add the repository marketplace and install the plugin:
+
+```text
+codex plugin marketplace add <owner>/<repository>
+codex plugin add plan-forge-flow@dlin10-codex-plugins
+```
+
+The plugin contains every supported RID and a launcher selects the current
+host automatically:
 
 ```text
 .agents/plugins/marketplace.json
 plugins/plan-forge-flow/
   .codex-plugin/plugin.json
-  bin/planforge[.exe]
+  bin/planforge-launcher.sh
+  bin/planforge-launcher.ps1
+  bin/win-x64/planforge.exe
+  bin/win-arm64/planforge.exe
+  bin/linux-x64/planforge
+  bin/linux-arm64/planforge
+  bin/osx-x64/planforge
+  bin/osx-arm64/planforge
   skills/
   agents/
   hooks/
 ```
 
-Add that extracted root as a local marketplace and install the plugin:
-
-```text
-codex plugin marketplace add <local-bundle-root>
-codex plugin add plan-forge-flow@plan-forge-flow-bundle
-```
-
-Raw source checkout is not a supported installation surface. It is used for
-development and CI only.
+The six RID archives produced by `build/package.ps1` remain optional release
+assets for offline or local-marketplace installation. They are not the source
+of the repository marketplace. For the direct repository marketplace, commit
+the two launchers and all six `bin/<rid>/` executables through Git LFS; keep
+`artifacts/` ignored.
 
 ## Grouped CLI
 
@@ -102,8 +113,10 @@ single last-used nonce file; it has no crash journal or legacy replay migration.
 
 ## Trust boundary and hook behavior
 
-The `UserPromptSubmit` hook invokes the fixed bundled executable at
-`bin/planforge hook capture-context` with a five-second timeout. It derives
+The `UserPromptSubmit` hook invokes the RID-aware launcher at
+`sh bin/planforge-launcher.sh hook capture-context` (or
+`bin/planforge-launcher.ps1` on Windows) with a five-second timeout. The
+launcher selects the matching bundled executable from `bin/<rid>/`. The hook derives
 collaboration mode from the matching transcript turn, authorizes only an
 immediate native implementation submission bound to the approved wrapper, and
 stores bounded v2 session capture. Malformed or unrelated hook input produces
@@ -137,8 +150,9 @@ dotnet restore src/PlanForgeFlow.sln
 dotnet test src/PlanForgeFlow.sln
 ```
 
-Use `build/package.ps1` to publish the six RIDs and create the marketplace
-archives. The package step fails if a publish directory contains a runtime,
+Use `build/package.ps1` to publish the six RIDs, refresh `bin/<rid>/` with
+`-InstallBinaries`, and create optional per-RID marketplace archives. The
+package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
 Operational overrides retain the existing names: `CODEX_HOME`,

@@ -1,7 +1,9 @@
 # Required Plan Forge workflow
 
-The runtime is the fixed bundled `planforge` executable in `bin/`. Commands
-use `--workspace <repository>`; when omitted they use the current directory.
+The runtime is the bundled RID-aware `planforge` launcher in `bin/`. Use
+`bin/planforge-launcher.sh` on Unix or `bin/planforge-launcher.ps1` on Windows;
+the launcher selects the matching executable from `bin/<rid>/`. Commands use
+`--workspace <repository>`; when omitted they use the current directory.
 All interactive output is one JSON envelope with stable exit codes: success 0,
 usage/environment/unexpected 1, verdict 2, and state 3.
 

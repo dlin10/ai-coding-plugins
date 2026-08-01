@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$PLUGIN_ROOT/bin/planforge\" hook capture-context",
-            "commandWindows": "\"$env:PLUGIN_ROOT\\bin\\planforge.exe\" hook capture-context",
+            "command": "sh \"$PLUGIN_ROOT/bin/planforge-launcher.sh\" hook capture-context",
+            "commandWindows": "& \"$env:PLUGIN_ROOT\\bin\\planforge-launcher.ps1\" hook capture-context",
             "timeout": 5
           }
         ]

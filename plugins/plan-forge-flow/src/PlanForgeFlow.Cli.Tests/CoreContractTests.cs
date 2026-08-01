@@ -412,7 +412,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void ReleaseLayoutDeclaresSixRidsLfsAndFixedHookBinary()
+    public void ReleaseLayoutDeclaresSixRidsLfsAndRidAwareLauncher()
     {
         var pluginRoot = FindPluginRoot();
         var package = File.ReadAllText(Path.Combine(pluginRoot, "build", "package.ps1"));
@@ -422,7 +422,16 @@ public sealed class CoreContractTests
         foreach (var rid in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" }) Assert.Contains(rid, package, StringComparison.Ordinal);
         Assert.Contains("PublishSingleFile=true", package, StringComparison.Ordinal);
         Assert.Contains("plugins/plan-forge-flow/bin/**/planforge", attributes, StringComparison.Ordinal);
-        Assert.Contains("bin/planforge", hooks, StringComparison.Ordinal);
+        Assert.Contains("planforge-launcher.sh", hooks, StringComparison.Ordinal);
+        Assert.Contains("planforge-launcher.ps1", hooks, StringComparison.Ordinal);
+        Assert.Contains("bin/$rid", package, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(pluginRoot, "bin", "planforge-launcher.sh")));
+        Assert.True(File.Exists(Path.Combine(pluginRoot, "bin", "planforge-launcher.ps1")));
+        foreach (var rid in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" })
+        {
+            var executable = rid.StartsWith("win-", StringComparison.Ordinal) ? "planforge.exe" : "planforge";
+            Assert.True(File.Exists(Path.Combine(pluginRoot, "bin", rid, executable)), $"Missing {rid} executable");
+        }
         Assert.Equal(2, Directory.GetFiles(Path.Combine(pluginRoot, "src"), "*.csproj", SearchOption.AllDirectories).Length);
     }
 
