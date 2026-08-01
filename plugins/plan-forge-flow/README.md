@@ -61,13 +61,28 @@ run doctor|status|set|cleanup
 hook capture-context
 ```
 
-The idiomatic options include `--workspace`, `--session-context`,
-`--plan-sha256`, `--task-number`, `--critique-file`, `--allow-paths`,
-`--authorized-paths` (a bounded JSON array), `--authorization-note`,
-`--accept-risk`, `--delete-owned-artifacts`, `--purge-generated-agents`, and
-`--purge-replay-ledger`, together with `--stage`, `--retry`, `--cancel`,
-`--fix`, `--full`, `--amendment`, `--conflict`, `--relock`, `--id`,
-`--dispatch-id`, `--model`, and `--effort`.
+Options are command-specific:
+
+```text
+plan start                 --session-context
+plan lock                  --relock --amendment
+approval resume            --purge-replay-ledger
+build dispatch             --stage --task-number --retry --cancel --fix --dispatch-id --model --effort --plan-sha256 --authorization-note --accept-risk
+build complete             --task-number --dispatch-id --fix --verification-passed --authorization-note --accept-risk
+build resolve              --conflict --dispatch-id
+build begin                --amendment --relock
+review prepare             --allow-paths --full --plan-sha256 --authorization-note
+review authorize-preexisting --authorized-paths --authorization-note --accept-risk
+review verdict             --stage --verdict --coverage --critique-file --fix --accept-risk --authorization-note
+session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
+run status                 (no additional options)
+run set                    --key --value --amendment --accept-risk --authorization-note
+run cleanup                --delete-owned-artifacts --purge-generated-agents --purge-replay-ledger
+```
+
+`--workspace` is available on every grouped CLI command; `hook capture-context`
+reads its JSON input from stdin. `--authorized-paths` is a bounded JSON array,
+and `--authorization-note` is bounded text.
 
 Every builder or reviewer session must report the exact pinned `--model` and
 `--effort`; fix reviews register the builder and complete `build complete

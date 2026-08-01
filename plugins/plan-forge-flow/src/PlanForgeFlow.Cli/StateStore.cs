@@ -16,7 +16,7 @@ internal static class StateStore
             ["generation"] = "v2",
             ["createdAt"] = now,
             ["updatedAt"] = now,
-            ["workflow"] = new JsonObject { ["phase"] = "materialized", ["round"] = 0, ["maxRounds"] = 5, ["fixRound"] = 0, ["maxFixRounds"] = 3, ["maxBuildRetries"] = 3, ["maxVerdictRetries"] = 2, ["taskCount"] = null, ["nextTaskNumber"] = 1, ["amendment"] = false, ["tasks"] = null },
+            ["workflow"] = new JsonObject { ["phase"] = "materialized", ["round"] = 0, ["maxRounds"] = 5, ["fixRound"] = 0, ["maxFixRounds"] = 3, ["maxBuildRetries"] = 3, ["taskCount"] = null, ["nextTaskNumber"] = 1, ["amendment"] = false, ["tasks"] = null },
             ["models"] = new JsonObject { ["reviewer"] = null, ["builder"] = null },
             ["agents"] = new JsonObject { ["builderId"] = null, ["lastBuilderDispatchId"] = null, ["reviewerIds"] = new JsonArray(), ["lastReviewerId"] = null, ["lastReviewerDispatchId"] = null },
             ["dispatch"] = new JsonObject { ["id"] = null, ["stage"] = null, ["taskNumber"] = null, ["retry"] = 0, ["pending"] = false, ["attempt"] = 0, ["lastVerificationPassed"] = null, ["model"] = null, ["effort"] = null, ["resolution"] = null },
@@ -45,7 +45,7 @@ internal static class StateStore
                 if (value[group] is not JsonObject) throw new CliFailure("state", $"state group {group} is missing", 3);
             }
             RequireKeys(value, ["version", "generation", "createdAt", "updatedAt", "workflow", "models", "agents", "dispatch", "baselines", "review", "approval", "materialization"], "state");
-            RequireKeys(value["workflow"]!.AsObject(), ["phase", "round", "maxRounds", "fixRound", "maxFixRounds", "maxBuildRetries", "maxVerdictRetries", "taskCount", "nextTaskNumber", "amendment", "tasks"], "state.workflow");
+            RequireKeys(value["workflow"]!.AsObject(), ["phase", "round", "maxRounds", "fixRound", "maxFixRounds", "maxBuildRetries", "taskCount", "nextTaskNumber", "amendment", "tasks"], "state.workflow");
             RequireKeys(value["models"]!.AsObject(), ["reviewer", "builder"], "state.models");
             RequireKeys(value["agents"]!.AsObject(), ["builderId", "lastBuilderDispatchId", "reviewerIds", "lastReviewerId", "lastReviewerDispatchId"], "state.agents");
             RequireKeys(value["dispatch"]!.AsObject(), ["id", "stage", "taskNumber", "retry", "pending", "attempt", "lastVerificationPassed", "model", "effort", "resolution"], "state.dispatch");
