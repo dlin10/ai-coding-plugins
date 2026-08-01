@@ -208,7 +208,9 @@ function implementationTurn(transcript, turnId, expectedPrompt = null, allowMiss
 
 function sameContextCandidate(current, context, prompt, promptText) {
   const classification = classifyImplementationPrompt(promptText);
-  if (classification.kind !== 'same-context') fail('current prompt is not a supported exact implementation literal');
+  if (classification.kind !== 'same-context' && classification.kind !== 'same-context-embedded') {
+    fail('current prompt is not a supported exact implementation form');
+  }
   const anchor = Math.min(context.index, prompt?.index ?? context.index);
   const priorActivity = current.records.filter((record) =>
     record.index < anchor &&
@@ -234,6 +236,10 @@ function sameContextCandidate(current, context, prompt, promptText) {
     if (!allowed) fail('user, planning, or final activity intervened after the proposed plan');
   }
   assertOriginMatches(wrapper.envelope, current, candidate);
+  if (classification.kind === 'same-context-embedded' &&
+      classification.humanPlan !== wrapper.humanPlan) {
+    fail('embedded implementation plan does not match the approved Forge plan');
+  }
   return wrapper;
 }
 
@@ -334,7 +340,9 @@ export function authorizeNativeImplementation({ transcriptPath, turnId, sessionI
   if (typeof sessionId !== 'string' || current.sessionId !== sessionId) fail('current session mismatch');
   const { prompt } = implementationTurn(current, turnId);
   const classification = classifyImplementationPrompt(prompt.text);
-  if (classification.kind === 'same-context') return authorizeSameContext(current, turnId);
+  if (classification.kind === 'same-context' || classification.kind === 'same-context-embedded') {
+    return authorizeSameContext(current, turnId);
+  }
   if (classification.kind === 'clear-context') return authorizeClearContext(current, turnId);
   fail('prompt is not an authorized native implementation prompt');
 }
@@ -348,7 +356,7 @@ export function authorizeNativeImplementationSubmission({
   const current = readTranscript(transcriptPath);
   if (typeof sessionId !== 'string' || current.sessionId !== sessionId) fail('current session mismatch');
   const classification = classifyImplementationPrompt(prompt);
-  if (classification.kind === 'same-context') {
+  if (classification.kind === 'same-context' || classification.kind === 'same-context-embedded') {
     return authorizeSameContextSubmission(current, turnId, prompt);
   }
   if (classification.kind === 'clear-context') {

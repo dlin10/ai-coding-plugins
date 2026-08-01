@@ -92,6 +92,7 @@ function parseVisibleModel(row, index, timestamp) {
     pickerReasoningLevels: field(pickerReasoningLevels, source, { observedAt: timestamp }),
     priority: field(row.priority, source, { observedAt: timestamp }),
     visibility: field('list', source, { observedAt: timestamp }),
+    multiAgentVersion: field('v2', source, { observedAt: timestamp }),
     sourceIndex: index,
   };
 }
@@ -117,7 +118,7 @@ export function parseCodexDebugModels(text, timestamp = new Date().toISOString()
     if (typeof row.visibility !== 'string') {
       catalogError(index, 'has invalid visibility');
     }
-    if (row.visibility !== 'list') continue;
+    if (row.visibility !== 'list' || row.multi_agent_version !== 'v2') continue;
     const model = parseVisibleModel(row, index, timestamp);
     if (visibleSlugs.has(model.slug)) {
       catalogError(index, `duplicates visible slug ${model.slug}`);
@@ -126,7 +127,7 @@ export function parseCodexDebugModels(text, timestamp = new Date().toISOString()
     visible.push(model);
   }
   if (visible.length === 0) {
-    throw new Error('codex debug models output contains no visible usable models');
+    throw new Error('codex debug models output contains no visible v2 multi-agent models');
   }
 
   visible.sort((left, right) => left.priority.value - right.priority.value || left.sourceIndex - right.sourceIndex);

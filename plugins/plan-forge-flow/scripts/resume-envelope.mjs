@@ -5,6 +5,7 @@ export const ENVELOPE_VERSION = 1;
 export const MAX_ENVELOPE_BYTES = 512 * 1024;
 export const NORMAL_IMPLEMENTATION_PROMPT = 'Implement the plan.';
 export const DESKTOP_IMPLEMENTATION_PROMPT = 'Yes, implement this plan';
+export const DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX = 'PLEASE IMPLEMENT THIS PLAN:';
 export const CLEAR_CONTEXT_IMPLEMENTATION_PREFIX =
   "A previous agent produced the plan below to accomplish the user's task. " +
   'Implement the plan in a fresh context. Treat the plan as the source of user intent, ' +
@@ -287,6 +288,18 @@ export function extractApprovalWrapper(value) {
 export function classifyImplementationPrompt(prompt) {
   if (prompt === NORMAL_IMPLEMENTATION_PROMPT || prompt === DESKTOP_IMPLEMENTATION_PROMPT) {
     return { kind: 'same-context', wrapper: null };
+  }
+  const embeddedPrefix = `${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n`;
+  if (prompt.startsWith(embeddedPrefix)) {
+    try {
+      return {
+        kind: 'same-context-embedded',
+        humanPlan: canonicalHumanPlan(prompt.slice(embeddedPrefix.length)),
+        wrapper: null,
+      };
+    } catch {
+      return { kind: 'other', wrapper: null };
+    }
   }
   const prefix = `${CLEAR_CONTEXT_IMPLEMENTATION_PREFIX}\n\n`;
   if (!prompt.startsWith(prefix)) return { kind: 'other', wrapper: null };

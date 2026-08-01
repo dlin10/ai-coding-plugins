@@ -11,6 +11,7 @@ import {
   buildApprovalWrapper,
   classifyImplementationPrompt,
   CLEAR_CONTEXT_IMPLEMENTATION_PREFIX,
+  DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX,
   DESKTOP_IMPLEMENTATION_PROMPT,
   decodeEnvelope,
   encodeEnvelope,
@@ -175,7 +176,7 @@ test('resume envelope round-trips strictly and binds the separate human-plan byt
   assert.throws(() => decodeEnvelope(`${encoded}=`), /encoding is malformed/);
 });
 
-test('native prompt classification accepts only the exact Desktop, legacy, and clear-context forms', () => {
+test('native prompt classification accepts exact Desktop, embedded-plan, legacy, and clear-context forms', () => {
   const item = fixture();
   const value = envelope({
     sessionId: 'session-origin',
@@ -186,6 +187,10 @@ test('native prompt classification accepts only the exact Desktop, legacy, and c
   const wrapper = buildApprovalWrapper(PLAN, value);
   assert.equal(classifyImplementationPrompt(DESKTOP_IMPLEMENTATION_PROMPT).kind, 'same-context');
   assert.equal(classifyImplementationPrompt(NORMAL_IMPLEMENTATION_PROMPT).kind, 'same-context');
+  assert.deepEqual(
+    classifyImplementationPrompt(`${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n${PLAN}`),
+    { kind: 'same-context-embedded', humanPlan: PLAN, wrapper: null },
+  );
   assert.equal(
     classifyImplementationPrompt(`${CLEAR_CONTEXT_IMPLEMENTATION_PREFIX}\n\n${wrapper}`).kind,
     'clear-context',
@@ -194,6 +199,10 @@ test('native prompt classification accepts only the exact Desktop, legacy, and c
   assert.equal(classifyImplementationPrompt('Yes, implement this plan.').kind, 'other');
   assert.equal(classifyImplementationPrompt('yes, implement this plan').kind, 'other');
   assert.equal(classifyImplementationPrompt(` ${DESKTOP_IMPLEMENTATION_PROMPT}`).kind, 'other');
+  assert.equal(
+    classifyImplementationPrompt(`${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n# Missing ownership\n`).kind,
+    'other',
+  );
   assert.equal(classifyImplementationPrompt(wrapper).kind, 'other');
 });
 
@@ -259,6 +268,50 @@ test('same-context authorization requires the immediate terminal Plan-mode propo
       sessionId: 'session-origin',
     }),
     /immediately preceding|intervened/,
+  );
+});
+
+test('Desktop embedded-plan authorization requires an exact match with the signed plan item', () => {
+  const item = fixture();
+  const value = envelope({
+    sessionId: 'session-origin',
+    transcriptPath: item.transcriptPath,
+    turnId: 'turn-plan',
+  }, item.repository);
+  const wrapper = buildApprovalWrapper(PLAN, value);
+  const records = [
+    sessionMeta('session-origin'),
+    turn('turn-plan', 'plan'),
+    message({
+      id: 'item-plan',
+      role: 'assistant',
+      phase: 'final_answer',
+      text: `<proposed_plan>\n${wrapper}</proposed_plan>`,
+    }),
+    turn('turn-implement', 'default'),
+    message({
+      id: 'item-user',
+      role: 'user',
+      text: `${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n${PLAN}`,
+    }),
+  ];
+  writeTranscript(item.transcriptPath, records);
+  assert.equal(authorizeNativeImplementation({
+    transcriptPath: item.transcriptPath,
+    turnId: 'turn-implement',
+    sessionId: 'session-origin',
+  }).kind, 'same-context');
+
+  records.at(-1).payload.content[0].text =
+    `${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n${PLAN.replace('Ship it.', 'Change it.')}`;
+  writeTranscript(item.transcriptPath, records);
+  assert.throws(
+    () => authorizeNativeImplementation({
+      transcriptPath: item.transcriptPath,
+      turnId: 'turn-implement',
+      sessionId: 'session-origin',
+    }),
+    /does not match the approved Forge plan/,
   );
 });
 

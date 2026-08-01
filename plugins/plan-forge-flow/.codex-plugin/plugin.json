@@ -1,6 +1,6 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A four-act plan hardening, implementation, and independent review workflow for Codex.",
   "author": {
     "name": "Dmitry Linetsky"

@@ -21,10 +21,12 @@ In Plan mode, Forge may inspect the repository and run the read-only `doctor`,
 `models`, `picker`, and `issue-approval` commands. `picker` returns exact
 pagination metadata; `issue-approval` derives repository/transcript origin,
 revision, nonce, hashes, and wrapper from a bounded JSON input without
-materializing workflow state. `codex debug models` is the sole source of visible
-models, supported efforts, display names, descriptions, default effort, and
+materializing workflow state. `codex debug models` is the sole catalog source.
+Forge offers only list-visible models whose CLI metadata declares
+`multi_agent_version: v2`, matching the native sub-agent runtime, and uses the
+same rows for efforts, display names, descriptions, default effort, and
 priority. There is no session, native-schema, cache, static-policy, inferred,
-or manual fallback. Catalog failure stops selection.
+or manual fallback. Catalog failure or an empty v2 intersection stops selection.
 
 Managed reviewer/builder agent installation is a Default-mode setup action. If
 setup is required, Forge stops planning, asks for a setup turn, and restarts
@@ -83,9 +85,11 @@ preview and picker.
 
 ### Default-mode resume and materialization
 
-Both native implementation actions are supported: same-context Desktop
-`Yes, implement this plan`, legacy `Implement the plan.`, and clear-context
-implementation. The prompt hook derives
+Native implementation actions are supported: Desktop `Yes, implement this
+plan`, Desktop's `PLEASE IMPLEMENT THIS PLAN:` form carrying the visible plan,
+legacy `Implement the plan.`, and clear-context implementation. For the
+embedded Desktop form, the carried plan must exactly match the human-plan bytes
+in the immediately preceding signed wrapper. The prompt hook derives
 Default mode from the matching transcript `turn_context`, authenticates the
 immediate Forge wrapper relationship (or terminal carried origin), stores no
 arbitrary prompt text, and only then tells the new context to run

@@ -960,8 +960,6 @@ async function cmdIssueApproval(cwd, flags, positional) {
     action: 'approval-issued',
     planRevision: issued.envelope.planRevision,
     humanPlanHash: issued.envelope.humanPlanHash,
-    envelope: issued.envelope,
-    wrapper: issued.wrapper,
     proposedPlanOutput: finalProposedPlanOutput(issued.state),
   });
 }

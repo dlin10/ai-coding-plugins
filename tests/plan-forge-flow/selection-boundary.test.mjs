@@ -29,6 +29,7 @@ function row(slug, priority) {
     ],
     priority,
     visibility: 'list',
+    multi_agent_version: 'v2',
   };
 }
 

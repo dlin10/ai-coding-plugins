@@ -29,8 +29,8 @@ fresh `codex debug models` catalog:
   to obtain its effort page. The command is read-only and returns the exact
   request metadata to present.
 
-1. Sort visible models by ascending numeric CLI priority, preserving CLI order
-   for ties.
+1. Keep only list-visible models declaring CLI `multi_agent_version: v2`, then
+   sort them by ascending numeric CLI priority, preserving CLI order for ties.
 2. Show two model options per page. Use each CLI `display_name` as the option
    label and put the model slug plus CLI description in its description.
 3. Add `More…` only when another page exists. A two-model last page has no
@@ -90,9 +90,10 @@ the plan revision, and invalidate the previous preview binding, builder
 selection, wrapper, and envelope. Show the complete revised preview, repeat the
 builder picker, and issue a new final wrapper.
 
-Native Desktop `Yes, implement this plan`, legacy `Implement the plan.`, and
-clear-context implementation actions are handled only after Codex enters
-Default mode. The new context must run
+Native Desktop `Yes, implement this plan`, Desktop's `PLEASE IMPLEMENT THIS
+PLAN:` form carrying the exact visible human plan, legacy `Implement the
+plan.`, and clear-context implementation actions are handled only after Codex
+enters Default mode. The new context must run
 `forge.mjs resume`; it must not implement directly. Materialization authenticates
 the transcript relationship and wrapper before persisting the reviewer/builder
 selections or any Forge artifact.

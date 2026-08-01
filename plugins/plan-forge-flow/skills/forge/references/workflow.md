@@ -30,8 +30,10 @@ stops the workflow; a missing materialization capture is expected before the
 native implementation turn and does not authorize mutation.
 
 Run `node "$FORGE" models`. `codex debug models` is the only catalog source.
-If it fails or has no visible usable models, stop. Do not use a native-schema,
-session, cached, inferred, static, or manually supplied fallback.
+Only list-visible rows declaring `multi_agent_version: v2` are eligible for
+native reviewer and builder agents. If the command fails or has no eligible
+models, stop. Do not use a native-schema, session, cached, inferred, static, or
+manually supplied fallback.
 
 ## Asking the user
 
@@ -161,7 +163,8 @@ full preview and builder picker before issuing a new final block.
 
 ## Default-mode materialization
 
-Codex Desktop's `Yes, implement this plan`, legacy `Implement the plan.`, and
+Codex Desktop's `Yes, implement this plan`, its `PLEASE IMPLEMENT THIS PLAN:`
+form carrying the exact visible plan, legacy `Implement the plan.`, and
 clear-context implementation actions enter Default mode. The prompt hook
 supplies model-visible resume context.
 Before implementing:

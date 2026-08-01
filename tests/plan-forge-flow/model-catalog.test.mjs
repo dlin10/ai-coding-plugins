@@ -24,6 +24,7 @@ function model(overrides = {}) {
     ],
     priority: 1,
     visibility: 'list',
+    multi_agent_version: 'v2',
     ...overrides,
   };
 }
@@ -53,13 +54,16 @@ test('parses real CLI fields and exposes the advertised default effort first for
   ]);
   assert.equal(catalog.models[0].priority.value, 1);
   assert.equal(catalog.models[0].visibility.value, 'list');
+  assert.equal(catalog.models[0].multiAgentVersion.value, 'v2');
   assert.equal('activeModel' in catalog, false);
   assert.equal('activeEffort' in catalog, false);
 });
 
-test('retains only list-visible models and excludes ultra efforts', () => {
+test('retains only list-visible v2 multi-agent models and excludes ultra efforts', () => {
   const catalog = parseCodexDebugModels(debugJson([
     model(),
+    model({ slug: 'luna', multi_agent_version: 'v1', priority: 2 }),
+    model({ slug: 'interactive-only', multi_agent_version: undefined, priority: 3 }),
     model({ slug: 'hidden', visibility: 'hidden', priority: 0 }),
   ]), observedAt);
   assert.deepEqual(catalog.models.map((item) => item.slug), ['gpt-5.6-sol']);
@@ -107,7 +111,7 @@ test('resolver uses only codex debug models and propagates provider failure', as
   assert.equal(calls, 1);
 });
 
-test('selection validation depends only on visible CLI membership and advertised non-ultra effort', () => {
+test('selection validation depends on visible v2 CLI membership and advertised non-ultra effort', () => {
   const catalog = parseCodexDebugModels(debugJson([
     model({ slug: 'stronger', display_name: 'Stronger', priority: 1 }),
     model({ slug: 'weaker', display_name: 'Weaker', priority: 2 }),
@@ -167,8 +171,9 @@ test('fails closed for malformed or unusable CLI catalogs', () => {
     ['not JSON', /invalid JSON/],
     ['[]', /no models array/],
     ['{"unexpected":true}', /no models array/],
-    [debugJson([]), /no visible usable models/],
-    [debugJson([model({ visibility: 'hidden' })]), /no visible usable models/],
+    [debugJson([]), /no visible v2 multi-agent models/],
+    [debugJson([model({ visibility: 'hidden' })]), /no visible v2 multi-agent models/],
+    [debugJson([model({ multi_agent_version: 'v1' })]), /no visible v2 multi-agent models/],
     [debugJson([model({ priority: '1' })]), /invalid priority/],
     [debugJson([model({ supported_reasoning_levels: [] })]), /invalid supported_reasoning_levels/],
     [debugJson([model({ default_reasoning_level: 'max' })]), /default_reasoning_level/],

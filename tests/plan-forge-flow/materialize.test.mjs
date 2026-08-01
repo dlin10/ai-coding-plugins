@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 import {
   buildApprovalWrapper,
   CLEAR_CONTEXT_IMPLEMENTATION_PREFIX,
+  DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX,
+  extractApprovalWrapper,
   issuanceItemId,
   newNonce,
   NORMAL_IMPLEMENTATION_PROMPT,
@@ -81,6 +83,7 @@ function model(slug, priority) {
     ],
     priority,
     visibility: 'list',
+    multi_agent_version: 'v2',
   };
 }
 
@@ -345,7 +348,23 @@ function issueViaCli(item) {
     },
   );
   assert.equal(issued.status, 0, issued.stderr || issued.stdout);
-  return { ...JSON.parse(issued.stdout), sessionId, transcriptPath };
+  const result = JSON.parse(issued.stdout);
+  assert.deepEqual(Object.keys(result).sort(), [
+    'action',
+    'humanPlanHash',
+    'planRevision',
+    'proposedPlanOutput',
+  ]);
+  const match = /^<proposed_plan>\n([\s\S]*)<\/proposed_plan>$/.exec(result.proposedPlanOutput);
+  assert.ok(match);
+  const approval = extractApprovalWrapper(match[1]);
+  return {
+    ...result,
+    envelope: approval.envelope,
+    wrapper: approval.wrapper,
+    sessionId,
+    transcriptPath,
+  };
 }
 
 function runHook(item, { sessionId, transcriptPath, turnId, prompt }) {
@@ -408,7 +427,7 @@ test('authenticated resume materializes once and rejects nonce replay', () => {
   assert.match(postCleanupReplay.stdout, /already been consumed/);
 });
 
-test('public picker and approval commands drive same-context resume', () => {
+test('public picker and compact approval output drive Desktop embedded-plan resume', () => {
   const item = fixture();
   const picker = spawnSync(
     process.execPath,
@@ -444,7 +463,10 @@ test('public picker and approval commands drive same-context resume', () => {
       payload: {
         type: 'message',
         role: 'user',
-        content: [{ type: 'input_text', text: NORMAL_IMPLEMENTATION_PROMPT }],
+        content: [{
+          type: 'input_text',
+          text: `${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n${PLAN}`,
+        }],
       },
     },
     {
@@ -466,7 +488,7 @@ test('public picker and approval commands drive same-context resume', () => {
     sessionId: issued.sessionId,
     transcriptPath: issued.transcriptPath,
     turnId: 'turn-implement',
-    prompt: NORMAL_IMPLEMENTATION_PROMPT,
+    prompt: `${DESKTOP_EMBEDDED_IMPLEMENTATION_PREFIX}\n${PLAN}`,
   });
   assert.equal(hook.status, 0);
   assert.match(hook.stdout, /additionalContext/);
@@ -604,8 +626,11 @@ test('changed public approvals increment revision before any materialization', (
   );
   assert.equal(secondResult.status, 0, secondResult.stderr || secondResult.stdout);
   const second = JSON.parse(secondResult.stdout);
+  const match = /^<proposed_plan>\n([\s\S]*)<\/proposed_plan>$/.exec(second.proposedPlanOutput);
+  assert.ok(match);
+  const secondApproval = extractApprovalWrapper(match[1]);
   assert.equal(second.planRevision, 2);
-  assert.equal(second.envelope.humanPlanHash, sha256(REVISED_PLAN));
+  assert.equal(secondApproval.envelope.humanPlanHash, sha256(REVISED_PLAN));
   assert.equal(existsSync(join(item.workspaceRoot, '.forge')), false);
   assert.equal(existsSync(join(item.pluginData, 'nonce-tombstones')), false);
 });
