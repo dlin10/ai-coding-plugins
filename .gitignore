@@ -3,3 +3,8 @@ node_modules/
 scratch/
 *.scratch
 *.tmp
+.vs/
+**/obj/
+**/bin/
+!plugins/plan-forge-flow/bin/
+!plugins/plan-forge-flow/bin/**

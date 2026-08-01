@@ -1,0 +1,35 @@
+name: Plan Forge Flow release
+
+on:
+  push:
+    tags:
+      - 'plan-forge-flow-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build six local-marketplace bundles
+        shell: pwsh
+        run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/release-artifacts"
+      - name: Publish GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $assets = Get-ChildItem "$env:GITHUB_WORKSPACE/release-artifacts" -Filter '*.zip' -File
+          if ($assets.Count -ne 6) { throw "Expected six release archives, found $($assets.Count)" }
+          gh release create $tag $assets.FullName --title "Plan Forge Flow $tag" --generate-notes
