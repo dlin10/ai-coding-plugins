@@ -104,11 +104,13 @@ bounded stdin keys `reviewLog`, `completedReviewRounds`, `maxRounds`,
 `<proposed_plan>` from the current transcript; the caller supplies the review
 metadata and normalized model choices manually.
 
-Materialized `.forge/state.json` is nested state v5 with explicit `generation`
-metadata; its `models` group contains only `reviewer` and `builder`. Earlier
-state is rejected without migration. Materialization atomically writes session
-artifacts under `.forge/` while a workspace lock is held; a fresh run removes
-the previous `.forge/` directory first.
+Materialized `.forge/state.json` is an unversioned, camelCase DTO document;
+enums are emitted as camelCase strings and unknown or malformed Forge-owned
+fields are rejected. This is an intentionally incompatible contract: previous
+state is rejected without migration. Its `models` group contains only
+`reviewer` and `builder`. Materialization atomically writes session artifacts
+under `.forge/` while a workspace lock is held; a fresh run removes the
+previous `.forge/` directory first.
 
 ## Hook behavior
 
