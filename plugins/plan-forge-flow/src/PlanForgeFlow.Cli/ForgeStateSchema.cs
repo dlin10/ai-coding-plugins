@@ -1,15 +1,21 @@
 using System.Globalization;
-using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace PlanForgeFlow;
 
 internal enum ForgePhase
 {
+    [JsonStringEnumMemberName("materialized")]
     Materialized,
+    [JsonStringEnumMemberName("locked")]
     Locked,
+    [JsonStringEnumMemberName("build")]
     Build,
+    [JsonStringEnumMemberName("code-review")]
     CodeReview,
+    [JsonStringEnumMemberName("done")]
     Done,
+    [JsonStringEnumMemberName("done-with-findings")]
     DoneWithFindings,
 }
 
@@ -21,10 +27,15 @@ internal enum ForgeRole
 
 internal enum DispatchStage
 {
+    [JsonStringEnumMemberName("plan")]
     Plan,
+    [JsonStringEnumMemberName("code")]
     Code,
+    [JsonStringEnumMemberName("build")]
     Build,
+    [JsonStringEnumMemberName("fix-build")]
     FixBuild,
+    [JsonStringEnumMemberName("fix-review")]
     FixReview,
 }
 
@@ -53,12 +64,6 @@ internal static class DispatchStages
             _ => throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review"),
         };
 
-    public static DispatchStage? ParseNullable(JsonNode? value)
-    {
-        var text = value?.GetValue<string>();
-        return text is null ? null : ParseState(text);
-    }
-
     public static DispatchStageDefinition Definition(this DispatchStage stage) => Definitions[stage];
 
     public static bool IsReview(this DispatchStage stage) => !stage.Definition().CompletedByBuilder;
@@ -81,26 +86,10 @@ internal static class DispatchStages
         _ => throw new ArgumentOutOfRangeException(nameof(stage)),
     };
 
-    private static DispatchStage ParseState(string value)
-    {
-        try { return Parse(value); }
-        catch (CliFailure) { throw new CliFailure("state", $"state dispatch stage is unsupported: {value}", 3); }
-    }
 }
 
 internal static class ForgePhases
 {
-    public static ForgePhase Parse(string value) => value switch
-    {
-        "materialized" => ForgePhase.Materialized,
-        "locked" => ForgePhase.Locked,
-        "build" => ForgePhase.Build,
-        "code-review" => ForgePhase.CodeReview,
-        "done" => ForgePhase.Done,
-        "done-with-findings" => ForgePhase.DoneWithFindings,
-        _ => throw new CliFailure("state", $"state phase is unsupported: {value}", 3),
-    };
-
     public static string ToWireName(this ForgePhase phase) => phase switch
     {
         ForgePhase.Materialized => "materialized",
@@ -113,30 +102,11 @@ internal static class ForgePhases
     };
 }
 
-internal sealed record PinnedSelection(string Model, string Effort)
-{
-    public JsonObject ToJson() => new() { ["model"] = Model, ["effort"] = Effort };
+internal sealed record PinnedSelection(string Model, string Effort);
 
-    public static PinnedSelection? FromJson(JsonNode? value, string label)
-    {
-        if (value is null) return null;
-        if (value is not JsonObject selection) throw new CliFailure("state", $"state {label} selection is malformed", 3);
-        var model = selection["model"]?.GetValue<string>();
-        var effort = selection["effort"]?.GetValue<string>();
-        if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(effort)) throw new CliFailure("state", $"state {label} selection is malformed", 3);
-        return new PinnedSelection(model, effort);
-    }
-}
+internal sealed record BaselineEntry(string Path, string Hash);
 
-internal sealed record BaselineEntry(string Path, string Hash)
-{
-    public JsonObject ToJson() => new() { ["path"] = Path, ["hash"] = Hash };
-}
-
-internal sealed record CritiqueEntry(string Path, string Hash)
-{
-    public JsonObject ToJson() => new() { ["path"] = Path, ["hash"] = Hash };
-}
+internal sealed record CritiqueEntry(string Path, string Hash);
 
 internal sealed record WorkflowState
 {
@@ -194,7 +164,7 @@ internal sealed record ReviewState
     public string? Verdict { get; set; }
     public int FixRound { get; set; }
     public List<string> AuthorizedPaths { get; set; } = [];
-    public JsonObject? Manifest { get; set; }
+    public ReviewManifest? Manifest { get; set; }
     public string? CritiqueFile { get; set; }
     public string? VerdictFile { get; set; }
     public string? VerdictHash { get; set; }
@@ -225,193 +195,9 @@ internal sealed record ForgeState
         };
     }
 
-    public ForgeState DeepCopy() => FromJson(ToJson());
-
-    public JsonObject ToJson() => new()
-    {
-        ["version"] = Version,
-        ["generation"] = Generation,
-        ["createdAt"] = CreatedAt,
-        ["updatedAt"] = UpdatedAt,
-        ["workflow"] = new JsonObject
-        {
-            ["phase"] = Workflow.Phase.ToWireName(), ["round"] = Workflow.Round, ["maxRounds"] = Workflow.MaxRounds,
-            ["maxFixRounds"] = Workflow.MaxFixRounds, ["maxBuildRetries"] = Workflow.MaxBuildRetries,
-            ["taskCount"] = Workflow.TaskCount, ["nextTaskNumber"] = Workflow.NextTaskNumber,
-            ["amendment"] = Workflow.Amendment,
-            ["tasks"] = Workflow.Tasks is null ? null : new JsonArray(Workflow.Tasks.Select(task => (JsonNode)task.ToJson()).ToArray()),
-        },
-        ["models"] = new JsonObject { ["reviewer"] = Models.Reviewer?.ToJson(), ["builder"] = Models.Builder?.ToJson() },
-        ["agents"] = new JsonObject
-        {
-            ["builderId"] = Agents.BuilderId, ["lastBuilderDispatchId"] = Agents.LastBuilderDispatchId,
-            ["reviewerIds"] = new JsonArray(Agents.ReviewerIds.Select(id => (JsonNode)id).ToArray()),
-            ["lastReviewerId"] = Agents.LastReviewerId, ["lastReviewerDispatchId"] = Agents.LastReviewerDispatchId,
-        },
-        ["dispatch"] = new JsonObject
-        {
-            ["id"] = Dispatch.Id, ["stage"] = Dispatch.Stage?.ToWireName(), ["taskNumber"] = Dispatch.TaskNumber,
-            ["retry"] = Dispatch.Retry, ["pending"] = Dispatch.Pending, ["lastVerificationPassed"] = Dispatch.LastVerificationPassed,
-            ["model"] = Dispatch.Model, ["effort"] = Dispatch.Effort, ["conflict"] = Dispatch.Conflict,
-        },
-        ["baselines"] = new JsonObject
-        {
-            ["head"] = Baselines.Head, ["worktree"] = Baselines.Worktree,
-            ["untracked"] = new JsonArray(Baselines.Untracked.Select(entry => (JsonNode)entry.ToJson()).ToArray()),
-        },
-        ["review"] = new JsonObject
-        {
-            ["coverage"] = Review.Coverage, ["verdict"] = Review.Verdict, ["fixRound"] = Review.FixRound,
-            ["authorizedPaths"] = new JsonArray(Review.AuthorizedPaths.Select(path => (JsonNode)path).ToArray()),
-            ["manifest"] = Review.Manifest?.DeepClone(), ["critiqueFile"] = Review.CritiqueFile,
-            ["verdictFile"] = Review.VerdictFile, ["verdictHash"] = Review.VerdictHash,
-            ["critiqueFiles"] = new JsonArray(Review.CritiqueFiles.Select(entry => (JsonNode)entry.ToJson()).ToArray()),
-        },
-    };
-
-    public static ForgeState FromJson(JsonObject value)
-    {
-        Validate(value);
-        var workflow = Object(value, "workflow");
-        var models = Object(value, "models");
-        var agents = Object(value, "agents");
-        var dispatch = Object(value, "dispatch");
-        var baselines = Object(value, "baselines");
-        var review = Object(value, "review");
-        return new ForgeState
-        {
-            CreatedAt = RequiredString(value, "createdAt", "state"),
-            UpdatedAt = RequiredString(value, "updatedAt", "state"),
-            Workflow = new WorkflowState
-            {
-                Phase = ForgePhases.Parse(RequiredString(workflow, "phase", "workflow")), Round = RequiredInt(workflow, "round", "workflow"),
-                MaxRounds = RequiredInt(workflow, "maxRounds", "workflow"), MaxFixRounds = RequiredInt(workflow, "maxFixRounds", "workflow"),
-                MaxBuildRetries = RequiredInt(workflow, "maxBuildRetries", "workflow"), TaskCount = OptionalInt(workflow, "taskCount", "workflow"),
-                NextTaskNumber = RequiredInt(workflow, "nextTaskNumber", "workflow"), Amendment = RequiredBool(workflow, "amendment", "workflow"),
-                Tasks = OptionalArray(workflow, "tasks", "workflow")?.Select(ParseTask).ToList(),
-            },
-            Models = new ModelState { Reviewer = PinnedSelection.FromJson(models["reviewer"], "reviewer"), Builder = PinnedSelection.FromJson(models["builder"], "builder") },
-            Agents = new AgentState
-            {
-                BuilderId = OptionalString(agents, "builderId", "agents"), LastBuilderDispatchId = OptionalString(agents, "lastBuilderDispatchId", "agents"),
-                ReviewerIds = RequiredArray(agents, "reviewerIds", "agents").Select(item => RequiredString(item, "reviewer id")).ToList(),
-                LastReviewerId = OptionalString(agents, "lastReviewerId", "agents"), LastReviewerDispatchId = OptionalString(agents, "lastReviewerDispatchId", "agents"),
-            },
-            Dispatch = new DispatchState
-            {
-                Id = OptionalString(dispatch, "id", "dispatch"), Stage = DispatchStages.ParseNullable(dispatch["stage"]),
-                TaskNumber = OptionalInt(dispatch, "taskNumber", "dispatch"), Retry = RequiredInt(dispatch, "retry", "dispatch"),
-                Pending = RequiredBool(dispatch, "pending", "dispatch"), LastVerificationPassed = OptionalBool(dispatch, "lastVerificationPassed", "dispatch"),
-                Model = OptionalString(dispatch, "model", "dispatch"), Effort = OptionalString(dispatch, "effort", "dispatch"), Conflict = OptionalString(dispatch, "conflict", "dispatch"),
-            },
-            Baselines = new BaselinesState
-            {
-                Head = OptionalString(baselines, "head", "baselines"), Worktree = OptionalString(baselines, "worktree", "baselines"),
-                Untracked = RequiredArray(baselines, "untracked", "baselines").Select(ParseBaseline).ToList(),
-            },
-            Review = new ReviewState
-            {
-                Coverage = OptionalString(review, "coverage", "review"), Verdict = OptionalString(review, "verdict", "review"),
-                FixRound = RequiredInt(review, "fixRound", "review"),
-                AuthorizedPaths = RequiredArray(review, "authorizedPaths", "review").Select(item => RequiredString(item, "authorized path")).ToList(),
-                Manifest = review["manifest"] is null ? null : Object(review, "manifest").DeepClone().AsObject(),
-                CritiqueFile = OptionalString(review, "critiqueFile", "review"), VerdictFile = OptionalString(review, "verdictFile", "review"),
-                VerdictHash = OptionalString(review, "verdictHash", "review"),
-                CritiqueFiles = RequiredArray(review, "critiqueFiles", "review").Select(ParseCritique).ToList(),
-            },
-        };
-    }
-
-    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> GroupFields =
-        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
-        {
-            ["workflow"] = ["phase", "round", "maxRounds", "maxFixRounds", "maxBuildRetries", "taskCount", "nextTaskNumber", "amendment", "tasks"],
-            ["models"] = ["reviewer", "builder"],
-            ["agents"] = ["builderId", "lastBuilderDispatchId", "reviewerIds", "lastReviewerId", "lastReviewerDispatchId"],
-            ["dispatch"] = ["id", "stage", "taskNumber", "retry", "pending", "lastVerificationPassed", "model", "effort", "conflict"],
-            ["baselines"] = ["head", "worktree", "untracked"],
-            ["review"] = ["coverage", "verdict", "fixRound", "authorizedPaths", "manifest", "critiqueFile", "verdictFile", "verdictHash", "critiqueFiles"],
-        };
-
-    private static void Validate(JsonObject value)
-    {
-        if (value["version"]?.GetValue<int>() != Version || value["generation"]?.GetValue<string>() != Generation) throw new CliFailure("state", "unsupported Forge state version; expected nested state v5 generation v4", 3);
-        RequireExact(value, ["version", "generation", "createdAt", "updatedAt", .. GroupFields.Keys], "state");
-        foreach (var (group, fields) in GroupFields)
-        {
-            var groupValue = Object(value, group);
-            RequireExact(groupValue, fields, $"state.{group}");
-        }
-    }
-
-    private static PlanTask ParseTask(JsonNode? node)
-    {
-        var value = Object(node, "task");
-        RequireExact(value, ["number", "hash", "text"], "state workflow task");
-        return new PlanTask(RequiredInt(value, "number", "task"), RequiredString(value, "hash", "task"), RequiredString(value, "text", "task"));
-    }
-
-    private static BaselineEntry ParseBaseline(JsonNode? node)
-    {
-        var value = Object(node, "baseline entry");
-        RequireExact(value, ["path", "hash"], "state baseline entry");
-        return new BaselineEntry(RequiredString(value, "path", "baseline entry"), RequiredString(value, "hash", "baseline entry"));
-    }
-
-    private static CritiqueEntry ParseCritique(JsonNode? node)
-    {
-        var value = Object(node, "critique entry");
-        RequireExact(value, ["path", "hash"], "state critique entry");
-        return new CritiqueEntry(RequiredString(value, "path", "critique entry"), RequiredString(value, "hash", "critique entry"));
-    }
-
-    private static JsonObject Object(JsonNode? value, string label)
-        => value as JsonObject ?? throw new CliFailure("state", $"state {label} is malformed", 3);
-
-    private static JsonObject Object(JsonObject value, string key) => Object(value[key], key);
-
-    private static JsonArray RequiredArray(JsonObject value, string key, string label)
-        => value[key] as JsonArray ?? throw new CliFailure("state", $"state {label}.{key} is malformed", 3);
-
-    private static JsonArray? OptionalArray(JsonObject value, string key, string label)
-        => value[key] is null ? null : RequiredArray(value, key, label);
-
-    private static string RequiredString(JsonObject value, string key, string label)
-        => RequiredString(value[key], $"state {label}.{key}");
-
-    private static string RequiredString(JsonNode? value, string label)
-    {
-        var text = value?.GetValue<string>();
-        return !string.IsNullOrWhiteSpace(text) ? text : throw new CliFailure("state", $"{label} is malformed", 3);
-    }
-
-    private static string? OptionalString(JsonObject value, string key, string label)
-        => value[key] is null ? null : RequiredString(value, key, label);
-
-    private static int RequiredInt(JsonObject value, string key, string label)
-    {
-        try { return value[key]?.GetValue<int>() ?? throw new FormatException(); }
-        catch (Exception) { throw new CliFailure("state", $"state {label}.{key} is malformed", 3); }
-    }
-
-    private static int? OptionalInt(JsonObject value, string key, string label)
-        => value[key] is null ? null : RequiredInt(value, key, label);
-
-    private static bool RequiredBool(JsonObject value, string key, string label)
-    {
-        try { return value[key]?.GetValue<bool>() ?? throw new FormatException(); }
-        catch (Exception) { throw new CliFailure("state", $"state {label}.{key} is malformed", 3); }
-    }
-
-    private static bool? OptionalBool(JsonObject value, string key, string label)
-        => value[key] is null ? null : RequiredBool(value, key, label);
-
-    private static void RequireExact(JsonObject value, IReadOnlyCollection<string> expected, string label)
-    {
-        var actual = value.Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray();
-        var wanted = expected.OrderBy(item => item, StringComparer.Ordinal).ToArray();
-        if (!actual.SequenceEqual(wanted, StringComparer.Ordinal)) throw new CliFailure("state", $"{label} fields are not exact", 3);
-    }
+    public ForgeState DeepCopy() => JsonSerialization.Deserialize(
+        JsonSerialization.Serialize(this, ForgeJsonContext.Default.ForgeState),
+        ForgeJsonContext.Default.ForgeState);
 }
 
 internal static class ForgeStateSchema
@@ -419,5 +205,4 @@ internal static class ForgeStateSchema
     public static ForgeState CreateEmpty() => ForgeState.CreateEmpty();
     public static DispatchState CreateDispatch() => new();
     public static ReviewState CreateReview(IEnumerable<CritiqueEntry>? critiqueFiles = null) => new() { CritiqueFiles = critiqueFiles?.ToList() ?? [] };
-    public static void Validate(JsonObject value) => ForgeState.FromJson(value);
 }

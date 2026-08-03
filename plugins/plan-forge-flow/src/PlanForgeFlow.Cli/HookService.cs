@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json.Nodes;
 
 namespace PlanForgeFlow;
 
@@ -12,13 +11,13 @@ internal static class HookService
         try
         {
             if (Encoding.UTF8.GetByteCount(input) > MaxHookInputBytes) return 0;
-            var eventData = JsonNode.Parse(input)?.AsObject();
-            if (eventData is null || eventData["cwd"] is null) return 0;
-            var workspace = RepositoryPaths.CanonicalWorkspaceRoot(eventData["cwd"]!.GetValue<string>());
-            var prompt = eventData["prompt"]?.GetValue<string>() ?? string.Empty;
+            var eventData = JsonSerialization.Deserialize(input, CodexJsonContext.Default.HookInput);
+            if (string.IsNullOrWhiteSpace(eventData.Cwd)) return 0;
+            var workspace = RepositoryPaths.CanonicalWorkspaceRoot(eventData.Cwd);
+            var prompt = eventData.Prompt ?? string.Empty;
             var mode = "unknown";
-            var transcriptPath = eventData["transcript_path"]?.GetValue<string>();
-            var turnId = eventData["turn_id"]?.GetValue<string>();
+            var transcriptPath = eventData.TranscriptPath;
+            var turnId = eventData.TurnId;
             TranscriptReader.Transcript? transcript = null;
             if (!string.IsNullOrWhiteSpace(transcriptPath) && !string.IsNullOrWhiteSpace(turnId))
             {
@@ -32,11 +31,9 @@ internal static class HookService
 
             if (prompt.Contains("$forge", StringComparison.OrdinalIgnoreCase) && mode != "plan")
             {
-                Console.Out.WriteLine(new JsonObject
-                {
-                    ["decision"] = "block",
-                    ["reason"] = "Plan Forge Act 1 requires Plan mode. Toggle /plan or Shift+Tab, then resubmit the $forge prompt.",
-                }.ToJsonString());
+                Console.Out.WriteLine(JsonSerialization.Serialize(
+                    new HookBlockOutput("block", "Plan Forge Act 1 requires Plan mode. Toggle /plan or Shift+Tab, then resubmit the $forge prompt."),
+                    CodexJsonContext.Default.HookBlockOutput));
                 return 0;
             }
 
@@ -44,14 +41,11 @@ internal static class HookService
             var plan = TranscriptReader.LatestPlan(transcript.Records);
             if (plan is null) return 0;
             PendingPlan.Write(workspace, plan);
-            Console.Out.WriteLine(new JsonObject
-            {
-                ["hookSpecificOutput"] = new JsonObject
-                {
-                    ["hookEventName"] = "UserPromptSubmit",
-                    ["additionalContext"] = "Forge captured the latest proposed plan. Before implementation, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections.",
-                },
-            }.ToJsonString());
+            Console.Out.WriteLine(JsonSerialization.Serialize(
+                new HookCaptureOutput(new HookSpecificOutput(
+                    "UserPromptSubmit",
+                    "Forge captured the latest proposed plan. Before implementation, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections.")),
+                CodexJsonContext.Default.HookCaptureOutput));
             return 0;
         }
         catch

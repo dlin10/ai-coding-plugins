@@ -1,52 +1,19 @@
 using System.Text;
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed partial class CliApplication
 {
-    private static JsonObject MaterializePlan(CommandContext context)
+    private static MaterializeData MaterializePlan(CommandContext context)
     {
         var input = Console.In.ReadToEnd();
         if (Encoding.UTF8.GetByteCount(input) > 2 * 1024 * 1024) throw new CliFailure("usage", "materialization input exceeds the size bound");
-        var request = JsonNode.Parse(input)?.AsObject() ?? throw new CliFailure("usage", "materialization input must be a JSON object");
-        var keys = request.Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray();
-        if (!keys.SequenceEqual(new[] { "builder", "completedReviewRounds", "maxRounds", "reviewLog", "reviewer" }, StringComparer.Ordinal)) throw new CliFailure("usage", "materialization input keys are not exact");
-        var reviewLog = RequestString(request, "reviewLog");
-        var completedRounds = RequestInt(request, "completedReviewRounds");
-        var maxRounds = RequestInt(request, "maxRounds");
-        if (request["reviewer"] is not JsonObject reviewer || request["builder"] is not JsonObject builder) throw new CliFailure("usage", "materialization reviewer and builder must be JSON objects");
+        var request = JsonSerialization.Deserialize(input, ForgeJsonContext.Default.MaterializationRequest);
+        if (string.IsNullOrWhiteSpace(request.ReviewLog)) throw new CliFailure("usage", "materialization input reviewLog must be a non-empty string");
+        if (request.CompletedReviewRounds < 0 || request.MaxRounds < 0) throw new CliFailure("usage", "materialization rounds must be non-negative integers");
         var pending = PendingPlan.Read(context.Workspace);
-        var result = Materializer.Materialize(RepositoryPaths.Identify(context.Workspace), pending.Plan, reviewLog, completedRounds, maxRounds, reviewer, builder, context.Args.Has("amendment"));
+        var result = Materializer.Materialize(RepositoryPaths.Identify(context.Workspace), pending.Plan, request.ReviewLog, request.CompletedReviewRounds, request.MaxRounds, request.Reviewer, request.Builder, context.Args.Has("amendment"));
         PendingPlan.Delete(context.Workspace);
         return result;
-    }
-    
-    private static string RequestString(JsonObject request, string key)
-    {
-        try
-        {
-            var value = request[key]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(value)) throw new FormatException("must be a non-empty string");
-            return value;
-        }
-        catch (Exception error)
-        {
-            throw new CliFailure("usage", $"materialization input {key} {error.Message}");
-        }
-    }
-    
-    private static int RequestInt(JsonObject request, string key)
-    {
-        try
-        {
-            var value = request[key]?.GetValue<int>() ?? throw new FormatException("must be an integer");
-            return value;
-        }
-        catch (Exception error)
-        {
-            throw new CliFailure("usage", $"materialization input {key} {error.Message}");
-        }
     }
     
     private static ForgeState LockPlan(CommandContext context)

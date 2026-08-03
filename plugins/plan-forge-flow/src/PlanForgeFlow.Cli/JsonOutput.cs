@@ -1,60 +1,23 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace PlanForgeFlow;
 
 internal static class JsonOutput
 {
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false,
-    };
-
-    public static JsonNode? Node(object? value) => value switch
-                                                   {
-                                                       null => null,
-                                                       JsonNode node => node.DeepClone(),
-                                                       ForgeState state => state.ToJson(),
-                                                       JsonElement element => JsonNode.Parse(element.GetRawText()),
-                                                       string text => JsonValue.Create(text),
-                                                       bool boolean => JsonValue.Create(boolean),
-                                                       int number => JsonValue.Create(number),
-                                                       long number => JsonValue.Create(number),
-                                                       double number => JsonValue.Create(number),
-                                                       string[] values => new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
-                                                       _ => throw new InvalidOperationException($"Unsupported JSON value type: {value.GetType().FullName}"),
-                                                   };
-
-    public static void Success(string command, object? data)
-    {
-        var root = new JsonObject
-        {
-            ["ok"] = true,
-            ["command"] = command,
-            ["data"] = Node(data) ?? new JsonObject(),
-        };
-        Console.Out.WriteLine(root.ToJsonString(Options));
-    }
+    public static void Success<T>(string command, T data)
+        => Console.Out.WriteLine(JsonSerialization.Serialize(
+            new JsonSuccess<T>(true, command, data),
+            TypeInfo<JsonSuccess<T>>()));
 
     public static void Error(string command, CliFailure failure)
     {
-        var error = new JsonObject
-        {
-            ["code"] = failure.Code,
-            ["message"] = failure.Message,
-        };
-        if (failure.Details is not null)
-        {
-            error["details"] = failure.Details;
-        }
-
-        var root = new JsonObject
-        {
-            ["ok"] = false,
-            ["command"] = command,
-            ["error"] = error,
-        };
-        Console.Out.WriteLine(root.ToJsonString(Options));
+        var details = failure.Details?.ToList();
+        var error = new JsonFailure(false, command, new JsonError(failure.Code, failure.Message, details));
+        Console.Out.WriteLine(JsonSerialization.Serialize(error, ForgeJsonContext.Default.JsonFailure));
     }
+
+    private static JsonTypeInfo<T> TypeInfo<T>()
+        => ForgeJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
+           ?? throw new InvalidOperationException($"JSON metadata is not registered for {typeof(T).FullName}");
 }

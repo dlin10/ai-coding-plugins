@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json.Nodes;
 
 namespace PlanForgeFlow;
 
@@ -8,9 +7,9 @@ internal sealed partial class CliApplication
     private static void RequireFreshReviewManifest(string workspace, ForgeState state)
     {
         var manifest = state.Review.Manifest;
-        if (manifest is null || string.IsNullOrWhiteSpace(manifest["treeFingerprint"]?.GetValue<string>())) throw new CliFailure("state", "a review prepare manifest is required before dispatch", 3);
+        if (manifest is null || string.IsNullOrWhiteSpace(manifest.TreeFingerprint)) throw new CliFailure("state", "a review prepare manifest is required before dispatch", 3);
         ReviewEvidence.Verify(workspace, manifest);
-        var expected = manifest["treeFingerprint"]!.GetValue<string>();
+        var expected = manifest.TreeFingerprint;
         var actual = ReviewEvidence.TreeFingerprint(workspace, state);
         if (!string.Equals(expected, actual, StringComparison.Ordinal)) throw new CliFailure("state", "the review prepare manifest is stale; prepare review again before dispatch", 3);
     }
@@ -22,7 +21,7 @@ internal sealed partial class CliApplication
         if (state.Dispatch.Pending) throw new CliFailure("state", "done requires a consumed review dispatch", 3);
         if (state.Agents.ReviewerIds.Count == 0 || !string.Equals(state.Agents.LastReviewerDispatchId, state.Dispatch.Id, StringComparison.Ordinal)) throw new CliFailure("state", "done requires a reviewer session for the current dispatch", 3);
         RequireFreshReviewManifest(workspace, state);
-        if (review.Manifest is not JsonObject manifest || manifest["coverage"]?.GetValue<string>() != "FULL") throw new CliFailure("state", "done requires fresh full review evidence", 3);
+        if (review.Manifest?.Coverage != "FULL") throw new CliFailure("state", "done requires fresh full review evidence", 3);
 
         var critiquePath = review.CritiqueFile;
         if (string.IsNullOrWhiteSpace(critiquePath)) throw new CliFailure("state", "done requires the approved critique file", 3);
@@ -59,7 +58,7 @@ internal sealed partial class CliApplication
         }
     }
 
-    private static JsonObject PrepareReview(CommandContext context)
+    private static ReviewManifest PrepareReview(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -80,7 +79,7 @@ internal sealed partial class CliApplication
                                 .Where(path => path.Length > 0)
                                 .ToHashSet(StringComparer.Ordinal);
         var sensitiveAllowed = allowPaths
-                              .Select(item => item!.GetValue<string>().Replace('\\', '/'))
+                              .Select(item => item.Replace('\\', '/'))
                               .ToHashSet(StringComparer.Ordinal);
         var allowed = stateAllowed.Concat(sensitiveAllowed).ToHashSet(StringComparer.Ordinal);
         var preExistingTracked = ReviewEvidence.PathList(workspace, ["diff", "--name-only", "-z", "refs/plan-forge/head-base", "refs/plan-forge/worktree-base", "--", "."], "could not prepare the pre-existing tracked review diff");
@@ -116,43 +115,20 @@ internal sealed partial class CliApplication
         }
 
         var allPaths = preExisting.Concat(inRun).Concat(untracked).Distinct(StringComparer.Ordinal).OrderBy(path => path, StringComparer.Ordinal).ToArray();
-        var withheld = new JsonArray();
+        var withheld = new List<WithheldFile>();
         long aggregateBytes = 0;
         foreach (var relative in allPaths)
         {
             var decision = ReviewEvidence.Inspect(workspace, relative, preExisting, stateAllowed, sensitiveAllowed, untracked, baselineUntracked, aggregateBytes);
-            if (decision.Reason is not null) withheld.Add((JsonNode)new JsonObject { ["path"] = relative, ["reason"] = decision.Reason });
+            if (decision.Reason is not null) withheld.Add(new WithheldFile(relative, decision.Reason));
             else aggregateBytes += decision.Bytes;
         }
 
-        if (parsed.Has("full") && withheld.Count > 0) throw new CliFailure("verdict", "full review evidence is unavailable; resolve the withheld paths or use partial coverage", 2, withheld.DeepClone());
+        if (parsed.Has("full") && withheld.Count > 0) throw new CliFailure("verdict", "full review evidence is unavailable; resolve the withheld paths or use partial coverage", 2, withheld);
         var coverage = parsed.Has("full") ? "FULL" : allPaths.Length == 0 ? "FULL" : "PARTIAL";
-        var preExistingArray = new JsonArray(preExisting.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray());
-        var inRunArray = new JsonArray(inRun.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray());
-        var untrackedArray = new JsonArray(untracked.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray());
         var withheldPaths = withheld
-                           .Select(item => item?.AsObject()["path"]?.GetValue<string>())
-                           .Where(path => !string.IsNullOrWhiteSpace(path))
+                           .Select(item => item.Path)
                            .ToHashSet(StringComparer.Ordinal);
-        var manifest = new JsonObject
-        {
-            ["version"] = 4,
-            ["generation"] = ForgeState.Generation,
-            ["coverage"] = coverage,
-            ["allowPaths"] = allowPaths,
-            ["sensitiveAllowedPaths"] = new JsonArray(sensitiveAllowed.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray()),
-            ["preExistingAuthorizedPaths"] = new JsonArray(stateAllowed.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray()),
-            ["authorizedPaths"] = new JsonArray(allowed.OrderBy(path => path, StringComparer.Ordinal).Select(path => (JsonNode)path).ToArray()),
-            ["authorizationNote"] = parsed.Get("authorization-note"),
-            ["changedFiles"] = allPaths.Length,
-            ["preExistingFiles"] = preExistingArray,
-            ["inRunFiles"] = inRunArray,
-            ["untrackedFiles"] = untrackedArray,
-            ["withheld"] = withheld,
-            ["aggregateBytes"] = aggregateBytes,
-            ["treeFingerprint"] = null,
-            ["createdAt"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-        };
         var headBase = "refs/plan-forge/head-base";
         var worktreeBase = "refs/plan-forge/worktree-base";
         var reviewablePreExisting = preExisting.Where(path => !withheldPaths.Contains(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
@@ -165,27 +141,45 @@ internal sealed partial class CliApplication
         DurableFiles.WriteAtomic(Path.Combine(forge, "in-run.patch"), inRunPatch);
         DurableFiles.WriteAtomic(Path.Combine(forge, "untracked-review.patch"), untrackedPatch);
         DurableFiles.WriteAtomic(Path.Combine(forge, "changed-files.txt"), string.Join(Environment.NewLine, allPaths) + (allPaths.Length == 0 ? string.Empty : Environment.NewLine));
-        var evidenceHashes = new JsonObject();
+        var evidenceHashes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var name in ReviewEvidence.Files)
         {
             var path = Path.Combine(forge, name);
             ReviewEvidence.EnsureFile(path);
             evidenceHashes[name] = Hashing.Sha256File(path);
         }
-        manifest["evidenceHashes"] = evidenceHashes;
         var finalFingerprint = ReviewEvidence.TreeFingerprint(workspace, state);
         if (!string.Equals(startingFingerprint, finalFingerprint, StringComparison.Ordinal)) throw new CliFailure("state", "the review tree changed while review evidence was being prepared; retry review prepare", 3);
-        manifest["treeFingerprint"] = finalFingerprint;
-        DurableFiles.WriteJson(Path.Combine(forge, "review-manifest.json"), manifest);
+        var manifest = new ReviewManifest
+        {
+            Version = 4,
+            Generation = ForgeState.Generation,
+            Coverage = coverage,
+            AllowPaths = allowPaths,
+            SensitiveAllowedPaths = sensitiveAllowed.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            PreExistingAuthorizedPaths = stateAllowed.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            AuthorizedPaths = allowed.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            AuthorizationNote = parsed.Get("authorization-note"),
+            ChangedFiles = allPaths.Length,
+            PreExistingFiles = preExisting.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            InRunFiles = inRun.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            UntrackedFiles = untracked.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            Withheld = withheld,
+            AggregateBytes = aggregateBytes,
+            TreeFingerprint = finalFingerprint,
+            CreatedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            EvidenceHashes = evidenceHashes,
+        };
+        DurableFiles.WriteJson(Path.Combine(forge, "review-manifest.json"), manifest, ForgeJsonContext.Default.ReviewManifest);
         StateStore.Update(workspace, state, current =>
         {
             if (!string.Equals(ReviewEvidence.TreeFingerprint(workspace, current), finalFingerprint, StringComparison.Ordinal)) throw new CliFailure("state", "the review tree changed before the review manifest was committed; retry review prepare", 3);
-            current.Review.Manifest = manifest.DeepClone().AsObject();
+            current.Review.Manifest = manifest;
         });
         return manifest;
     }
 
-    private static JsonObject AuthorizePreexisting(CommandContext context)
+    private static AuthorizationData AuthorizePreexisting(CommandContext context)
     {
         var raw = context.Args.GetRequired("authorized-paths");
         var paths = ParsePathArray(raw, "authorized-paths");
@@ -195,7 +189,7 @@ internal sealed partial class CliApplication
         StateStore.Update(context.Workspace, context.RequireState(), state =>
         {
             var existing = state.Review.AuthorizedPaths
-                                .Concat(paths.Select(item => item!.GetValue<string>()))
+                                .Concat(paths)
                                 .Distinct(StringComparer.Ordinal)
                                 .OrderBy(path => path, StringComparer.Ordinal)
                                 .ToList();
@@ -203,10 +197,10 @@ internal sealed partial class CliApplication
             combined = existing;
             state.Review.AuthorizedPaths = existing;
         });
-        return new JsonObject { ["authorizedPaths"] = new JsonArray((combined ?? paths.Select(item => item!.GetValue<string>()).ToList()).Select(path => (JsonNode)path).ToArray()), ["authorizationNote"] = context.Args.Get("authorization-note") };
+        return new AuthorizationData(combined ?? paths, context.Args.Get("authorization-note")!);
     }
 
-    private static JsonObject Verdict(CommandContext context)
+    private static VerdictData Verdict(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -230,7 +224,7 @@ internal sealed partial class CliApplication
         var coverage = decision.Coverage;
         if (expectedStage.Definition().RequiresFreshReview && verdict == "APPROVED")
         {
-            if (coverage != "FULL" || state.Review.Manifest?["coverage"]?.GetValue<string>() != "FULL") throw new CliFailure("verdict", "approval requires a fresh FULL review manifest and FULL critique coverage", 2);
+            if (coverage != "FULL" || state.Review.Manifest?.Coverage != "FULL") throw new CliFailure("verdict", "approval requires a fresh FULL review manifest and FULL critique coverage", 2);
         }
         if (parsed.Has("accept-risk")) RequireAuthorizationNote(parsed);
         var critiqueHash = Hashing.Sha256File(absoluteCritique);
@@ -259,6 +253,12 @@ internal sealed partial class CliApplication
             else if (verdict == "REVISE") value.Review.FixRound = nextRound;
             if (expectedStage.Definition().RequiresFreshReview) value.Workflow.Phase = verdict == "APPROVED" ? ForgePhase.Done : ForgePhase.CodeReview;
         });
-        return new JsonObject { ["action"] = verdict == "APPROVED" ? "approved" : nextRound > roundCap ? "deadlock" : "revise", ["stage"] = expectedStage.ToWireName(), ["verdict"] = verdict, ["coverage"] = coverage, ["round"] = nextRound, ["review"] = state.ToJson()["review"]!.DeepClone() };
+        return new VerdictData(
+            verdict == "APPROVED" ? "approved" : nextRound > roundCap ? "deadlock" : "revise",
+            expectedStage.ToWireName(),
+            verdict,
+            coverage,
+            nextRound,
+            state.Review);
     }
 }

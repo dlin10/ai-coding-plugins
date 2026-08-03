@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed partial class CliApplication
@@ -26,7 +24,7 @@ internal sealed partial class CliApplication
             switch (command)
             {
                 case "plan start":
-                    JsonOutput.Success(command, new JsonObject { ["mode"] = "plan" });
+                    JsonOutput.Success(command, new ModeData("plan"));
                     break;
                 case "plan lock":
                     JsonOutput.Success(command, LockPlan(context));
@@ -68,13 +66,23 @@ internal sealed partial class CliApplication
                 case "run status":
                     if (!File.Exists(StateStore.StatePath(context.Workspace)))
                     {
-                        JsonOutput.Success(command, new JsonObject { ["exists"] = false });
+                        JsonOutput.Success(command, new StatusMissingData(false));
                     }
                     else
                     {
-                        var status = StateStore.Load(context.Workspace).ToJson();
-                        status["exists"] = true;
-                        JsonOutput.Success(command, status);
+                        var state = StateStore.Load(context.Workspace);
+                        JsonOutput.Success(command, new StatusPresentData(
+                            ForgeState.Version,
+                            ForgeState.Generation,
+                            state.CreatedAt,
+                            state.UpdatedAt,
+                            state.Workflow,
+                            state.Models,
+                            state.Agents,
+                            state.Dispatch,
+                            state.Baselines,
+                            state.Review,
+                            true));
                     }
                     break;
                 case "run set":
@@ -82,7 +90,7 @@ internal sealed partial class CliApplication
                     break;
                 case "run cleanup":
                     Materializer.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"));
-                    JsonOutput.Success(command, new JsonObject { ["cleaned"] = true, ["purgedAgents"] = context.Args.Has("purge-generated-agents") });
+                    JsonOutput.Success(command, new CleanupData(true, context.Args.Has("purge-generated-agents")));
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");
@@ -132,12 +140,9 @@ internal sealed partial class CliApplication
 
     private static void PrintHelp(string command)
     {
-        JsonOutput.Success(command, new JsonObject
-        {
-            ["usage"] = $"planforge {command} [options]",
-            ["commands"] = new JsonArray(
-                                         CliCommands.Names.Select(name => (JsonNode)name).Append("hook capture-context").ToArray()),
-        });
+        JsonOutput.Success(command, new HelpData(
+            $"planforge {command} [options]",
+            CliCommands.Names.Append("hook capture-context").ToList()));
     }
 
 }

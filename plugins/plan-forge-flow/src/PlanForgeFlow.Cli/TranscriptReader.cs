@@ -1,5 +1,5 @@
 using System.Text;
-using System.Text.Json.Nodes;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace PlanForgeFlow;
@@ -9,7 +9,7 @@ internal static class TranscriptReader
     private const long MaxTranscriptBytes = 64 * 1024 * 1024;
     private const int MaxEnvironmentMessageBytes = 64 * 1024;
 
-    internal sealed record Record(int Index, string Type, string? TurnId, string? Mode, string? Role, string? Phase, string? Text, JsonObject Raw, string Kind = "other", string? Id = null);
+    internal sealed record Record(int Index, string Type, string? TurnId, string? Mode, string? Role, string? Phase, string? Text, string Kind = "other", string? Id = null);
     internal sealed record Transcript(string Path, IReadOnlyList<Record> Records);
 
     public static Transcript ReadDocument(string path)
@@ -32,50 +32,52 @@ internal static class TranscriptReader
             if (string.IsNullOrWhiteSpace(line)) { index++; continue; }
             try
             {
-                var raw = JsonNode.Parse(line)?.AsObject() ?? throw new FormatException("record is not an object");
-                var type = raw["type"]?.GetValue<string>() ?? throw new FormatException("record type is missing");
-                var payload = raw["payload"]?.AsObject() ?? throw new FormatException("record payload is missing");
+                var raw = JsonSerialization.Deserialize(line, CodexJsonContext.Default.TranscriptEnvelope);
+                var type = raw.Type ?? throw new FormatException("record type is missing");
+                var payload = RequireObject(raw.Payload, "record payload is missing");
                 if (type == "session_meta")
                 {
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw));
+                    result.Add(new Record(index, type, turn, mode, null, null, null));
                 }
                 else if (type == "turn_context")
                 {
-                    turn = payload["turn_id"]?.GetValue<string>();
+                    turn = RequireString(payload, "turn_id", "turn_context has no turn_id");
                     if (string.IsNullOrWhiteSpace(turn)) throw new FormatException("turn_context has no turn_id");
-                    var candidate = payload["collaboration_mode"]?["mode"]?.GetValue<string>();
+                    var candidate = payload.TryGetProperty("collaboration_mode", out var collaboration) && collaboration.ValueKind == JsonValueKind.Object
+                                    ? OptionalString(collaboration, "mode")
+                                    : null;
                     mode = candidate is "plan" or "default" ? candidate : "unknown";
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw, "turn"));
+                    result.Add(new Record(index, type, turn, mode, null, null, null, "turn"));
                 }
-                else if (type == "response_item" && payload["type"]?.GetValue<string>() == "message")
+                else if (type == "response_item" && OptionalString(payload, "type") == "message")
                 {
-                    var role = payload["role"]?.GetValue<string>();
+                    var role = OptionalString(payload, "role");
                     if (role is not ("user" or "assistant" or "developer")) throw new FormatException("message role is unsupported");
-                    var content = payload["content"]?.AsArray() ?? throw new FormatException("message content is malformed");
-                    if (content.Count == 0) throw new FormatException("message content is empty");
+                    if (!payload.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) throw new FormatException("message content is malformed");
+                    if (content.GetArrayLength() == 0) throw new FormatException("message content is empty");
                     var text = new StringBuilder();
-                    foreach (var part in content)
+                    foreach (var part in content.EnumerateArray())
                     {
-                        var item = part?.AsObject() ?? throw new FormatException("message content item is malformed");
-                        var partType = item["type"]?.GetValue<string>();
+                        var item = RequireObject(part, "message content item is malformed");
+                        var partType = OptionalString(item, "type");
                         if (partType is not ("input_text" or "output_text")) throw new FormatException("message content uses an unsupported schema");
-                        text.Append(item["text"]?.GetValue<string>() ?? throw new FormatException("message content text is missing"));
+                        text.Append(RequireString(item, "text", "message content text is missing"));
                     }
 
-                    result.Add(new Record(index, type, turn, mode, role, payload["phase"]?.GetValue<string>(), text.ToString(), raw, "message", payload["id"]?.GetValue<string>()));
+                    result.Add(new Record(index, type, turn, mode, role, OptionalString(payload, "phase"), text.ToString(), "message", OptionalString(payload, "id")));
                 }
-                else if (type == "response_item" && payload["type"]?.GetValue<string>() is { } activity &&
+                else if (type == "response_item" && OptionalString(payload, "type") is { } activity &&
                          (activity.EndsWith("call", StringComparison.Ordinal) || activity.EndsWith("call_output", StringComparison.Ordinal) || activity == "tool_search_output"))
                 {
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw, "tool"));
+                    result.Add(new Record(index, type, turn, mode, null, null, null, "tool"));
                 }
-                else if (type == "response_item" && payload["type"]?.GetValue<string>() == "reasoning")
+                else if (type == "response_item" && OptionalString(payload, "type") == "reasoning")
                 {
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw, "reasoning"));
+                    result.Add(new Record(index, type, turn, mode, null, null, null, "reasoning"));
                 }
                 else
                 {
-                    result.Add(new Record(index, type, turn, mode, null, null, null, raw, type == "response_item" ? "unsupported-activity" : "other"));
+                    result.Add(new Record(index, type, turn, mode, null, null, null, type == "response_item" ? "unsupported-activity" : "other"));
                 }
             }
             catch (Exception error) when (error is not CliFailure)
@@ -108,4 +110,13 @@ internal static class TranscriptReader
         => record.Kind == "message" && record.Role == "user" && record.Text is not null &&
            Encoding.UTF8.GetByteCount(record.Text) <= MaxEnvironmentMessageBytes &&
            Regex.IsMatch(record.Text, "^<environment_context>\\r?\\n[\\s\\S]*\\r?\\n</environment_context>\\s*$");
+
+    private static JsonElement RequireObject(JsonElement value, string error)
+        => value.ValueKind == JsonValueKind.Object ? value : throw new FormatException(error);
+
+    private static string RequireString(JsonElement value, string property, string error)
+        => OptionalString(value, property) ?? throw new FormatException(error);
+
+    private static string? OptionalString(JsonElement value, string property)
+        => value.TryGetProperty(property, out var candidate) && candidate.ValueKind == JsonValueKind.String ? candidate.GetString() : null;
 }

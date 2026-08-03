@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace PlanForgeFlow;
@@ -20,10 +19,10 @@ internal static class ReviewEvidence
         catch (PlatformNotSupportedException) { }
     }
 
-    public static void Verify(string workspace, JsonObject manifest)
+    public static void Verify(string workspace, ReviewManifest manifest)
     {
-        if (manifest["evidenceHashes"] is not JsonObject hashes) throw new CliFailure("state", "review manifest lacks generated evidence hashes", 3);
-        var actualKeys = hashes.Select(item => item.Key).OrderBy(item => item, StringComparer.Ordinal).ToArray();
+        var hashes = manifest.EvidenceHashes;
+        var actualKeys = hashes.Keys.OrderBy(item => item, StringComparer.Ordinal).ToArray();
         var expectedKeys = Files.OrderBy(item => item, StringComparer.Ordinal).ToArray();
         if (!actualKeys.SequenceEqual(expectedKeys, StringComparer.Ordinal)) throw new CliFailure("state", "review manifest evidence hash fields are not exact", 3);
 
@@ -31,7 +30,7 @@ internal static class ReviewEvidence
         OwnershipGuards.EnsureSafeDirectory(forge);
         foreach (var name in Files)
         {
-            var expected = hashes[name]?.GetValue<string>();
+            hashes.TryGetValue(name, out var expected);
             if (!Regex.IsMatch(expected ?? string.Empty, "^[a-f0-9]{64}$", RegexOptions.CultureInvariant)) throw new CliFailure("state", $"review evidence hash is malformed: {name}", 3);
             var path = Path.Combine(forge, name);
             EnsureFile(path);
@@ -42,8 +41,10 @@ internal static class ReviewEvidence
         EnsureFile(manifestPath);
         try
         {
-            var onDisk = JsonNode.Parse(File.ReadAllText(manifestPath))?.AsObject();
-            if (onDisk is null || !string.Equals(onDisk.ToJsonString(), manifest.ToJsonString(), StringComparison.Ordinal)) throw new CliFailure("state", "review manifest does not match the state evidence", 3);
+            var onDisk = JsonSerialization.Deserialize(File.ReadAllText(manifestPath), ForgeJsonContext.Default.ReviewManifest);
+            var expected = JsonSerialization.Serialize(manifest, ForgeJsonContext.Default.ReviewManifest);
+            var actual = JsonSerialization.Serialize(onDisk, ForgeJsonContext.Default.ReviewManifest);
+            if (!string.Equals(actual, expected, StringComparison.Ordinal)) throw new CliFailure("state", "review manifest does not match the state evidence", 3);
         }
         catch (CliFailure) { throw; }
         catch (Exception error) { throw new CliFailure("state", $"review manifest is malformed: {error.Message}", 3); }

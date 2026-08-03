@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal static class StateStore
@@ -20,7 +18,7 @@ internal static class StateStore
             {
                 if ((parent.Attributes & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", "Forge state path contains a symlinked directory", 3);
             }
-            return ForgeState.FromJson(JsonNode.Parse(File.ReadAllText(path))!.AsObject());
+            return JsonSerialization.Deserialize(File.ReadAllText(path), ForgeJsonContext.Default.ForgeState);
         }
         catch (CliFailure) { throw; }
         catch (Exception error) { throw new CliFailure("state", $"state is malformed: {error.Message}", 3); }
@@ -32,10 +30,10 @@ internal static class StateStore
     {
         using var stateLock = ForgeStateLock.Acquire(workspace);
         var state = Load(workspace);
-        if (expectedState is not null && !string.Equals(Hashing.Sha256Hex(state.ToJson().ToJsonString()), Hashing.Sha256Hex(expectedState.ToJson().ToJsonString()), StringComparison.Ordinal)) throw new CliFailure("state", "Forge state changed during the operation; retry against the current dispatch", 3);
+        if (expectedState is not null && !string.Equals(Hashing.Sha256Hex(JsonSerialization.Serialize(state, ForgeJsonContext.Default.ForgeState)), Hashing.Sha256Hex(JsonSerialization.Serialize(expectedState, ForgeJsonContext.Default.ForgeState)), StringComparison.Ordinal)) throw new CliFailure("state", "Forge state changed during the operation; retry against the current dispatch", 3);
         update(state);
         state.UpdatedAt = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-        DurableFiles.WriteJson(StatePath(workspace), state);
+        DurableFiles.WriteJson(StatePath(workspace), state, ForgeJsonContext.Default.ForgeState);
         return state;
     }
 }

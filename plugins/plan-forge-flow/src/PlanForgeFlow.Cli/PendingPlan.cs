@@ -1,20 +1,13 @@
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed record PendingPlan(string Workspace, string Plan)
 {
-    private const int Version = 1;
-
     public static void Write(string workspace, string plan)
     {
         var path = RepositoryPaths.PendingPlanPath(workspace);
-        DurableFiles.WriteJson(path, new JsonObject
-        {
-            ["version"] = Version,
-            ["workspace"] = workspace,
-            ["plan"] = CanonicalText.NormalizePlan(plan),
-        });
+        DurableFiles.WriteJson(path,
+                               new PendingPlanDocument(workspace, CanonicalText.NormalizePlan(plan)),
+                               ForgeJsonContext.Default.PendingPlanDocument);
     }
 
     public static PendingPlan Read(string workspace)
@@ -24,12 +17,9 @@ internal sealed record PendingPlan(string Workspace, string Plan)
         try
         {
             OwnershipGuards.EnsureRegularFile(path, "pending Forge plan");
-            var value = JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException("object expected");
-            if (value["version"]?.GetValue<int>() != Version) throw new FormatException("unsupported version");
-            var capturedWorkspace = value["workspace"]?.GetValue<string>();
-            var plan = value["plan"]?.GetValue<string>();
-            if (!SameWorkspace(capturedWorkspace, workspace) || string.IsNullOrWhiteSpace(plan)) throw new FormatException("workspace or plan is missing");
-            return new PendingPlan(workspace, CanonicalText.NormalizePlan(plan));
+            var value = JsonSerialization.Deserialize(File.ReadAllText(path), ForgeJsonContext.Default.PendingPlanDocument);
+            if (!SameWorkspace(value.Workspace, workspace) || string.IsNullOrWhiteSpace(value.Plan)) throw new FormatException("workspace or plan is missing");
+            return new PendingPlan(workspace, CanonicalText.NormalizePlan(value.Plan));
         }
         catch (CliFailure) { throw; }
         catch (Exception error) { throw new CliFailure("state", $"pending Forge plan is malformed: {error.Message}", 3); }

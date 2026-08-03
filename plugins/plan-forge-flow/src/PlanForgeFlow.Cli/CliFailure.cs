@@ -1,10 +1,8 @@
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed class CliFailure : Exception
 {
-    public CliFailure(string code, string message, int exitCode = 1, JsonNode? details = null)
+    public CliFailure(string code, string message, int exitCode = 1, IReadOnlyList<WithheldFile>? details = null)
         : base(message)
     {
         Code = code;
@@ -14,5 +12,5 @@ internal sealed class CliFailure : Exception
 
     public string Code { get; }
     public int ExitCode { get; }
-    public JsonNode? Details { get; }
+    public IReadOnlyList<WithheldFile>? Details { get; }
 }

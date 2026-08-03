@@ -1,5 +1,5 @@
 using System.Text;
-using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace PlanForgeFlow;
 
@@ -24,9 +24,8 @@ internal static class DurableFiles
         File.Move(temp, path, true);
     }
 
-    public static void WriteJson(string path, JsonNode node) => WriteAtomic(path, node.ToJsonString() + "\n");
-
-    public static void WriteJson(string path, ForgeState state) => WriteJson(path, state.ToJson());
+    public static void WriteJson<T>(string path, T value, JsonTypeInfo<T> typeInfo)
+        => WriteAtomic(path, JsonSerialization.Serialize(value, typeInfo) + "\n");
 
     private static void EnsureSafeParent(string directory)
     {

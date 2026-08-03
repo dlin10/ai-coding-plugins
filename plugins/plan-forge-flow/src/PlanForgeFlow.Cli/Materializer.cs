@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace PlanForgeFlow;
@@ -9,19 +8,19 @@ internal static class Materializer
     private const string ExcludeEnd = "# <<< plan-forge-flow (managed) <<<";
     private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ExcludeEnd;
 
-    public static JsonObject Materialize(RepositoryIdentity repository,
-                                         string humanPlan,
-                                         string reviewLog,
-                                         int completedRounds,
-                                         int maxRounds,
-                                         JsonObject reviewer,
-                                         JsonObject builder,
-                                         bool amendment)
+    public static MaterializeData Materialize(RepositoryIdentity repository,
+                                              string humanPlan,
+                                              string reviewLog,
+                                              int completedRounds,
+                                              int maxRounds,
+                                              ModelSelection reviewer,
+                                              ModelSelection builder,
+                                              bool amendment)
     {
         var plan = CanonicalText.NormalizePlan(humanPlan);
         var normalizedReviewLog = CanonicalText.NormalizeReviewLog(reviewLog);
-        var reviewerSelection = PinnedSelection.FromJson(ModelSelections.Validate("reviewer", reviewer["model"]?.GetValue<string>() ?? string.Empty, reviewer["effort"]?.GetValue<string>() ?? string.Empty), "reviewer")!;
-        var builderSelection = PinnedSelection.FromJson(ModelSelections.Validate("builder", builder["model"]?.GetValue<string>() ?? string.Empty, builder["effort"]?.GetValue<string>() ?? string.Empty), "builder")!;
+        var reviewerSelection = ToPinnedSelection("reviewer", reviewer);
+        var builderSelection = ToPinnedSelection("builder", builder);
 
         using var stateLock = ForgeStateLock.Acquire(repository.WorkspaceRoot);
         ForgeState state;
@@ -52,16 +51,20 @@ internal static class Materializer
         state.Workflow.MaxRounds = maxRounds;
         state.Models.Reviewer = reviewerSelection;
         state.Models.Builder = builderSelection;
-        DurableFiles.WriteJson(StateStore.StatePath(repository.WorkspaceRoot), state);
+        DurableFiles.WriteJson(StateStore.StatePath(repository.WorkspaceRoot), state, ForgeJsonContext.Default.ForgeState);
         UpsertManagedExclude(repository);
 
-        return new JsonObject
-        {
-            ["action"] = amendment ? "forge-amendment-materialized" : "forge-materialized",
-            ["phase"] = state.Workflow.Phase.ToWireName(),
-            ["reviewer"] = reviewerSelection.ToJson(),
-            ["builder"] = builderSelection.ToJson(),
-        };
+        return new MaterializeData(
+            amendment ? "forge-amendment-materialized" : "forge-materialized",
+            state.Workflow.Phase.ToWireName(),
+            reviewerSelection,
+            builderSelection);
+    }
+
+    private static PinnedSelection ToPinnedSelection(string role, ModelSelection selection)
+    {
+        var valid = ModelSelections.Validate(role, selection.Model, selection.Effort);
+        return new PinnedSelection(valid.Model, valid.Effort);
     }
 
     public static void Cleanup(string workspace, bool purgeAgents = false)

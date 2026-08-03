@@ -1,10 +1,8 @@
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed partial class CliApplication
 {
-    private static JsonObject Session(CommandContext context, ForgeRole role)
+    private static AgentState Session(CommandContext context, ForgeRole role)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -38,6 +36,6 @@ internal sealed partial class CliApplication
                 value.Agents.LastReviewerDispatchId = dispatch.Id;
             }
         });
-        return state.ToJson()["agents"]!.AsObject();
+        return state.Agents;
     }
 }

@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+using System.Text.Json;
 using PlanForgeFlow;
 using Xunit;
 
@@ -31,8 +31,8 @@ public sealed class CoreContractTests
     {
         var selection = ModelSelections.Validate("reviewer", "gpt-5.6-sol", "HIGH");
 
-        Assert.Equal("gpt-5.6-sol", selection["model"]!.GetValue<string>());
-        Assert.Equal("high", selection["effort"]!.GetValue<string>());
+        Assert.Equal("gpt-5.6-sol", selection.Model);
+        Assert.Equal("high", selection.Effort);
         Assert.Throws<CliFailure>(() => ModelSelections.Validate("reviewer", "gpt-5.6-sol", "ultra"));
     }
 
@@ -55,13 +55,10 @@ public sealed class CoreContractTests
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n" +
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"default-turn\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n" +
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Implement the plan.\"}]}}\n");
-            var input = new JsonObject
-            {
-                ["cwd"] = workspace,
-                ["turn_id"] = "default-turn",
-                ["transcript_path"] = transcript,
-                ["prompt"] = "Implement the plan.",
-            }.ToJsonString();
+            var input = JsonSerialization.Serialize(
+                new HookInput(workspace, "default-turn", transcript, "Implement the plan."),
+                CodexJsonContext.Default.HookInput);
+            input = input[..^1] + ",\"future_hook_field\":true}";
 
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
@@ -101,10 +98,9 @@ public sealed class CoreContractTests
             Assert.Equal("# Review\n", File.ReadAllText(Path.Combine(workspace, ".forge", "PLAN-REVIEW-LOG.md")));
             Assert.False(File.Exists(Path.Combine(workspace, ".forge", "stale.txt")));
             Assert.False(File.Exists(RepositoryPaths.PendingPlanPath(workspace)));
-            var state = StateStore.Load(workspace).ToJson();
-            Assert.Null(state["approval"]);
-            Assert.Null(state["materialization"]);
-            Assert.Equal(ForgeState.Version, state["version"]!.GetValue<int>());
+            var state = StateStore.Load(workspace);
+            Assert.Equal(ForgePhase.Materialized, state.Workflow.Phase);
+            Assert.Null(state.Review.Manifest);
         }
         finally
         {
@@ -183,7 +179,7 @@ public sealed class CoreContractTests
             var state = StateStore.Load(workspace);
             state.Workflow.Phase = ForgePhase.Build;
             state.Workflow.NextTaskNumber = 2;
-            DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, ForgeJsonContext.Default.ForgeState);
             PendingPlan.Write(workspace, "# Plan\n\n## Approach\n1. Changed completed task.\n2. Changeable task.\n");
 
             Assert.Equal(3, RunMaterialize(workspace, amendment: true));
@@ -240,22 +236,18 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void StateStoreUsesProvenanceFreeVersionFiveState()
+    public void StateStoreUsesUnversionedStrictState()
     {
         var workspace = CreateTempDirectory();
         try
         {
             var state = StateStore.CreateEmpty();
-            DurableFiles.WriteJson(StateStore.StatePath(workspace), state);
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, ForgeJsonContext.Default.ForgeState);
 
-            var serialized = state.ToJson();
-            Assert.Equal(ForgeState.Version, serialized["version"]!.GetValue<int>());
-            foreach (var group in new[] { "workflow", "models", "agents", "dispatch", "baselines", "review" }) Assert.IsType<JsonObject>(serialized[group]);
-            Assert.Null(serialized["approval"]);
-            Assert.Null(serialized["materialization"]);
-            serialized["version"] = 4;
-            serialized["generation"] = "v3";
-            DurableFiles.WriteJson(StateStore.StatePath(workspace), serialized);
+            var serialized = JsonSerialization.Serialize(state, ForgeJsonContext.Default.ForgeState);
+            Assert.DoesNotContain("\"version\"", serialized, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"generation\"", serialized, StringComparison.Ordinal);
+            DurableFiles.WriteAtomic(StateStore.StatePath(workspace), serialized[..^1] + ",\"unknown\":true}");
 
             Assert.Throws<CliFailure>(() => StateStore.Load(workspace));
         }
@@ -263,6 +255,30 @@ public sealed class CoreContractTests
         {
             DeleteDirectory(workspace);
         }
+    }
+
+    [Fact]
+    public void OwnedJsonSchemasAreStrictAndEnumWireNamesAreStable()
+    {
+        var materialization = JsonSerialization.Serialize(
+            new MaterializationRequest("# Review\n", 1, 5, new ModelSelection("reviewer", "high"), new ModelSelection("builder", "low")),
+            ForgeJsonContext.Default.MaterializationRequest);
+        var manifest = JsonSerialization.Serialize(new ReviewManifest { Version = 4, Generation = "v4", Coverage = "FULL" }, ForgeJsonContext.Default.ReviewManifest);
+        var decision = JsonSerialization.Serialize(new ReviewDecision("APPROVED", "FULL"), ForgeJsonContext.Default.ReviewDecision);
+        var pending = JsonSerialization.Serialize(new PendingPlanDocument("workspace", "# Plan\n"), ForgeJsonContext.Default.PendingPlanDocument);
+
+        Assert.Throws<JsonException>(() => JsonSerialization.Deserialize(materialization[..^1] + ",\"unknown\":true}", ForgeJsonContext.Default.MaterializationRequest));
+        Assert.Throws<JsonException>(() => JsonSerialization.Deserialize(manifest[..^1] + ",\"unknown\":true}", ForgeJsonContext.Default.ReviewManifest));
+        Assert.Throws<JsonException>(() => JsonSerialization.Deserialize(decision[..^1] + ",\"unknown\":true}", ForgeJsonContext.Default.ReviewDecision));
+        Assert.Throws<JsonException>(() => JsonSerialization.Deserialize(pending[..^1] + ",\"unknown\":true}", ForgeJsonContext.Default.PendingPlanDocument));
+
+        var state = ForgeState.CreateEmpty();
+        state.Workflow.Phase = ForgePhase.CodeReview;
+        state.Dispatch.Stage = DispatchStage.FixBuild;
+        var serialized = JsonSerialization.Serialize(state, ForgeJsonContext.Default.ForgeState);
+        Assert.Contains("\"phase\":\"code-review\"", serialized, StringComparison.Ordinal);
+        Assert.Contains("\"stage\":\"fix-build\"", serialized, StringComparison.Ordinal);
+        Assert.False(JsonSerializer.IsReflectionEnabledByDefault);
     }
 
     [Fact]
@@ -343,14 +359,14 @@ public sealed class CoreContractTests
         var oldIn = Console.In;
         try
         {
-            Console.SetIn(new StringReader(new JsonObject
-            {
-                ["reviewLog"] = "# Review\n",
-                ["completedReviewRounds"] = 1,
-                ["maxRounds"] = 5,
-                ["reviewer"] = new JsonObject { ["model"] = "reviewer-model", ["effort"] = "high" },
-                ["builder"] = new JsonObject { ["model"] = "builder-model", ["effort"] = "low" },
-            }.ToJsonString()));
+            Console.SetIn(new StringReader(JsonSerialization.Serialize(
+                new MaterializationRequest(
+                    "# Review\n",
+                    1,
+                    5,
+                    new ModelSelection("reviewer-model", "high"),
+                    new ModelSelection("builder-model", "low")),
+                ForgeJsonContext.Default.MaterializationRequest)));
             var args = amendment
                            ? new[] { "plan", "materialize", "--workspace", workspace, "--amendment" }
                            : new[] { "plan", "materialize", "--workspace", workspace };

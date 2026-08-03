@@ -1,11 +1,9 @@
 using System.Globalization;
-using System.Text.Json.Nodes;
-
 namespace PlanForgeFlow;
 
 internal sealed partial class CliApplication
 {
-    private static JsonObject BeginBuild(CommandContext context)
+    private static ForgeState BeginBuild(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -65,14 +63,14 @@ internal sealed partial class CliApplication
             current.Baselines.Head = head.Stdout.Trim();
             current.Baselines.Worktree = worktree;
             current.Baselines.Untracked = untracked;
-        }).ToJson();
+        });
     }
 
-    private static JsonObject InstallAgents()
+    private static InstallAgentsData InstallAgents()
     {
         var target = RepositoryPaths.AgentsDirectory();
         OwnershipGuards.EnsureDirectory(target);
-        var installed = new JsonArray();
+        var installed = new List<string>();
         foreach (var name in new[] { "forge_builder.toml", "forge_reviewer.toml" })
         {
             var source = FindPluginFile(Path.Combine("agents", name));
@@ -80,13 +78,13 @@ internal sealed partial class CliApplication
             var destination = Path.Combine(target, name);
             if (File.Exists(destination)) OwnershipGuards.EnsureOwnedAgentFile(destination);
             DurableFiles.WriteAtomic(destination, content);
-            installed.Add((JsonNode)JsonValue.Create(destination));
+            installed.Add(destination);
         }
 
-        return new JsonObject { ["installed"] = true, ["roles"] = installed };
+        return new InstallAgentsData(true, installed);
     }
 
-    private static JsonObject ResolveBuild(CommandContext context)
+    private static ForgeState ResolveBuild(CommandContext context)
     {
         var state = context.RequireState();
         if (!state.Dispatch.Pending || state.Dispatch.Stage != DispatchStage.Build) throw new CliFailure("state", "resolve requires a pending build dispatch", 3);
@@ -95,10 +93,10 @@ internal sealed partial class CliApplication
         {
             current.Dispatch.Pending = false;
             current.Dispatch.Conflict = context.Args.Get("conflict");
-        }).ToJson();
+        });
     }
 
-    private static JsonObject Dispatch(CommandContext context)
+    private static DispatchState Dispatch(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -114,7 +112,7 @@ internal sealed partial class CliApplication
         {
             if (!state.Dispatch.Pending) throw new CliFailure("state", "cannot cancel without a pending dispatch", 3);
             if (parsed.Get("dispatch-id") is { } cancelId && !string.Equals(cancelId, state.Dispatch.Id, StringComparison.Ordinal)) throw new CliFailure("state", "cancel dispatch-id does not match the pending dispatch", 3);
-            return StateStore.Update(workspace, state, value => value.Dispatch.Pending = false).ToJson()["dispatch"]!.AsObject();
+            return StateStore.Update(workspace, state, value => value.Dispatch.Pending = false).Dispatch;
         }
 
         if (parsed.Has("retry"))
@@ -130,7 +128,7 @@ internal sealed partial class CliApplication
             }
 
             state = StateStore.Update(workspace, state, value => value.Dispatch.Retry = retries + 1);
-            return state.ToJson()["dispatch"]!.AsObject();
+            return state.Dispatch;
         }
 
         if (state.Dispatch.Pending) throw new CliFailure("state", "a dispatch is already pending; consume it, cancel it, or retry it", 3);
@@ -162,7 +160,7 @@ internal sealed partial class CliApplication
             value.Dispatch.Effort = pinnedSelection.Effort;
             value.Dispatch.Conflict = null;
         });
-        return state.ToJson()["dispatch"]!.AsObject();
+        return state.Dispatch;
     }
 
     private static PinnedSelection ResolvePinnedSelection(ForgeState state, DispatchStage stage, ParsedArgs parsed)
@@ -177,7 +175,7 @@ internal sealed partial class CliApplication
         return selection;
     }
 
-    private static JsonObject Complete(CommandContext context)
+    private static DispatchState Complete(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -205,6 +203,6 @@ internal sealed partial class CliApplication
                 if (taskNumber >= value.Workflow.TaskCount) value.Workflow.Phase = ForgePhase.CodeReview;
             }
         });
-        return state.ToJson()["dispatch"]!.AsObject();
+        return state.Dispatch;
     }
 }

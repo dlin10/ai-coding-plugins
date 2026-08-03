@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json.Nodes;
 
 namespace PlanForgeFlow;
 
@@ -8,22 +7,21 @@ internal sealed partial class CliApplication
 {
     private static StringComparison PathComparison() => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     
-    private static JsonArray ParsePathArray(string? raw, string option)
+    private static List<string> ParsePathArray(string? raw, string option)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return new JsonArray();
+        if (string.IsNullOrWhiteSpace(raw)) return [];
         if (Encoding.UTF8.GetByteCount(raw) > 256 * 1024) throw new CliFailure("usage", $"--{option} exceeds the size bound");
-        JsonArray paths;
-        try { paths = JsonNode.Parse(raw)!.AsArray(); }
+        string[] paths;
+        try { paths = JsonSerialization.Deserialize(raw, ForgeJsonContext.Default.StringArray); }
         catch (Exception error) { throw new CliFailure("usage", $"--{option} must be a JSON array: {error.Message}"); }
-        foreach (var item in paths)
+        foreach (var path in paths)
         {
-            var path = item is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
             if (string.IsNullOrWhiteSpace(path) || path.Length > 4096 || Path.IsPathRooted(path) || path.Contains('\0')) throw new CliFailure("usage", $"--{option} must contain bounded relative path strings");
             var normalized = path.Replace('\\', '/');
             if (normalized == ".." || normalized.StartsWith("../", StringComparison.Ordinal)) throw new CliFailure("usage", $"--{option} contains a traversal path");
         }
-    
-        return paths;
+
+        return paths.ToList();
     }
     
     private static (string Verdict, string? Coverage, string Path, string Hash) ReadReviewDecision(string critiquePath, string workspace, DispatchStage expectedStage)
@@ -34,9 +32,9 @@ internal sealed partial class CliApplication
         if ((File.GetAttributes(path) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || new FileInfo(path).Length > 16 * 1024) throw new CliFailure("verdict", "review decision file is oversized or symlinked", 2);
         try
         {
-            var value = JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException("JSON object expected");
-            var verdict = value["verdict"]?.GetValue<string>().ToUpperInvariant();
-            var coverage = value["coverage"]?.GetValue<string>().ToUpperInvariant();
+            var value = JsonSerialization.Deserialize(File.ReadAllText(path), ForgeJsonContext.Default.ReviewDecision);
+            var verdict = value.Verdict.ToUpperInvariant();
+            var coverage = value.Coverage?.ToUpperInvariant();
             if (verdict is not ("APPROVED" or "REVISE")) throw new FormatException("verdict must be APPROVED or REVISE");
             if (expectedStage == DispatchStage.Plan)
             {
@@ -70,31 +68,26 @@ internal sealed partial class CliApplication
         return null;
     }
     
-    private static JsonObject Doctor(string workspace)
-    {
-        return new JsonObject
-        {
-            ["workspace"] = workspace,
-            ["git"] = ToolCheck("git", ["--version"]),
-            ["dotnet"] = ToolCheck("dotnet", ["--version"]),
-            ["state"] = File.Exists(StateStore.StatePath(workspace)),
-        };
-    }
-    
-    private static JsonObject ToolCheck(string fileName, IReadOnlyList<string> args)
+    private static DoctorData Doctor(string workspace)
+        => new(workspace,
+               ToolCheck("git", ["--version"]),
+               ToolCheck("dotnet", ["--version"]),
+               File.Exists(StateStore.StatePath(workspace)));
+
+    private static ToolCheckData ToolCheck(string fileName, IReadOnlyList<string> args)
     {
         try
         {
             var result = ProcessExecution.Run(fileName, args);
-            return new JsonObject { ["ok"] = result.ExitCode == 0, ["version"] = result.Stdout.Trim(), ["error"] = result.ExitCode == 0 ? null : result.Stderr.Trim() };
+            return new ToolCheckData(result.ExitCode == 0, result.Stdout.Trim(), result.ExitCode == 0 ? null : result.Stderr.Trim());
         }
         catch (CliFailure error)
         {
-            return new JsonObject { ["ok"] = false, ["version"] = null, ["error"] = error.Message };
+            return new ToolCheckData(false, null, error.Message);
         }
     }
     
-    private static JsonObject Set(CommandContext context)
+    private static ForgeState Set(CommandContext context)
     {
         var workspace = context.Workspace;
         var parsed = context.Args;
@@ -181,7 +174,7 @@ internal sealed partial class CliApplication
             }
             else throw new CliFailure("usage", $"unsupported state key: {key}");
         });
-        return state.ToJson();
+        return state;
     }
     
     private static bool HasLockEvidence(string workspace, ForgeState state)
