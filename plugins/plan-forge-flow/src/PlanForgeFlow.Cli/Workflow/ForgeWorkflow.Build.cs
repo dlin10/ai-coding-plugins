@@ -140,7 +140,7 @@ internal static partial class ForgeWorkflow
         }
 
         if (state.Dispatch.Pending) throw new CliFailure("state", "a dispatch is already pending; consume it, cancel it, or retry it", 3);
-        if (stage is DispatchStage.FixBuild or DispatchStage.FixReview && state.Review.FixRound > state.Workflow.MaxFixRounds) throw new CliFailure("state", "fix retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 3);
+        if (stage is DispatchStage.FixBuild or DispatchStage.FixReview && state.Review.FixRound >= state.Workflow.MaxFixRounds) throw new CliFailure("state", "fix retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 3);
         if (stage == DispatchStage.Build)
         {
             foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })

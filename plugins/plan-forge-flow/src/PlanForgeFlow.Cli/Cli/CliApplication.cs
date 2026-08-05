@@ -29,50 +29,47 @@ internal sealed class CliApplication
             var context = CommandContext.Create(definition, parsed);
             switch (command)
             {
-                case "plan start":
-                    JsonOutput.Success(command, new ModeData("plan"));
-                    break;
                 case "plan lock":
-                    JsonOutput.Success(command, ForgeWorkflow.LockPlan(context));
+                    JsonOutput.Success(command, ForgeWorkflow.LockPlan(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "plan materialize":
-                    JsonOutput.Success(command, ForgeWorkflow.MaterializePlan(context));
+                    JsonOutput.Success(command, ForgeWorkflow.MaterializePlan(context), ForgeJsonContext.Default.JsonSuccessMaterializeData);
                     break;
                 case "agents install":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.InstallAgents());
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.InstallAgents(), ForgeJsonContext.Default.JsonSuccessInstallAgentsData);
                     break;
                 case "build dispatch":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Dispatch(context));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Dispatch(context), ForgeJsonContext.Default.JsonSuccessDispatchState);
                     break;
                 case "build complete":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Complete(context));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Complete(context), ForgeJsonContext.Default.JsonSuccessDispatchState);
                     break;
                 case "build resolve":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.ResolveBuild(context));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.ResolveBuild(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "build begin":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.BeginBuild(context));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.BeginBuild(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "review prepare":
-                    JsonOutput.Success(command, ForgeReview.Prepare(context));
+                    JsonOutput.Success(command, ForgeReview.Prepare(context), ForgeJsonContext.Default.JsonSuccessReviewManifest);
                     break;
                 case "review authorize-preexisting":
-                    JsonOutput.Success(command, ForgeReview.AuthorizePreexisting(context));
+                    JsonOutput.Success(command, ForgeReview.AuthorizePreexisting(context), ForgeJsonContext.Default.JsonSuccessAuthorizationData);
                     break;
                 case "review verdict":
-                    JsonOutput.Success(command, ForgeReview.Verdict(context));
+                    JsonOutput.Success(command, ForgeReview.Verdict(context), ForgeJsonContext.Default.JsonSuccessVerdictData);
                     break;
                 case "session builder":
                 case "session reviewer":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.RegisterSession(context, command.EndsWith("builder", StringComparison.Ordinal) ? ForgeRole.Builder : ForgeRole.Reviewer));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.RegisterSession(context, command.EndsWith("builder", StringComparison.Ordinal) ? ForgeRole.Builder : ForgeRole.Reviewer), ForgeJsonContext.Default.JsonSuccessAgentState);
                     break;
                 case "run doctor":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace), ForgeJsonContext.Default.JsonSuccessDoctorData);
                     break;
                 case "run status":
                     if (!File.Exists(StateStore.StatePath(context.Workspace)))
                     {
-                        JsonOutput.Success(command, new StatusMissingData(false));
+                        JsonOutput.Success(command, new StatusMissingData(false), ForgeJsonContext.Default.JsonSuccessStatusMissingData);
                     }
                     else
                     {
@@ -88,15 +85,15 @@ internal sealed class CliApplication
                             state.Dispatch,
                             state.Baselines,
                             state.Review,
-                            true));
+                            true), ForgeJsonContext.Default.JsonSuccessStatusPresentData);
                     }
                     break;
                 case "run set":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context));
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "run cleanup":
                     Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"));
-                    JsonOutput.Success(command, new CleanupData(true, context.Args.Has("purge-generated-agents")));
+                    JsonOutput.Success(command, new CleanupData(true, context.Args.Has("purge-generated-agents")), ForgeJsonContext.Default.JsonSuccessCleanupData);
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");
@@ -148,7 +145,7 @@ internal sealed class CliApplication
     {
         JsonOutput.Success(command, new HelpData(
             $"planforge {command} [options]",
-            CliCommands.Names.Append("hook capture-context").ToList()));
+            CliCommands.Names.Append("hook capture-context").ToList()), ForgeJsonContext.Default.JsonSuccessHelpData);
     }
 
 }

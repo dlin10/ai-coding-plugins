@@ -312,6 +312,108 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void RootLockSurvivesForgeDirectoryDeletion()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            using var stateLock = ForgeStateLock.Acquire(workspace);
+
+            Directory.Delete(Path.Combine(workspace, ".forge"), recursive: true);
+
+            Assert.True(File.Exists(Path.Combine(workspace, ".forge.lock")));
+            Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Theory]
+    [InlineData("fix-build")]
+    [InlineData("fix-review")]
+    public void FixDispatchRejectsRoundAtCap(string stage)
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            var state = ForgeState.CreateEmpty();
+            state.Workflow.Phase = ForgePhase.CodeReview;
+            state.Workflow.MaxFixRounds = 1;
+            state.Review.FixRound = 1;
+            state.Models.Builder = new PinnedSelection("builder", "low");
+            state.Models.Reviewer = new PinnedSelection("reviewer", "low");
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
+
+            var context = new CommandContext("build dispatch", workspace, ParsedArgs.Parse(["--stage", stage]), state);
+            var error = Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.ForgeWorkflow.Dispatch(context));
+
+            Assert.Equal(3, error.ExitCode);
+            Assert.Contains("fix retry cap reached", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Theory]
+    [InlineData("password=Abcdefghijklmnop1234", "# Review\n")]
+    [InlineData("# Plan\n", "api_key=Abcdefghijklmnop1234")]
+    public void MaterializeRejectsSensitivePlanAndReviewLog(string plan, string reviewLog)
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            InitializeRepository(workspace);
+            var forge = Path.Combine(workspace, ".forge");
+            Directory.CreateDirectory(forge);
+            File.WriteAllText(Path.Combine(forge, "preserve.txt"), "existing");
+
+            var error = Assert.Throws<CliFailure>(() => Materializer.Materialize(
+                RepositoryPaths.Identify(workspace),
+                plan,
+                reviewLog,
+                0,
+                5,
+                new ModelSelection("reviewer", "low"),
+                new ModelSelection("builder", "low"),
+                amendment: false));
+
+            Assert.Equal("usage", error.Code);
+            Assert.True(File.Exists(Path.Combine(forge, "preserve.txt")));
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
+    public void PlanStartIsNotAnExposedCommand()
+    {
+        var workspace = CreateTempDirectory();
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            Assert.Equal(1, new CliApplication().Run(["plan", "start", "--workspace", workspace]));
+            output.GetStringBuilder().Clear();
+            Assert.Equal(0, new CliApplication().Run(["--help"]));
+            Assert.DoesNotContain("plan start", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(oldOut);
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
     public void StateStoreUsesUnversionedStrictState()
     {
         var workspace = CreateTempDirectory();

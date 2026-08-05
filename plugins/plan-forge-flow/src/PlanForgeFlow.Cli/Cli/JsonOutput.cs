@@ -6,10 +6,10 @@ namespace PlanForgeFlow.Cli;
 
 internal static class JsonOutput
 {
-    public static void Success<T>(string command, T data)
+    public static void Success<T>(string command, T data, JsonTypeInfo<JsonSuccess<T>> typeInfo)
         => Console.Out.WriteLine(JsonSerializer.Serialize(
             new JsonSuccess<T>(true, command, data),
-            TypeInfo<JsonSuccess<T>>()));
+            typeInfo));
 
     public static void Error(string command, CliFailure failure)
     {
@@ -17,8 +17,4 @@ internal static class JsonOutput
         var error = new JsonFailure(false, command, new JsonError(failure.Code, failure.Message, details));
         Console.Out.WriteLine(JsonSerializer.Serialize(error, ForgeJsonContext.Default.JsonFailure));
     }
-
-    private static JsonTypeInfo<T> TypeInfo<T>()
-        => ForgeJsonContext.Default.GetTypeInfo(typeof(T)) as JsonTypeInfo<T>
-           ?? throw new InvalidOperationException($"JSON metadata is not registered for {typeof(T).FullName}");
 }

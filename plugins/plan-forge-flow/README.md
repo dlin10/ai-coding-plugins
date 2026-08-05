@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.4.1
+# Plan Forge Flow 0.4.2
 
 Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. The
@@ -62,7 +62,7 @@ envelope (`ok`, `command`, `data`) or one JSON error envelope (`ok`, `command`,
 errors, 2 for verdict failures, and 3 for state failures.
 
 ```text
-plan start|lock|materialize
+plan lock|materialize
 agents install
 build dispatch|complete|resolve|begin
 review prepare|authorize-preexisting|verdict
@@ -74,7 +74,6 @@ hook capture-context
 Options are command-specific:
 
 ```text
-plan start
 plan lock                  --relock --amendment
 plan materialize           --amendment  (stdin JSON)
 build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --authorization-note --accept-risk

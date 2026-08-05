@@ -21,7 +21,6 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(ReviewDecision))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(ReviewManifest))]
-[JsonSerializable(typeof(JsonSuccess<ModeData>))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
 [JsonSerializable(typeof(JsonSuccess<MaterializeData>))]
 [JsonSerializable(typeof(JsonSuccess<InstallAgentsData>))]
@@ -94,8 +93,6 @@ internal sealed record JsonSuccess<T>(bool Ok, string Command, T Data);
 internal sealed record JsonError(string Code, string Message, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] List<WithheldFile>? Details);
 
 internal sealed record JsonFailure(bool Ok, string Command, JsonError Error);
-
-internal sealed record ModeData(string Mode);
 
 internal sealed record MaterializeData(string Action, string Phase, PinnedSelection Reviewer, PinnedSelection Builder);
 

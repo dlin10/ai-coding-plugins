@@ -105,9 +105,9 @@ foreach ($rid in $Rids) {
     }
 
     if ($rid -eq $hostRid) {
-        $verification = & (Join-Path $publish $expectedExecutable) plan start --workspace $pluginRoot | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or $verification.data.mode -ne 'plan') {
-            throw "published $rid executable failed the plan start contract"
+        $verification = & (Join-Path $publish $expectedExecutable) run doctor --workspace $pluginRoot | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or -not $verification.data.git.ok -or -not $verification.data.dotnet.ok) {
+            throw "published $rid executable failed the doctor contract"
         }
     }
 

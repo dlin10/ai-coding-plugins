@@ -11,12 +11,10 @@ usage/environment/unexpected 1, verdict 2, and state 3.
 
 In Plan mode:
 
-1. Run `planforge plan start --workspace <repo>`.
-2. Run `planforge run doctor --workspace <repo>` and report failed checks.
+1. Run `planforge run doctor --workspace <repo>` and report failed checks.
 
-Neither command needs, creates, or consumes a pending-plan capture. A capture
-does not exist until after the final Plan-mode `<proposed_plan>` and the next
-Default-mode user turn; only `plan materialize` requires it.
+A capture does not exist until after the final Plan-mode `<proposed_plan>` and
+the next Default-mode user turn; only `plan materialize` requires it.
 
 Do not mutate repository state in this phase. If generated agents are missing,
 switch to Default mode, run `planforge agents install`, and start a fresh

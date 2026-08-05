@@ -12,7 +12,6 @@ internal static class CliCommands
     private static readonly IReadOnlyDictionary<string, CliCommandDefinition> Definitions =
         new Dictionary<string, CliCommandDefinition>(StringComparer.Ordinal)
         {
-            ["plan start"] = Define("plan start", false, "workspace"),
             ["plan lock"] = Define("plan lock", true, "workspace", "relock", "amendment"),
             ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment"),
             ["agents install"] = Define("agents install", false, "workspace"),

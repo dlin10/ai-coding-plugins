@@ -3,6 +3,7 @@ using PlanForgeFlow.Cli;
 using PlanForgeFlow.Codex;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
+using PlanForgeFlow.Review;
 using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.State;
 
@@ -25,6 +26,8 @@ internal static class Materializer
     {
         var plan = CanonicalText.NormalizePlan(humanPlan);
         var normalizedReviewLog = CanonicalText.NormalizeReviewLog(reviewLog);
+        if (SensitiveInput.IsSensitiveContent(plan)) throw new CliFailure("usage", "plan contains withheld sensitive content");
+        if (SensitiveInput.IsSensitiveContent(normalizedReviewLog)) throw new CliFailure("usage", "review log contains withheld sensitive content");
         var reviewerSelection = ToPinnedSelection("reviewer", reviewer);
         var builderSelection = ToPinnedSelection("builder", builder);
 

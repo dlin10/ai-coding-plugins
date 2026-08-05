@@ -16,11 +16,11 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
 - Ask grill questions one at a time and keep the complete canonical plan and
   review record in conversation until native approval.
 - Act 1 and Act 2 do not create repository artifacts before native approval.
-  Use only `plan start` and `run doctor`; never invoke a
+  Use only `run doctor`; never invoke a
   catalog command or launch Codex CLI to enumerate models.
-- A pending-plan capture is not a prerequisite for `plan start` or `run doctor`.
-  It is created only after a Plan-mode `<proposed_plan>` when the next
-  Default-mode turn begins, and is required only by `plan materialize`.
+- A pending-plan capture is created only after a Plan-mode `<proposed_plan>`
+  when the next Default-mode turn begins, and is required only by
+  `plan materialize`.
 - Ask separately for the reviewer and builder model/effort as free text. Resolve
   the answer against the currently available multi-agent runtime, accept only a
   unique canonical pair, and never accept `ultra`.
