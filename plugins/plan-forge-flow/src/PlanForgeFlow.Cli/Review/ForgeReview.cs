@@ -36,7 +36,7 @@ internal static class ForgeReview
         if (!ReviewEvidence.IsContained(workspace, absolute) || !File.Exists(absolute)) throw new CliFailure("state", "approved critique file is missing or outside the workspace", 3);
         if ((File.GetAttributes(absolute) & (FileAttributes.ReparsePoint | FileAttributes.Directory)) != 0 || new FileInfo(absolute).Length > 100 * 1024) throw new CliFailure("state", "approved critique file is oversized or symlinked", 3);
         var critiqueHash = Hashing.Sha256File(absolute);
-        if (!review.CritiqueFiles.Any(entry => string.Equals(entry.Path, absolute, ReviewDecisionReader.PathComparison()) && string.Equals(entry.Hash, critiqueHash, StringComparison.Ordinal))) throw new CliFailure("state", "approved critique file is not bound to the recorded review history", 3);
+        if (!review.CritiqueFiles.Any(entry => string.Equals(entry.Path, absolute, WorkspacePathPolicy.Comparison) && string.Equals(entry.Hash, critiqueHash, StringComparison.Ordinal))) throw new CliFailure("state", "approved critique file is not bound to the recorded review history", 3);
         try
         {
             var decision = ReviewDecisionReader.Read(absolute, workspace, DispatchStage.Code);
@@ -240,7 +240,7 @@ internal static class ForgeReview
             value.Review.CritiqueFile = absoluteCritique;
             value.Review.VerdictFile = decision.Path;
             value.Review.VerdictHash = decision.Hash;
-            value.Review.CritiqueFiles.RemoveAll(item => string.Equals(item.Path, absoluteCritique, ReviewDecisionReader.PathComparison()));
+            value.Review.CritiqueFiles.RemoveAll(item => string.Equals(item.Path, absoluteCritique, WorkspacePathPolicy.Comparison));
             if (value.Review.CritiqueFiles.Count >= 256) throw new CliFailure("state", "critique history exceeds the size bound", 3);
             value.Review.CritiqueFiles.Add(new CritiqueEntry(absoluteCritique, critiqueHash));
             if (expectedStage == DispatchStage.Plan) value.Workflow.Round = nextRound;

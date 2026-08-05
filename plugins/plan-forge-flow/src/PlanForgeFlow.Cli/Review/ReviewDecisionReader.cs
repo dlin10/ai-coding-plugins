@@ -9,8 +9,6 @@ namespace PlanForgeFlow.Review;
 
 internal static class ReviewDecisionReader
 {
-    public static StringComparison PathComparison() => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
     public static List<string> ParsePathArray(string? raw, string option)
     {
         if (string.IsNullOrWhiteSpace(raw)) return [];

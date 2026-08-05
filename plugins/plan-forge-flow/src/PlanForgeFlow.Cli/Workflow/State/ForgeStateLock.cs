@@ -7,6 +7,8 @@ namespace PlanForgeFlow.Workflow.State;
 
 internal sealed class ForgeStateLock : IDisposable
 {
+    internal const string FileName = ".forge.lock";
+
     private readonly string _path;
     private readonly string _token;
     private bool _disposed;
@@ -20,7 +22,7 @@ internal sealed class ForgeStateLock : IDisposable
     public static ForgeStateLock Acquire(string workspace)
     {
         OwnershipGuards.EnsureSafeDirectory(workspace);
-        var path = Path.Combine(workspace, ".forge.lock");
+        var path = Path.Combine(workspace, FileName);
         EnsureSafeLockPath(path);
         var token = Hashing.Nonce();
         try

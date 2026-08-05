@@ -13,7 +13,7 @@ internal static class Materializer
 {
     private const string ExcludeBegin = "# >>> plan-forge-flow (managed) >>>";
     private const string ExcludeEnd = "# <<< plan-forge-flow (managed) <<<";
-    private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ExcludeEnd;
+    private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ForgeStateLock.FileName + "\n" + ExcludeEnd;
 
     public static MaterializeData Materialize(RepositoryIdentity repository,
                                               string humanPlan,
@@ -39,10 +39,10 @@ internal static class Materializer
             ValidateAmendment(state, plan);
             state = state.DeepCopy();
             state.Workflow.Amendment = true;
-            state.Dispatch = ForgeStateSchema.CreateDispatch();
+            state.Dispatch = new DispatchState();
             state.Agents.BuilderId = null;
             state.Agents.LastBuilderDispatchId = null;
-            state.Review = ForgeStateSchema.CreateReview(state.Review.CritiqueFiles);
+            state.Review = new ReviewState { CritiqueFiles = state.Review.CritiqueFiles.ToList() };
         }
         else
         {

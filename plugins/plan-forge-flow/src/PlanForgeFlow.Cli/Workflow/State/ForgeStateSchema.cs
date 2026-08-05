@@ -65,9 +65,12 @@ internal static class DispatchStages
             [DispatchStage.FixReview] = new(ForgeRole.Reviewer, ForgePhase.CodeReview, true, false),
         };
 
+    private static readonly Dictionary<string, DispatchStage> StagesByWireName =
+        WireNames.ToDictionary(entry => entry.Value, entry => entry.Key, StringComparer.OrdinalIgnoreCase);
+
     public static DispatchStage Parse(string value)
-        => WireNames.FirstOrDefault(entry => string.Equals(entry.Value, value, StringComparison.OrdinalIgnoreCase)) is var entry && entry.Value is not null
-               ? entry.Key
+        => StagesByWireName.TryGetValue(value, out var stage)
+               ? stage
                : throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review");
 
     public static DispatchStage RequirePendingReviewVerdict(DispatchState dispatch, string? requestedStage)
@@ -88,7 +91,6 @@ internal static class DispatchStages
                                           : throw new ArgumentOutOfRangeException(nameof(stage));
     }
 }
-
 internal static class ForgePhases
 {
     private static readonly Dictionary<ForgePhase, string> WireNames = new()
@@ -101,9 +103,12 @@ internal static class ForgePhases
         [ForgePhase.DoneWithFindings] = "done-with-findings",
     };
 
+    private static readonly Dictionary<string, ForgePhase> PhasesByWireName =
+        WireNames.ToDictionary(entry => entry.Value, entry => entry.Key, StringComparer.Ordinal);
+
     public static ForgePhase Parse(string value)
-        => WireNames.FirstOrDefault(entry => entry.Value == value) is var entry && entry.Value is not null
-               ? entry.Key
+        => PhasesByWireName.TryGetValue(value, out var phase)
+               ? phase
                : throw new CliFailure("usage", "phase is unsupported");
 
     public static string ToWireName(this ForgePhase phase) => WireNames.TryGetValue(phase, out var wireName)
@@ -207,10 +212,4 @@ internal sealed record ForgeState
     public ForgeState DeepCopy() => JsonSerializer.Deserialize(
         JsonSerializer.Serialize(this, ForgeJsonContext.Default.ForgeState),
         ForgeJsonContext.Default.ForgeState) ?? throw new JsonException("JSON value is null");
-}
-
-internal static class ForgeStateSchema
-{
-    public static DispatchState CreateDispatch() => new();
-    public static ReviewState CreateReview(IEnumerable<CritiqueEntry>? critiqueFiles = null) => new() { CritiqueFiles = critiqueFiles?.ToList() ?? [] };
 }

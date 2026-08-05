@@ -40,5 +40,5 @@ internal sealed record PendingPlan(string Workspace, string Plan)
     }
 
     private static bool SameWorkspace(string? left, string right)
-        => !string.IsNullOrWhiteSpace(left) && string.Equals(left, right, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        => !string.IsNullOrWhiteSpace(left) && string.Equals(left, right, WorkspacePathPolicy.Comparison);
 }

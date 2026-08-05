@@ -55,14 +55,14 @@ internal static class RepositoryPaths
                 var target = info.ResolveLinkTarget(returnFinalTarget: true);
                 if (target is null) break;
                 var next = Path.GetFullPath(target.FullName);
-                if (string.Equals(next, full, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) break;
+                if (string.Equals(next, full, WorkspacePathPolicy.Comparison)) break;
                 full = next;
             }
             catch { break; }
         }
 
         var root = Path.GetPathRoot(full);
-        return root is not null && string.Equals(full, root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+        return root is not null && string.Equals(full, root, WorkspacePathPolicy.Comparison)
                    ? root
                    : full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }

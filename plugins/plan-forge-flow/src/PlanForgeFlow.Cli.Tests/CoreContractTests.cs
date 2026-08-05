@@ -174,6 +174,7 @@ public sealed class CoreContractTests
             Assert.Equal("# Review\n", File.ReadAllText(Path.Combine(workspace, ".forge", "PLAN-REVIEW-LOG.md")));
             Assert.False(File.Exists(Path.Combine(workspace, ".forge", "stale.txt")));
             Assert.False(File.Exists(RepositoryPaths.PendingPlanPath(workspace)));
+            Assert.Contains(".forge/\n.forge.lock\n", File.ReadAllText(Path.Combine(workspace, ".git", "info", "exclude")), StringComparison.Ordinal);
             var state = StateStore.Load(workspace);
             Assert.Equal(ForgePhase.Materialized, state.Workflow.Phase);
             Assert.Null(state.Review.Manifest);
@@ -312,6 +313,38 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void AmendmentPreservesCritiqueHistory()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            InitializeRepository(workspace, commit: true);
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            var critique = new CritiqueEntry(Path.Combine(workspace, ".forge", "previous-review.md"), new string('a', 64));
+            var state = ForgeState.CreateEmpty();
+            state.Workflow.Phase = ForgePhase.CodeReview;
+            state.Review.CritiqueFiles.Add(critique);
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
+
+            Materializer.Materialize(
+                RepositoryPaths.Identify(workspace),
+                "# Plan\n\n## Approach\n1. Implement the slice.\n",
+                "# Review\n",
+                1,
+                5,
+                new ModelSelection("reviewer", "high"),
+                new ModelSelection("builder", "low"),
+                amendment: true);
+
+            Assert.Equal([critique], StateStore.Load(workspace).Review.CritiqueFiles);
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
     public void RootLockSurvivesForgeDirectoryDeletion()
     {
         var workspace = CreateTempDirectory();
@@ -324,6 +357,68 @@ public sealed class CoreContractTests
 
             Assert.True(File.Exists(Path.Combine(workspace, ".forge.lock")));
             Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
+    public void ReviewTreeIgnoresRootLockWithLegacyExclude()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            var state = InitializeReviewWorkspace(workspace);
+            var fingerprint = ReviewEvidence.TreeFingerprint(workspace, state);
+
+            using var stateLock = ForgeStateLock.Acquire(workspace);
+            var untracked = ReviewEvidence.PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not inspect untracked review files");
+
+            Assert.DoesNotContain(ForgeStateLock.FileName, untracked);
+            Assert.Equal(fingerprint, ReviewEvidence.TreeFingerprint(workspace, state));
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
+    public void ReviewPrepareAndDoneIgnoreInternalStateLock()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            var state = InitializeReviewWorkspace(workspace);
+
+            var manifest = ForgeReview.Prepare(new CommandContext("review prepare", workspace, ParsedArgs.Parse(["--full"]), state));
+
+            var prepared = StateStore.Load(workspace);
+            Assert.Equal(manifest.TreeFingerprint, prepared.Review.Manifest?.TreeFingerprint);
+            var critiquePath = Path.Combine(workspace, ".forge", "code-review.md");
+            File.WriteAllText(critiquePath, "Approved.\n");
+            File.WriteAllText(critiquePath + ".json", "{\"verdict\":\"APPROVED\",\"coverage\":\"FULL\"}");
+            var decision = ReviewDecisionReader.Read(critiquePath, workspace, DispatchStage.Code);
+            var approved = StateStore.Update(workspace, prepared, current =>
+            {
+                current.Dispatch.Id = "review-dispatch";
+                current.Dispatch.Stage = DispatchStage.Code;
+                current.Dispatch.Pending = false;
+                current.Agents.ReviewerIds.Add("reviewer-session");
+                current.Agents.LastReviewerDispatchId = current.Dispatch.Id;
+                current.Review.Verdict = "APPROVED";
+                current.Review.Coverage = "FULL";
+                current.Review.CritiqueFile = critiquePath;
+                current.Review.VerdictFile = decision.Path;
+                current.Review.VerdictHash = decision.Hash;
+                current.Review.CritiqueFiles.Add(new CritiqueEntry(critiquePath, Hashing.Sha256File(critiquePath)));
+            });
+
+            var done = ForgeWorkflow.Set(WorkflowContext(workspace, approved, "done"));
+
+            Assert.Equal(ForgePhase.Done, done.Workflow.Phase);
         }
         finally
         {
@@ -532,6 +627,10 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void WorkspacePathComparisonMatchesTheHostFileSystem()
+        => Assert.Equal(OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal, WorkspacePathPolicy.Comparison);
+
+    [Fact]
     public void RemovedProvenanceCommandsAndOptionsAreRejected()
     {
         var workspace = CreateTempDirectory();
@@ -630,6 +729,22 @@ public sealed class CoreContractTests
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "init"]).ExitCode);
         if (!commit) return;
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "-c", "user.name=Plan Forge", "-c", "user.email=forge@example.test", "commit", "--allow-empty", "-m", "initial"]).ExitCode);
+    }
+
+    private static ForgeState InitializeReviewWorkspace(string workspace)
+    {
+        InitializeRepository(workspace, commit: true);
+        Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+        File.WriteAllText(Path.Combine(workspace, ".git", "info", "exclude"), "# >>> plan-forge-flow (managed) >>>\n.forge/\n# <<< plan-forge-flow (managed) <<<\n");
+        var state = ForgeState.CreateEmpty();
+        state.Workflow.Phase = ForgePhase.CodeReview;
+        DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
+        foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
+        {
+            Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "update-ref", reference, "HEAD"]).ExitCode);
+        }
+
+        return state;
     }
 
     private static string JsonEncoded(string value)

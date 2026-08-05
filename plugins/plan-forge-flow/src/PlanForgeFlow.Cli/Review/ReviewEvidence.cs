@@ -86,6 +86,7 @@ internal static class ReviewEvidence
     public static string[] PathList(string workspace, IReadOnlyList<string> args, string errorMessage)
         => new GitClient(workspace).NullSeparatedPaths(args, errorMessage)
                                     .Select(NormalizePath)
+                                    .Where(path => !string.Equals(path, ForgeStateLock.FileName, StringComparison.Ordinal))
                                     .Distinct(StringComparer.Ordinal)
                                     .ToArray();
 
@@ -211,7 +212,7 @@ internal static class ReviewEvidence
         for (var current = new DirectoryInfo(Path.GetDirectoryName(fullCandidate)!); current is not null; current = current.Parent)
         {
             if ((current.Attributes & FileAttributes.ReparsePoint) != 0) return false;
-            if (string.Equals(current.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) break;
+            if (string.Equals(current.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), WorkspacePathPolicy.Comparison)) break;
         }
 
         return true;
