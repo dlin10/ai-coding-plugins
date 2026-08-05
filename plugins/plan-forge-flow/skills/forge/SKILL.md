@@ -13,6 +13,11 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
 
 ## Hard rules
 
+- Before any Act 1 interaction, require the current turn's collaboration mode to
+  be Plan mode. If it is not Plan mode, stop and ask the user to toggle `/plan`
+  or Shift+Tab and resubmit the Forge prompt. A skill attachment does not waive
+  this check, and `<proposed_plan>` tags emitted outside Plan mode are not an
+  approval surface.
 - Ask grill questions one at a time and keep the complete canonical plan and
   review record in conversation until native approval.
 - Act 1 and Act 2 do not create repository artifacts before native approval.

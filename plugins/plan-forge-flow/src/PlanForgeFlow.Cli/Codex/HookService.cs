@@ -32,10 +32,10 @@ internal static class HookService
                 catch { transcript = null; }
             }
 
-            if (prompt.Contains("$forge", StringComparison.OrdinalIgnoreCase) && mode != "plan")
+            if (IsForgeInvocation(prompt) && mode != "plan")
             {
                 Console.Out.WriteLine(JsonSerializer.Serialize(
-                    new HookBlockOutput("block", "Plan Forge Act 1 requires Plan mode. Toggle /plan or Shift+Tab, then resubmit the $forge prompt."),
+                    new HookBlockOutput("block", "Plan Forge Act 1 requires Plan mode. Toggle /plan or Shift+Tab, then resubmit the Forge prompt."),
                     CodexJsonContext.Default.HookBlockOutput));
                 return 0;
             }
@@ -56,4 +56,8 @@ internal static class HookService
             return 0;
         }
     }
+
+    private static bool IsForgeInvocation(string prompt)
+        => prompt.Contains("$forge", StringComparison.OrdinalIgnoreCase) ||
+           prompt.Contains("$plan-forge-flow:forge", StringComparison.OrdinalIgnoreCase);
 }

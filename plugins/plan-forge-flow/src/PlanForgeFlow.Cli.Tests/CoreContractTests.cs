@@ -312,6 +312,34 @@ public sealed class CoreContractTests
         }
     }
 
+    [Theory]
+    [InlineData("$forge Plan this change.")]
+    [InlineData("[$plan-forge-flow:forge](C:\\\\Users\\\\Admin\\\\.codex\\\\plugins\\\\plan-forge-flow\\\\SKILL.md) Plan this change.")]
+    public void HookBlocksForgeInvocationOutsidePlanMode(string prompt)
+    {
+        var workspace = CreateTempDirectory();
+        var transcript = Path.Combine(workspace, "transcript.jsonl");
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            File.WriteAllText(transcript, "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"default-turn\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n");
+            var input = JsonSerializer.Serialize(
+                new HookInput(workspace, "default-turn", transcript, prompt),
+                Serialization.CodexJsonContext.Default.HookInput);
+
+            Console.SetOut(output);
+            Assert.Equal(0, HookService.Run(input));
+
+            Assert.Contains("Plan Forge Act 1 requires Plan mode", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(oldOut);
+            DeleteDirectory(workspace);
+        }
+    }
+
     [Fact]
     public void AmendmentPreservesCritiqueHistory()
     {

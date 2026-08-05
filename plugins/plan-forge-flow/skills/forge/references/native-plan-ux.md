@@ -19,6 +19,11 @@ pair for materialization and Act 3.
 
 ## Preview and approval
 
+Emit the preview only when the current turn is in native Plan mode. If the
+collaboration mode is Default or unknown, stop and ask the user to enter Plan
+mode and resubmit the Forge prompt. Never emit `<proposed_plan>` as plain text
+outside Plan mode because it does not create the native approval widget.
+
 Normalize the plan as UTF-8/LF text with one terminal newline and emit exactly:
 
 ```text
