@@ -7,12 +7,97 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm test
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore src/PlanForgeFlow.sln
+      - run: dotnet build src/PlanForgeFlow.sln --configuration Release --no-restore
+      - run: dotnet test src/PlanForgeFlow.sln --configuration Release --no-build --no-restore
+      - name: Verify exactly two solution projects
+        shell: pwsh
+        run: |
+          $projects = @(dotnet sln src/PlanForgeFlow.sln list | Where-Object { $_ -match '\.csproj$' })
+          if ($projects.Count -ne 2) { throw "Expected exactly two projects, found $($projects.Count)" }
+          if (-not ($projects -match 'PlanForgeFlow.Cli.csproj')) { throw 'CLI project missing' }
+          if (-not ($projects -match 'PlanForgeFlow.Cli.Tests.csproj')) { throw 'test project missing' }
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and package one RID
+        shell: pwsh
+        run: ./build/package.ps1 -Rids '${{ matrix.rid }}' -OutputRoot "$env:GITHUB_WORKSPACE/artifacts/${{ matrix.rid }}"
+      - name: Check archive exists
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem "$env:GITHUB_WORKSPACE/artifacts/${{ matrix.rid }}" -Filter '*.zip' -File
+          if ($archive.Count -ne 1) { throw 'Expected exactly one RID archive' }
+
+  native-smoke:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            executable: planforge.exe
+          - os: ubuntu-latest
+            rid: linux-x64
+            executable: planforge
+          - os: macos-latest
+            rid: osx-x64
+            executable: planforge
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build host bundle
+        shell: pwsh
+        run: ./build/package.ps1 -Rids '${{ matrix.rid }}' -OutputRoot "$env:GITHUB_WORKSPACE/smoke-artifacts"
+      - name: Run cold direct executable smoke
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "$env:GITHUB_WORKSPACE/smoke-artifacts" -Filter '*.zip' -File | Select-Object -First 1
+          $extract = Join-Path $env:RUNNER_TEMP 'planforge-smoke'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
+          $exe = Join-Path $extract "plugins/plan-forge-flow/bin/${{ matrix.rid }}/${{ matrix.executable }}"
+          if ('${{ matrix.rid }}' -notlike 'win-*') { & chmod +x $exe }
+          $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'planforge-bundle-extract'
+          $timer = [Diagnostics.Stopwatch]::StartNew()
+          & $exe --help | Out-Null
+          $code = $LASTEXITCODE
+          $timer.Stop()
+          if ($code -ne 0 -or $timer.Elapsed.TotalSeconds -ge 5) { throw "native smoke failed: exit=$code elapsed=$($timer.Elapsed.TotalSeconds)" }

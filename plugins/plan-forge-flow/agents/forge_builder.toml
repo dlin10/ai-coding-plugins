@@ -10,4 +10,7 @@ changed plus verification results. Do not advance to another plan step on your o
 Do not create commits or stage changes; the working tree is the handoff.
 During fix rounds, fix only findings attributed to this run unless the user has
 explicitly opted in to fixing named pre-existing findings.
+If the orchestrator starts you before native plan approval, remain in a no-edit
+hold state: do not inspect or modify repository files, dispatch work, or report
+completion until the orchestrator explicitly releases the approved plan.
 """

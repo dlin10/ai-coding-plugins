@@ -1,203 +1,165 @@
-# Plan Forge Flow for Codex
+# Plan Forge Flow 0.4.0
 
-## 1. Description and goal
+Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
+adversarial review, controlled implementation, and final code review. The
+runtime is a typed .NET 10 executable named `planforge`; the supported install
+surface is a repository marketplace containing all supported RID-specific
+executables.
 
-Plan Forge Flow is a Codex plugin for non-trivial repository changes that
-benefit from decision-complete planning, independent review, controlled
-implementation, and a final code audit.
+## Requirements
 
-The `$forge` skill conducts planning and plan review read-only in native Codex
-Plan mode. It presents the reviewed plan through Codex's native plan widget,
-authenticates the resulting implementation action, and only then materializes
-durable workflow state for implementation and code review.
-
-## 2. Workflow
-
-![Plan Forge Flow workflow from planning through implementation and final review](assets/plan-forge-workflow.svg)
-
-### Read-only readiness
-
-In Plan mode, Forge may inspect the repository and run the read-only `doctor`,
-`models`, `picker`, and `issue-approval` commands. `picker` returns exact
-pagination metadata; `issue-approval` derives repository/transcript origin,
-revision, nonce, hashes, and wrapper from a bounded JSON input without
-materializing workflow state. `codex debug models` is the sole catalog source.
-Forge offers only list-visible models whose CLI metadata declares
-`multi_agent_version: v2`, matching the native sub-agent runtime, and uses the
-same rows for efforts, display names, descriptions, default effort, and
-priority. There is no session, native-schema, cache, static-policy, inferred,
-or manual fallback. Catalog failure or an empty v2 intersection stops selection.
-
-Managed reviewer/builder agent installation is a Default-mode setup action. If
-setup is required, Forge stops planning, asks for a setup turn, and restarts
-Plan mode after Codex reloads the agent schema.
-
-### Act 1 — grill and canonical plan
-
-Forge resolves the design tree one decision at a time through
-`request_user_input`, using repository inspection when the code can answer a
-question. The complete draft and decisions stay in model-visible conversation
-state—Acts 1–2 create no `.forge/`, plan files, Git refs, excludes, journals,
-or repository files.
-
-The human plan has one canonical UTF-8/LF byte representation with exactly one
-terminal newline. The same bytes are reviewed, previewed, hashed, placed in the
-native approval wrapper, materialized as `PLAN.md`, and locked for building.
-
-### Act 2 — fresh adversarial plan review
-
-The user selects a reviewer model and effort from paginated
-`request_user_input` pickers:
-
-- models are ordered by ascending CLI priority and shown two per page;
-- labels use CLI `display_name`, with slug and CLI description in the option;
-- `More…` appears only when another page exists;
-- efforts are non-`ultra`, with the CLI default first and CLI descriptions;
-- a sole remaining choice is selected without an invalid one-option question.
-
-Priority controls picker order only. Forge never asks for or compares the
-orchestrator model or effort, and there is no reviewer-strength rule.
-
-Every round spawns a fresh read-only reviewer with no inherited context. Its
-prompt contains the complete current plan and complete review record. It ends
-with strict `VERDICT: APPROVED` or `VERDICT: REVISE`. Forge remains the final
-arbiter, records accepted/rejected findings with reasons, and passes the full
-replacement evidence to the next fresh reviewer.
-
-The initial review cap is five and invalid-verdict retry cap is two. At either
-cap the user chooses one extra attempt, named risk acceptance, or stop.
-
-### Native preview and approval
-
-After review settles, Forge first shows the complete plan as normal Markdown.
-Only after the preview is visible does the user choose the builder model and
-effort through the same paginated picker contract. The builder choice is bound
-to the previewed human-plan hash.
-
-Forge then emits exactly one final `<proposed_plan>` block. It contains the
-identical human plan plus one non-rendered, strict resume-envelope comment.
-The native widget is the only approval surface; there is no separate approval
-question and no tool call or text after the block.
-
-If the plan changes, Forge increments its revision and invalidates the old
-preview binding, builder choice, wrapper, and envelope before repeating the
-preview and picker.
-
-### Default-mode resume and materialization
-
-Native implementation actions are supported: Desktop `Yes, implement this
-plan`, Desktop's `PLEASE IMPLEMENT THIS PLAN:` form carrying the visible plan,
-legacy `Implement the plan.`, and clear-context implementation. For the
-embedded Desktop form, the carried plan must exactly match the human-plan bytes
-in the immediately preceding signed wrapper. The prompt hook derives
-Default mode from the matching transcript `turn_context`, authenticates the
-immediate Forge wrapper relationship (or terminal carried origin), stores no
-arbitrary prompt text, and only then tells the new context to run
-`forge.mjs resume`.
-
-Resume authenticates the origin transcript relationship, exact wrapper, plan
-hash, repository/worktree identity, revision, and one-time nonce. Under a
-repository lock it uses a durable plugin journal, staged idempotent artifacts,
-fsync, a repository commit marker, and a retained nonce tombstone. Crashed
-transactions reconcile; foreign partial state fails closed.
-
-Only successful materialization creates the owned `PLAN.md`,
-`PLAN-REVIEW-LOG.md`, `.forge/` state, managed exclude, and active-run marker.
-
-### Act 3 — persistent builder
-
-One workspace-write `forge_builder` uses the materialized builder selection for
-the entire implementation. It receives exactly one locked plan step per
-follow-up and may edit, but never stage or commit.
-
-The orchestrator verifies every step's listed checks, or at least the
-applicable build/typecheck and relevant tests when none are listed.
-`complete --task` records that verification decision; it does not run checks.
-The initial verification retry cap is three. A material amendment receives one
-fresh plan review and must repeat native approval before build resumes.
-
-### Act 4 — full code review and fixes
-
-Act 4 reuses the exact reviewer selection from Act 2 while spawning a fresh
-read-only reviewer every round. Review evidence attributes pre-existing and
-in-run tracked changes and inventories every untracked file.
-
-Safe text files up to 100 KB are included subject to a 1 MiB aggregate budget.
-Oversized, binary, secret-like, or otherwise withheld evidence is recorded and
-prevents full coverage unless the required explicit authorization is supplied.
-Pre-existing findings are reported but fixed only after separate opt-in.
-
-Approval requires `COVERAGE: FULL`. Accepted in-run findings return to the
-persistent builder, are verified, and receive another fresh review. The
-initial fix-round cap is three. The run ends as `done` after full-coverage
-approval or `done-with-findings` after explicit user risk acceptance.
-
-## 3. Requirements
-
-- Codex 0.145 or newer
-- The Codex `multi_agent` feature enabled
-- A working `codex debug models` command
+- Codex 0.145 or newer with `multi_agent` enabled
 - Git
-- Node.js 18 or newer
+- .NET 10 SDK only when building from source
+- Git LFS when checking out the repository or publishing bundles
 - A Git repository for the target change
-- Permission to install managed agent definitions under `~/.codex/agents`
 
-## 4. Installation
+The distributed executable is self-contained, trimmed, single-file, and does
+not require a preinstalled .NET runtime or Node.js.
 
-Add the repository as a Codex marketplace and install the plugin:
+## Installation
+
+The public repository is the repository marketplace. Clone it with Git LFS
+enabled, then add the repository marketplace and install the plugin:
 
 ```text
-codex plugin marketplace add https://github.com/dlin10/CodexPlugins.git
+codex plugin marketplace add <owner>/<repository>
 codex plugin add plan-forge-flow@dlin10-codex-plugins
 ```
 
-Start a new Codex task. On first use, if `$forge` reports that its model-free
-agent definitions need installation, switch to Default mode for that setup and
-then start another new task so Codex exposes the roles.
-
-To update:
+The plugin contains every supported RID and a launcher selects the current
+host automatically:
 
 ```text
-codex plugin marketplace upgrade dlin10-codex-plugins
-codex plugin add plan-forge-flow@dlin10-codex-plugins
+.agents/plugins/marketplace.json
+plugins/plan-forge-flow/
+  .codex-plugin/plugin.json
+  bin/planforge-launcher.sh
+  bin/planforge-launcher.ps1
+  bin/win-x64/planforge.exe
+  bin/win-arm64/planforge.exe
+  bin/linux-x64/planforge
+  bin/linux-arm64/planforge
+  bin/osx-x64/planforge
+  bin/osx-arm64/planforge
+  skills/
+  agents/
+  hooks/
 ```
 
-## 5. Usage and trust boundary
+The six RID archives produced by `build/package.ps1` remain optional release
+assets for offline or local-marketplace installation. They are not the source
+of the repository marketplace. For the direct repository marketplace, commit
+the two launchers and all six `bin/<rid>/` executables through Git LFS; keep
+`artifacts/` ignored.
 
-Open a Codex Plan-mode task in the target repository:
+## Grouped CLI
+
+The executable exposes only grouped commands. `--workspace` is optional and
+defaults to the current directory. Interactive commands emit one JSON success
+envelope (`ok`, `command`, `data`) or one JSON error envelope (`ok`, `command`,
+`error`). Exit codes are 0 for success, 1 for usage/environment/unexpected
+errors, 2 for verdict failures, and 3 for state failures.
 
 ```text
-Use $forge to plan, review, and implement <your change>.
+plan start|lock|materialize
+agents install
+build dispatch|complete|resolve|begin
+review prepare|authorize-preexisting|verdict
+session builder|reviewer
+run doctor|status|set|cleanup
+hook capture-context
 ```
 
-An explicit `$forge` prompt submitted outside Plan mode is blocked with
-instructions to toggle Plan mode using `/plan` or Shift+Tab. Forge also runs a
-read-only `start-plan` preflight before Act 1 so implicit skill activation
-fails closed when the prompt hook cannot establish Plan mode.
+Options are command-specific:
 
-Before native approval, recovery depends on the retained Plan-mode transcript;
-there is intentionally no repository-local Forge state. After approval,
-`resume` materializes the run and `status` reports its durable phase, selected
-models, pending work, and completed steps.
+```text
+plan start
+plan lock                  --relock --amendment
+plan materialize           --amendment  (stdin JSON)
+build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --authorization-note --accept-risk
+build complete             --task-number --dispatch-id --verification-passed --authorization-note --accept-risk
+build resolve              --conflict --dispatch-id
+build begin                --amendment --relock
+review prepare             --allow-paths --full --authorization-note
+review authorize-preexisting --authorized-paths --authorization-note --accept-risk
+review verdict             --stage --critique-file --accept-risk --authorization-note
+session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
+run status                 (no additional options)
+run set                    --key --value --amendment --accept-risk --authorization-note
+run cleanup                --purge-generated-agents
+```
 
-The CLI deterministically enforces state transitions, hashes, transcript
-provenance, nonce replay protection, retry caps, ownership, and review
-coverage. The orchestrator still judges reviewer findings and reports whether
-verification commands passed. These are auditable responsibilities, not
-claims inferred by the CLI.
+`--workspace` is available on every grouped CLI command; `hook capture-context`
+reads its JSON input from stdin. `--authorized-paths` is a bounded JSON array,
+and `--authorization-note` is bounded text.
 
-Reviewer agents are read-only but may inspect repository files needed for
-context. Secret-screening controls bulk inclusion in persisted review evidence;
-it is not an access-control sandbox.
+Every builder or reviewer session must report the exact pinned `--model` and
+`--effort`; a fix review uses explicit `fix-build` and `fix-review` dispatch
+stages, with the builder completed before the reviewer is registered.
 
-Cleanup keeps owned plan/review artifacts by default and always retains the
-nonce tombstone. Artifact deletion requires an explicit pair-safe request.
-Machine-wide agent or replay-ledger purges require separate explicit requests.
+`plan materialize` reads the plan selected by the hook and accepts exactly the
+bounded stdin keys `reviewLog`, `completedReviewRounds`, `maxRounds`,
+`reviewer`, and `builder`. The hook selects the latest Plan-mode
+`<proposed_plan>` from the current transcript; the caller supplies the review
+metadata and normalized model choices manually.
 
-## 6. Attribution
+Materialized `.forge/state.json` is an unversioned, camelCase DTO document;
+enums are emitted as camelCase strings and unknown or malformed Forge-owned
+fields are rejected. This is an intentionally incompatible contract: previous
+state is rejected without migration. Its `models` group contains only
+`reviewer` and `builder`. Materialization atomically writes session artifacts
+under `.forge/` while a workspace lock is held; a fresh run removes the
+previous `.forge/` directory first.
 
-Plan Forge Flow for Codex adapts the original Cursor Plan Forge Flow. The Act 1
-interview derives from Matt Pocock's MIT-licensed `grill-me` prompt. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+## Hook behavior
 
-This plugin is distributed under the [MIT License](LICENSE).
+The `UserPromptSubmit` hook invokes the RID-aware launcher at
+`sh bin/planforge-launcher.sh hook capture-context` (or
+`bin/planforge-launcher.ps1` on Windows) with a five-second timeout. The
+launcher selects the matching bundled executable from `bin/<rid>/`. On the
+first Default-mode turn after planning, the hook selects the latest Plan-mode
+`<proposed_plan>` and stores a temporary per-workspace pending plan outside the
+repository. Malformed or unrelated hook input produces no stdout and exits 0.
+The hook response is written directly at the Codex hook JSON root; it is not an
+interactive CLI envelope.
+
+Plans and review logs use canonical UTF-8/LF bytes but no ownership marker.
+`plan materialize` writes `.forge/PLAN.md`, `.forge/PLAN-REVIEW-LOG.md`, and
+nested state; `run cleanup` removes the entire `.forge/` directory and the
+pending plan. Forge asks for model and effort separately for reviewer and
+builder in free text; runtime rejection or an ambiguous answer can be retried
+up to three times per role, and `ultra` is always forbidden.
+
+## Development
+
+All .NET implementation files are under this plugin directory:
+
+```text
+src/PlanForgeFlow.sln
+src/PlanForgeFlow.Cli/
+src/PlanForgeFlow.Cli.Tests/
+```
+
+Run the two-project solution from `plugins/plan-forge-flow`:
+
+```text
+dotnet restore src/PlanForgeFlow.sln
+dotnet test src/PlanForgeFlow.sln
+```
+
+Use `build/package.ps1` to publish the six RIDs, refresh `bin/<rid>/` with
+`-InstallBinaries`, and create optional per-RID marketplace archives. The
+package step fails if a publish directory contains a runtime,
+dependency, debug, or other sidecar file.
+
+Operational overrides are `CODEX_HOME`, `FORGE_PLUGIN_DATA`, and
+`FORGE_AGENTS_DIR`.
+Each critique is accompanied by a small JSON decision file at
+`<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
+
+## Attribution
+
+The Act 1 interview derives from Matt Pocock's MIT-licensed `grill-me` prompt.
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The plugin is distributed
+under the [MIT License](LICENSE).

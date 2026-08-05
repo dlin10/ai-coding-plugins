@@ -1,0 +1,2 @@
+[mcp_servers.roslyn-mcp]
+url = "http://localhost:5050/mcp"

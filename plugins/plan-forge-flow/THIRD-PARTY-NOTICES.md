@@ -25,3 +25,13 @@ PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIG
 HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
 CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## .NET production dependencies
+
+The bundled `planforge` executable is built with the following NuGet dependency:
+
+- `System.CommandLine` 2.0.0, MIT License, Microsoft Corporation and contributors.
+  Source: https://github.com/dotnet/command-line-api
+
+The xUnit and Microsoft.NET.Test.Sdk packages are test-only dependencies and
+are not included in release bundles.

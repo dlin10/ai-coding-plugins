@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$PLUGIN_ROOT/scripts/capture-context.mjs\"",
-            "commandWindows": "node \"$env:PLUGIN_ROOT\\scripts\\capture-context.mjs\"",
+            "command": "sh \"$PLUGIN_ROOT/bin/planforge-launcher.sh\" hook capture-context",
+            "commandWindows": "& \"$env:PLUGIN_ROOT\\bin\\planforge-launcher.ps1\" hook capture-context",
             "timeout": 5
           }
         ]

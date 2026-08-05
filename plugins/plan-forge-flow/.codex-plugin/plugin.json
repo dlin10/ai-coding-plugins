@@ -1,7 +1,7 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.2.2",
-  "description": "A four-act plan hardening, implementation, and independent review workflow for Codex.",
+  "version": "0.4.0",
+  "description": "A typed .NET 10 four-act plan hardening, implementation, and independent review workflow for Codex.",
   "author": {
     "name": "Dmitry Linetsky"
   },
@@ -10,7 +10,7 @@
   "interface": {
     "displayName": "Plan Forge Flow",
     "shortDescription": "Grill, review, build, and verify a plan",
-    "longDescription": "Turns an idea into an owned plan, reviews it with fresh native Codex sub-agents, implements it step by step with a persistent builder, and performs a complete final review.",
+    "longDescription": "Turns an idea into a session-scoped plan, reviews it with fresh native Codex sub-agents, implements it step by step with a persistent builder, and performs a complete final review.",
     "developerName": "Dmitry Linetsky",
     "category": "Productivity",
     "capabilities": [
