@@ -62,16 +62,7 @@ internal static partial class ForgeWorkflow
         {
             if (key == "phase")
             {
-                var target = value switch
-                {
-                    "materialized" => ForgePhase.Materialized,
-                    "locked" => ForgePhase.Locked,
-                    "build" => ForgePhase.Build,
-                    "code-review" => ForgePhase.CodeReview,
-                    "done" => ForgePhase.Done,
-                    "done-with-findings" => ForgePhase.DoneWithFindings,
-                    _ => throw new CliFailure("usage", "phase is unsupported"),
-                };
+                var target = ForgePhases.Parse(value);
                 var old = current.Workflow.Phase;
                 if (old != target)
                 {

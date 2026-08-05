@@ -46,6 +46,15 @@ internal sealed record DispatchStageDefinition(ForgeRole Role, ForgePhase Expect
 
 internal static class DispatchStages
 {
+    private static readonly Dictionary<DispatchStage, string> WireNames = new()
+    {
+        [DispatchStage.Plan] = "plan",
+        [DispatchStage.Code] = "code",
+        [DispatchStage.Build] = "build",
+        [DispatchStage.FixBuild] = "fix-build",
+        [DispatchStage.FixReview] = "fix-review",
+    };
+
     private static readonly Dictionary<DispatchStage, DispatchStageDefinition> Definitions =
         new()
         {
@@ -57,15 +66,9 @@ internal static class DispatchStages
         };
 
     public static DispatchStage Parse(string value)
-        => value.ToLowerInvariant() switch
-        {
-            "plan" => DispatchStage.Plan,
-            "code" => DispatchStage.Code,
-            "build" => DispatchStage.Build,
-            "fix-build" => DispatchStage.FixBuild,
-            "fix-review" => DispatchStage.FixReview,
-            _ => throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review"),
-        };
+        => WireNames.FirstOrDefault(entry => string.Equals(entry.Value, value, StringComparison.OrdinalIgnoreCase)) is var entry && entry.Value is not null
+               ? entry.Key
+               : throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review");
 
     public static DispatchStage RequirePendingReviewVerdict(DispatchState dispatch, string? requestedStage)
     {
@@ -80,30 +83,32 @@ internal static class DispatchStages
         private bool IsReview() => !stage.Definition().CompletedByBuilder;
         public DispatchStageDefinition Definition() => Definitions[stage];
 
-        public string ToWireName() => stage switch
-                                      {
-                                          DispatchStage.Plan => "plan",
-                                          DispatchStage.Code => "code",
-                                          DispatchStage.Build => "build",
-                                          DispatchStage.FixBuild => "fix-build",
-                                          DispatchStage.FixReview => "fix-review",
-                                          _ => throw new ArgumentOutOfRangeException(nameof(stage)),
-                                      };
+        public string ToWireName() => WireNames.TryGetValue(stage, out var wireName)
+                                          ? wireName
+                                          : throw new ArgumentOutOfRangeException(nameof(stage));
     }
 }
 
 internal static class ForgePhases
 {
-    public static string ToWireName(this ForgePhase phase) => phase switch
+    private static readonly Dictionary<ForgePhase, string> WireNames = new()
     {
-        ForgePhase.Materialized => "materialized",
-        ForgePhase.Locked => "locked",
-        ForgePhase.Build => "build",
-        ForgePhase.CodeReview => "code-review",
-        ForgePhase.Done => "done",
-        ForgePhase.DoneWithFindings => "done-with-findings",
-        _ => throw new ArgumentOutOfRangeException(nameof(phase)),
+        [ForgePhase.Materialized] = "materialized",
+        [ForgePhase.Locked] = "locked",
+        [ForgePhase.Build] = "build",
+        [ForgePhase.CodeReview] = "code-review",
+        [ForgePhase.Done] = "done",
+        [ForgePhase.DoneWithFindings] = "done-with-findings",
     };
+
+    public static ForgePhase Parse(string value)
+        => WireNames.FirstOrDefault(entry => entry.Value == value) is var entry && entry.Value is not null
+               ? entry.Key
+               : throw new CliFailure("usage", "phase is unsupported");
+
+    public static string ToWireName(this ForgePhase phase) => WireNames.TryGetValue(phase, out var wireName)
+                                                               ? wireName
+                                                               : throw new ArgumentOutOfRangeException(nameof(phase));
 }
 
 internal sealed record PinnedSelection(string Model, string Effort);
@@ -206,7 +211,6 @@ internal sealed record ForgeState
 
 internal static class ForgeStateSchema
 {
-    public static ForgeState CreateEmpty() => ForgeState.CreateEmpty();
     public static DispatchState CreateDispatch() => new();
     public static ReviewState CreateReview(IEnumerable<CritiqueEntry>? critiqueFiles = null) => new() { CritiqueFiles = critiqueFiles?.ToList() ?? [] };
 }

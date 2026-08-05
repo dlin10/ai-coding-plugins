@@ -22,6 +22,7 @@ internal static class OwnershipGuards
 
     public static void EnsureDirectory(string path)
     {
+        // Recheck after creation because creating the directory can introduce a symlinked path.
         EnsureSafeDirectory(path);
         Directory.CreateDirectory(path);
         EnsureSafeDirectory(path);

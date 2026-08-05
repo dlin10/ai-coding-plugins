@@ -422,6 +422,8 @@ public sealed class CoreContractTests
             var state = StateStore.CreateEmpty();
             DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
 
+            Assert.NotEmpty(state.CreatedAt);
+            Assert.Equal(state.CreatedAt, state.UpdatedAt);
             var serialized = JsonSerializer.Serialize(state, Serialization.ForgeJsonContext.Default.ForgeState);
             Assert.DoesNotContain("\"version\"", serialized, StringComparison.Ordinal);
             Assert.DoesNotContain("\"generation\"", serialized, StringComparison.Ordinal);
@@ -457,6 +459,57 @@ public sealed class CoreContractTests
         Assert.Contains("\"phase\":\"code-review\"", serialized, StringComparison.Ordinal);
         Assert.Contains("\"stage\":\"fix-build\"", serialized, StringComparison.Ordinal);
         Assert.False(JsonSerializer.IsReflectionEnabledByDefault);
+    }
+
+    [Theory]
+    [InlineData("Plan", "plan")]
+    [InlineData("Code", "code")]
+    [InlineData("Build", "build")]
+    [InlineData("FixBuild", "fix-build")]
+    [InlineData("FixReview", "fix-review")]
+    public void DispatchStageWireNamesRoundTrip(string stageName, string wireName)
+    {
+        var stage = Enum.Parse<DispatchStage>(stageName);
+
+        Assert.Equal(wireName, stage.ToWireName());
+        Assert.Equal(stage, DispatchStages.Parse(wireName));
+        Assert.Equal(stage, DispatchStages.Parse(wireName.ToUpperInvariant()));
+    }
+
+    [Theory]
+    [InlineData("Materialized", "materialized")]
+    [InlineData("Locked", "locked")]
+    [InlineData("Build", "build")]
+    [InlineData("CodeReview", "code-review")]
+    [InlineData("Done", "done")]
+    [InlineData("DoneWithFindings", "done-with-findings")]
+    public void ForgePhaseWireNamesRoundTrip(string phaseName, string wireName)
+    {
+        var phase = Enum.Parse<ForgePhase>(phaseName);
+
+        Assert.Equal(wireName, phase.ToWireName());
+        Assert.Equal(phase, ForgePhases.Parse(wireName));
+    }
+
+    [Fact]
+    public void RunSetRejectsUnsupportedPhaseWireName()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            var state = ForgeState.CreateEmpty();
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
+
+            var error = Assert.Throws<CliFailure>(() => ForgeWorkflow.Set(WorkflowContext(workspace, state, "review")));
+
+            Assert.Equal("usage", error.Code);
+            Assert.Equal("phase is unsupported", error.Message);
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
     }
 
     [Fact]
