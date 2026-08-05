@@ -74,6 +74,19 @@ $commonPublish = @(
     '-p:DebugSymbols=false',
     '-p:SuppressTrimAnalysisWarnings=false'
 )
+$hostArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+$hostRid = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
+    "win-$hostArchitecture"
+}
+elseif ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Linux)) {
+    "linux-$hostArchitecture"
+}
+elseif ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::OSX)) {
+    "osx-$hostArchitecture"
+}
+else {
+    $null
+}
 
 foreach ($rid in $Rids) {
     $publish = Join-Path $staging "publish-$rid"
@@ -89,6 +102,13 @@ foreach ($rid in $Rids) {
     if ($entries.Count -ne 1 -or $entries[0].PSIsContainer -or $entries[0].Name -ne $expectedExecutable) {
         $names = ($entries | ForEach-Object Name) -join ', '
         throw "publish output for $rid must contain only $expectedExecutable; found $names"
+    }
+
+    if ($rid -eq $hostRid) {
+        $verification = & (Join-Path $publish $expectedExecutable) plan start --workspace $pluginRoot | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or $verification.data.mode -ne 'plan') {
+            throw "published $rid executable failed the plan start contract"
+        }
     }
 
     if ($InstallBinaries) {
