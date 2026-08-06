@@ -13,8 +13,9 @@ In Plan mode:
 
 1. Run `planforge run doctor --workspace <repo>` and report failed checks.
 
-A capture does not exist until after the final Plan-mode `<proposed_plan>` and
-the next Default-mode user turn; only `plan materialize` requires it.
+A pending plan can be staged only after a Plan-mode `<proposed_plan>` and a
+following user prompt. The hook refreshes it when a later proposed plan exists;
+only `plan materialize` requires it, and staging is not approval.
 
 Do not mutate repository state in this phase. If generated agents are missing,
 switch to Default mode, run `planforge agents install`, and start a fresh
@@ -36,8 +37,9 @@ the sole approval surface.
 
 ## Default-mode materialization
 
-On the first Default turn, the hook saves the latest Plan-mode proposed plan as
-a temporary pending artifact. Run:
+On the first Default turn, the latest Plan-mode proposed plan has been staged as
+a temporary pending artifact by the hook. The staging may have happened on a
+later Plan-mode prompt; it does not authorize implementation. Run:
 
 ```text
 planforge plan materialize --workspace <repo>

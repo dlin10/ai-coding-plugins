@@ -112,8 +112,11 @@ public sealed class CoreContractTests
         }
     }
 
-    [Fact]
-    public void HookCapturesLatestPlanModeProposedPlan()
+    [Theory]
+    [InlineData("default")]
+    [InlineData("bypassPermissions")]
+    [InlineData("plan")]
+    public void HookStagesLatestPlanModeProposedPlanRegardlessOfPermissionMode(string permissionMode)
     {
         var workspace = CreateTempDirectory();
         var data = CreateTempDirectory();
@@ -129,18 +132,25 @@ public sealed class CoreContractTests
                 "{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n" +
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n" +
-                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"default-turn\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n" +
-                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Implement the plan.\"}]}}\n");
+                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"follow-up-plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "default-turn", transcript, "Implement the plan."),
+                new HookInput(workspace, "follow-up-plan-turn", transcript, "Refine the plan."),
                 Serialization.CodexJsonContext.Default.HookInput);
-            input = input[..^1] + ",\"future_hook_field\":true}";
+            input = input[..^1] + ",\"permission_mode\":\"" + permissionMode + "\",\"future_hook_field\":true}";
 
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
 
             Assert.Equal(plan, PendingPlan.Read(workspace).Plan);
-            Assert.Contains("plan materialize", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("staged the latest proposed plan", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("first Default-mode implementation turn", output.ToString(), StringComparison.Ordinal);
+
+            var revisedPlan = "# Revised plan\n\n## Approach\n1. Implement the revised slice.\n";
+            File.AppendAllText(transcript,
+                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"revised-plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(revisedPlan) + "</proposed_plan>\"}]}}\n");
+            Assert.Equal(0, HookService.Run(input));
+            Assert.Equal(revisedPlan, PendingPlan.Read(workspace).Plan);
             Assert.Equal(0, HookService.Run("not-json"));
         }
         finally
@@ -315,7 +325,7 @@ public sealed class CoreContractTests
     [Theory]
     [InlineData("$forge Plan this change.")]
     [InlineData("[$plan-forge-flow:forge](C:\\\\Users\\\\Admin\\\\.codex\\\\plugins\\\\plan-forge-flow\\\\SKILL.md) Plan this change.")]
-    public void HookBlocksForgeInvocationOutsidePlanMode(string prompt)
+    public void HookDoesNotBlockForgeInvocation(string prompt)
     {
         var workspace = CreateTempDirectory();
         var transcript = Path.Combine(workspace, "transcript.jsonl");
@@ -331,7 +341,7 @@ public sealed class CoreContractTests
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
 
-            Assert.Contains("Plan Forge Act 1 requires Plan mode", output.ToString(), StringComparison.Ordinal);
+            Assert.Equal(string.Empty, output.ToString());
         }
         finally
         {
@@ -341,7 +351,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void HookAllowsForgeInvocationWhenPermissionModeIsPlanBeforeTranscriptContainsTurn()
+    public void HookAllowsPlanModeForgeInvocationWithBypassPermissions()
     {
         var workspace = CreateTempDirectory();
         var transcript = Path.Combine(workspace, "transcript.jsonl");
@@ -349,10 +359,13 @@ public sealed class CoreContractTests
         using var output = new StringWriter();
         try
         {
-            File.WriteAllText(transcript, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n");
+            File.WriteAllText(transcript,
+                "{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n" +
+                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "plan-turn", transcript, "$forge Plan this change.", "plan"),
+                new HookInput(workspace, "plan-turn", transcript, "$forge Plan this change."),
                 Serialization.CodexJsonContext.Default.HookInput);
+            input = input[..^1] + ",\"permission_mode\":\"bypassPermissions\"}";
 
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
@@ -363,6 +376,40 @@ public sealed class CoreContractTests
         {
             Console.SetOut(oldOut);
             DeleteDirectory(workspace);
+        }
+    }
+
+    [Theory]
+    [InlineData("{not-json}\n")]
+    [InlineData("{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n")]
+    public void HookIgnoresTranscriptWithoutProposedPlan(string transcriptContent)
+    {
+        var workspace = CreateTempDirectory();
+        var data = CreateTempDirectory();
+        var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
+            var transcript = Path.Combine(workspace, "transcript.jsonl");
+            File.WriteAllText(transcript, transcriptContent);
+            var input = JsonSerializer.Serialize(
+                new HookInput(workspace, "turn", transcript, "Continue."),
+                Serialization.CodexJsonContext.Default.HookInput);
+
+            Console.SetOut(output);
+            Assert.Equal(0, HookService.Run(input));
+
+            Assert.Equal(string.Empty, output.ToString());
+            Assert.False(File.Exists(RepositoryPaths.PendingPlanPath(workspace)));
+        }
+        finally
+        {
+            Console.SetOut(oldOut);
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
+            DeleteDirectory(workspace);
+            DeleteDirectory(data);
         }
     }
 

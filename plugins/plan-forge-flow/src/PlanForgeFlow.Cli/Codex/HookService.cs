@@ -17,37 +17,25 @@ internal static class HookService
             var eventData = JsonSerializer.Deserialize(input, CodexJsonContext.Default.HookInput) ?? throw new JsonException("JSON value is null");
             if (string.IsNullOrWhiteSpace(eventData.Cwd)) return 0;
             var workspace = RepositoryPaths.CanonicalWorkspaceRoot(eventData.Cwd);
-            var prompt = eventData.Prompt ?? string.Empty;
-            var mode = ModeFromPermission(eventData.PermissionMode) ?? "unknown";
             var transcriptPath = eventData.TranscriptPath;
-            var turnId = eventData.TurnId;
-            IReadOnlyList<TranscriptReader.Record>? transcript = null;
-            if (!string.IsNullOrWhiteSpace(transcriptPath) && !string.IsNullOrWhiteSpace(turnId))
+            if (string.IsNullOrWhiteSpace(transcriptPath)) return 0;
+            IReadOnlyList<TranscriptReader.Record> transcript;
+            try
             {
-                try
-                {
-                    transcript = TranscriptReader.ReadDocument(transcriptPath);
-                    if (mode == "unknown") mode = TranscriptReader.ModeForTurn(transcript, turnId);
-                }
-                catch { transcript = null; }
+                transcript = TranscriptReader.ReadDocument(transcriptPath);
             }
-
-            if (IsForgeInvocation(prompt) && mode != "plan")
+            catch
             {
-                Console.Out.WriteLine(JsonSerializer.Serialize(
-                    new HookBlockOutput("block", "Plan Forge Act 1 requires Plan mode. Toggle /plan or Shift+Tab, then resubmit the Forge prompt."),
-                    CodexJsonContext.Default.HookBlockOutput));
                 return 0;
             }
 
-            if (mode != "default" || transcript is null) return 0;
             var plan = TranscriptReader.LatestPlan(transcript);
             if (plan is null) return 0;
             PendingPlan.Write(workspace, plan);
             Console.Out.WriteLine(JsonSerializer.Serialize(
                 new HookCaptureOutput(new HookSpecificOutput(
                     "UserPromptSubmit",
-                    "Forge captured the latest proposed plan. Before implementation, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections.")),
+                    "Forge staged the latest proposed plan. Do not materialize it while the current turn is in Plan mode. On the first Default-mode implementation turn, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections before implementation.")),
                 CodexJsonContext.Default.HookCaptureOutput));
             return 0;
         }
@@ -57,15 +45,4 @@ internal static class HookService
         }
     }
 
-    private static bool IsForgeInvocation(string prompt)
-        => prompt.Contains("$forge", StringComparison.OrdinalIgnoreCase) ||
-           prompt.Contains("$plan-forge-flow:forge", StringComparison.OrdinalIgnoreCase);
-
-    private static string? ModeFromPermission(string? permissionMode)
-        => permissionMode?.ToLowerInvariant() switch
-        {
-            "plan" => "plan",
-            "default" or "acceptedits" or "dontask" or "bypasspermissions" => "default",
-            _ => null
-        };
 }

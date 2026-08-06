@@ -89,12 +89,6 @@ internal static class TranscriptReader
         return result;
     }
 
-    public static string ModeForTurn(IReadOnlyList<Record> records, string turnId)
-    {
-        var matches = records.Where(item => item.Type == "turn_context" && item.TurnId == turnId).ToArray();
-        return matches.Length == 1 ? matches[0].Mode ?? "unknown" : "unknown";
-    }
-
     public static string? LatestPlan(IReadOnlyList<Record> records)
     {
         var candidate = records.LastOrDefault(record =>

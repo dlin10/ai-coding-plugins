@@ -17,15 +17,16 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
   be Plan mode. If it is not Plan mode, stop and ask the user to toggle `/plan`
   or Shift+Tab and resubmit the Forge prompt. A skill attachment does not waive
   this check, and `<proposed_plan>` tags emitted outside Plan mode are not an
-  approval surface.
+  approval surface. Determine this only from the current collaboration mode;
+  never infer it from a hook `permission_mode`, which describes approvals.
 - Ask grill questions one at a time and keep the complete canonical plan and
   review record in conversation until native approval.
 - Act 1 and Act 2 do not create repository artifacts before native approval.
   Use only `run doctor`; never invoke a
   catalog command or launch Codex CLI to enumerate models.
-- A pending-plan capture is created only after a Plan-mode `<proposed_plan>`
-  when the next Default-mode turn begins, and is required only by
-  `plan materialize`.
+- After a Plan-mode `<proposed_plan>`, the hook stages or refreshes the pending
+  plan on the next prompt. Staging is not approval or materialization; the
+  pending plan is required only by `plan materialize` in Default mode.
 - Ask separately for the reviewer and builder model/effort as free text. Resolve
   the answer against the currently available multi-agent runtime, accept only a
   unique canonical pair, and never accept `ultra`.
@@ -37,7 +38,7 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
 - Show the complete canonical plan before selecting a builder. Validate the
   builder by spawning it in a no-edit hold state, then emit exactly one native
   `<proposed_plan>` block containing the plain canonical plan.
-- In the first Default-mode turn, let the hook select that plan and run
+- In the first Default-mode turn, use the latest plan staged by the hook and run
   `planforge plan materialize --workspace <repo>` with the review metadata on
   stdin before implementation.
 - Never stage or commit changes from agents. Never hand-edit `.forge/state.json`.

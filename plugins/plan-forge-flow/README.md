@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.4.3
+# Plan Forge Flow 0.4.4
 
 Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. The
@@ -117,10 +117,13 @@ The `UserPromptSubmit` hook invokes the RID-aware launcher at
 `sh bin/planforge-launcher.sh hook capture-context` (or
 `bin/planforge-launcher.ps1` on Windows) with a five-second timeout. The
 launcher selects the matching bundled executable from `bin/<rid>/`. On the
-first Default-mode turn after planning, the hook selects the latest Plan-mode
-`<proposed_plan>` and stores a temporary per-workspace pending plan outside the
-repository. Malformed or unrelated hook input produces no stdout and exits 0.
-The hook response is written directly at the Codex hook JSON root; it is not an
+first prompt after a Plan-mode `<proposed_plan>`, the hook stages the latest plan
+as a temporary per-workspace pending plan outside the repository and refreshes
+it after later proposed plans. Staging is not approval or materialization; only
+the first Default-mode implementation turn may materialize it. The hook does
+not infer collaboration mode from `permission_mode`, which describes approval
+behavior. Malformed or unrelated hook input produces no stdout and exits 0. The
+hook response is written directly at the Codex hook JSON root; it is not an
 interactive CLI envelope.
 
 Plans and review logs use canonical UTF-8/LF bytes but no ownership marker.

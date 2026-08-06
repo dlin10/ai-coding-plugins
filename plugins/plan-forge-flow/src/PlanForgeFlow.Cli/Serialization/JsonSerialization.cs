@@ -48,7 +48,6 @@ internal sealed partial class ForgeJsonContext : JsonSerializerContext;
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     WriteIndented = false)]
 [JsonSerializable(typeof(HookInput))]
-[JsonSerializable(typeof(HookBlockOutput))]
 [JsonSerializable(typeof(HookCaptureOutput))]
 [JsonSerializable(typeof(TranscriptEnvelope))]
 internal sealed partial class CodexJsonContext : JsonSerializerContext;
@@ -127,10 +126,7 @@ internal sealed record HelpData(string Usage, List<string> Commands);
 internal sealed record HookInput(string? Cwd,
                                  [property: JsonPropertyName("turn_id")] string? TurnId,
                                  [property: JsonPropertyName("transcript_path")] string? TranscriptPath,
-                                 string? Prompt,
-                                 [property: JsonPropertyName("permission_mode")] string? PermissionMode = null);
-
-internal sealed record HookBlockOutput(string Decision, string Reason);
+                                 string? Prompt);
 
 internal sealed record HookSpecificOutput(string HookEventName, string AdditionalContext);
 
