@@ -127,7 +127,8 @@ internal sealed record HelpData(string Usage, List<string> Commands);
 internal sealed record HookInput(string? Cwd,
                                  [property: JsonPropertyName("turn_id")] string? TurnId,
                                  [property: JsonPropertyName("transcript_path")] string? TranscriptPath,
-                                 string? Prompt);
+                                 string? Prompt,
+                                 [property: JsonPropertyName("permission_mode")] string? PermissionMode = null);
 
 internal sealed record HookBlockOutput(string Decision, string Reason);
 

@@ -18,7 +18,7 @@ internal static class HookService
             if (string.IsNullOrWhiteSpace(eventData.Cwd)) return 0;
             var workspace = RepositoryPaths.CanonicalWorkspaceRoot(eventData.Cwd);
             var prompt = eventData.Prompt ?? string.Empty;
-            var mode = "unknown";
+            var mode = ModeFromPermission(eventData.PermissionMode) ?? "unknown";
             var transcriptPath = eventData.TranscriptPath;
             var turnId = eventData.TurnId;
             IReadOnlyList<TranscriptReader.Record>? transcript = null;
@@ -27,7 +27,7 @@ internal static class HookService
                 try
                 {
                     transcript = TranscriptReader.ReadDocument(transcriptPath);
-                    mode = TranscriptReader.ModeForTurn(transcript, turnId);
+                    if (mode == "unknown") mode = TranscriptReader.ModeForTurn(transcript, turnId);
                 }
                 catch { transcript = null; }
             }
@@ -60,4 +60,12 @@ internal static class HookService
     private static bool IsForgeInvocation(string prompt)
         => prompt.Contains("$forge", StringComparison.OrdinalIgnoreCase) ||
            prompt.Contains("$plan-forge-flow:forge", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ModeFromPermission(string? permissionMode)
+        => permissionMode?.ToLowerInvariant() switch
+        {
+            "plan" => "plan",
+            "default" or "acceptedits" or "dontask" or "bypasspermissions" => "default",
+            _ => null
+        };
 }

@@ -341,6 +341,32 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void HookAllowsForgeInvocationWhenPermissionModeIsPlanBeforeTranscriptContainsTurn()
+    {
+        var workspace = CreateTempDirectory();
+        var transcript = Path.Combine(workspace, "transcript.jsonl");
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            File.WriteAllText(transcript, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n");
+            var input = JsonSerializer.Serialize(
+                new HookInput(workspace, "plan-turn", transcript, "$forge Plan this change.", "plan"),
+                Serialization.CodexJsonContext.Default.HookInput);
+
+            Console.SetOut(output);
+            Assert.Equal(0, HookService.Run(input));
+
+            Assert.Equal(string.Empty, output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(oldOut);
+            DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
     public void AmendmentPreservesCritiqueHistory()
     {
         var workspace = CreateTempDirectory();
