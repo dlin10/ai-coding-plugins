@@ -6,6 +6,10 @@ runtime is a typed .NET 10 executable named `planforge`; the supported install
 surface is a repository marketplace containing all supported RID-specific
 executables.
 
+## Workflow
+
+![Plan Forge Flow workflow from planning through implementation and final review](assets/plan-forge-workflow.svg)
+
 ## Requirements
 
 - Codex 0.145 or newer with `multi_agent` enabled

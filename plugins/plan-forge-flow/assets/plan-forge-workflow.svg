@@ -1,14 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="760"
-     height="1120"
-     viewBox="0 0 760 1120"
+     height="1240"
+     viewBox="0 0 760 1240"
      role="img"
      aria-labelledby="title description">
   <title id="title">Plan Forge Flow workflow</title>
   <desc id="description">
-    A top-to-bottom workflow from read-only planning through adversarial plan
-    review, native plan-widget approval, implementation, full code review, and
-    completion. Plan review, material amendments, and accepted fixes form loops.
+    A top-to-bottom workflow from Plan-mode readiness through planning,
+    adversarial plan review, native plan approval, Default-mode materialization,
+    implementation, full code review, and completion. Plan review, material
+    amendments, and accepted fixes form loops.
   </desc>
 
   <defs>
@@ -60,89 +61,97 @@
     }
   </style>
 
-  <rect class="canvas" x="1" y="1" width="758" height="1118" rx="18"/>
+  <rect class="canvas" x="1" y="1" width="758" height="1238" rx="18"/>
   <text class="title" x="380" y="42" text-anchor="middle">Plan Forge Flow</text>
 
   <!-- Main workflow spine -->
-  <path class="edge" d="M 380 150 L 380 200"/>
-  <path class="edge" d="M 380 280 L 380 330"/>
-  <path class="edge" d="M 380 410 L 380 490"/>
-  <path class="edge" d="M 380 570 L 380 640"/>
-  <path class="edge" d="M 380 720 L 380 820"/>
-  <path class="edge" d="M 380 900 L 380 960"/>
+  <path class="edge" d="M 380 150 L 380 190"/>
+  <path class="edge" d="M 380 270 L 380 310"/>
+  <path class="edge" d="M 380 390 L 380 450"/>
+  <path class="edge" d="M 380 530 L 380 590"/>
+  <path class="edge" d="M 380 670 L 380 740"/>
+  <path class="edge" d="M 380 820 L 380 920"/>
+  <path class="edge" d="M 380 1000 L 380 1080"/>
 
   <!-- Act 2 revise loop -->
-  <path class="loop" d="M 560 350 C 655 350, 655 390, 560 390"/>
-  <text class="edge-label" x="625" y="335" text-anchor="middle">REVISE</text>
+  <path class="loop" d="M 560 330 C 655 330, 655 370, 560 370"/>
+  <text class="edge-label" x="625" y="315" text-anchor="middle">REVISE</text>
 
   <!-- Act 3 material-amendment loop -->
-  <path class="loop" d="M 200 682 L 160 682"/>
-  <path class="loop" d="M 90 640 C 90 600, 200 600, 200 655"/>
-  <text class="edge-label" x="92" y="590" text-anchor="middle">MATERIAL AMENDMENT</text>
+  <path class="loop" d="M 200 780 L 160 780"/>
+  <path class="loop" d="M 90 738 C 90 610, 90 350, 200 350"/>
+  <text class="edge-label" x="78" y="570" text-anchor="middle"
+        transform="rotate(-90 78 570)">REPLAN AND REVIEW</text>
 
   <!-- Act 4 accepted-fixes loop -->
-  <path class="loop" d="M 560 840 C 655 840, 655 880, 560 880"/>
-  <text class="edge-label" x="625" y="825" text-anchor="middle">ACCEPTED FIXES</text>
+  <path class="loop" d="M 560 940 C 655 940, 655 980, 560 980"/>
+  <text class="edge-label" x="625" y="925" text-anchor="middle">FIX AND RE-REVIEW</text>
 
   <!-- Completion branches -->
-  <path class="edge" d="M 380 960 C 380 990, 185 975, 185 1015"/>
-  <path class="edge" d="M 380 960 C 380 990, 575 975, 575 1015"/>
-  <text class="edge-label" x="235" y="977" text-anchor="middle">FULL APPROVAL</text>
-  <text class="edge-label" x="525" y="977" text-anchor="middle">RISK ACCEPTED</text>
+  <path class="edge" d="M 380 1080 C 380 1110, 185 1095, 185 1135"/>
+  <path class="edge" d="M 380 1080 C 380 1110, 575 1095, 575 1135"/>
+  <text class="edge-label" x="235" y="1097" text-anchor="middle">FULL APPROVAL</text>
+  <text class="edge-label" x="525" y="1097" text-anchor="middle">RISK ACCEPTED</text>
 
   <!-- Nodes -->
   <g>
     <rect class="node phase" x="200" y="70" width="360" height="80" rx="14"/>
     <text class="node-title" x="380" y="104" text-anchor="middle">Phase 0</text>
-    <text class="node-detail" x="380" y="130" text-anchor="middle">Read-only doctor and model catalog</text>
+    <text class="node-detail" x="380" y="130" text-anchor="middle">Plan-mode doctor and agent readiness</text>
   </g>
 
   <g>
-    <rect class="node plan" x="200" y="200" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="234" text-anchor="middle">Act 1</text>
-    <text class="node-detail" x="380" y="260" text-anchor="middle">Grill and plan</text>
+    <rect class="node plan" x="200" y="190" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="224" text-anchor="middle">Act 1</text>
+    <text class="node-detail" x="380" y="250" text-anchor="middle">Grill and canonical plan</text>
   </g>
 
   <g>
-    <rect class="node review" x="200" y="330" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="364" text-anchor="middle">Act 2</text>
-    <text class="node-detail" x="380" y="390" text-anchor="middle">Adversarial plan review</text>
+    <rect class="node review" x="200" y="310" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="344" text-anchor="middle">Act 2</text>
+    <text class="node-detail" x="380" y="370" text-anchor="middle">Fresh adversarial plan review</text>
   </g>
 
   <g>
-    <rect class="node gate" x="200" y="490" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="524" text-anchor="middle">Native plan widget</text>
-    <text class="node-detail" x="380" y="550" text-anchor="middle">Preview, builder, implementation approval</text>
+    <rect class="node gate" x="200" y="450" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="484" text-anchor="middle">Native plan approval</text>
+    <text class="node-detail" x="380" y="510" text-anchor="middle">Preview and validated builder hold</text>
   </g>
 
   <g>
-    <rect class="node amendment" x="20" y="640" width="140" height="84" rx="14"/>
-    <text class="node-title" x="90" y="671" text-anchor="middle">Fresh</text>
-    <text class="node-detail" x="90" y="696" text-anchor="middle">amendment</text>
-    <text class="node-detail" x="90" y="715" text-anchor="middle">review</text>
+    <rect class="node phase" x="200" y="590" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="624" text-anchor="middle">Default-mode materialization</text>
+    <text class="node-detail" x="380" y="650" text-anchor="middle">Materialize pending plan, lock, and begin</text>
   </g>
 
   <g>
-    <rect class="node build" x="200" y="640" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="674" text-anchor="middle">Act 3</text>
-    <text class="node-detail" x="380" y="700" text-anchor="middle">Persistent builder</text>
+    <rect class="node amendment" x="20" y="738" width="140" height="84" rx="14"/>
+    <text class="node-title" x="90" y="769" text-anchor="middle">Material</text>
+    <text class="node-detail" x="90" y="794" text-anchor="middle">plan</text>
+    <text class="node-detail" x="90" y="813" text-anchor="middle">amendment</text>
   </g>
 
   <g>
-    <rect class="node code-review" x="200" y="820" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="854" text-anchor="middle">Act 4</text>
-    <text class="node-detail" x="380" y="880" text-anchor="middle">Full code review and fixes</text>
+    <rect class="node build" x="200" y="740" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="774" text-anchor="middle">Act 3</text>
+    <text class="node-detail" x="380" y="800" text-anchor="middle">Pinned persistent builder</text>
   </g>
 
   <g>
-    <rect class="node done" x="70" y="1015" width="230" height="76" rx="14"/>
-    <text class="node-title" x="185" y="1050" text-anchor="middle">Done</text>
-    <text class="node-detail" x="185" y="1075" text-anchor="middle">Full-coverage approval</text>
+    <rect class="node code-review" x="200" y="920" width="360" height="80" rx="14"/>
+    <text class="node-title" x="380" y="954" text-anchor="middle">Act 4</text>
+    <text class="node-detail" x="380" y="980" text-anchor="middle">Fresh code reviews and builder fixes</text>
   </g>
 
   <g>
-    <rect class="node risk" x="460" y="1015" width="230" height="76" rx="14"/>
-    <text class="node-title" x="575" y="1050" text-anchor="middle">Done with findings</text>
-    <text class="node-detail" x="575" y="1075" text-anchor="middle">Explicit risk acceptance</text>
+    <rect class="node done" x="70" y="1135" width="230" height="76" rx="14"/>
+    <text class="node-title" x="185" y="1170" text-anchor="middle">Done</text>
+    <text class="node-detail" x="185" y="1195" text-anchor="middle">Full-coverage approval</text>
+  </g>
+
+  <g>
+    <rect class="node risk" x="460" y="1135" width="230" height="76" rx="14"/>
+    <text class="node-title" x="575" y="1170" text-anchor="middle">Done with findings</text>
+    <text class="node-detail" x="575" y="1195" text-anchor="middle">Explicit risk acceptance</text>
   </g>
 </svg>
