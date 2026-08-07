@@ -1,7 +1,7 @@
 {
-  "name": "dlin10-codex-plugins",
+  "name": "dlin10-ai-coding-plugins",
   "interface": {
-    "displayName": "dlin10 Codex Plugins"
+    "displayName": "Dmitry Line AI Coding Plugins"
   },
   "plugins": [
     {
