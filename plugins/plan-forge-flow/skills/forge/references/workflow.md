@@ -49,9 +49,22 @@ planforge build begin --workspace <repo>
 
 `plan materialize` receives stdin JSON with exactly `reviewLog`,
 `completedReviewRounds`, `maxRounds`, `reviewer`, and `builder`; the plan comes
-from the hook-selected pending artifact. For an approved amendment, use the
-same command with `--amendment`, then relock and begin the retained workflow
-with the amendment gates:
+from the hook-selected pending artifact. `reviewLog` is one non-empty string,
+not an array or object. Consolidate all review rounds into that Markdown or
+plain-text string:
+
+```json
+{
+  "reviewLog": "# Plan review log\n\n## Round 1\n- Verdict: APPROVED\n- Coverage: FULL\n",
+  "completedReviewRounds": 1,
+  "maxRounds": 5,
+  "reviewer": { "model": "gpt-5.6-sol", "effort": "high" },
+  "builder": { "model": "gpt-5.6-sol", "effort": "medium" }
+}
+```
+
+For an approved amendment, use the same command with `--amendment`, then
+relock and begin the retained workflow with the amendment gates:
 
 ```text
 planforge plan materialize --workspace <repo> --amendment

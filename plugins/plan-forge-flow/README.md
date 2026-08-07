@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.4.5
+# Plan Forge Flow 0.4.6
 
 Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. The
@@ -101,7 +101,8 @@ stages, with the builder completed before the reviewer is registered.
 bounded stdin keys `reviewLog`, `completedReviewRounds`, `maxRounds`,
 `reviewer`, and `builder`. The hook selects the latest Plan-mode
 `<proposed_plan>` from the current transcript; the caller supplies the review
-metadata and normalized model choices manually.
+metadata and normalized model choices manually. `reviewLog` must be one
+non-empty string containing all review rounds, not an array or object.
 
 Materialized `.forge/state.json` is an unversioned, camelCase DTO document;
 enums are emitted as camelCase strings and unknown or malformed Forge-owned

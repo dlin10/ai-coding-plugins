@@ -40,7 +40,8 @@ self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/
   `<proposed_plan>` block containing the plain canonical plan.
 - In the first Default-mode turn, use the latest plan staged by the hook and run
   `planforge plan materialize --workspace <repo>` with the review metadata on
-  stdin before implementation.
+  stdin before implementation. Encode `reviewLog` as one non-empty string, not
+  as an array or object.
 - Never stage or commit changes from agents. Never hand-edit `.forge/state.json`.
 - A plan revision invalidates the previous preview and builder hold. Close the
   held builder, then repeat preview and free-text builder selection.

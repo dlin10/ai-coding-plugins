@@ -17,7 +17,17 @@ internal static partial class ForgeWorkflow
     {
         var input = JsonInput.Read(Console.In);
         if (Encoding.UTF8.GetByteCount(input) > 2 * 1024 * 1024) throw new CliFailure("usage", "materialization input exceeds the size bound");
-        var request = JsonSerializer.Deserialize(input, ForgeJsonContext.Default.MaterializationRequest) ?? throw new JsonException("JSON value is null");
+        MaterializationRequest request;
+        try
+        {
+            request = JsonSerializer.Deserialize(input, ForgeJsonContext.Default.MaterializationRequest) ?? throw new JsonException("JSON value is null");
+        }
+        catch (JsonException)
+        {
+            throw new CliFailure(
+                "usage",
+                "materialization input must be JSON with reviewLog as a string, completedReviewRounds and maxRounds as integers, and reviewer and builder as model/effort objects");
+        }
         if (string.IsNullOrWhiteSpace(request.ReviewLog)) throw new CliFailure("usage", "materialization input reviewLog must be a non-empty string");
         if (request.CompletedReviewRounds < 0 || request.MaxRounds < 0) throw new CliFailure("usage", "materialization rounds must be non-negative integers");
         var pending = PendingPlan.Read(context.Workspace);

@@ -165,6 +165,46 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void HookStagesPlanWhileTranscriptIsOpenForWriting()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var workspace = CreateTempDirectory();
+        var data = CreateTempDirectory();
+        var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
+            var transcript = Path.Combine(workspace, "transcript.jsonl");
+            var plan = "# Plan\n\n## Approach\n1. Implement the slice.\n";
+            File.WriteAllText(transcript,
+                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n");
+            var input = JsonSerializer.Serialize(
+                new HookInput(workspace, "implementation-turn", transcript, "Implement the plan."),
+                Serialization.CodexJsonContext.Default.HookInput);
+
+            Console.SetOut(output);
+            using (File.Open(transcript, FileMode.Open, FileAccess.Write, FileShare.Read))
+            {
+                Assert.Equal(0, HookService.Run(input));
+                Assert.Equal(plan, PendingPlan.Read(workspace).Plan);
+            }
+
+            Assert.Contains("staged the latest proposed plan", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(oldOut);
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
+            DeleteDirectory(workspace);
+            DeleteDirectory(data);
+        }
+    }
+
+    [Fact]
     public void HookAcceptsUtf8BomFromStandardInput()
     {
         var workspace = CreateTempDirectory();
@@ -410,6 +450,36 @@ public sealed class CoreContractTests
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
             DeleteDirectory(workspace);
             DeleteDirectory(data);
+        }
+    }
+
+    [Fact]
+    public void MaterializeReportsReviewLogArrayAsUsageError()
+    {
+        var workspace = CreateTempDirectory();
+        var oldIn = Console.In;
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            InitializeRepository(workspace);
+            Console.SetIn(new StringReader(
+                "{\"reviewLog\":[],\"completedReviewRounds\":3,\"maxRounds\":5," +
+                "\"reviewer\":{\"model\":\"reviewer-model\",\"effort\":\"high\"}," +
+                "\"builder\":{\"model\":\"builder-model\",\"effort\":\"medium\"}}"));
+            Console.SetOut(output);
+
+            var exitCode = new CliApplication().Run(["plan", "materialize", "--workspace", workspace]);
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("\"code\":\"usage\"", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("reviewLog as a string", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetIn(oldIn);
+            Console.SetOut(oldOut);
+            DeleteDirectory(workspace);
         }
     }
 

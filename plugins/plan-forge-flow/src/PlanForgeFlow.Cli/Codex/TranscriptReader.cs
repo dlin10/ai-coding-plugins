@@ -26,7 +26,12 @@ internal static class TranscriptReader
         string? turn = null;
         var mode = "unknown";
         var index = 0;
-        foreach (var line in File.ReadLines(canonical))
+        using var stream = new FileStream(canonical,
+                                          FileMode.Open,
+                                          FileAccess.Read,
+                                          FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        while (reader.ReadLine() is { } line)
         {
             if (string.IsNullOrWhiteSpace(line)) { index++; continue; }
             try
