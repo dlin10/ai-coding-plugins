@@ -1,0 +1,13 @@
+{
+  "name": "ai-coding-plugins",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate:plugins": "node scripts/validate-plugins.mjs",
+    "test:roslyn-hooks": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/roslyn-mcp/scripts/test-roslyn-hooks.ps1"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

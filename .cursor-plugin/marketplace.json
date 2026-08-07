@@ -1,0 +1,13 @@
+{
+  "name": "dlin10-ai-coding-plugins",
+  "owner": {
+    "name": "Dmitry Linetsky"
+  },
+  "plugins": [
+    {
+      "name": "roslyn-mcp",
+      "source": "./plugins/roslyn-mcp",
+      "description": "Roslyn MCP for Visual Studio — per-repository ports and live Roslyn workspace access for Codex, Claude Code, and Cursor."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "functions.exec|shell_command|exec_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"$PLUGIN_ROOT/hooks/roslyn-grep-nudge.ps1\" -HostKind codex",
+            "commandWindows": "& \"$env:PLUGIN_ROOT\\hooks\\roslyn-grep-nudge.ps1\" -HostKind codex"
+          }
+        ]
+      }
+    ]
+  }
+}

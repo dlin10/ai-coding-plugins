@@ -1,0 +1,54 @@
+name: Build Roslyn MCP extension
+
+on:
+  push:
+    paths:
+      - 'plugins/roslyn-mcp/extension/**'
+      - 'plugins/roslyn-mcp/assets/**'
+      - '.github/workflows/build-roslyn-mcp.yml'
+  pull_request:
+    paths:
+      - 'plugins/roslyn-mcp/extension/**'
+      - 'plugins/roslyn-mcp/assets/**'
+      - '.github/workflows/build-roslyn-mcp.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build Release VSIX
+        run: msbuild plugins/roslyn-mcp/extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
+      - name: Audit standalone server packages
+        shell: pwsh
+        run: |
+          $project = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server/RoslynMcpExtension.Server.csproj'
+          $output = dotnet list $project package --vulnerable --include-transitive
+          $output | Write-Host
+          if ($output -match 'has the following vulnerable packages') { exit 1 }
+      - name: Verify bundled VSIX version
+        shell: pwsh
+        run: |
+          $sourcePath = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension/source.extension.vsixmanifest'
+          $vsixPath = 'plugins/roslyn-mcp/assets/RoslynMcpExtension.vsix'
+          [xml] $source = Get-Content -Raw $sourcePath
+          $sourceVersion = $source.SelectSingleNode("//*[local-name()='Identity']").Version
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($vsixPath)
+          try {
+            $entry = $archive.Entries | Where-Object FullName -eq 'extension.vsixmanifest'
+            if ($null -eq $entry) { throw 'Bundled VSIX has no extension.vsixmanifest.' }
+            $reader = [System.IO.StreamReader]::new($entry.Open())
+            try { [xml] $bundled = $reader.ReadToEnd() } finally { $reader.Dispose() }
+          }
+          finally { $archive.Dispose() }
+          $bundledVersion = $bundled.SelectSingleNode("//*[local-name()='Identity']").Version
+          if ($sourceVersion -ne $bundledVersion) {
+            throw "Bundled VSIX is $bundledVersion but source is $sourceVersion."
+          }

@@ -1,0 +1,38 @@
+name: Validate plugin marketplaces
+
+on:
+  push:
+    paths:
+      - '.agents/plugins/**'
+      - '.claude-plugin/**'
+      - '.cursor-plugin/**'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/validate-plugins.yml'
+  pull_request:
+    paths:
+      - '.agents/plugins/**'
+      - '.claude-plugin/**'
+      - '.cursor-plugin/**'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/validate-plugins.yml'
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run validate:plugins
+      - run: npm run test:roslyn-hooks
