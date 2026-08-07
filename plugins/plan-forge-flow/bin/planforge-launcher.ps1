@@ -18,5 +18,10 @@ if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Plan Forge executable is missing: $executable"
 }
 
-& $executable @args
+if ($MyInvocation.ExpectingInput) {
+    $input | & $executable @args
+}
+else {
+    & $executable @args
+}
 exit $LASTEXITCODE

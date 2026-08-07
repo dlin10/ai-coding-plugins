@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.4.4
+# Plan Forge Flow 0.4.5
 
 Plan Forge Flow is a Codex plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. The

@@ -15,7 +15,7 @@ internal static partial class ForgeWorkflow
 {
     internal static MaterializeData MaterializePlan(CommandContext context)
     {
-        var input = Console.In.ReadToEnd();
+        var input = JsonInput.Read(Console.In);
         if (Encoding.UTF8.GetByteCount(input) > 2 * 1024 * 1024) throw new CliFailure("usage", "materialization input exceeds the size bound");
         var request = JsonSerializer.Deserialize(input, ForgeJsonContext.Default.MaterializationRequest) ?? throw new JsonException("JSON value is null");
         if (string.IsNullOrWhiteSpace(request.ReviewLog)) throw new CliFailure("usage", "materialization input reviewLog must be a non-empty string");

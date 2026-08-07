@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
@@ -155,6 +157,44 @@ public sealed class CoreContractTests
         }
         finally
         {
+            Console.SetOut(oldOut);
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
+            DeleteDirectory(workspace);
+            DeleteDirectory(data);
+        }
+    }
+
+    [Fact]
+    public void HookAcceptsUtf8BomFromStandardInput()
+    {
+        var workspace = CreateTempDirectory();
+        var data = CreateTempDirectory();
+        var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        var oldIn = Console.In;
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
+            var transcript = Path.Combine(workspace, "transcript.jsonl");
+            var plan = "# Plan\n\n## Approach\n1. Implement the slice.\n";
+            File.WriteAllText(transcript,
+                "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
+                "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n");
+            var input = JsonSerializer.Serialize(
+                new HookInput(workspace, "implementation-turn", transcript, "Implement the plan."),
+                Serialization.CodexJsonContext.Default.HookInput);
+
+            Console.SetIn(new StringReader("\uFEFF" + input));
+            Console.SetOut(output);
+            Assert.Equal(0, Program.Main(["hook", "capture-context"]));
+
+            Assert.Equal(plan, PendingPlan.Read(workspace).Plan);
+            Assert.Contains("staged the latest proposed plan", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetIn(oldIn);
             Console.SetOut(oldOut);
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
             DeleteDirectory(workspace);
@@ -347,6 +387,29 @@ public sealed class CoreContractTests
         {
             Console.SetOut(oldOut);
             DeleteDirectory(workspace);
+        }
+    }
+
+    [Fact]
+    public void MaterializeAcceptsUtf8BomFromStandardInput()
+    {
+        var workspace = CreateTempDirectory();
+        var data = CreateTempDirectory();
+        var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        try
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
+            InitializeRepository(workspace);
+            PendingPlan.Write(workspace, "# Plan\n\n## Approach\n1. Implement the slice.\n");
+
+            Assert.Equal(0, RunMaterialize(workspace, inputPrefix: "\uFEFF"));
+            Assert.True(File.Exists(Path.Combine(workspace, ".forge", "PLAN.md")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
+            DeleteDirectory(workspace);
+            DeleteDirectory(data);
         }
     }
 
@@ -798,12 +861,54 @@ public sealed class CoreContractTests
         Assert.Empty(Directory.EnumerateFiles(project, "*.cs", SearchOption.TopDirectoryOnly));
     }
 
-    private static int RunMaterialize(string workspace, bool amendment = false)
+    [Fact]
+    public void WindowsLauncherForwardsPowerShellPipelineInput()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var pluginRoot = CreateTempDirectory();
+        try
+        {
+            var binDirectory = Path.Combine(pluginRoot, "bin");
+            var rid = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+            var executableDirectory = Path.Combine(binDirectory, rid);
+            Directory.CreateDirectory(executableDirectory);
+            var launcher = Path.Combine(binDirectory, "planforge-launcher.ps1");
+            File.Copy(Path.Combine(FindPluginRoot(), "bin", "planforge-launcher.ps1"), launcher);
+            File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "findstr.exe"),
+                      Path.Combine(executableDirectory, "planforge.exe"));
+
+            var startInfo = new ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.ArgumentList.Add("-NoProfile");
+            startInfo.ArgumentList.Add("-NonInteractive");
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add($"'pipeline-sentinel' | & '{launcher}' pipeline-sentinel");
+
+            using var process = Process.Start(startInfo)!;
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            Assert.True(process.ExitCode == 0, error);
+            Assert.Contains("pipeline-sentinel", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectory(pluginRoot);
+        }
+    }
+
+    private static int RunMaterialize(string workspace, bool amendment = false, string inputPrefix = "")
     {
         var oldIn = Console.In;
         try
         {
-            Console.SetIn(new StringReader(JsonSerializer.Serialize(
+            Console.SetIn(new StringReader(inputPrefix + JsonSerializer.Serialize(
                 new MaterializationRequest(
                     "# Review\n",
                     1,
