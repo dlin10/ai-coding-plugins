@@ -2,6 +2,8 @@
 
 A Visual Studio extension that exposes **semantic C# code analysis** via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), powered by the **live Roslyn workspace** inside Visual Studio.
 
+This extension was inspired by [Roslyn MCP Extension](https://github.com/sailro/RoslynMcpExtension) by Sebastien Lebreton.
+
 Unlike standalone Roslyn MCP servers that create their own `MSBuildWorkspace`, this extension uses Visual Studio's actual `VisualStudioWorkspace` — giving you access to unsaved changes, live diagnostics, and the full compilation state that VS already maintains.
 
 ## MCP Tools

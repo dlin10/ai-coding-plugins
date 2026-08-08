@@ -108,7 +108,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
                 options.ServerInfo = new Implementation
                 {
                     Name = serverName,
-                    Version = "1.3.1"
+                    Version = "1.4.0"
                 };
             })
             .WithHttpTransport(options =>
