@@ -123,10 +123,7 @@ internal sealed record CleanupData(bool Cleaned, bool PurgedAgents);
 
 internal sealed record HelpData(string Usage, List<string> Commands);
 
-internal sealed record HookInput(string? Cwd,
-                                 [property: JsonPropertyName("turn_id")] string? TurnId,
-                                 [property: JsonPropertyName("transcript_path")] string? TranscriptPath,
-                                 string? Prompt);
+internal sealed record HookInput(string? Cwd, [property: JsonPropertyName("transcript_path")] string? TranscriptPath);
 
 internal sealed record HookSpecificOutput(string HookEventName, string AdditionalContext);
 

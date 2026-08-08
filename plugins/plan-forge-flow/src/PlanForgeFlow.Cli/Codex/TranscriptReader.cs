@@ -9,7 +9,7 @@ internal static class TranscriptReader
 {
     private const long MaxTranscriptBytes = 64 * 1024 * 1024;
 
-    internal sealed record Record(string Type, string? TurnId, string? Mode, string? Role, string? Phase, string? Text, string Kind = "other");
+    internal sealed record Record(string Type, string? Mode, string? Role, string? Phase, string? Text, string Kind = "other");
 
     public static IReadOnlyList<Record> ReadDocument(string path)
     {
@@ -23,7 +23,6 @@ internal static class TranscriptReader
         var length = new FileInfo(canonical).Length;
         if (length <= 0 || length > MaxTranscriptBytes) throw new CliFailure("state", "transcript size is invalid", 3);
         var result = new List<Record>();
-        string? turn = null;
         var mode = "unknown";
         var index = 0;
         using var stream = new FileStream(canonical,
@@ -41,17 +40,17 @@ internal static class TranscriptReader
                 var payload = RequireObject(raw.Payload, "record payload is missing");
                 if (type == "session_meta")
                 {
-                    result.Add(new Record(type, turn, mode, null, null, null));
+                    result.Add(new Record(type, mode, null, null, null));
                 }
                 else if (type == "turn_context")
                 {
-                    turn = RequireString(payload, "turn_id", "turn_context has no turn_id");
-                    if (string.IsNullOrWhiteSpace(turn)) throw new FormatException("turn_context has no turn_id");
+                    var turnId = RequireString(payload, "turn_id", "turn_context has no turn_id");
+                    if (string.IsNullOrWhiteSpace(turnId)) throw new FormatException("turn_context has no turn_id");
                     var candidate = payload.TryGetProperty("collaboration_mode", out var collaboration) && collaboration.ValueKind == JsonValueKind.Object
                                     ? OptionalString(collaboration, "mode")
                                     : null;
                     mode = candidate is "plan" or "default" ? candidate : "unknown";
-                    result.Add(new Record(type, turn, mode, null, null, null, "turn"));
+                    result.Add(new Record(type, mode, null, null, null, "turn"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") == "message")
                 {
@@ -68,20 +67,20 @@ internal static class TranscriptReader
                         text.Append(RequireString(item, "text", "message content text is missing"));
                     }
 
-                    result.Add(new Record(type, turn, mode, role, OptionalString(payload, "phase"), text.ToString(), "message"));
+                    result.Add(new Record(type, mode, role, OptionalString(payload, "phase"), text.ToString(), "message"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") is { } activity &&
                          (activity.EndsWith("call", StringComparison.Ordinal) || activity.EndsWith("call_output", StringComparison.Ordinal) || activity == "tool_search_output"))
                 {
-                    result.Add(new Record(type, turn, mode, null, null, null, "tool"));
+                    result.Add(new Record(type, mode, null, null, null, "tool"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") == "reasoning")
                 {
-                    result.Add(new Record(type, turn, mode, null, null, null, "reasoning"));
+                    result.Add(new Record(type, mode, null, null, null, "reasoning"));
                 }
                 else
                 {
-                    result.Add(new Record(type, turn, mode, null, null, null, type == "response_item" ? "unsupported-activity" : "other"));
+                    result.Add(new Record(type, mode, null, null, null, type == "response_item" ? "unsupported-activity" : "other"));
                 }
             }
             catch (Exception error) when (error is not CliFailure)

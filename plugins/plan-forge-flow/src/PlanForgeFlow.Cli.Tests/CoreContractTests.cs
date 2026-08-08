@@ -98,6 +98,36 @@ public sealed class CoreContractTests
     }
 
     [Fact]
+    public void ParsedArgsReadsOptionalAndRequiredPathArrays()
+    {
+        var parsed = ParsedArgs.Parse([
+            "--allow-paths", "[\"src/a.cs\",\"docs/b.md\"]",
+            "--authorized-paths", "[\"existing.txt\"]",
+        ]);
+
+        Assert.Equal(new[] { "src/a.cs", "docs/b.md" }, parsed.GetPathArray("allow-paths"));
+        Assert.Equal(new[] { "existing.txt" }, parsed.GetRequiredPathArray("authorized-paths"));
+        Assert.Empty(ParsedArgs.Parse([]).GetPathArray("allow-paths"));
+        var required = Assert.Throws<CliFailure>(() => ParsedArgs.Parse([]).GetRequiredPathArray("authorized-paths"));
+        Assert.Equal("usage", required.Code);
+        Assert.Equal("--authorized-paths is required", required.Message);
+    }
+
+    [Fact]
+    public void ParsedArgsRejectsMalformedAbsoluteAndTraversalPathArrays()
+    {
+        var malformed = Assert.Throws<CliFailure>(() => ParsedArgs.Parse(["--allow-paths", "{not-json}"]).GetPathArray("allow-paths"));
+        Assert.Contains("--allow-paths must be a JSON array", malformed.Message, StringComparison.Ordinal);
+
+        var absolute = JsonSerializer.Serialize(new[] { Path.GetFullPath("absolute.txt") }, Serialization.ForgeJsonContext.Default.StringArray);
+        var rooted = Assert.Throws<CliFailure>(() => ParsedArgs.Parse(["--allow-paths", absolute]).GetPathArray("allow-paths"));
+        Assert.Equal("--allow-paths must contain bounded relative path strings", rooted.Message);
+
+        var traversal = Assert.Throws<CliFailure>(() => ParsedArgs.Parse(["--allow-paths", "[\"../secret.txt\"]"]).GetPathArray("allow-paths"));
+        Assert.Equal("--allow-paths contains a traversal path", traversal.Message);
+    }
+
+    [Fact]
     public void ForgeReviewRequiresFreshManifestBeforeReviewDispatch()
     {
         var workspace = CreateTempDirectory();
@@ -136,7 +166,7 @@ public sealed class CoreContractTests
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n" +
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"follow-up-plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "follow-up-plan-turn", transcript, "Refine the plan."),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
             input = input[..^1] + ",\"permission_mode\":\"" + permissionMode + "\",\"future_hook_field\":true}";
 
@@ -183,7 +213,7 @@ public sealed class CoreContractTests
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "implementation-turn", transcript, "Implement the plan."),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
 
             Console.SetOut(output);
@@ -222,7 +252,7 @@ public sealed class CoreContractTests
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n" +
                 "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"<proposed_plan>\\n" + JsonEncoded(plan) + "</proposed_plan>\"}]}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "implementation-turn", transcript, "Implement the plan."),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
 
             Console.SetIn(new StringReader("\uFEFF" + input));
@@ -415,8 +445,9 @@ public sealed class CoreContractTests
         {
             File.WriteAllText(transcript, "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"default-turn\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "default-turn", transcript, prompt),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
+            input = input[..^1] + ",\"turn_id\":\"default-turn\",\"prompt\":\"" + JsonEncoded(prompt) + "\"}";
 
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
@@ -496,9 +527,9 @@ public sealed class CoreContractTests
                 "{\"type\":\"session_meta\",\"payload\":{\"id\":\"session\"}}\n" +
                 "{\"type\":\"turn_context\",\"payload\":{\"turn_id\":\"plan-turn\",\"collaboration_mode\":{\"mode\":\"plan\"}}}\n");
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "plan-turn", transcript, "$forge Plan this change."),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
-            input = input[..^1] + ",\"permission_mode\":\"bypassPermissions\"}";
+            input = input[..^1] + ",\"turn_id\":\"plan-turn\",\"prompt\":\"$forge Plan this change.\",\"permission_mode\":\"bypassPermissions\"}";
 
             Console.SetOut(output);
             Assert.Equal(0, HookService.Run(input));
@@ -528,7 +559,7 @@ public sealed class CoreContractTests
             var transcript = Path.Combine(workspace, "transcript.jsonl");
             File.WriteAllText(transcript, transcriptContent);
             var input = JsonSerializer.Serialize(
-                new HookInput(workspace, "turn", transcript, "Continue."),
+                new HookInput(workspace, transcript),
                 Serialization.CodexJsonContext.Default.HookInput);
 
             Console.SetOut(output);

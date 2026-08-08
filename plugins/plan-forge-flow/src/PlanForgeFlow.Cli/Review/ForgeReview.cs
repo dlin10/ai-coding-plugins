@@ -65,7 +65,7 @@ internal static class ForgeReview
             var baseline = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
             if (baseline.ExitCode != 0) throw new CliFailure("state", $"review prepare requires the pinned baseline ref {reference}", 3);
         }
-        var allowPaths = ReviewDecisionReader.ParsePathArray(parsed.Get("allow-paths"), "allow-paths");
+        var allowPaths = parsed.GetPathArray("allow-paths");
         if (allowPaths.Count > 0) ForgeWorkflow.RequireAuthorizationNote(parsed);
         var startingFingerprint = ReviewEvidence.TreeFingerprint(workspace, state);
         var stateAllowed = state.Review.AuthorizedPaths
@@ -175,8 +175,7 @@ internal static class ForgeReview
 
     internal static AuthorizationData AuthorizePreexisting(CommandContext context)
     {
-        var raw = context.Args.GetRequired("authorized-paths");
-        var paths = ReviewDecisionReader.ParsePathArray(raw, "authorized-paths");
+        var paths = context.Args.GetRequiredPathArray("authorized-paths");
         if (paths.Count > 256) throw new CliFailure("usage", "authorized-paths contains too many entries");
         ForgeWorkflow.RequireAuthorizationNote(context.Args);
         List<string>? combined = null;

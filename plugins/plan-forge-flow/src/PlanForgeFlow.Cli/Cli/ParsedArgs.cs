@@ -1,7 +1,12 @@
+using System.Text;
+using System.Text.Json;
+using PlanForgeFlow.Serialization;
+
 namespace PlanForgeFlow.Cli;
 
 internal sealed class ParsedArgs
 {
+    private const int MaxPathArrayBytes = 256 * 1024;
     private readonly Dictionary<string, string?> _values = new(StringComparer.Ordinal);
 
     private ParsedArgs() { }
@@ -24,6 +29,10 @@ internal sealed class ParsedArgs
 
         return value;
     }
+
+    public List<string> GetPathArray(string name) => ParsePathArray(Get(name), name);
+
+    public List<string> GetRequiredPathArray(string name) => ParsePathArray(GetRequired(name), name);
 
     public static ParsedArgs Parse(IEnumerable<string> args)
     {
@@ -63,5 +72,22 @@ internal sealed class ParsedArgs
 
         parsed.Positionals = positionals;
         return parsed;
+    }
+
+    private static List<string> ParsePathArray(string? raw, string option)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return [];
+        if (Encoding.UTF8.GetByteCount(raw) > MaxPathArrayBytes) throw new CliFailure("usage", $"--{option} exceeds the size bound");
+        string[] paths;
+        try { paths = JsonSerializer.Deserialize(raw, ForgeJsonContext.Default.StringArray) ?? throw new JsonException("JSON value is null"); }
+        catch (Exception error) { throw new CliFailure("usage", $"--{option} must be a JSON array: {error.Message}"); }
+        foreach (var path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path) || path.Length > 4096 || Path.IsPathRooted(path) || path.Contains('\0')) throw new CliFailure("usage", $"--{option} must contain bounded relative path strings");
+            var normalized = path.Replace('\\', '/');
+            if (normalized == ".." || normalized.StartsWith("../", StringComparison.Ordinal)) throw new CliFailure("usage", $"--{option} contains a traversal path");
+        }
+
+        return paths.ToList();
     }
 }

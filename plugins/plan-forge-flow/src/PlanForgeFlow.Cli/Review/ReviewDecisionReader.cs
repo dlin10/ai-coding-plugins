@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Infrastructure.Process;
@@ -9,23 +8,6 @@ namespace PlanForgeFlow.Review;
 
 internal static class ReviewDecisionReader
 {
-    public static List<string> ParsePathArray(string? raw, string option)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return [];
-        if (Encoding.UTF8.GetByteCount(raw) > 256 * 1024) throw new CliFailure("usage", $"--{option} exceeds the size bound");
-        string[] paths;
-        try { paths = JsonSerializer.Deserialize(raw, ForgeJsonContext.Default.StringArray) ?? throw new JsonException("JSON value is null"); }
-        catch (Exception error) { throw new CliFailure("usage", $"--{option} must be a JSON array: {error.Message}"); }
-        foreach (var path in paths)
-        {
-            if (string.IsNullOrWhiteSpace(path) || path.Length > 4096 || Path.IsPathRooted(path) || path.Contains('\0')) throw new CliFailure("usage", $"--{option} must contain bounded relative path strings");
-            var normalized = path.Replace('\\', '/');
-            if (normalized == ".." || normalized.StartsWith("../", StringComparison.Ordinal)) throw new CliFailure("usage", $"--{option} contains a traversal path");
-        }
-
-        return paths.ToList();
-    }
-
     public static (string Verdict, string? Coverage, string Path, string Hash) Read(string critiquePath, string workspace, DispatchStage expectedStage)
     {
         var forgeRoot = Path.Combine(workspace, ".forge");
