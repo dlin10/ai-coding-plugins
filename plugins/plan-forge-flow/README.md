@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.5.0
+# Plan Forge Flow 0.5.1
 
 Plan Forge Flow is a Codex and Cursor plugin for decision-complete planning,
 fresh adversarial review, controlled implementation, and final code review. The
@@ -93,7 +93,7 @@ Options are command-specific:
 
 ```text
 plan lock                  --relock --amendment
-plan stage                 --host cursor --source --run-id --model --effort --cursor-version --observed-model --waiver-reason --accept-risk --authorization-note
+plan stage                 --host cursor --run-id --model --effort --cursor-version --observed-model --waiver-reason --accept-risk --authorization-note + chat draft on stdin
 plan finalize              --host cursor --run-id --model --effort --cursor-version --observed-model --waiver-reason
 plan invalidate            --host cursor --run-id --reason
 plan abandon               --host cursor --run-id
@@ -131,25 +131,36 @@ non-empty string containing all review rounds, not an array or object.
 
 Every new materialized `.forge/state.json` requires `schemaVersion: 1` and a
 persisted `codex` or `cursor` host. Missing, zero, unknown, or future schemas are
-rejected as `unsupported-state-schema` before mutation. Plan Forge Flow 0.5.0
+rejected as `unsupported-state-schema` before mutation. Plan Forge Flow 0.5.x
 does not migrate or resume pre-0.5 state; start a fresh run instead.
 
-Cursor preapproval is a versioned external `PendingRun` under host user data
-(`FORGE_PLUGIN_DATA` overrides its root). It records the exact canonical native
-plan path and full-file hash, reviews, dispatch, model waiver, guarantees, and
-the two-phase materialization transaction. `.forge`, scoped refs, and managed
-exclude state are created only after local Build invokes a successful Cursor
-materialization gate. Matching interrupted materialization is replayable;
-conflicting or unowned artifacts fail without reset. Cleanup never edits or
-deletes the Cursor-owned plan file.
+Cursor preapproval is a schema-v2 external `PendingRun` under host user data
+(`FORGE_PLUGIN_DATA` overrides its root). During review it temporarily stores
+the canonical chat draft; finalization clears that draft and retains review
+responses, dispatch evidence, model waivers, and guarantees. At the first Build
+materialization the CLI discovers the matching safe native plan and stores its
+current text plus a technical hash only inside the replayable transaction.
+`.forge`, scoped refs, and managed exclude state are created only after this
+gate succeeds. Conflicting or unowned artifacts fail without reset. Cleanup
+never edits or deletes the Cursor-owned plan file.
 
 ## Cursor native plan behavior
 
+Cursor keeps the plan in chat while it stages the draft through stdin, runs a
+fresh reviewer automatically, records revisions, and asks separately for the
+implementation model and waiver. After `plan finalize` returns `ready`, Forge
+creates the registered native plan as the terminal action of the same Plan
+turn. Normal flow does not require `/forge resume`; resume is recovery-only for
+an interrupted pending phase. `run doctor --host cursor` rejects any
+pre-existing `.forge` target before this flow begins and never removes or
+migrates that target.
+
 The registered native plan contains exactly one run/workspace HTML marker and a
-visible execution preamble. The marker, preamble, and body are reviewed and
-hashed together. Canonicalization removes one UTF-8 BOM, normalizes CRLF/CR to
-LF, and normalizes the final newline; every other post-review edit invalidates
-approval and requires `/forge resume`, fresh review, and finalization.
+visible materialization preamble. The review log intentionally does not bind
+that file by path or hash, so user edits after review are accepted. The first
+materialization validates and snapshots the current complete native text,
+including Cursor frontmatter; its transaction hash protects atomic replay and
+the resulting `.forge/PLAN.md`, not approval identity.
 
 Cursor 3.15.6 does not expose reliable model/effort override evidence. Every run
 therefore requires explicit consent and records `modelGuarantee=waived`, Cursor

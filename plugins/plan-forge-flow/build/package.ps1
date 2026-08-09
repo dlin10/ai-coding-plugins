@@ -92,12 +92,15 @@ else {
 
 function New-PluginArchive([string]$Bundle, [string]$Archive, [string]$Rid) {
     Add-Type -AssemblyName System.IO.Compression
+    $bundlePrefix = [IO.Path]::GetFullPath($Bundle).TrimEnd([char]92, [char]47) + [IO.Path]::DirectorySeparatorChar
+    $pathComparison = if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     $stream = [IO.File]::Open($Archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
     try {
         $zipArchive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $false)
         try {
             foreach ($file in @(Get-ChildItem -LiteralPath $Bundle -File -Recurse -Force | Sort-Object FullName)) {
-                $relative = [IO.Path]::GetRelativePath($Bundle, $file.FullName).Replace([char]92, [char]47)
+                if (-not $file.FullName.StartsWith($bundlePrefix, $pathComparison)) { throw "Package file escaped bundle root: $($file.FullName)" }
+                $relative = $file.FullName.Substring($bundlePrefix.Length).Replace([char]92, [char]47)
                 $entry = $zipArchive.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
                 $isUnixExecutable = -not $Rid.StartsWith('win-', [StringComparison]::Ordinal) -and ($relative -eq 'plugins/plan-forge-flow/bin/planforge-launcher.sh' -or $relative -eq "plugins/plan-forge-flow/bin/$Rid/planforge")
                 $unixMode = if ($isUnixExecutable) { [uint32]0x81ED } else { [uint32]0x81A4 }

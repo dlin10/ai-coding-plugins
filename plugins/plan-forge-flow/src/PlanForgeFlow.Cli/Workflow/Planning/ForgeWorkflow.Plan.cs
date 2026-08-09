@@ -68,7 +68,8 @@ internal static partial class ForgeWorkflow
                     var reviewLog = string.Join("\n", run.Responses.Select(response => response.Response)); var plannedState = CreateCursorMaterializationState(repository, run, transaction);
                     run = PendingRuns.JournalMaterializationSuccessor(repository, run.RunId, plannedState, repositoryLockHeld: true);
                     PendingRuns.Fault("materialized-successor-journaled");
-                    Materializer.Materialize(repository, run.SourceText, reviewLog, run.ReviewRound, run.ReviewCap, new ModelSelection(transaction.ReviewerModel, transaction.ReviewerEffort), new ModelSelection(transaction.BuilderModel, transaction.BuilderEffort), false, HostKind.Cursor, materializationTransactionId: run.TransactionId, repositoryLockHeld: true, materializationState: plannedState);
+                    var plan = transaction.PlanText ?? throw new CliFailure("state", "Cursor materialization execution snapshot is missing", 3);
+                    Materializer.Materialize(repository, plan, reviewLog, run.ReviewRound, run.ReviewCap, new ModelSelection(transaction.ReviewerModel, transaction.ReviewerEffort), new ModelSelection(transaction.BuilderModel, transaction.BuilderEffort), false, HostKind.Cursor, materializationTransactionId: run.TransactionId, repositoryLockHeld: true, materializationState: plannedState);
                     PendingRuns.Fault("forge-moved-before-reconcile");
                     run = PendingRuns.ReconcileMaterializationState(repository, run.RunId, repositoryLockHeld: true);
                     PendingRuns.Fault("forge-artifacts-written");

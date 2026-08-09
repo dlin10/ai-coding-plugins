@@ -1,7 +1,7 @@
 {
   "name": "plan-forge-flow",
   "displayName": "Plan Forge Flow",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Harden, review, and implement native Cursor plans with explicit advisory approval and reviewer guarantees.",
   "minClientVersions": {
     "cursor": "3.15.6"

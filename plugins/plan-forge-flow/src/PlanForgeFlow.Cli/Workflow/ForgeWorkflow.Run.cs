@@ -30,19 +30,27 @@ internal static partial class ForgeWorkflow
         return null;
     }
     
-    internal static DoctorData Doctor(string workspace)
+    internal static DoctorData Doctor(string workspace, HostKind host)
     {
         var git = ToolCheck("git", ["--version"]);
         if (!git.Ok) return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
+        RepositoryIdentity repository;
         try
         {
-            var repository = RepositoryPaths.Identify(workspace);
-            return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
+            repository = RepositoryPaths.Identify(workspace);
         }
         catch (CliFailure error)
         {
             return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
         }
+
+        var forgeTarget = Path.Combine(repository.WorkspaceRoot, ".forge");
+        if (host == HostKind.Cursor && (Directory.Exists(forgeTarget) || File.Exists(forgeTarget)))
+        {
+            throw new CliFailure("state", "Cursor workspace already contains .forge; inspect and remove or archive the previous Forge run before starting a new run", 3);
+        }
+
+        return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
     }
 
     internal static void Cleanup(string workspace, bool purgeGeneratedAgents, HostKind host = HostKind.Codex)

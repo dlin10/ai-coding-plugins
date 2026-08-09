@@ -205,8 +205,42 @@ function validatePluginManifest(pluginDir, manifestPath, hostKind) {
     }
     const command = join(pluginDir, 'cursor', 'commands', 'forge.md');
     const commandText = existsSync(command) ? readFileSync(command, 'utf8') : '';
-    if (!/\$\{CURSOR_PLUGIN_ROOT\}\/cursor\/skills\/forge\/SKILL\.md/.test(commandText) || !/--host cursor/.test(commandText)) {
-      fail(`${relative(repoRoot, command)}: /forge must route to the Cursor skill and explicit Cursor host`);
+    if (!/\$\{CURSOR_PLUGIN_ROOT\}\/cursor\/skills\/forge\/SKILL\.md/.test(commandText) || !/--host cursor/.test(commandText) || !/`\/forge resume` recovery branch/.test(commandText)) {
+      fail(`${relative(repoRoot, command)}: /forge must route to the Cursor skill, explicit Cursor host, and recovery-only resume branch`);
+    }
+    const skill = join(pluginDir, 'cursor', 'skills', 'forge', 'SKILL.md');
+    const skillText = existsSync(skill) ? readFileSync(skill, 'utf8') : '';
+    if (!/native plan creation is the terminal action/i.test(skillText) || !/normal flow does not require `\/forge resume`/i.test(skillText) || !/does not bind the later native file by path or hash/i.test(skillText)) {
+      fail(`${relative(repoRoot, skill)}: Cursor Forge must declare chat-first review, terminal native creation, and recovery-only resume`);
+    }
+    const workflow = join(pluginDir, 'cursor', 'skills', 'forge', 'references', 'workflow.md');
+    const workflowText = existsSync(workflow) ? readFileSync(workflow, 'utf8') : '';
+    const planningStart = workflowText.indexOf('## 1. Chat planning and automatic review');
+    const recoveryStart = workflowText.indexOf('## 3. `/forge resume` recovery');
+    const buildStart = workflowText.indexOf('## 4. Local Build');
+    if (!(planningStart >= 0 && planningStart < recoveryStart && recoveryStart < buildStart)) {
+      fail(`${relative(repoRoot, workflow)}: Cursor workflow must put normal chat-first flow before recovery and Build`);
+    } else {
+      const normalFlow = workflowText.slice(planningStart, recoveryStart);
+      const chatPlan = normalFlow.indexOf('Show the complete chat plan');
+      const stage = normalFlow.indexOf('planforge plan stage');
+      const reviewerDispatch = normalFlow.indexOf('fresh `forge-reviewer`');
+      const record = normalFlow.indexOf('review record-response');
+      const builderQuestion = normalFlow.indexOf('Ask separately for the implementation builder model and effort');
+      const finalize = normalFlow.indexOf('planforge plan finalize');
+      const ready = normalFlow.indexOf('successful `ready` result', finalize);
+      const nativeCreation = normalFlow.indexOf('Create the registered editable native `.plan.md`', ready);
+      if (!(chatPlan >= 0 && chatPlan < stage && stage < reviewerDispatch && reviewerDispatch < record && record < builderQuestion && builderQuestion < finalize && finalize < ready && ready < nativeCreation)) {
+        fail(`${relative(repoRoot, workflow)}: normal flow must order chat display, stage, fresh review, response recording, builder question, finalize, ready, and native creation`);
+      }
+      if (!/Native creation is the terminal action/.test(normalFlow.slice(nativeCreation)) || /planforge (?:plan stage|review record-response|plan finalize)/.test(normalFlow.slice(nativeCreation))) {
+        fail(`${relative(repoRoot, workflow)}: native plan creation must be the terminal normal-flow action`);
+      }
+    }
+    const nativeContract = join(pluginDir, 'cursor', 'skills', 'forge', 'references', 'native-plan-contract.md');
+    const nativeContractText = existsSync(nativeContract) ? readFileSync(nativeContract, 'utf8') : '';
+    if (!/Before any repository write, run Plan Forge `plan materialize/.test(nativeContractText) || !/using the installed launcher/.test(nativeContractText) || /not build-ready until `\/forge resume`/.test(nativeContractText) || /using the installed launcher at/i.test(nativeContractText)) {
+      fail(`${relative(repoRoot, nativeContract)}: native preamble must contain the materialize gate without a resume gate or launcher-path substitution`);
     }
   }
 }

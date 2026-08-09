@@ -26,19 +26,17 @@ internal enum PendingRunPhase
 internal sealed record CursorModelWaiver(string Role, string Model, string Effort, string CursorVersion, string Observed, string Consent, string Timestamp, string ModelGuarantee = "waived");
 internal sealed record CursorReviewResponse(string DispatchId, string Stage, string Verdict, string Hash, string Response, string Timestamp);
 internal sealed record CursorCapAudit(int PreviousCap, int NewCap, string AuthorizationNote, string Timestamp);
-internal sealed record MaterializationTransaction(string Id, string RunId, string ScopeId, string SourceHash, string PlanHash, string ReviewHash, string ReviewerModel, string ReviewerEffort, string BuilderModel, string BuilderEffort, string[] ExpectedRefs, string[] ExpectedArtifacts, string Timestamp, string? StateHash = null, string? StatePhase = null, string? SuccessorStateHash = null, string? SuccessorStatePhase = null);
+internal sealed record MaterializationTransaction(string Id, string RunId, string ScopeId, string? PlanText, string PlanHash, string ReviewHash, string ReviewerModel, string ReviewerEffort, string BuilderModel, string BuilderEffort, string[] ExpectedRefs, string[] ExpectedArtifacts, string Timestamp, string? StateHash = null, string? StatePhase = null, string? SuccessorStateHash = null, string? SuccessorStatePhase = null);
 internal sealed record PendingRun
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersionValue { get; init; } = SchemaVersion;
     public HostKind Host { get; init; } = HostKind.Cursor;
     public string Workspace { get; init; } = string.Empty;
     public string ScopeId { get; init; } = string.Empty;
     public string RunId { get; init; } = string.Empty;
-    public string SourcePath { get; init; } = string.Empty;
-    public string SourceText { get; init; } = string.Empty;
-    public string SourceHash { get; init; } = string.Empty;
+    public string? DraftText { get; init; }
     public PendingRunPhase Phase { get; init; } = PendingRunPhase.Reviewing;
     public int ReviewRound { get; init; }
     public int ReviewCap { get; init; } = 5;
@@ -62,18 +60,14 @@ internal static class PendingRuns
     private static readonly Regex SafeIdentity = new("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", RegexOptions.CultureInvariant);
 
     public static string PathFor(RepositoryIdentity repository, string runId) => Path.Combine(DataRoot(), "cursor-runs", RepositoryPaths.ScopeId(repository), Hashing.Sha256Hex(runId) + ".json");
-    public static PendingRun Stage(RepositoryIdentity repository, string source, string runId, CursorModelWaiver? reviewerWaiver = null, bool acceptRisk = false, string? authorizationNote = null)
+    public static PendingRun Stage(RepositoryIdentity repository, string draftText, string runId, CursorModelWaiver? reviewerWaiver = null, bool acceptRisk = false, string? authorizationNote = null)
     {
         using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor);
         ValidateRunId(runId);
-        var path = CanonicalSource(repository, source);
-        var text = Canonical(File.ReadAllText(path, Encoding.UTF8));
-        if (Encoding.UTF8.GetByteCount(text) > 256 * 1024 || SensitiveInput.IsSensitiveContent(text)) throw new CliFailure("usage", "Cursor plan source is invalid");
+        if (string.IsNullOrWhiteSpace(draftText)) throw new CliFailure("usage", "Cursor chat plan is required on stdin");
+        var text = CanonicalText.NormalizePlan(draftText);
+        if (SensitiveInput.IsSensitiveContent(text)) throw new CliFailure("usage", "Cursor chat plan contains withheld sensitive content");
         var scope = RepositoryPaths.ScopeId(repository);
-        var marker = $"<!-- plan-forge-flow:run={runId};workspace={scope} -->";
-        if (Count(text, "<!-- plan-forge-flow:run=") != 1 || !text.Contains(marker, StringComparison.Ordinal)) throw new CliFailure("state", "Cursor plan marker is missing or invalid", 3);
-        var preamble = ExpectedPreamble(repository, runId);
-        if (Count(text, preamble) != 1 || Count(text, marker + "\n" + preamble) != 1) throw new CliFailure("state", "Cursor plan preamble is missing, duplicated, misplaced, or invalid", 3);
         EnsureNoOtherActiveRun(repository, runId);
         var existing = TryLoad(repository, runId);
         if (existing is not null && existing.Phase == PendingRunPhase.RevisionRequired)
@@ -87,18 +81,18 @@ internal static class PendingRuns
                 capAudits = [.. existing.CapAudits, new CursorCapAudit(existing.ReviewCap, reviewCap, authorizationNote, DateTimeOffset.UtcNow.ToString("O"))];
             }
             else if (acceptRisk || authorizationNote is not null) throw new CliFailure("usage", "Cursor review cap authorization is only valid after the cap is reached");
-            var restaged = existing with { SourcePath = path, SourceText = text, SourceHash = Hashing.Sha256Hex(text), Phase = PendingRunPhase.Reviewing, ReviewCap = reviewCap, CapAudits = capAudits, ActiveDispatchId = null, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") };
+            var restaged = existing with { DraftText = text, Phase = PendingRunPhase.Reviewing, ReviewCap = reviewCap, CapAudits = capAudits, ActiveDispatchId = null, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") };
             Write(repository, restaged); return restaged;
         }
-        if (existing is not null && existing.Phase is not (PendingRunPhase.Abandoned or PendingRunPhase.Consumed) && existing.SourceHash == Hashing.Sha256Hex(text)) return existing;
+        if (existing is not null && existing.Phase is not (PendingRunPhase.Abandoned or PendingRunPhase.Consumed) && existing.DraftText == text) return existing;
         if (existing is not null && existing.Phase is not (PendingRunPhase.Abandoned or PendingRunPhase.Consumed)) throw new CliFailure("state", "Cursor plan changed; finalize or abandon the existing run first", 3);
         if (reviewerWaiver is null) throw new CliFailure("usage", "Cursor stage requires a reviewer model waiver");
         ValidateWaiver(reviewerWaiver, "reviewer");
-        var run = new PendingRun { Workspace = repository.WorkspaceRoot, ScopeId = scope, RunId = runId, SourcePath = path, SourceText = text, SourceHash = Hashing.Sha256Hex(text), ReviewerWaiver = reviewerWaiver };
+        var run = new PendingRun { Workspace = repository.WorkspaceRoot, ScopeId = scope, RunId = runId, DraftText = text, ReviewerWaiver = reviewerWaiver };
         Write(repository, run);
         return run;
     }
-    public static PendingRun Load(RepositoryIdentity repository, string runId) => TryLoad(repository, runId) ?? throw new CliFailure("state", "no Cursor pending run exists", 3);
+    public static PendingRun Load(RepositoryIdentity repository, string runId) => TryLoad(repository, runId) ?? throw new CliFailure("state", "no Cursor pending run exists; return to Cursor Plan Mode and start a new /forge run", 3);
     public static PendingRun Record(RepositoryIdentity repository, string runId, string dispatchId, string stage, string response)
     {
         using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor);
@@ -146,20 +140,33 @@ internal static class PendingRuns
         if (run.Phase != PendingRunPhase.ReviewApproved || builderWaiver is null) throw new CliFailure("state", "Cursor plan is not review-approved or builder waiver is missing", 3);
         var reviewerWaiver = run.ReviewerWaiver ?? throw new CliFailure("state", "Cursor reviewer waiver is missing", 3);
         ValidateWaiver(builderWaiver, "builder");
-        ValidateRecordedSource(repository, run);
-        var current = Canonical(File.ReadAllText(run.SourcePath, Encoding.UTF8));
-        if (!string.Equals(Hashing.Sha256Hex(current), run.SourceHash, StringComparison.Ordinal)) throw new CliFailure("state", "Cursor plan changed after review", 3);
-        CanonicalText.ParseTasks(current);
+        var draft = run.DraftText ?? throw new CliFailure("state", "Cursor reviewed chat plan is unavailable; abandon and restart the run", 3);
+        CanonicalText.ParseTasks(draft);
         ModelSelections.Validate("reviewer", reviewerWaiver.Model, reviewerWaiver.Effort);
         ModelSelections.Validate("builder", builderWaiver.Model, builderWaiver.Effort);
-        if (SensitiveInput.IsSensitiveContent(current)) throw new CliFailure("usage", "plan contains withheld sensitive content");
+        if (SensitiveInput.IsSensitiveContent(draft)) throw new CliFailure("usage", "plan contains withheld sensitive content");
         var reviewLog = CanonicalText.NormalizeReviewLog(string.Join("\n", run.Responses.Select(response => response.Response)));
         if (SensitiveInput.IsSensitiveContent(reviewLog)) throw new CliFailure("usage", "review log contains withheld sensitive content");
-        var next = run with { Phase = PendingRunPhase.Ready, BuilderWaiver = builderWaiver, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); return next;
+        var next = run with { Phase = PendingRunPhase.Ready, DraftText = null, BuilderWaiver = builderWaiver, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); return next;
     }
-    public static PendingRun Abandon(RepositoryIdentity repository, string runId) { using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor); var current = Load(repository, runId); if (current.Phase is PendingRunPhase.Materializing or PendingRunPhase.Consumed) throw new CliFailure("state", "Cursor materializing or consumed runs cannot be abandoned", 3); var run = current with { Phase = PendingRunPhase.Abandoned, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, run); return run; }
-    public static PendingRun Invalidate(RepositoryIdentity repository, string runId, string reason) { using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor); if (string.IsNullOrWhiteSpace(reason) || reason.Length > 512) throw new CliFailure("usage", "--reason is required and bounded"); var current = Load(repository, runId); if (current.Phase is PendingRunPhase.Materializing or PendingRunPhase.Consumed or PendingRunPhase.Abandoned) throw new CliFailure("state", "Cursor run cannot be invalidated in its current phase", 3); var run = current with { Phase = PendingRunPhase.RevisionRequired, ActiveDispatchId = null, InvalidationReason = reason, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, run); return run; }
-    public static PendingRun BeginMaterialize(RepositoryIdentity repository, string runId) { using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor); var run = Load(repository, runId); if (run.Phase == PendingRunPhase.Consumed) return run; if (run.Phase == PendingRunPhase.Materializing) { ValidateRecordedSource(repository, run); return run; } if (run.Phase != PendingRunPhase.Ready || run.ReviewerWaiver is null || run.BuilderWaiver is null) throw new CliFailure("state", "Cursor plan is not ready for materialization", 3); ValidateRecordedSource(repository, run); var reviewer = ModelSelections.Validate("reviewer", run.ReviewerWaiver.Model, run.ReviewerWaiver.Effort); var builder = ModelSelections.Validate("builder", run.BuilderWaiver.Model, run.BuilderWaiver.Effort); var id = Hashing.Nonce(); var review = CanonicalText.NormalizeReviewLog(string.Join("\n", run.Responses.Select(response => response.Response))); var refs = new[] { $"refs/plan-forge/{run.ScopeId}/owner", $"refs/plan-forge/{run.ScopeId}/head-base", $"refs/plan-forge/{run.ScopeId}/worktree-base" }; var transaction = new MaterializationTransaction(id, run.RunId, run.ScopeId, run.SourceHash, Hashing.Sha256Hex(run.SourceText), Hashing.Sha256Hex(review), reviewer.Model, reviewer.Effort, builder.Model, builder.Effort, refs, [".materialization-transaction", "PLAN.md", "PLAN-REVIEW-LOG.md", "state.json"], DateTimeOffset.UtcNow.ToString("O")); var next = run with { Phase = PendingRunPhase.Materializing, TransactionId = id, Materialization = transaction, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); Fault("snapshot-written"); return next; }
+    public static PendingRun Abandon(RepositoryIdentity repository, string runId) { using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor); var current = Load(repository, runId); if (current.Phase is PendingRunPhase.Materializing or PendingRunPhase.Consumed) throw new CliFailure("state", "Cursor materializing or consumed runs cannot be abandoned", 3); var run = current with { Phase = PendingRunPhase.Abandoned, DraftText = null, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, run); return run; }
+    public static PendingRun Invalidate(RepositoryIdentity repository, string runId, string reason) { using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor); if (string.IsNullOrWhiteSpace(reason) || reason.Length > 512) throw new CliFailure("usage", "--reason is required and bounded"); var current = Load(repository, runId); if (current.Phase is PendingRunPhase.Ready or PendingRunPhase.Materializing or PendingRunPhase.Consumed or PendingRunPhase.Abandoned) throw new CliFailure("state", "Cursor run cannot be invalidated in its current phase", 3); var run = current with { Phase = PendingRunPhase.RevisionRequired, ActiveDispatchId = null, InvalidationReason = reason, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, run); return run; }
+    public static PendingRun BeginMaterialize(RepositoryIdentity repository, string runId)
+    {
+        using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor);
+        var run = Load(repository, runId);
+        if (run.Phase is PendingRunPhase.Consumed or PendingRunPhase.Materializing) return run;
+        if (run.Phase != PendingRunPhase.Ready || run.ReviewerWaiver is null || run.BuilderWaiver is null) throw new CliFailure("state", "Cursor plan is not ready for materialization", 3);
+        var plan = DiscoverNativePlan(repository, run);
+        var reviewer = ModelSelections.Validate("reviewer", run.ReviewerWaiver.Model, run.ReviewerWaiver.Effort);
+        var builder = ModelSelections.Validate("builder", run.BuilderWaiver.Model, run.BuilderWaiver.Effort);
+        var id = Hashing.Nonce();
+        var review = CanonicalText.NormalizeReviewLog(string.Join("\n", run.Responses.Select(response => response.Response)));
+        var refs = new[] { $"refs/plan-forge/{run.ScopeId}/owner", $"refs/plan-forge/{run.ScopeId}/head-base", $"refs/plan-forge/{run.ScopeId}/worktree-base" };
+        var transaction = new MaterializationTransaction(id, run.RunId, run.ScopeId, plan, Hashing.Sha256Hex(plan), Hashing.Sha256Hex(review), reviewer.Model, reviewer.Effort, builder.Model, builder.Effort, refs, [".materialization-transaction", "PLAN.md", "PLAN-REVIEW-LOG.md", "state.json"], DateTimeOffset.UtcNow.ToString("O"));
+        var next = run with { Phase = PendingRunPhase.Materializing, TransactionId = id, Materialization = transaction, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") };
+        Write(repository, next); Fault("snapshot-written"); return next;
+    }
     public static PendingRun JournalMaterializationSuccessor(RepositoryIdentity repository, string runId, ForgeState successor, bool repositoryLockHeld = false)
     {
         using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(repository, HostKind.Cursor);
@@ -188,7 +195,7 @@ internal static class PendingRuns
         var reconciled = transaction with { StateHash = hash, StatePhase = phase, SuccessorStateHash = null, SuccessorStatePhase = null };
         var next = run with { Materialization = reconciled, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); return next;
     }
-    public static PendingRun Consume(RepositoryIdentity repository, string runId, bool repositoryLockHeld = false) { using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(repository, HostKind.Cursor); var run = Load(repository, runId); var next = run with { Phase = PendingRunPhase.Consumed, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); return next; }
+    public static PendingRun Consume(RepositoryIdentity repository, string runId, bool repositoryLockHeld = false) { using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(repository, HostKind.Cursor); var run = Load(repository, runId); var transaction = run.Materialization is null ? null : run.Materialization with { PlanText = null }; var next = run with { Phase = PendingRunPhase.Consumed, Materialization = transaction, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") }; Write(repository, next); return next; }
     public static void VerifyMaterialization(RepositoryIdentity repository, PendingRun run, bool requireComplete = true)
     {
         var transaction = run.Materialization ?? throw new CliFailure("state", "Cursor materialization transaction is missing", 3);
@@ -227,28 +234,49 @@ internal static class PendingRuns
         catch (CliFailure) { throw; } catch (Exception error) { throw new CliFailure("unsupported-state-schema", error.Message, 3); }
     }
     private static void Write(RepositoryIdentity repository, PendingRun run) { var path = PathFor(repository, run.RunId); OwnershipGuards.EnsureDirectory(System.IO.Path.GetDirectoryName(path)!); DurableFiles.WriteJson(path, run, ForgeJsonContext.Default.PendingRun); }
-    private static string CanonicalSource(RepositoryIdentity repository, string source)
+    private static string DiscoverNativePlan(RepositoryIdentity repository, PendingRun run)
     {
-        var path = Path.GetFullPath(source);
         var cursorHome = Environment.GetEnvironmentVariable("CURSOR_HOME");
         var nativeRoot = Path.GetFullPath(Path.Combine(string.IsNullOrWhiteSpace(cursorHome) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor") : cursorHome, "plans"));
-        var allowedRoot = IsUnder(path, nativeRoot);
+        var roots = new List<string> { nativeRoot };
 #if DEBUG
-        // Unit tests use disposable repository-local plan fixtures. Release builds
-        // accept only Cursor's native plan storage.
-        allowedRoot |= IsUnder(path, repository.WorkspaceRoot);
+        roots.Add(repository.WorkspaceRoot);
 #endif
-        if (!allowedRoot || !path.EndsWith(".plan.md", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) throw new CliFailure("usage", "Cursor plan source must be a regular native plan file");
-        OwnershipGuards.EnsureSafeDirectory(Path.GetDirectoryName(path)!);
-        OwnershipGuards.EnsureRegularFile(path, "Cursor plan source");
-        return path;
+        var runMarker = $"<!-- plan-forge-flow:run={run.RunId};";
+        var matches = new List<string>();
+        var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        foreach (var root in roots.Distinct(pathComparer))
+        {
+            if (!Directory.Exists(root)) continue;
+            OwnershipGuards.EnsureSafeDirectory(root);
+            foreach (var candidate in Directory.EnumerateFiles(root, "*.plan.md", SearchOption.TopDirectoryOnly))
+            {
+                var path = Path.GetFullPath(candidate);
+                if (!IsUnder(path, root)) throw new CliFailure("state", "Cursor native plan path escaped its storage root", 3);
+                OwnershipGuards.EnsureRegularFile(path, "Cursor native plan");
+                var oversized = new FileInfo(path).Length > 256 * 1024;
+                var text = oversized ? ReadPrefix(path, 256 * 1024) : File.ReadAllText(path, Encoding.UTF8);
+                if (!text.Contains(runMarker, StringComparison.Ordinal)) continue;
+                if (oversized) throw new CliFailure("usage", "Cursor native plan exceeds the size bound");
+                matches.Add(CanonicalText.NormalizePlan(text));
+            }
+        }
+        if (matches.Count != 1) throw new CliFailure("state", matches.Count == 0 ? "no Cursor native plan matches this run and workspace marker" : "multiple Cursor native plans match this run and workspace marker", 3);
+        var plan = matches[0];
+        var marker = $"<!-- plan-forge-flow:run={run.RunId};workspace={run.ScopeId} -->";
+        var preamble = ExpectedPreamble(repository, run.RunId);
+        if (Count(plan, "<!-- plan-forge-flow:run=") != 1 || Count(plan, marker) != 1) throw new CliFailure("state", "Cursor native plan marker is missing or invalid", 3);
+        if (Count(plan, preamble) != 1 || Count(plan, marker + "\n" + preamble) != 1) throw new CliFailure("state", "Cursor native plan preamble is missing, duplicated, misplaced, or invalid", 3);
+        if (SensitiveInput.IsSensitiveContent(plan)) throw new CliFailure("usage", "Cursor native plan contains withheld sensitive content");
+        CanonicalText.ParseTasks(plan);
+        return plan;
     }
-    private static void ValidateRecordedSource(RepositoryIdentity repository, PendingRun run) { if (!string.Equals(CanonicalSource(repository, run.SourcePath), run.SourcePath, WorkspacePathPolicy.Comparison)) throw new CliFailure("state", "Cursor plan source path changed", 3); var text = Canonical(File.ReadAllText(run.SourcePath, Encoding.UTF8)); var marker = $"<!-- plan-forge-flow:run={run.RunId};workspace={run.ScopeId} -->"; var preamble = ExpectedPreamble(repository, run.RunId); if (Hashing.Sha256Hex(text) != run.SourceHash || Count(text, marker) != 1 || Count(text, preamble) != 1 || Count(text, marker + "\n" + preamble) != 1) throw new CliFailure("state", "Cursor plan source changed", 3); }
     internal static string ExpectedPreamble(RepositoryIdentity repository, string runId)
         => $"> **Plan Forge execution gate (advisory):** Before any repository write, run Plan Forge `{ExpectedMaterializeCommand(repository, runId)}` using the installed launcher. Stop if it does not succeed. Cursor can bypass this instruction; approval enforcement is advisory.";
     private static string ExpectedMaterializeCommand(RepositoryIdentity repository, string runId)
         => $"plan materialize --host cursor --workspace \"{repository.WorkspaceRoot}\" --run-id \"{runId}\"";
     private static bool IsUnder(string path, string root) => path.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, WorkspacePathPolicy.Comparison);
+    private static string ReadPrefix(string path, int maxChars) { using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true); var buffer = new char[maxChars]; var count = reader.ReadBlock(buffer, 0, buffer.Length); return new string(buffer, 0, count); }
     private static string Canonical(string text) => (text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text).Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n') + "\n";
     private static int Count(string value, string needle) => value.Split(needle, StringSplitOptions.None).Length - 1;
     private static void ValidateRunId(string runId) => ValidateIdentity(runId, "--run-id");
@@ -310,11 +338,11 @@ internal static class PendingRuns
     private static void ValidateLoaded(RepositoryIdentity repository, PendingRun run)
     {
         static CliFailure Unsupported() => new("unsupported-state-schema", "Cursor pending run is malformed or unsupported", 3);
+        static bool IsHash(string value) => value.Length == 64 && value.All(Uri.IsHexDigit);
         if (run.SchemaVersionValue != PendingRun.SchemaVersion || run.Host != HostKind.Cursor || !string.Equals(run.Workspace, repository.WorkspaceRoot, WorkspacePathPolicy.Comparison) || run.ScopeId != RepositoryPaths.ScopeId(repository) || !SafeIdentity.IsMatch(run.RunId)) throw Unsupported();
         if (!Enum.IsDefined(run.Phase) || run.ReviewCap < 1 || run.ReviewRound < 0 || run.ReviewRound > run.ReviewCap || run.Responses.Count(response => response.Stage == "plan") != run.ReviewRound) throw Unsupported();
-        if (run.SourceText != Canonical(run.SourceText) || run.SourceHash.Length != 64 || run.SourceHash.Any(value => !Uri.IsHexDigit(value)) || Hashing.Sha256Hex(run.SourceText) != run.SourceHash || !run.SourcePath.EndsWith(".plan.md", StringComparison.OrdinalIgnoreCase)) throw Unsupported();
-        try { if (!string.Equals(Path.GetFullPath(run.SourcePath), run.SourcePath, WorkspacePathPolicy.Comparison)) throw Unsupported(); }
-        catch (Exception error) when (error is not CliFailure) { throw Unsupported(); }
+        var retainsDraft = run.Phase is PendingRunPhase.Reviewing or PendingRunPhase.RevisionRequired or PendingRunPhase.ReviewApproved;
+        if (retainsDraft != (run.DraftText is not null) || run.DraftText is { } draft && draft != Canonical(draft)) throw Unsupported();
         if (!DateTimeOffset.TryParse(run.CreatedAt, out _) || !DateTimeOffset.TryParse(run.UpdatedAt, out _) || run.ReviewerGuarantee != "advisory" || run.ApprovalGuarantee != "advisory" || run.InvalidationReason is { Length: > 512 }) throw Unsupported();
         if (run.ReviewerWaiver is null || !IsValidWaiver(run.ReviewerWaiver, "reviewer")) throw Unsupported();
         if ((run.Phase is PendingRunPhase.Ready or PendingRunPhase.Materializing or PendingRunPhase.Consumed) && (run.BuilderWaiver is null || !IsValidWaiver(run.BuilderWaiver, "builder"))) throw Unsupported();
@@ -331,11 +359,13 @@ internal static class PendingRuns
         }
         if (run.ReviewCap != expectedCap) throw Unsupported();
         var hasTransaction = run.TransactionId is not null && run.Materialization is not null;
-        if ((run.TransactionId is null) != (run.Materialization is null) || (run.Phase is PendingRunPhase.Materializing or PendingRunPhase.Consumed) && !hasTransaction) throw Unsupported();
+        if ((run.TransactionId is null) != (run.Materialization is null) || (run.Phase is PendingRunPhase.Materializing or PendingRunPhase.Consumed) != hasTransaction) throw Unsupported();
         if (run.Materialization is { } transaction)
         {
             var expectedRefs = new[] { $"refs/plan-forge/{run.ScopeId}/owner", $"refs/plan-forge/{run.ScopeId}/head-base", $"refs/plan-forge/{run.ScopeId}/worktree-base" };
-            if (transaction.Id != run.TransactionId || transaction.RunId != run.RunId || transaction.ScopeId != run.ScopeId || transaction.SourceHash != run.SourceHash || !transaction.ExpectedRefs.SequenceEqual(expectedRefs, StringComparer.Ordinal) || !transaction.ExpectedArtifacts.SequenceEqual([".materialization-transaction", "PLAN.md", "PLAN-REVIEW-LOG.md", "state.json"], StringComparer.Ordinal) || !DateTimeOffset.TryParse(transaction.Timestamp, out _)) throw Unsupported();
+            if (transaction.Id != run.TransactionId || transaction.RunId != run.RunId || transaction.ScopeId != run.ScopeId || !IsHash(transaction.PlanHash) || !IsHash(transaction.ReviewHash) || !transaction.ExpectedRefs.SequenceEqual(expectedRefs, StringComparer.Ordinal) || !transaction.ExpectedArtifacts.SequenceEqual([".materialization-transaction", "PLAN.md", "PLAN-REVIEW-LOG.md", "state.json"], StringComparer.Ordinal) || !DateTimeOffset.TryParse(transaction.Timestamp, out _)) throw Unsupported();
+            if (run.Phase == PendingRunPhase.Materializing && (transaction.PlanText is null || transaction.PlanText != Canonical(transaction.PlanText) || Hashing.Sha256Hex(transaction.PlanText) != transaction.PlanHash)) throw Unsupported();
+            if (run.Phase == PendingRunPhase.Consumed && transaction.PlanText is not null) throw Unsupported();
             if ((transaction.StateHash is null) != (transaction.StatePhase is null) || transaction.StateHash is { } stateHash && (stateHash.Length != 64 || stateHash.Any(value => !Uri.IsHexDigit(value))) || transaction.StatePhase is { } statePhase && statePhase is not ("materialized" or "locked" or "build")) throw Unsupported();
             if ((transaction.SuccessorStateHash is null) != (transaction.SuccessorStatePhase is null) || transaction.SuccessorStateHash is { } successorHash && (successorHash.Length != 64 || successorHash.Any(value => !Uri.IsHexDigit(value))) || transaction.SuccessorStatePhase is { } successorPhase && successorPhase is not ("materialized" or "locked" or "build")) throw Unsupported();
         }

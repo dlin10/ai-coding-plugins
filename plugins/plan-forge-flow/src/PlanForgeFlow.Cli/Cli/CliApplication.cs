@@ -52,7 +52,7 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, context.Host == HostKind.Cursor ? ForgeWorkflow.MaterializeCursorPlan(context) : ForgeWorkflow.MaterializePlan(context), ForgeJsonContext.Default.JsonSuccessMaterializeData);
                     break;
                 case "plan stage":
-                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Stage(RepositoryPaths.Identify(context.Workspace), context.Args.GetRequired("source"), context.Args.GetRequired("run-id"), Waiver(context, "reviewer"), context.Args.Has("accept-risk"), context.Args.Get("authorization-note")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Stage(RepositoryPaths.Identify(context.Workspace), Console.In.ReadToEnd(), context.Args.GetRequired("run-id"), Waiver(context, "reviewer"), context.Args.Has("accept-risk"), context.Args.Get("authorization-note")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan finalize":
                     RequireCursor(context); JsonOutput.Success(command, PendingRuns.Finalize(RepositoryPaths.Identify(context.Workspace), context.Args.GetRequired("run-id"), Waiver(context, "builder")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan abandon":
@@ -90,7 +90,7 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.RegisterSession(context, command.EndsWith("builder", StringComparison.Ordinal) ? ForgeRole.Builder : ForgeRole.Reviewer), ForgeJsonContext.Default.JsonSuccessAgentState);
                     break;
                 case "run doctor":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace), ForgeJsonContext.Default.JsonSuccessDoctorData);
+                    JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace, context.Host), ForgeJsonContext.Default.JsonSuccessDoctorData);
                     break;
                 case "run status":
                     if (context.Host == HostKind.Cursor && !File.Exists(StateStore.StatePath(context.Workspace)))

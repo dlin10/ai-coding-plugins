@@ -14,7 +14,7 @@ internal static class CliCommands
         {
             ["plan lock"] = Define("plan lock", true, "workspace", "relock", "amendment"),
             ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment", "run-id"),
-            ["plan stage"] = Define("plan stage", false, "workspace", "source", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "accept-risk", "authorization-note"),
+            ["plan stage"] = Define("plan stage", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "accept-risk", "authorization-note"),
             ["plan finalize"] = Define("plan finalize", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason"),
             ["plan abandon"] = Define("plan abandon", false, "workspace", "run-id"),
             ["plan invalidate"] = Define("plan invalidate", false, "workspace", "run-id", "reason"),
