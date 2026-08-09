@@ -3,6 +3,7 @@ using PlanForgeFlow.Cli;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.Planning;
+using PlanForgeFlow.Workflow.State;
 
 namespace PlanForgeFlow.Codex;
 
@@ -12,7 +13,7 @@ internal sealed record PendingPlan(string Workspace, string Plan)
     {
         var path = RepositoryPaths.PendingPlanPath(workspace);
         DurableFiles.WriteJson(path,
-                               new PendingPlanDocument(workspace, CanonicalText.NormalizePlan(plan)),
+                               new PendingPlanDocument(ForgeState.SchemaVersion, HostKind.Codex, workspace, CanonicalText.NormalizePlan(plan)),
                                ForgeJsonContext.Default.PendingPlanDocument);
     }
 
@@ -24,7 +25,8 @@ internal sealed record PendingPlan(string Workspace, string Plan)
         {
             OwnershipGuards.EnsureRegularFile(path, "pending Forge plan");
             var value = JsonSerializer.Deserialize(File.ReadAllText(path), ForgeJsonContext.Default.PendingPlanDocument) ?? throw new JsonException("JSON value is null");
-            if (!SameWorkspace(value.Workspace, workspace) || string.IsNullOrWhiteSpace(value.Plan)) throw new FormatException("workspace or plan is missing");
+            if (value.SchemaVersion != ForgeState.SchemaVersion) throw new CliFailure("unsupported-state-schema", "pending Forge plan schemaVersion is unsupported", 3);
+            if (value.Host != HostKind.Codex || !SameWorkspace(value.Workspace, workspace) || string.IsNullOrWhiteSpace(value.Plan)) throw new FormatException("host, workspace, or plan is missing");
             return new PendingPlan(workspace, CanonicalText.NormalizePlan(value.Plan));
         }
         catch (CliFailure) { throw; }

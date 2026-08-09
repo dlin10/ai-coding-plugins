@@ -49,9 +49,9 @@ internal static class CanonicalText
     public static IReadOnlyList<PlanTask> ParseTasks(string plan)
     {
         var normalized = NormalizePlan(plan);
-        var approachStart = normalized.IndexOf("## Approach", StringComparison.OrdinalIgnoreCase);
-        if (approachStart < 0) throw new CliFailure("state", "PLAN.md has no Approach section", 3);
-        var approach = normalized[approachStart..];
+        var approachHeadings = Regex.Matches(normalized, "^## Approach$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+        if (approachHeadings.Count != 1) throw new CliFailure("state", "PLAN.md must contain exactly one ## Approach section", 3);
+        var approach = normalized[(approachHeadings[0].Index + approachHeadings[0].Length)..];
         var nextHeading = Regex.Match(approach, "\\n##\\s+", RegexOptions.CultureInvariant);
         if (nextHeading.Success) approach = approach[..nextHeading.Index];
         var matches = Regex.Matches(approach, "(?ms)^\\s*(\\d+)\\.\\s+(.+?)(?=^\\s*\\d+\\.\\s+|\\z)");

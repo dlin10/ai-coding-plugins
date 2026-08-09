@@ -86,7 +86,6 @@ internal static class ReviewEvidence
     public static string[] PathList(string workspace, IReadOnlyList<string> args, string errorMessage)
         => new GitClient(workspace).NullSeparatedPaths(args, errorMessage)
                                     .Select(NormalizePath)
-                                    .Where(path => !string.Equals(path, ForgeStateLock.FileName, StringComparison.Ordinal))
                                     .Distinct(StringComparer.Ordinal)
                                     .ToArray();
 
@@ -107,12 +106,21 @@ internal static class ReviewEvidence
 
     public static string TreeFingerprint(string workspace, ForgeState state)
     {
-        var paths = PathList(workspace, ["diff", "--name-only", "-z", "refs/plan-forge/head-base", "--", "."], "could not fingerprint the tracked review tree")
+        var scope = state.RepositoryScopeId;
+        var headBase = $"refs/plan-forge/{scope}/head-base";
+        var git = new GitClient(workspace);
+        var head = git.Run(["rev-parse", "HEAD"]);
+        var index = git.Run(["ls-files", "--stage", "-z"]);
+        var cached = git.Run(["diff", "--raw", "-z", "--no-abbrev", "--cached", headBase, "--"]);
+        var worktree = git.Run(["diff", "--raw", "-z", "--no-abbrev", headBase, "--"]);
+        if (head.ExitCode != 0 || index.ExitCode != 0 || cached.ExitCode != 0 || worktree.ExitCode != 0) throw new CliFailure("state", "could not fingerprint Git baseline/index state", 3);
+        var paths = PathList(workspace, ["diff", "--name-only", "-z", $"refs/plan-forge/{scope}/head-base", "--", "."], "could not fingerprint the tracked review tree")
                    .Concat(PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not fingerprint the untracked review tree"))
                    .Concat(BaselineUntracked(state).Keys)
                    .Distinct(StringComparer.Ordinal)
                    .OrderBy(path => path, StringComparer.Ordinal);
         var builder = new StringBuilder();
+        builder.Append("head\0").Append(head.Stdout).Append("index\0").Append(index.Stdout).Append("cached\0").Append(cached.Stdout).Append("worktree\0").Append(worktree.Stdout);
         foreach (var relative in paths)
         {
             ValidatePath(relative);
@@ -125,7 +133,11 @@ internal static class ReviewEvidence
                 continue;
             }
 
-            if ((File.GetAttributes(absolute) & FileAttributes.ReparsePoint) != 0) throw new CliFailure("state", $"review fingerprint path is symlinked: {relative}", 3);
+            if ((File.GetAttributes(absolute) & FileAttributes.ReparsePoint) != 0)
+            {
+                builder.Append("<symlink>").Append(new FileInfo(absolute).LinkTarget ?? string.Empty).Append('\0');
+                continue;
+            }
             builder.Append(Hashing.Sha256File(absolute)).Append('\0');
         }
 

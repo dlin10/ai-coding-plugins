@@ -121,6 +121,11 @@ internal sealed record PinnedSelection(string Model, string Effort);
 internal sealed record BaselineEntry(string Path, string Hash);
 
 internal sealed record CritiqueEntry(string Path, string Hash);
+internal sealed record RunIdentity(string Source, string TransactionId);
+internal sealed record ReviewerGuarantee(string Kind);
+internal sealed record ApprovalGuarantee(string Kind);
+internal sealed record ModelWaiver(string Role, string Reason);
+internal sealed record CursorModelWaiverAudit(string Role, string Model, string Effort, string CursorVersion, string Observed, string Consent, string Timestamp, string ModelGuarantee);
 
 internal sealed record WorkflowState
 {
@@ -147,6 +152,7 @@ internal sealed record AgentState
 {
     public string? BuilderId { get; set; }
     public string? LastBuilderDispatchId { get; set; }
+    public List<string> BuilderIds { get; set; } = [];
     public List<string> ReviewerIds { get; set; } = [];
     public string? LastReviewerId { get; set; }
     public string? LastReviewerDispatchId { get; set; }
@@ -187,9 +193,19 @@ internal sealed record ReviewState
 
 internal sealed record ForgeState
 {
+    public const int SchemaVersion = 1;
     public const int Version = 5;
     public const string Generation = "v4";
 
+    [JsonPropertyName("schemaVersion")]
+    public int SchemaVersionValue { get; set; } = SchemaVersion;
+    public HostKind Host { get; set; } = HostKind.Codex;
+    public string RepositoryScopeId { get; set; } = string.Empty;
+    public RunIdentity? SourceRun { get; set; }
+    public ModelWaiver? ModelWaiver { get; set; }
+    public List<CursorModelWaiverAudit> ModelWaiverAudit { get; set; } = [];
+    public ReviewerGuarantee? ReviewerGuarantee { get; set; }
+    public ApprovalGuarantee? ApprovalGuarantee { get; set; }
     public string CreatedAt { get; set; } = string.Empty;
     public string UpdatedAt { get; set; } = string.Empty;
     public WorkflowState Workflow { get; set; } = new();
@@ -199,11 +215,13 @@ internal sealed record ForgeState
     public BaselinesState Baselines { get; set; } = new();
     public ReviewState Review { get; set; } = new();
 
-    public static ForgeState CreateEmpty()
+    public static ForgeState CreateEmpty(HostKind host = HostKind.Codex, string? repositoryScopeId = null)
     {
         var now = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         return new ForgeState
         {
+            Host = host,
+            RepositoryScopeId = repositoryScopeId ?? "000000000000000000000000",
             CreatedAt = now,
             UpdatedAt = now,
         };

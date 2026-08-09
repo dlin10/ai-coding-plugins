@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForgeFlow.Workflow.State;
+using PlanForgeFlow.Cursor;
 
 namespace PlanForgeFlow.Serialization;
 
@@ -16,12 +17,17 @@ namespace PlanForgeFlow.Serialization;
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     WriteIndented = false)]
 [JsonSerializable(typeof(ForgeState))]
+[JsonSerializable(typeof(PendingRun))]
+[JsonSerializable(typeof(CursorCapAudit))]
+[JsonSerializable(typeof(MaterializationTransaction))]
 [JsonSerializable(typeof(PendingPlanDocument))]
 [JsonSerializable(typeof(MaterializationRequest))]
 [JsonSerializable(typeof(ReviewDecision))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(ReviewManifest))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
+[JsonSerializable(typeof(JsonSuccess<PendingRun>))]
+[JsonSerializable(typeof(JsonSuccess<PendingRun?>))]
 [JsonSerializable(typeof(JsonSuccess<MaterializeData>))]
 [JsonSerializable(typeof(JsonSuccess<InstallAgentsData>))]
 [JsonSerializable(typeof(JsonSuccess<DispatchState>))]
@@ -52,7 +58,7 @@ internal sealed partial class ForgeJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(TranscriptEnvelope))]
 internal sealed partial class CodexJsonContext : JsonSerializerContext;
 
-internal sealed record PendingPlanDocument(string Workspace, string Plan);
+internal sealed record PendingPlanDocument(int SchemaVersion, HostKind Host, string Workspace, string Plan);
 
 internal sealed record ModelSelection(string Model, string Effort);
 
@@ -103,7 +109,7 @@ internal sealed record VerdictData(string Action, string Stage, string Verdict, 
 
 internal sealed record ToolCheckData(bool Ok, string? Version, string? Error);
 
-internal sealed record DoctorData(string Workspace, ToolCheckData Git, ToolCheckData Dotnet, bool State);
+internal sealed record DoctorData(string Workspace, ToolCheckData Git, ToolCheckData Dotnet, bool State, string? RepositoryScopeId = null);
 
 internal sealed record StatusMissingData(bool Exists);
 
@@ -117,7 +123,14 @@ internal sealed record StatusPresentData(int Version,
                                          DispatchState Dispatch,
                                          BaselinesState Baselines,
                                          ReviewState Review,
-                                         bool Exists);
+                                         bool Exists,
+                                         int SchemaVersion = ForgeState.SchemaVersion,
+                                         HostKind Host = HostKind.Codex,
+                                         RunIdentity? SourceRun = null,
+                                         List<CursorModelWaiverAudit>? ModelWaiverAudit = null,
+                                         ReviewerGuarantee? ReviewerGuarantee = null,
+                                         ApprovalGuarantee? ApprovalGuarantee = null,
+                                         string? RepositoryScopeId = null);
 
 internal sealed record CleanupData(bool Cleaned, bool PurgedAgents);
 

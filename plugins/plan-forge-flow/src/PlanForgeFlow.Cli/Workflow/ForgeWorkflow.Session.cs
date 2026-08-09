@@ -28,7 +28,12 @@ internal static partial class ForgeWorkflow
             if (role == ForgeRole.Builder)
             {
                 var previous = value.Agents.BuilderId;
-                if (!string.IsNullOrWhiteSpace(previous) && !string.Equals(previous, id, StringComparison.Ordinal)) RequireAuthorizationNote(parsed);
+                if (context.Host == HostKind.Cursor)
+                {
+                    if (value.Agents.BuilderIds.Contains(id, StringComparer.Ordinal)) throw new CliFailure("state", "Cursor builder id has already been used", 3);
+                    value.Agents.BuilderIds.Add(id);
+                }
+                else if (!string.IsNullOrWhiteSpace(previous) && !string.Equals(previous, id, StringComparison.Ordinal)) RequireAuthorizationNote(parsed);
                 value.Agents.BuilderId = id;
                 value.Agents.LastBuilderDispatchId = dispatch.Id;
             }

@@ -1,4 +1,3 @@
-using System.Text;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
@@ -7,32 +6,32 @@ namespace PlanForgeFlow.Workflow.State;
 
 internal sealed class ForgeStateLock : IDisposable
 {
-    internal const string FileName = ".forge.lock";
-
-    private readonly string _path;
-    private readonly string _token;
+    private readonly FileStream _stream;
     private bool _disposed;
 
-    private ForgeStateLock(string path, string token)
+    private ForgeStateLock(FileStream stream)
     {
-        _path = path;
-        _token = token;
+        _stream = stream;
     }
 
     public static ForgeStateLock Acquire(string workspace)
     {
         OwnershipGuards.EnsureSafeDirectory(workspace);
-        var path = Path.Combine(workspace, FileName);
+        var root = Environment.GetEnvironmentVariable("FORGE_LOCK_DATA");
+        root = string.IsNullOrWhiteSpace(root)
+                   ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "plan-forge-flow")
+                   : Path.GetFullPath(root);
+        var locks = Path.Combine(root, "workspace-locks");
+        OwnershipGuards.EnsureDirectory(locks);
+        var canonical = RepositoryPaths.CanonicalWorkspaceRoot(workspace);
+        var key = Hashing.Sha256Hex(OperatingSystem.IsWindows() ? canonical.ToLowerInvariant() : canonical);
+        var path = Path.Combine(locks, key + ".lock");
         EnsureSafeLockPath(path);
-        var token = Hashing.Nonce();
         try
         {
-            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough);
-            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
-            writer.Write(token);
-            writer.Flush();
-            stream.Flush(true);
-            return new ForgeStateLock(path, token);
+            // The lock is the OS handle, not file existence: an abandoned lock file
+            // becomes acquirable after a crash when the kernel releases its handle.
+            return new ForgeStateLock(new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.WriteThrough));
         }
         catch (IOException)
         {
@@ -44,11 +43,7 @@ internal sealed class ForgeStateLock : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        try
-        {
-            if (File.ReadAllText(_path) == _token) File.Delete(_path);
-        }
-        catch { }
+        _stream.Dispose();
     }
 
     private static void EnsureSafeLockPath(string path)

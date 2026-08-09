@@ -1,6 +1,7 @@
 using System.Globalization;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
+using PlanForgeFlow.Cursor;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -11,35 +12,40 @@ namespace PlanForgeFlow.Workflow;
 
 internal static partial class ForgeWorkflow
 {
-    internal static ForgeState BeginBuild(CommandContext context)
+    internal static ForgeState BeginBuild(CommandContext context, bool repositoryLockHeld = false, Action<ForgeState>? beforePersist = null)
     {
         var workspace = context.Workspace;
+        using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(RepositoryPaths.Identify(workspace), context.Host);
         var parsed = context.Args;
         var state = context.RequireState();
         var phase = state.Workflow.Phase;
         if (phase != ForgePhase.Locked) throw new CliFailure("state", $"build begin requires a locked plan (current phase: {phase.ToWireName()})", 3);
         if (state.Dispatch.Pending) throw new CliFailure("state", "a dispatch is already pending", 3);
-        var headRef = "refs/plan-forge/head-base";
-        var worktreeRef = "refs/plan-forge/worktree-base";
+        var scope = state.RepositoryScopeId;
+        if (string.IsNullOrWhiteSpace(scope)) throw new CliFailure("unsupported-state-schema", "Forge state repositoryScopeId is missing", 3);
+        var ownerRef = $"refs/plan-forge/{scope}/owner";
+        var headRef = $"refs/plan-forge/{scope}/head-base";
+        var worktreeRef = $"refs/plan-forge/{scope}/worktree-base";
         var reuseBaseline = parsed.Has("amendment") || parsed.Has("relock");
-        var refsExist = true;
-        foreach (var reference in new[] { headRef, worktreeRef })
+        var existingRefs = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var reference in new[] { ownerRef, headRef, worktreeRef })
         {
             var existing = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
-            if (existing.ExitCode != 0 || string.IsNullOrWhiteSpace(existing.Stdout)) refsExist = false;
+            if (existing.ExitCode == 0 && !string.IsNullOrWhiteSpace(existing.Stdout)) existingRefs[reference] = existing.Stdout.Trim();
         }
-        if (refsExist && !reuseBaseline) throw new CliFailure("state", "Git baseline refs already exist; cleanup the previous run or use amendment relock", 3);
+        var refsExist = existingRefs.Count == 3;
+        var cursorRecovery = context.Host == HostKind.Cursor && existingRefs.Count > 0;
+        if (cursorRecovery && (!existingRefs.TryGetValue(ownerRef, out var owner) || owner != state.Baselines.Head || existingRefs.TryGetValue(headRef, out var existingHead) && existingHead != owner)) throw new CliFailure("state", "Cursor baseline refs conflict with the materialization transaction", 3);
+        if (refsExist && !reuseBaseline && !cursorRecovery) throw new CliFailure("state", "Git baseline refs already exist; cleanup the previous run or use amendment relock", 3);
 
-        var head = refsExist
-                       ? new GitClient(workspace).Run(["rev-parse", headRef])
+        var head = existingRefs.TryGetValue(headRef, out var pinnedHead)
+                       ? new ProcessResult(0, pinnedHead, string.Empty)
                        : new GitClient(workspace).Run(["rev-parse", "HEAD"]);
         if (head.ExitCode != 0 || string.IsNullOrWhiteSpace(head.Stdout)) throw new CliFailure("environment", "could not establish the build HEAD baseline");
         var worktree = head.Stdout.Trim();
-        if (refsExist)
+        if (existingRefs.TryGetValue(worktreeRef, out var pinnedWorktree))
         {
-            var existingWorktree = new GitClient(workspace).Run(["rev-parse", worktreeRef]);
-            if (existingWorktree.ExitCode != 0 || string.IsNullOrWhiteSpace(existingWorktree.Stdout)) throw new CliFailure("state", "the retained worktree baseline ref is invalid", 3);
-            worktree = existingWorktree.Stdout.Trim();
+            worktree = pinnedWorktree;
         }
         else
         {
@@ -51,15 +57,24 @@ internal static partial class ForgeWorkflow
                 var stash = new GitClient(workspace).Run(["stash", "create", "plan-forge-flow baseline"]);
                 if (stash.ExitCode == 0 && !string.IsNullOrWhiteSpace(stash.Stdout)) worktree = stash.Stdout.Trim();
             }
-            foreach (var pair in new[] { (headRef, head.Stdout.Trim()), (worktreeRef, worktree) })
+        }
+        if (!refsExist)
+        {
+            foreach (var pair in new[] { (ownerRef, head.Stdout.Trim(), "baseline-owner-written"), (headRef, head.Stdout.Trim(), "baseline-head-written"), (worktreeRef, worktree, "baseline-worktree-written") })
             {
+                if (existingRefs.TryGetValue(pair.Item1, out var existingValue))
+                {
+                    if (existingValue != pair.Item2) throw new CliFailure("state", $"baseline ref conflicts with the materialization transaction: {pair.Item1}", 3);
+                    continue;
+                }
                 var update = new GitClient(workspace).Run(["update-ref", pair.Item1, pair.Item2]);
                 if (update.ExitCode != 0) throw new CliFailure("environment", $"could not pin Git baseline ref {pair.Item1}: {update.Stderr.Trim()}");
+                if (context.Host == HostKind.Cursor) PendingRuns.Fault(pair.Item3);
             }
         }
 
-        var untracked = refsExist ? state.Baselines.Untracked.ToList() : [];
-        if (!refsExist)
+        var untracked = cursorRecovery || refsExist ? state.Baselines.Untracked.ToList() : [];
+        if (!cursorRecovery && !refsExist)
         {
             var untrackedPaths = ReviewEvidence.PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not record the untracked baseline");
             untracked = ReviewEvidence.BaselineEntries(workspace, untrackedPaths);
@@ -71,7 +86,7 @@ internal static partial class ForgeWorkflow
             current.Baselines.Head = head.Stdout.Trim();
             current.Baselines.Worktree = worktree;
             current.Baselines.Untracked = untracked;
-        });
+        }, beforePersist);
     }
 
     internal static InstallAgentsData InstallAgents()
@@ -135,7 +150,22 @@ internal static partial class ForgeWorkflow
                 RequireAuthorizationNote(parsed);
             }
 
-            state = StateStore.Update(workspace, state, value => value.Dispatch.Retry = retries + 1);
+            state = StateStore.Update(workspace, state, value =>
+            {
+                value.Dispatch.Retry = retries + 1;
+                if (context.Host != HostKind.Cursor) return;
+                value.Dispatch.Id = "dispatch-" + Hashing.Nonce()[..16];
+                if (stage.Definition().Role == ForgeRole.Builder)
+                {
+                    value.Agents.BuilderId = null;
+                    value.Agents.LastBuilderDispatchId = null;
+                }
+                else
+                {
+                    value.Agents.LastReviewerId = null;
+                    value.Agents.LastReviewerDispatchId = null;
+                }
+            });
             return state.Dispatch;
         }
 
@@ -143,7 +173,9 @@ internal static partial class ForgeWorkflow
         if (stage is DispatchStage.FixBuild or DispatchStage.FixReview && state.Review.FixRound >= state.Workflow.MaxFixRounds) throw new CliFailure("state", "fix retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 3);
         if (stage == DispatchStage.Build)
         {
-            foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
+            var scope = state.RepositoryScopeId;
+            if (string.IsNullOrWhiteSpace(scope)) throw new CliFailure("unsupported-state-schema", "Forge state repositoryScopeId is missing", 3);
+            foreach (var reference in new[] { $"refs/plan-forge/{scope}/head-base", $"refs/plan-forge/{scope}/worktree-base" })
             {
                 var baseline = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
                 if (baseline.ExitCode != 0) throw new CliFailure("state", $"build dispatch requires the pinned baseline ref {reference}", 3);

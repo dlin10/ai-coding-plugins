@@ -13,7 +13,11 @@ internal static class CliCommands
         new Dictionary<string, CliCommandDefinition>(StringComparer.Ordinal)
         {
             ["plan lock"] = Define("plan lock", true, "workspace", "relock", "amendment"),
-            ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment"),
+            ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment", "run-id"),
+            ["plan stage"] = Define("plan stage", false, "workspace", "source", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "accept-risk", "authorization-note"),
+            ["plan finalize"] = Define("plan finalize", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason"),
+            ["plan abandon"] = Define("plan abandon", false, "workspace", "run-id"),
+            ["plan invalidate"] = Define("plan invalidate", false, "workspace", "run-id", "reason"),
             ["agents install"] = Define("agents install", false, "workspace"),
             ["build dispatch"] = Define("build dispatch", true, "workspace", "stage", "task-number", "retry", "cancel", "dispatch-id", "model", "effort", "authorization-note", "accept-risk"),
             ["build complete"] = Define("build complete", true, "workspace", "task-number", "dispatch-id", "verification-passed", "authorization-note", "accept-risk"),
@@ -22,6 +26,7 @@ internal static class CliCommands
             ["review prepare"] = Define("review prepare", true, "workspace", "allow-paths", "full", "authorization-note"),
             ["review authorize-preexisting"] = Define("review authorize-preexisting", true, "workspace", "authorized-paths", "authorization-note", "accept-risk"),
             ["review verdict"] = Define("review verdict", true, "workspace", "stage", "critique-file", "accept-risk", "authorization-note"),
+            ["review record-response"] = Define("review record-response", false, "workspace", "run-id", "dispatch-id", "stage"),
             ["session builder"] = Define("session builder", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
             ["session reviewer"] = Define("session reviewer", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
             ["run doctor"] = Define("run doctor", false, "workspace"),
@@ -37,5 +42,5 @@ internal static class CliCommands
     public static bool IsBoolean(string option) => BooleanOptions.Contains(option);
 
     private static CliCommandDefinition Define(string name, bool loadsState, params string[] options)
-        => new(name, options.ToHashSet(StringComparer.Ordinal), loadsState);
+        => new(name, options.Append("host").ToHashSet(StringComparer.Ordinal), loadsState);
 }

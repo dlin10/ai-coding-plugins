@@ -113,6 +113,49 @@ function validatePluginComponents(pluginDir) {
   }
 }
 
+function componentPaths(value) {
+  if (typeof value === 'string') return [value];
+  return Array.isArray(value) ? value : [];
+}
+
+function walkFiles(path) {
+  if (!existsSync(path)) return [];
+  const entries = readdirSync(path, { withFileTypes: true });
+  return entries.flatMap((entry) => {
+    const child = join(path, entry.name);
+    return entry.isDirectory() ? walkFiles(child) : [child];
+  });
+}
+
+function validateDeclaredComponents(pluginDir, manifest, manifestPath) {
+  for (const [kind, value] of Object.entries({
+    skills: manifest.skills,
+    commands: manifest.commands,
+    agents: manifest.agents,
+  })) {
+    for (const declaredPath of componentPaths(value)) {
+      const normalized = declaredPath.replace(/^\.\//, '');
+      if (!assertRelativePath(normalized, `${relative(repoRoot, manifestPath)} ${kind}`)) continue;
+      const absolute = join(pluginDir, normalized);
+      if (!existsSync(absolute)) {
+        fail(`${relative(repoRoot, manifestPath)}: ${kind} path not found: ${declaredPath}`);
+        continue;
+      }
+      const candidates = walkFiles(absolute);
+      for (const file of candidates) {
+        const name = file.split(/[\\/]/).at(-1);
+        if (kind === 'skills' && name === 'SKILL.md') {
+          hasFrontmatter(readFileSync(file, 'utf8'), relative(repoRoot, file));
+        } else if (kind === 'commands' && /\.(md|mdc|markdown|txt)$/i.test(name)) {
+          hasFrontmatter(readFileSync(file, 'utf8'), relative(repoRoot, file), { requireName: false });
+        } else if (kind === 'agents' && /\.md$/i.test(name)) {
+          hasFrontmatter(readFileSync(file, 'utf8'), relative(repoRoot, file));
+        }
+      }
+    }
+  }
+}
+
 function validatePluginManifest(pluginDir, manifestPath, hostKind) {
   const manifest = readJson(manifestPath);
   if (!manifest) return;
@@ -138,6 +181,34 @@ function validatePluginManifest(pluginDir, manifestPath, hostKind) {
   }
 
   validatePluginComponents(pluginDir);
+  validateDeclaredComponents(pluginDir, manifest, manifestPath);
+
+  if (hostKind === 'cursor' && manifest.name === 'plan-forge-flow') {
+    if (manifest.minClientVersions?.cursor !== '3.15.6') {
+      fail(`${relative(repoRoot, manifestPath)}: Plan Forge Flow requires minClientVersions.cursor 3.15.6`);
+    }
+    if (manifest.hooks) {
+      fail(`${relative(repoRoot, manifestPath)}: Cursor Plan Forge Flow must not use hooks as an enforcement boundary`);
+    }
+    const reviewer = join(pluginDir, 'cursor', 'agents', 'forge-reviewer.md');
+    const reviewerText = existsSync(reviewer) ? readFileSync(reviewer, 'utf8') : '';
+    if (!/^model:\s*inherit\s*$/m.test(reviewerText) || !/^readonly:\s*true\s*$/m.test(reviewerText)) {
+      fail(`${relative(repoRoot, reviewer)}: reviewer must declare model: inherit and readonly: true`);
+    }
+    if (!/ABSOLUTELY DO NOT mutate anything\./.test(reviewerText) || !/only an intent flag in Cursor/.test(reviewerText)) {
+      fail(`${relative(repoRoot, reviewer)}: reviewer must state the advisory no-mutation contract`);
+    }
+    const builder = join(pluginDir, 'cursor', 'agents', 'forge-builder.md');
+    const builderText = existsSync(builder) ? readFileSync(builder, 'utf8') : '';
+    if (!/^model:\s*inherit\s*$/m.test(builderText) || !/^readonly:\s*false\s*$/m.test(builderText) || !/exactly the one locked plan step or one bounded fix-list/.test(builderText)) {
+      fail(`${relative(repoRoot, builder)}: builder must be foreground, writable, inherited-model, and single-dispatch`);
+    }
+    const command = join(pluginDir, 'cursor', 'commands', 'forge.md');
+    const commandText = existsSync(command) ? readFileSync(command, 'utf8') : '';
+    if (!/\$\{CURSOR_PLUGIN_ROOT\}\/cursor\/skills\/forge\/SKILL\.md/.test(commandText) || !/--host cursor/.test(commandText)) {
+      fail(`${relative(repoRoot, command)}: /forge must route to the Cursor skill and explicit Cursor host`);
+    }
+  }
 }
 
 const KEBAB_CASE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;

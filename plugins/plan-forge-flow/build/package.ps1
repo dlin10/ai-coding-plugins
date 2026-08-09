@@ -11,7 +11,9 @@ $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
 $project = Join-Path $pluginRoot 'src/PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
+$cursorMetadata = Get-Content (Join-Path $pluginRoot '.cursor-plugin/plugin.json') -Raw | ConvertFrom-Json
 $version = $metadata.version
+if ($cursorMetadata.version -ne $version) { throw "Codex and Cursor manifest versions must match" }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $pluginRoot 'artifacts' }
 $outputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot '..\..'))
@@ -88,6 +90,115 @@ else {
     $null
 }
 
+function New-PluginArchive([string]$Bundle, [string]$Archive, [string]$Rid) {
+    Add-Type -AssemblyName System.IO.Compression
+    $stream = [IO.File]::Open($Archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $zipArchive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $false)
+        try {
+            foreach ($file in @(Get-ChildItem -LiteralPath $Bundle -File -Recurse -Force | Sort-Object FullName)) {
+                $relative = [IO.Path]::GetRelativePath($Bundle, $file.FullName).Replace([char]92, [char]47)
+                $entry = $zipArchive.CreateEntry($relative, [IO.Compression.CompressionLevel]::Optimal)
+                $isUnixExecutable = -not $Rid.StartsWith('win-', [StringComparison]::Ordinal) -and ($relative -eq 'plugins/plan-forge-flow/bin/planforge-launcher.sh' -or $relative -eq "plugins/plan-forge-flow/bin/$Rid/planforge")
+                $unixMode = if ($isUnixExecutable) { [uint32]0x81ED } else { [uint32]0x81A4 }
+                $externalAttributes = [uint32]($unixMode -shl 16)
+                $entry.ExternalAttributes = [BitConverter]::ToInt32([BitConverter]::GetBytes($externalAttributes), 0)
+                $output = $entry.Open()
+                try {
+                    if (-not $Rid.StartsWith('win-', [StringComparison]::Ordinal) -and $relative -eq 'plugins/plan-forge-flow/bin/planforge-launcher.sh') {
+                        $text = [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n").Replace("`r", "`n")
+                        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+                        $output.Write($bytes, 0, $bytes.Length)
+                    }
+                    else {
+                        $input = [IO.File]::OpenRead($file.FullName)
+                        try { $input.CopyTo($output) } finally { $input.Dispose() }
+                    }
+                }
+                finally { $output.Dispose() }
+            }
+        }
+        finally { $zipArchive.Dispose() }
+    }
+    finally { $stream.Dispose() }
+}
+
+function Set-ArchiveUnixOrigin([string]$Archive) {
+    $bytes = [IO.File]::ReadAllBytes($Archive)
+    $minimum = [Math]::Max(0, $bytes.Length - 65557)
+    $end = -1
+    for ($index = $bytes.Length - 22; $index -ge $minimum; $index--) {
+        if ([BitConverter]::ToUInt32($bytes, $index) -eq 0x06054B50) { $end = $index; break }
+    }
+    if ($end -lt 0) { throw "archive has no ZIP end-of-central-directory record: $Archive" }
+    $entryCount = [BitConverter]::ToUInt16($bytes, $end + 10)
+    $position = [int][BitConverter]::ToUInt32($bytes, $end + 16)
+    for ($entryIndex = 0; $entryIndex -lt $entryCount; $entryIndex++) {
+        if ([BitConverter]::ToUInt32($bytes, $position) -ne 0x02014B50) { throw "archive has an invalid central directory: $Archive" }
+        $bytes[$position + 5] = 3
+        $nameLength = [BitConverter]::ToUInt16($bytes, $position + 28)
+        $extraLength = [BitConverter]::ToUInt16($bytes, $position + 30)
+        $commentLength = [BitConverter]::ToUInt16($bytes, $position + 32)
+        $position += 46 + $nameLength + $extraLength + $commentLength
+    }
+    [IO.File]::WriteAllBytes($Archive, $bytes)
+}
+
+function Test-PluginArchive([string]$Archive, [string]$Rid) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zipArchive = [IO.Compression.ZipFile]::OpenRead($Archive)
+    try {
+        foreach ($required in @(
+            '.agents/plugins/marketplace.json',
+            '.cursor-plugin/marketplace.json',
+            'plugins/plan-forge-flow/.codex-plugin/plugin.json',
+            'plugins/plan-forge-flow/.cursor-plugin/plugin.json'
+        )) {
+            if ($null -eq $zipArchive.GetEntry($required)) { throw "archive for $Rid is missing $required" }
+        }
+        if ($Rid.StartsWith('win-', [StringComparison]::Ordinal)) { return }
+        $paths = @(
+            'plugins/plan-forge-flow/bin/planforge-launcher.sh',
+            "plugins/plan-forge-flow/bin/$Rid/planforge"
+        )
+        foreach ($path in $paths) {
+            $entry = $zipArchive.GetEntry($path)
+            if ($null -eq $entry) { throw "archive for $Rid is missing $path" }
+            $attributes = [BitConverter]::ToUInt32([BitConverter]::GetBytes($entry.ExternalAttributes), 0)
+            $mode = ($attributes -shr 16) -band 0x1FF
+            if ($mode -ne 0x1ED) { throw "archive entry $path must have Unix mode 0755; found $([Convert]::ToString($mode, 8))" }
+        }
+        $launcher = $zipArchive.GetEntry('plugins/plan-forge-flow/bin/planforge-launcher.sh')
+        $stream = $launcher.Open()
+        try {
+            $memory = [IO.MemoryStream]::new()
+            try { $stream.CopyTo($memory); $bytes = $memory.ToArray() } finally { $memory.Dispose() }
+        }
+        finally { $stream.Dispose() }
+        if ($bytes -contains 13) { throw "archive launcher for $Rid contains CR bytes" }
+    }
+    finally { $zipArchive.Dispose() }
+
+    if ($Rid.StartsWith('win-', [StringComparison]::Ordinal)) { return }
+
+    $bytes = [IO.File]::ReadAllBytes($Archive)
+    $minimum = [Math]::Max(0, $bytes.Length - 65557)
+    $end = -1
+    for ($index = $bytes.Length - 22; $index -ge $minimum; $index--) {
+        if ([BitConverter]::ToUInt32($bytes, $index) -eq 0x06054B50) { $end = $index; break }
+    }
+    if ($end -lt 0) { throw "archive has no ZIP end-of-central-directory record: $Archive" }
+    $entryCount = [BitConverter]::ToUInt16($bytes, $end + 10)
+    $position = [int][BitConverter]::ToUInt32($bytes, $end + 16)
+    for ($entryIndex = 0; $entryIndex -lt $entryCount; $entryIndex++) {
+        if ($bytes[$position + 5] -ne 3) { throw "archive entry $entryIndex for $Rid is not marked as Unix-created" }
+        $nameLength = [BitConverter]::ToUInt16($bytes, $position + 28)
+        $extraLength = [BitConverter]::ToUInt16($bytes, $position + 30)
+        $commentLength = [BitConverter]::ToUInt16($bytes, $position + 32)
+        $position += 46 + $nameLength + $extraLength + $commentLength
+    }
+}
+
 foreach ($rid in $Rids) {
     $publish = Join-Path $staging "publish-$rid"
     $bundleName = "plan-forge-flow-$version-$rid"
@@ -118,12 +229,13 @@ foreach ($rid in $Rids) {
     }
 
     $bundlePlugin = Join-Path $bundle 'plugins/plan-forge-flow'
-    New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundlePlugin 'bin') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundle '.cursor-plugin'), (Join-Path $bundlePlugin 'bin') | Out-Null
     Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
-    foreach ($directory in @('skills', 'agents', 'assets', 'hooks')) {
+    Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
+    foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks')) {
         Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
     }
-    foreach ($file in @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+    foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $bundlePlugin
     }
     foreach ($launcher in @('planforge-launcher.sh', 'planforge-launcher.ps1')) {
@@ -132,11 +244,6 @@ foreach ($rid in $Rids) {
     $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
     New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
     Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundleRidBin $expectedExecutable)
-    if (-not $rid.StartsWith('win-', [StringComparison]::Ordinal) -and (Get-Command chmod -ErrorAction SilentlyContinue)) {
-        & chmod +x (Join-Path $bundlePlugin 'bin/planforge-launcher.sh')
-        & chmod +x (Join-Path $bundleRidBin $expectedExecutable)
-    }
-
     $marketplace = [ordered]@{
         name = 'plan-forge-flow-bundle'
         interface = [ordered]@{ displayName = 'Plan Forge Flow bundle' }
@@ -151,16 +258,36 @@ foreach ($rid in $Rids) {
     }
     $marketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.agents/plugins/marketplace.json') -Encoding utf8
 
-    if (-not (Test-Path -LiteralPath (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable") -PathType Leaf)) { throw "bundle for $rid does not contain the RID-specific executable" }
-    $zip = Get-Command zip -ErrorAction SilentlyContinue
-    if ($zip) {
-        Push-Location $bundle
-        try { & $zip.Source -q -r $archive '.agents' 'plugins' } finally { Pop-Location }
+    $cursorMarketplace = [ordered]@{
+        name = 'plan-forge-flow-bundle'
+        owner = [ordered]@{ name = 'Dmitry Linetsky' }
+        plugins = @(
+            [ordered]@{
+                name = 'plan-forge-flow'
+                source = './plugins/plan-forge-flow'
+                description = 'Plan hardening, independent advisory review, and stepwise local implementation for Cursor 3.15.6 and newer.'
+            }
+        )
     }
-    else {
-        $archiveEntries = @(Get-ChildItem -LiteralPath $bundle -Force | ForEach-Object FullName)
-        Compress-Archive -Path $archiveEntries -DestinationPath $archive -CompressionLevel Optimal
+    $cursorMarketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.cursor-plugin/marketplace.json') -Encoding utf8
+
+    foreach ($requiredPath in @(
+        (Join-Path $bundlePlugin '.codex-plugin/plugin.json'),
+        (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
+        (Join-Path $bundlePlugin 'cursor/commands/forge.md'),
+        (Join-Path $bundlePlugin 'cursor/skills/forge/SKILL.md'),
+        (Join-Path $bundlePlugin 'cursor/agents/forge-reviewer.md'),
+        (Join-Path $bundlePlugin 'cursor/agents/forge-builder.md'),
+        (Join-Path $bundlePlugin 'hooks/hooks.json'),
+        (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
+        (Join-Path $bundle '.agents/plugins/marketplace.json'),
+        (Join-Path $bundle '.cursor-plugin/marketplace.json')
+    )) {
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) { throw "bundle for $rid is missing $requiredPath" }
     }
+    New-PluginArchive -Bundle $bundle -Archive $archive -Rid $rid
+    if (-not $rid.StartsWith('win-', [StringComparison]::Ordinal)) { Set-ArchiveUnixOrigin -Archive $archive }
+    Test-PluginArchive -Archive $archive -Rid $rid
     Write-Host "created $archive"
 }
 

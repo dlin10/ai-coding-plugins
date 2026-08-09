@@ -1,6 +1,8 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Codex;
+using PlanForgeFlow.Cursor;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -13,7 +15,7 @@ internal static class Materializer
 {
     private const string ExcludeBegin = "# >>> plan-forge-flow (managed) >>>";
     private const string ExcludeEnd = "# <<< plan-forge-flow (managed) <<<";
-    private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ForgeStateLock.FileName + "\n" + ExcludeEnd;
+    private const string ExcludeBlock = ExcludeBegin + "\n.forge/\n" + ExcludeEnd;
 
     public static MaterializeData Materialize(RepositoryIdentity repository,
                                               string humanPlan,
@@ -22,7 +24,12 @@ internal static class Materializer
                                               int maxRounds,
                                               ModelSelection reviewer,
                                               ModelSelection builder,
-                                              bool amendment)
+                                               bool amendment,
+                                               HostKind host = HostKind.Codex,
+                                               Action<ForgeState>? configureState = null,
+                                               string? materializationTransactionId = null,
+                                               bool repositoryLockHeld = false,
+                                               ForgeState? materializationState = null)
     {
         var plan = CanonicalText.NormalizePlan(humanPlan);
         var normalizedReviewLog = CanonicalText.NormalizeReviewLog(reviewLog);
@@ -31,11 +38,20 @@ internal static class Materializer
         var reviewerSelection = ToPinnedSelection("reviewer", reviewer);
         var builderSelection = ToPinnedSelection("builder", builder);
 
+        using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(repository, host);
         using var stateLock = ForgeStateLock.Acquire(repository.WorkspaceRoot);
+        var expectedScope = RepositoryPaths.ScopeId(repository);
+        ForgeState? existingState = null;
+        if (File.Exists(StateStore.StatePath(repository.WorkspaceRoot)))
+        {
+            existingState = StateStore.Load(repository.WorkspaceRoot);
+            if (existingState.Host != host) throw new CliFailure("state", "Forge state host does not match --host", 3);
+            if (existingState.RepositoryScopeId != expectedScope) throw new CliFailure("state", "Forge state repository scope does not match this workspace", 3);
+        }
         ForgeState state;
         if (amendment)
         {
-            state = StateStore.Load(repository.WorkspaceRoot);
+            state = existingState ?? throw new CliFailure("state", "plan materialize --amendment requires existing Forge state", 3);
             ValidateAmendment(state, plan);
             state = state.DeepCopy();
             state.Workflow.Amendment = true;
@@ -46,22 +62,77 @@ internal static class Materializer
         }
         else
         {
-            ResetRun(repository);
-            state = StateStore.CreateEmpty();
+            if (materializationTransactionId is null) ResetRun(repository);
+            state = materializationState?.DeepCopy() ?? StateStore.CreateEmpty(host, expectedScope);
             state.Workflow.Phase = ForgePhase.Materialized;
         }
-
-        var forgeDirectory = Path.Combine(repository.WorkspaceRoot, ".forge");
-        OwnershipGuards.EnsureDirectory(forgeDirectory);
-        DurableFiles.WriteAtomic(Path.Combine(forgeDirectory, "PLAN.md"), plan);
-        DurableFiles.WriteAtomic(Path.Combine(forgeDirectory, "PLAN-REVIEW-LOG.md"), normalizedReviewLog);
 
         state.Workflow.Round = completedRounds;
         state.Workflow.MaxRounds = maxRounds;
         state.Models.Reviewer = reviewerSelection;
         state.Models.Builder = builderSelection;
-        DurableFiles.WriteJson(StateStore.StatePath(repository.WorkspaceRoot), state, ForgeJsonContext.Default.ForgeState);
+        configureState?.Invoke(state);
+        if (state.Host != host) throw new CliFailure("state", "Forge state host does not match --host", 3);
+        state.RepositoryScopeId = expectedScope;
+
+        var finalForgeDirectory = Path.Combine(repository.WorkspaceRoot, ".forge");
+        var forgeDirectory = finalForgeDirectory;
+        if (materializationTransactionId is not null)
+        {
+            if (amendment || host != HostKind.Cursor) throw new CliFailure("state", "transactional materialization is Cursor-only", 3);
+            if (Directory.Exists(finalForgeDirectory) || File.Exists(finalForgeDirectory)) throw new CliFailure("state", "Cursor materialization target already exists", 3);
+            forgeDirectory = Path.Combine(repository.WorkspaceRoot, $".forge.materializing-{materializationTransactionId}");
+            foreach (var candidate in Directory.EnumerateDirectories(repository.WorkspaceRoot, ".forge.materializing-*", SearchOption.TopDirectoryOnly))
+            {
+                if (!string.Equals(candidate, forgeDirectory, WorkspacePathPolicy.Comparison)) throw new CliFailure("state", "another Cursor materialization staging directory exists", 3);
+            }
+            OwnershipGuards.EnsureDirectory(forgeDirectory);
+            var marker = Path.Combine(forgeDirectory, ".materialization-transaction");
+            if (File.Exists(marker))
+            {
+                OwnershipGuards.EnsureRegularFile(marker, "Cursor materialization marker");
+                if (File.ReadAllText(marker) != materializationTransactionId + "\n") throw new CliFailure("state", "Cursor materialization staging marker conflicts", 3);
+                var expected = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [".materialization-transaction"] = materializationTransactionId + "\n",
+                    ["PLAN.md"] = plan,
+                    ["PLAN-REVIEW-LOG.md"] = normalizedReviewLog,
+                    ["state.json"] = JsonSerializer.Serialize(state, ForgeJsonContext.Default.ForgeState) + "\n",
+                };
+                foreach (var entry in Directory.EnumerateFileSystemEntries(forgeDirectory))
+                {
+                    var name = Path.GetFileName(entry);
+                    if (!expected.TryGetValue(name, out var expectedContent) || Directory.Exists(entry)) throw new CliFailure("state", "Cursor materialization staging directory contains an unowned artifact", 3);
+                    OwnershipGuards.EnsureRegularFile(entry, "Cursor materialization staging artifact");
+                    if (File.ReadAllText(entry) != expectedContent) throw new CliFailure("state", $"Cursor materialization staging artifact conflicts: {name}", 3);
+                }
+            }
+            else
+            {
+                if (Directory.EnumerateFileSystemEntries(forgeDirectory).Any()) throw new CliFailure("state", "Cursor materialization staging directory is unowned", 3);
+                DurableFiles.WriteAtomic(marker, materializationTransactionId + "\n");
+            }
+        }
+        else OwnershipGuards.EnsureDirectory(forgeDirectory);
+        DurableFiles.WriteAtomic(Path.Combine(forgeDirectory, "PLAN.md"), plan);
+        if (materializationTransactionId is not null) PendingRuns.Fault("cursor-plan-written");
+        DurableFiles.WriteAtomic(Path.Combine(forgeDirectory, "PLAN-REVIEW-LOG.md"), normalizedReviewLog);
+
+        DurableFiles.WriteJson(Path.Combine(forgeDirectory, "state.json"), state, ForgeJsonContext.Default.ForgeState);
+        PendingRuns.Fault("state-configured");
         UpsertManagedExclude(repository);
+#if DEBUG
+        if (Environment.GetEnvironmentVariable("FORGE_TEST_HOLD_AFTER_EXCLUDE") is { Length: > 0 } holdAfterExclude)
+        {
+            DurableFiles.WriteAtomic(holdAfterExclude, "ready\n");
+            while (File.Exists(holdAfterExclude)) Thread.Sleep(10);
+        }
+#endif
+        if (materializationTransactionId is not null)
+        {
+            PendingRuns.Fault("cursor-state-written");
+            Directory.Move(forgeDirectory, finalForgeDirectory);
+        }
 
         return new MaterializeData(
             amendment ? "forge-amendment-materialized" : "forge-materialized",
@@ -76,16 +147,26 @@ internal static class Materializer
         return new PinnedSelection(valid.Model, valid.Effort);
     }
 
-    public static void Cleanup(string workspace, bool purgeAgents = false)
+    public static void Cleanup(string workspace, bool purgeAgents = false, HostKind host = HostKind.Codex)
     {
         var repository = RepositoryPaths.Identify(workspace);
+        using (RepositoryRunLock.Acquire(repository, host))
         using (ForgeStateLock.Acquire(workspace))
         {
+            var forgeDirectory = Path.Combine(workspace, ".forge");
+            if (Directory.Exists(forgeDirectory))
+            {
+                var statePath = StateStore.StatePath(workspace);
+                if (!File.Exists(statePath)) throw new CliFailure("state", "refusing to remove unowned .forge artifacts", 3);
+                var state = StateStore.Load(workspace);
+                if (state.Host != host) throw new CliFailure("state", "Forge state host does not match --host", 3);
+                if (state.RepositoryScopeId != RepositoryPaths.ScopeId(repository)) throw new CliFailure("state", "Forge state repository scope does not match this workspace", 3);
+            }
             DeleteForgeDirectory(workspace);
+            RemoveBaselineRefs(repository);
             RemoveManagedExclude(repository);
-            RemoveBaselineRefs(workspace);
         }
-        PendingPlan.Delete(workspace);
+        if (host == HostKind.Codex) PendingPlan.Delete(workspace);
 
         if (!purgeAgents) return;
         var agents = RepositoryPaths.AgentsDirectory();
@@ -101,8 +182,8 @@ internal static class Materializer
     private static void ResetRun(RepositoryIdentity repository)
     {
         DeleteForgeDirectory(repository.WorkspaceRoot);
+        RemoveBaselineRefs(repository);
         RemoveManagedExclude(repository);
-        RemoveBaselineRefs(repository.WorkspaceRoot);
     }
 
     private static void DeleteForgeDirectory(string workspace)
@@ -117,9 +198,11 @@ internal static class Materializer
         Directory.Delete(forgeDirectory, recursive: true);
     }
 
-    private static void RemoveBaselineRefs(string workspace)
+    private static void RemoveBaselineRefs(RepositoryIdentity repository)
     {
-        foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
+        var workspace = repository.WorkspaceRoot;
+        var scope = RepositoryPaths.ScopeId(repository);
+        foreach (var reference in new[] { $"refs/plan-forge/{scope}/owner", $"refs/plan-forge/{scope}/head-base", $"refs/plan-forge/{scope}/worktree-base" })
         {
             var existing = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
             if (existing.ExitCode != 0) continue;
@@ -178,8 +261,20 @@ internal static class Materializer
         DurableFiles.WriteAtomic(path, next);
     }
 
+    internal static void VerifyManagedExclude(RepositoryIdentity repository)
+    {
+        ValidateManagedExclude(repository);
+        var path = ExcludePath(repository);
+        if (!File.Exists(path) || !File.ReadAllText(path).Replace("\r\n", "\n").Contains(ExcludeBlock, StringComparison.Ordinal))
+        {
+            throw new CliFailure("state", "Cursor materialization managed exclude is missing", 3);
+        }
+    }
+
     private static void RemoveManagedExclude(RepositoryIdentity repository)
     {
+        var owners = new GitClient(repository.WorkspaceRoot).Run(["for-each-ref", "--format=%(refname)", "refs/plan-forge"]);
+        if (owners.ExitCode == 0 && owners.Stdout.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Any(reference => reference.EndsWith("/owner", StringComparison.Ordinal))) return;
         ValidateManagedExclude(repository);
         var path = ExcludePath(repository);
         if (!File.Exists(path)) return;

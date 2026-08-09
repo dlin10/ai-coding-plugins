@@ -44,6 +44,14 @@ internal static class RepositoryPaths
         return new RepositoryIdentity(workspace, CanonicalPath(common));
     }
 
+    public static string ScopeId(RepositoryIdentity repository)
+    {
+        var common = CanonicalPath(repository.GitCommonDir);
+        var workspace = CanonicalPath(repository.WorkspaceRoot);
+        var value = OperatingSystem.IsWindows() ? $"{common.ToLowerInvariant()}\n{workspace.ToLowerInvariant()}" : $"{common}\n{workspace}";
+        return Hashing.Sha256Hex(value)[..24];
+    }
+
     private static string CanonicalPath(string path)
     {
         var full = Path.GetFullPath(path);

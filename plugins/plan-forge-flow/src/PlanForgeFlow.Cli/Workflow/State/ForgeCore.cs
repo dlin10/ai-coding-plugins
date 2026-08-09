@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Json.Serialization;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Serialization;
 
@@ -7,6 +8,14 @@ namespace PlanForgeFlow.Workflow.State;
 internal sealed record PlanTask(int Number, string Hash, string Text);
 
 internal sealed record RepositoryIdentity(string WorkspaceRoot, string GitCommonDir);
+
+internal enum HostKind
+{
+    [JsonStringEnumMemberName("codex")]
+    Codex,
+    [JsonStringEnumMemberName("cursor")]
+    Cursor,
+}
 
 internal sealed record ProcessResult(int ExitCode, string Stdout, string Stderr);
 

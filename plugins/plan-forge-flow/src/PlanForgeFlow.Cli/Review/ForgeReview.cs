@@ -60,7 +60,8 @@ internal static class ForgeReview
         if (state.Workflow.Phase != ForgePhase.CodeReview) throw new CliFailure("state", "review prepare requires code-review phase", 3);
         var forge = Path.Combine(workspace, ".forge");
         OwnershipGuards.EnsureDirectory(forge);
-        foreach (var reference in new[] { "refs/plan-forge/head-base", "refs/plan-forge/worktree-base" })
+        var scope = state.RepositoryScopeId;
+        foreach (var reference in new[] { $"refs/plan-forge/{scope}/head-base", $"refs/plan-forge/{scope}/worktree-base" })
         {
             var baseline = new GitClient(workspace).Run(["rev-parse", "--verify", reference]);
             if (baseline.ExitCode != 0) throw new CliFailure("state", $"review prepare requires the pinned baseline ref {reference}", 3);
@@ -76,8 +77,8 @@ internal static class ForgeReview
                               .Select(item => item.Replace('\\', '/'))
                               .ToHashSet(StringComparer.Ordinal);
         var allowed = stateAllowed.Concat(sensitiveAllowed).ToHashSet(StringComparer.Ordinal);
-        var preExistingTracked = ReviewEvidence.PathList(workspace, ["diff", "--name-only", "-z", "refs/plan-forge/head-base", "refs/plan-forge/worktree-base", "--", "."], "could not prepare the pre-existing tracked review diff");
-        var inRunTracked = ReviewEvidence.PathList(workspace, ["diff", "--name-only", "-z", "refs/plan-forge/worktree-base", "--", "."], "could not prepare the in-run tracked review diff");
+        var preExistingTracked = ReviewEvidence.PathList(workspace, ["diff", "--name-only", "-z", $"refs/plan-forge/{scope}/head-base", $"refs/plan-forge/{scope}/worktree-base", "--", "."], "could not prepare the pre-existing tracked review diff");
+        var inRunTracked = ReviewEvidence.PathList(workspace, ["diff", "--name-only", "-z", $"refs/plan-forge/{scope}/worktree-base", "--", "."], "could not prepare the in-run tracked review diff");
         var currentUntracked = ReviewEvidence.PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not inspect untracked review files");
         var baselineUntracked = ReviewEvidence.BaselineUntracked(state);
         var currentUntrackedSet = currentUntracked.ToHashSet(StringComparer.Ordinal);
@@ -123,8 +124,8 @@ internal static class ForgeReview
         var withheldPaths = withheld
                            .Select(item => item.Path)
                            .ToHashSet(StringComparer.Ordinal);
-        var headBase = "refs/plan-forge/head-base";
-        var worktreeBase = "refs/plan-forge/worktree-base";
+        var headBase = $"refs/plan-forge/{scope}/head-base";
+        var worktreeBase = $"refs/plan-forge/{scope}/worktree-base";
         var reviewablePreExisting = preExisting.Where(path => !withheldPaths.Contains(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
         var reviewableInRun = inRun.Where(path => !withheldPaths.Contains(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();
         var reviewableUntracked = untrackedEvidence.Where(path => !withheldPaths.Contains(path)).OrderBy(path => path, StringComparer.Ordinal).ToArray();

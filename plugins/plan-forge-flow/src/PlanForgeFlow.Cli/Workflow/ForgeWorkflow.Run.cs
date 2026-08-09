@@ -2,6 +2,7 @@ using System.Globalization;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Infrastructure.Process;
+using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
 using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.Planning;
@@ -30,13 +31,22 @@ internal static partial class ForgeWorkflow
     }
     
     internal static DoctorData Doctor(string workspace)
-        => new(workspace,
-               ToolCheck("git", ["--version"]),
-               ToolCheck("dotnet", ["--version"]),
-               File.Exists(StateStore.StatePath(workspace)));
+    {
+        var git = ToolCheck("git", ["--version"]);
+        if (!git.Ok) return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
+        try
+        {
+            var repository = RepositoryPaths.Identify(workspace);
+            return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
+        }
+        catch (CliFailure error)
+        {
+            return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
+        }
+    }
 
-    internal static void Cleanup(string workspace, bool purgeGeneratedAgents)
-        => Materializer.Cleanup(workspace, purgeGeneratedAgents);
+    internal static void Cleanup(string workspace, bool purgeGeneratedAgents, HostKind host = HostKind.Codex)
+        => Materializer.Cleanup(workspace, purgeGeneratedAgents, host);
 
     private static ToolCheckData ToolCheck(string fileName, IReadOnlyList<string> args)
     {
