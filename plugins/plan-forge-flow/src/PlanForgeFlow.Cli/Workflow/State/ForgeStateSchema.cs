@@ -30,8 +30,6 @@ internal enum ForgeRole
 
 internal enum DispatchStage
 {
-    [JsonStringEnumMemberName("plan")]
-    Plan,
     [JsonStringEnumMemberName("code")]
     Code,
     [JsonStringEnumMemberName("build")]
@@ -48,7 +46,6 @@ internal static class DispatchStages
 {
     private static readonly Dictionary<DispatchStage, string> WireNames = new()
     {
-        [DispatchStage.Plan] = "plan",
         [DispatchStage.Code] = "code",
         [DispatchStage.Build] = "build",
         [DispatchStage.FixBuild] = "fix-build",
@@ -58,7 +55,6 @@ internal static class DispatchStages
     private static readonly Dictionary<DispatchStage, DispatchStageDefinition> Definitions =
         new()
         {
-            [DispatchStage.Plan] = new(ForgeRole.Reviewer, ForgePhase.Locked, false, false),
             [DispatchStage.Code] = new(ForgeRole.Reviewer, ForgePhase.CodeReview, true, false),
             [DispatchStage.Build] = new(ForgeRole.Builder, ForgePhase.Build, false, true),
             [DispatchStage.FixBuild] = new(ForgeRole.Builder, ForgePhase.CodeReview, false, true),
@@ -71,7 +67,7 @@ internal static class DispatchStages
     public static DispatchStage Parse(string value)
         => StagesByWireName.TryGetValue(value, out var stage)
                ? stage
-               : throw new CliFailure("usage", "--stage must be plan|code|build|fix-build|fix-review");
+               : throw new CliFailure("usage", "--stage must be code|build|fix-build|fix-review");
 
     public static DispatchStage RequirePendingReviewVerdict(DispatchState dispatch, string? requestedStage)
     {

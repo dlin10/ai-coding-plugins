@@ -72,7 +72,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void ReviewDecisionReaderEnforcesStageSpecificCoverage()
+    public void ReviewDecisionReaderRequiresCoverage()
     {
         var workspace = CreateTempDirectory();
         try
@@ -83,11 +83,12 @@ public sealed class CoreContractTests
             File.WriteAllText(critique, "Approved.");
             File.WriteAllText(critique + ".json", "{\"verdict\":\"APPROVED\",\"coverage\":\"FULL\"}");
 
-            var decision = ReviewDecisionReader.Read(critique, workspace, DispatchStage.Code);
+            var decision = ReviewDecisionReader.Read(critique, workspace);
 
             Assert.Equal("APPROVED", decision.Verdict);
             Assert.Equal("FULL", decision.Coverage);
-            Assert.Throws<CliFailure>(() => ReviewDecisionReader.Read(critique, workspace, DispatchStage.Plan));
+            File.WriteAllText(critique + ".json", "{\"verdict\":\"APPROVED\"}");
+            Assert.Throws<CliFailure>(() => ReviewDecisionReader.Read(critique, workspace));
         }
         finally
         {
@@ -674,7 +675,7 @@ public sealed class CoreContractTests
             var critiquePath = Path.Combine(workspace, ".forge", "code-review.md");
             File.WriteAllText(critiquePath, "Approved.\n");
             File.WriteAllText(critiquePath + ".json", "{\"verdict\":\"APPROVED\",\"coverage\":\"FULL\"}");
-            var decision = ReviewDecisionReader.Read(critiquePath, workspace, DispatchStage.Code);
+            var decision = ReviewDecisionReader.Read(critiquePath, workspace);
             var approved = StateStore.Update(workspace, prepared, current =>
             {
                 current.Dispatch.Id = "review-dispatch";
@@ -1737,7 +1738,6 @@ public sealed class CoreContractTests
     }
 
     [Theory]
-    [InlineData("Plan", "plan")]
     [InlineData("Code", "code")]
     [InlineData("Build", "build")]
     [InlineData("FixBuild", "fix-build")]
@@ -1750,6 +1750,10 @@ public sealed class CoreContractTests
         Assert.Equal(stage, DispatchStages.Parse(wireName));
         Assert.Equal(stage, DispatchStages.Parse(wireName.ToUpperInvariant()));
     }
+
+    [Fact]
+    public void DispatchStagesRejectRemovedPlanStage()
+        => Assert.Throws<CliFailure>(() => DispatchStages.Parse("plan"));
 
     [Theory]
     [InlineData("Materialized", "materialized")]
