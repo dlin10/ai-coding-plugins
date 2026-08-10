@@ -52,13 +52,13 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, context.Host == HostKind.Cursor ? ForgeWorkflow.MaterializeCursorPlan(context) : ForgeWorkflow.MaterializePlan(context), ForgeJsonContext.Default.JsonSuccessMaterializeData);
                     break;
                 case "plan stage":
-                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Stage(RepositoryPaths.Identify(context.Workspace), Console.In.ReadToEnd(), context.Args.GetRequired("run-id"), Waiver(context, "reviewer"), context.Args.Has("accept-risk"), context.Args.Get("authorization-note")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, CursorCommandHandlers.Stage(context, Console.In), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan finalize":
-                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Finalize(RepositoryPaths.Identify(context.Workspace), context.Args.GetRequired("run-id"), Waiver(context, "builder")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, CursorCommandHandlers.Finalize(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan abandon":
-                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Abandon(RepositoryPaths.Identify(context.Workspace), context.Args.GetRequired("run-id")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, CursorCommandHandlers.Abandon(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan invalidate":
-                    RequireCursor(context); JsonOutput.Success(command, PendingRuns.Invalidate(RepositoryPaths.Identify(context.Workspace), context.Args.GetRequired("run-id"), context.Args.GetRequired("reason")), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, CursorCommandHandlers.Invalidate(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "agents install":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.InstallAgents(), ForgeJsonContext.Default.JsonSuccessInstallAgentsData);
                     break;
@@ -84,7 +84,7 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, ForgeReview.Verdict(context), ForgeJsonContext.Default.JsonSuccessVerdictData);
                     break;
                 case "review record-response":
-                    RequireCursor(context); var repository = RepositoryPaths.Identify(context.Workspace); var dispatchId = context.Args.GetRequired("dispatch-id"); var stage = context.Args.GetRequired("stage"); var response = Console.In.ReadToEnd(); if (stage == "plan") { var run = context.Args.Get("run-id") is { } runId ? PendingRuns.Load(repository, runId) : PendingRuns.ResolvePlanDispatch(repository, dispatchId); JsonOutput.Success(command, PendingRuns.Record(repository, run.RunId, dispatchId, stage, response), ForgeJsonContext.Default.JsonSuccessPendingRun); } else JsonOutput.Success(command, PendingRuns.RecordCodeEvidence(repository, dispatchId, stage, response), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, CursorCommandHandlers.RecordResponse(context, Console.In), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "session builder":
                 case "session reviewer":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.RegisterSession(context, command.EndsWith("builder", StringComparison.Ordinal) ? ForgeRole.Builder : ForgeRole.Reviewer), ForgeJsonContext.Default.JsonSuccessAgentState);
@@ -188,13 +188,5 @@ internal sealed class CliApplication
             $"planforge {command} [options]",
             CliCommands.Names.Append("hook capture-context").ToList()), ForgeJsonContext.Default.JsonSuccessHelpData);
     }
-
-    private static void RequireCursor(CommandContext context)
-    {
-        if (context.Host != HostKind.Cursor) throw new CliFailure("usage", "this command requires --host cursor");
-    }
-
-    private static CursorModelWaiver Waiver(CommandContext context, string role)
-        => new(role, context.Args.GetRequired("model"), context.Args.GetRequired("effort"), context.Args.GetRequired("cursor-version"), context.Args.GetRequired("observed-model"), context.Args.GetRequired("waiver-reason"), DateTimeOffset.UtcNow.ToString("O"));
 
 }

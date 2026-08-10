@@ -22,13 +22,4 @@ internal static class Hashing
     public static string Nonce() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
                                            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
 
-    public static string Base64UrlEncode(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value))
-                                                                 .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-
-    public static string Base64UrlDecode(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        padded += new string('=', (4 - padded.Length % 4) % 4);
-        return Encoding.UTF8.GetString(Convert.FromBase64String(padded));
-    }
 }

@@ -124,7 +124,6 @@ internal sealed record CritiqueEntry(string Path, string Hash);
 internal sealed record RunIdentity(string Source, string TransactionId);
 internal sealed record ReviewerGuarantee(string Kind);
 internal sealed record ApprovalGuarantee(string Kind);
-internal sealed record ModelWaiver(string Role, string Reason);
 internal sealed record CursorModelWaiverAudit(string Role, string Model, string Effort, string CursorVersion, string Observed, string Consent, string Timestamp, string ModelGuarantee);
 
 internal sealed record WorkflowState
@@ -202,7 +201,6 @@ internal sealed record ForgeState
     public HostKind Host { get; set; } = HostKind.Codex;
     public string RepositoryScopeId { get; set; } = string.Empty;
     public RunIdentity? SourceRun { get; set; }
-    public ModelWaiver? ModelWaiver { get; set; }
     public List<CursorModelWaiverAudit> ModelWaiverAudit { get; set; } = [];
     public ReviewerGuarantee? ReviewerGuarantee { get; set; }
     public ApprovalGuarantee? ApprovalGuarantee { get; set; }

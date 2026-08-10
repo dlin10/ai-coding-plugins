@@ -33,7 +33,7 @@ internal static partial class ForgeWorkflow
     internal static DoctorData Doctor(string workspace, HostKind host)
     {
         var git = ToolCheck("git", ["--version"]);
-        if (!git.Ok) return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
+        if (!git.Ok) return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)));
         RepositoryIdentity repository;
         try
         {
@@ -41,7 +41,7 @@ internal static partial class ForgeWorkflow
         }
         catch (CliFailure error)
         {
-            return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)));
+            return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), File.Exists(StateStore.StatePath(workspace)));
         }
 
         var forgeTarget = Path.Combine(repository.WorkspaceRoot, ".forge");
@@ -50,7 +50,7 @@ internal static partial class ForgeWorkflow
             throw new CliFailure("state", "Cursor workspace already contains .forge; inspect and remove or archive the previous Forge run before starting a new run", 3);
         }
 
-        return new DoctorData(workspace, git, ToolCheck("dotnet", ["--version"]), File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
+        return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
     }
 
     internal static void Cleanup(string workspace, bool purgeGeneratedAgents, HostKind host = HostKind.Codex)

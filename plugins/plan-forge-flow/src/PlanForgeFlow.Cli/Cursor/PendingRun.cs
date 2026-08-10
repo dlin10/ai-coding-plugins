@@ -67,6 +67,7 @@ internal static class PendingRuns
         if (string.IsNullOrWhiteSpace(draftText)) throw new CliFailure("usage", "Cursor chat plan is required on stdin");
         var text = CanonicalText.NormalizePlan(draftText);
         if (SensitiveInput.IsSensitiveContent(text)) throw new CliFailure("usage", "Cursor chat plan contains withheld sensitive content");
+        CanonicalText.ParseTasks(text);
         var scope = RepositoryPaths.ScopeId(repository);
         EnsureNoOtherActiveRun(repository, runId);
         var existing = TryLoad(repository, runId);
@@ -141,7 +142,6 @@ internal static class PendingRuns
         var reviewerWaiver = run.ReviewerWaiver ?? throw new CliFailure("state", "Cursor reviewer waiver is missing", 3);
         ValidateWaiver(builderWaiver, "builder");
         var draft = run.DraftText ?? throw new CliFailure("state", "Cursor reviewed chat plan is unavailable; abandon and restart the run", 3);
-        CanonicalText.ParseTasks(draft);
         ModelSelections.Validate("reviewer", reviewerWaiver.Model, reviewerWaiver.Effort);
         ModelSelections.Validate("builder", builderWaiver.Model, builderWaiver.Effort);
         if (SensitiveInput.IsSensitiveContent(draft)) throw new CliFailure("usage", "plan contains withheld sensitive content");
@@ -243,7 +243,7 @@ internal static class PendingRuns
         roots.Add(repository.WorkspaceRoot);
 #endif
         var runMarker = $"<!-- plan-forge-flow:run={run.RunId};";
-        var matches = new List<string>();
+        var matches = new List<(string Path, string Plan)>();
         var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         foreach (var root in roots.Distinct(pathComparer))
         {
@@ -258,11 +258,12 @@ internal static class PendingRuns
                 var text = oversized ? ReadPrefix(path, 256 * 1024) : File.ReadAllText(path, Encoding.UTF8);
                 if (!text.Contains(runMarker, StringComparison.Ordinal)) continue;
                 if (oversized) throw new CliFailure("usage", "Cursor native plan exceeds the size bound");
-                matches.Add(CanonicalText.NormalizePlan(text));
+                matches.Add((path, CanonicalText.NormalizePlan(text)));
             }
         }
-        if (matches.Count != 1) throw new CliFailure("state", matches.Count == 0 ? "no Cursor native plan matches this run and workspace marker" : "multiple Cursor native plans match this run and workspace marker", 3);
-        var plan = matches[0];
+        if (matches.Count == 0) throw new CliFailure("state", "no Cursor native plan matches this run and workspace marker", 3);
+        if (matches.Count > 1) throw new CliFailure("state", "multiple Cursor native plans match this run and workspace marker:\n" + string.Join("\n", matches.Select(match => match.Path)), 3);
+        var plan = matches[0].Plan;
         var marker = $"<!-- plan-forge-flow:run={run.RunId};workspace={run.ScopeId} -->";
         var preamble = ExpectedPreamble(repository, run.RunId);
         if (Count(plan, "<!-- plan-forge-flow:run=") != 1 || Count(plan, marker) != 1) throw new CliFailure("state", "Cursor native plan marker is missing or invalid", 3);
@@ -296,12 +297,6 @@ internal static class PendingRuns
         {
             if (candidate.RunId != runId && candidate.Phase is not (PendingRunPhase.Consumed or PendingRunPhase.Abandoned)) throw new CliFailure("state", "another Cursor pending run is active for this workspace", 3);
         }
-    }
-    public static PendingRun ResolveActive(RepositoryIdentity repository, string dispatchId)
-    {
-        ValidateIdentity(dispatchId, "--dispatch-id");
-        var matches = LoadAll(repository).Where(run => run.ActiveDispatchId == dispatchId).ToArray();
-        return matches.Length == 1 ? matches[0] : throw new CliFailure("state", "Cursor dispatch does not resolve to one active run", 3);
     }
     public static PendingRun ResolvePlanDispatch(RepositoryIdentity repository, string dispatchId)
     {
@@ -379,5 +374,10 @@ internal static class PendingRuns
         var versionText = waiver.CursorVersion.Split(['-', '+'], 2)[0];
         return waiver.Role == role && !string.IsNullOrWhiteSpace(waiver.Model) && !string.IsNullOrWhiteSpace(waiver.Effort) && waiver.Model.Length <= 256 && waiver.Effort.Length <= 256 && Version.TryParse(versionText, out var version) && version >= Version.Parse(MinimumCursorVersion) && waiver.Observed is "Auto" or "unavailable" && !string.IsNullOrWhiteSpace(waiver.Consent) && waiver.Consent.Length <= 512 && waiver.ModelGuarantee == "waived" && DateTimeOffset.TryParse(waiver.Timestamp, out _);
     }
-    internal static void Fault(string point) { if (string.Equals(Environment.GetEnvironmentVariable("FORGE_FAULT_POINT"), point, StringComparison.Ordinal)) throw new CliFailure("state", $"injected fault: {point}", 3); }
+    internal static void Fault(string point)
+    {
+#if DEBUG
+        if (string.Equals(Environment.GetEnvironmentVariable("FORGE_FAULT_POINT"), point, StringComparison.Ordinal)) throw new CliFailure("state", $"injected fault: {point}", 3);
+#endif
+    }
 }

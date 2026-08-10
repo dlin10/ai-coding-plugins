@@ -27,7 +27,6 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(ReviewManifest))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
 [JsonSerializable(typeof(JsonSuccess<PendingRun>))]
-[JsonSerializable(typeof(JsonSuccess<PendingRun?>))]
 [JsonSerializable(typeof(JsonSuccess<MaterializeData>))]
 [JsonSerializable(typeof(JsonSuccess<InstallAgentsData>))]
 [JsonSerializable(typeof(JsonSuccess<DispatchState>))]
@@ -109,7 +108,7 @@ internal sealed record VerdictData(string Action, string Stage, string Verdict, 
 
 internal sealed record ToolCheckData(bool Ok, string? Version, string? Error);
 
-internal sealed record DoctorData(string Workspace, ToolCheckData Git, ToolCheckData Dotnet, bool State, string? RepositoryScopeId = null);
+internal sealed record DoctorData(string Workspace, ToolCheckData Git, bool State, string? RepositoryScopeId = null);
 
 internal sealed record StatusMissingData(bool Exists);
 

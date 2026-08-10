@@ -30,11 +30,8 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void Base64UrlAndNonceRoundTripWithExpectedShape()
+    public void NonceHasExpectedShape()
     {
-        const string value = "plan / рус中文";
-
-        Assert.Equal(value, Hashing.Base64UrlDecode(Hashing.Base64UrlEncode(value)));
         Assert.Matches("^[A-Za-z0-9_-]{43}$", Hashing.Nonce());
     }
 
@@ -126,6 +123,16 @@ public sealed class CoreContractTests
 
         var traversal = Assert.Throws<CliFailure>(() => ParsedArgs.Parse(["--allow-paths", "[\"../secret.txt\"]"]).GetPathArray("allow-paths"));
         Assert.Equal("--allow-paths contains a traversal path", traversal.Message);
+    }
+
+    [Theory]
+    [InlineData("--name=one", "--name=two")]
+    [InlineData("--name", "one", "--name", "two")]
+    [InlineData("--name", "--name")]
+    public void ParsedArgsRejectsDuplicateOptions(params string[] args)
+    {
+        var error = Assert.Throws<CliFailure>(() => ParsedArgs.Parse(args));
+        Assert.Equal("option --name was specified more than once", error.Message);
     }
 
     [Fact]
@@ -905,6 +912,7 @@ public sealed class CoreContractTests
             var doctor = ForgeWorkflow.Doctor(workspace, HostKind.Codex);
             Assert.True(doctor.Git.Ok);
             Assert.Equal(RepositoryPaths.ScopeId(RepositoryPaths.Identify(workspace)), doctor.RepositoryScopeId);
+            Assert.DoesNotContain("\"dotnet\"", JsonSerializer.Serialize(doctor, Serialization.ForgeJsonContext.Default.DoctorData), StringComparison.OrdinalIgnoreCase);
 
             var invalid = ForgeWorkflow.Doctor(nonRepository, HostKind.Codex);
             Assert.False(invalid.Git.Ok);
@@ -981,7 +989,7 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void CursorFinalizeRejectsPlanWithoutApproach()
+    public void CursorStageRejectsPlanWithoutApproach()
     {
         var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         try
@@ -989,10 +997,8 @@ public sealed class CoreContractTests
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "no-approach";
             var source = Path.Combine(workspace, "no-approach.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n");
             var reviewer = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
-            var builder = new CursorModelWaiver("builder", "builder", "medium", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
-            PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "review", "plan", "VERDICT: APPROVED\n");
-            Assert.Throws<CliFailure>(() => PendingRuns.Finalize(repository, runId, builder));
-            Assert.Equal(PendingRunPhase.ReviewApproved, PendingRuns.Load(repository, runId).Phase);
+            Assert.Throws<CliFailure>(() => PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer));
+            Assert.False(File.Exists(PendingRuns.PathFor(repository, runId)));
         }
         finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
     }
@@ -1000,16 +1006,16 @@ public sealed class CoreContractTests
     [Theory]
     [InlineData("## Approaches\n1. Wrong prefix.\n")]
     [InlineData("## Approach\n1. First.\n\n## Approach\n1. Duplicate.\n")]
-    public void CursorFinalizeRequiresOneExactApproachHeading(string planBody)
+    public void CursorStageRequiresOneExactApproachHeading(string planBody)
     {
         var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         try
         {
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "exact-approach";
             var source = Path.Combine(workspace, "exact-approach.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n{planBody}");
-            var reviewer = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O")); var builder = new CursorModelWaiver("builder", "builder", "medium", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
-            PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "review", "plan", "VERDICT: APPROVED\n");
-            Assert.Throws<CliFailure>(() => PendingRuns.Finalize(repository, runId, builder)); Assert.Equal(PendingRunPhase.ReviewApproved, PendingRuns.Load(repository, runId).Phase);
+            var reviewer = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
+            Assert.Throws<CliFailure>(() => PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer));
+            Assert.False(File.Exists(PendingRuns.PathFor(repository, runId)));
         }
         finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
     }
@@ -1074,7 +1080,10 @@ public sealed class CoreContractTests
             Assert.Null(consumed.Materialization!.PlanText);
             Assert.Equal(Hashing.Sha256Hex(CanonicalText.NormalizePlan(File.ReadAllText(source))), consumed.Materialization.PlanHash);
             Assert.Equal(CanonicalText.NormalizePlan(File.ReadAllText(source)), File.ReadAllText(Path.Combine(workspace, ".forge", "PLAN.md")));
-            var state = StateStore.Load(workspace); Assert.Equal("xhigh", state.Models.Reviewer!.Effort); Assert.Equal("medium", state.Models.Builder!.Effort);
+            var state = StateStore.Load(workspace); Assert.Equal("xhigh", state.Models.Reviewer!.Effort); Assert.Equal("medium", state.Models.Builder!.Effort); Assert.Equal(2, state.ModelWaiverAudit.Count);
+            var stateJson = JsonSerializer.Serialize(state, Serialization.ForgeJsonContext.Default.ForgeState);
+            Assert.DoesNotContain("\"modelWaiver\":", stateJson, StringComparison.Ordinal);
+            Assert.Contains("\"modelWaiverAudit\":", stateJson, StringComparison.Ordinal);
         }
         finally { Console.SetOut(oldOut); Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
     }
@@ -1274,7 +1283,16 @@ public sealed class CoreContractTests
             if (scenario == "multiple") File.Copy(source, Path.Combine(workspace, "duplicate.plan.md"));
             var excludePath = Path.Combine(repository.GitCommonDir, "info", "exclude"); var excludeBefore = File.Exists(excludePath) ? File.ReadAllText(excludePath) : null;
 
+#if DEBUG
+            var error = Assert.Throws<CliFailure>(() => PendingRuns.BeginMaterialize(repository, runId));
+            if (scenario == "multiple")
+            {
+                Assert.Contains(source, error.Message, StringComparison.Ordinal);
+                Assert.Contains(Path.Combine(workspace, "duplicate.plan.md"), error.Message, StringComparison.Ordinal);
+            }
+#else
             Assert.Throws<CliFailure>(() => PendingRuns.BeginMaterialize(repository, runId));
+#endif
 
             Assert.Equal(PendingRunPhase.Ready, PendingRuns.Load(repository, runId).Phase);
             Assert.False(Directory.Exists(Path.Combine(workspace, ".forge")));
@@ -1361,7 +1379,7 @@ public sealed class CoreContractTests
         try
         {
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "dispatch-run";
-            var source = Path.Combine(workspace, "dispatch.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n");
+            var source = Path.Combine(workspace, "dispatch.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
             var waiver = new CursorModelWaiver("reviewer", "model", "low", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, waiver);
             Assert.Equal(runId, PendingRuns.ResolvePlanDispatch(repository, "dispatch-1").RunId);
@@ -1377,7 +1395,7 @@ public sealed class CoreContractTests
         try
         {
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "safe-run";
-            var source = Path.Combine(workspace, "safe.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n");
+            var source = Path.Combine(workspace, "safe.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
             var waiver = new CursorModelWaiver("reviewer", "model", "low", "3.16.0", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, waiver);
             Assert.Throws<CliFailure>(() => PendingRuns.Record(repository, runId, "../escape", "plan", "VERDICT: APPROVED\n"));
@@ -1414,6 +1432,7 @@ public sealed class CoreContractTests
         finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
     }
 
+#if DEBUG
     [Theory]
     [InlineData("snapshot-written")]
     [InlineData("cursor-plan-written")]
@@ -1552,6 +1571,7 @@ public sealed class CoreContractTests
         }
         finally { Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", previousFault); Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData); DeleteDirectory(workspace); DeleteDirectory(data); }
     }
+#endif
 
     [Theory]
     [InlineData("staged")]
