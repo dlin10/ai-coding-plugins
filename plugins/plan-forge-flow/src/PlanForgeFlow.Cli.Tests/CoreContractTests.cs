@@ -1072,11 +1072,12 @@ public sealed class CoreContractTests
     [Fact]
     public void CursorPlanMaterializesThroughCliRunIdContract()
     {
-        var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA"); var oldOut = Console.Out;
+        var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var cursorHome = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA"); var previousCursorHome = Environment.GetEnvironmentVariable("CURSOR_HOME"); var oldOut = Console.Out;
         try
         {
-            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "cli-materialize";
-            var source = Path.Combine(workspace, "cli.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); Environment.SetEnvironmentVariable("CURSOR_HOME", cursorHome); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "cli-materialize";
+            var plans = Path.Combine(cursorHome, "plans"); Directory.CreateDirectory(plans);
+            var source = Path.Combine(plans, "cli.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
             var reviewer = new CursorModelWaiver("reviewer", "reviewer", "XHIGH", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O")); var builder = new CursorModelWaiver("builder", "builder", "Medium", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, "# Reviewed chat draft\n\n## Approach\n1. Review-only task.\n", runId, reviewer); PendingRuns.Record(repository, runId, "review", "plan", "VERDICT: APPROVED\n"); PendingRuns.Finalize(repository, runId, builder);
             using var output = new StringWriter(); Console.SetOut(output);
@@ -1092,7 +1093,7 @@ public sealed class CoreContractTests
             Assert.DoesNotContain("\"modelWaiver\":", stateJson, StringComparison.Ordinal);
             Assert.Contains("\"modelWaiverAudit\":", stateJson, StringComparison.Ordinal);
         }
-        finally { Console.SetOut(oldOut); Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
+        finally { Console.SetOut(oldOut); Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); Environment.SetEnvironmentVariable("CURSOR_HOME", previousCursorHome); DeleteDirectory(workspace); DeleteDirectory(data); DeleteDirectory(cursorHome); }
     }
 
     [Theory]
@@ -1505,11 +1506,12 @@ public sealed class CoreContractTests
     [InlineData("fix-review", "PARTIAL")]
     public void CursorCodeEvidenceWritesExactCliOwnedDecision(string stage, string coverage)
     {
-        var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var cursorHome = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA"); var previousCursorHome = Environment.GetEnvironmentVariable("CURSOR_HOME");
         try
         {
-            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "evidence-run"; const string dispatchId = "code-dispatch";
-            var source = Path.Combine(workspace, "evidence.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); Environment.SetEnvironmentVariable("CURSOR_HOME", cursorHome); InitializeRepository(workspace, commit: true); var repository = RepositoryPaths.Identify(workspace); const string runId = "evidence-run"; const string dispatchId = "code-dispatch";
+            var plans = Path.Combine(cursorHome, "plans"); Directory.CreateDirectory(plans);
+            var source = Path.Combine(plans, "evidence.plan.md"); File.WriteAllText(source, $"<!-- plan-forge-flow:run={runId};workspace={RepositoryPaths.ScopeId(repository)} -->\n{PendingRuns.ExpectedPreamble(repository, runId)}\n# Plan\n\n## Approach\n1. Implement.\n");
             var reviewer = new CursorModelWaiver("reviewer", "review", "low", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O")); var builder = new CursorModelWaiver("builder", "build", "low", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "plan-dispatch", "plan", "VERDICT: APPROVED\n"); PendingRuns.Finalize(repository, runId, builder); var materializing = PendingRuns.BeginMaterialize(repository, runId); PendingRuns.Consume(repository, runId);
             var forge = Path.Combine(workspace, ".forge"); Directory.CreateDirectory(forge);
@@ -1524,7 +1526,7 @@ public sealed class CoreContractTests
             Assert.Throws<CliFailure>(() => CursorReviewEvidence.Record(repository, "stale", stage, "COVERAGE: FULL\nVERDICT: APPROVED\n"));
             Assert.False(File.Exists(Path.Combine(forge, "cursor-review-stale.md")));
         }
-        finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
+        finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); Environment.SetEnvironmentVariable("CURSOR_HOME", previousCursorHome); DeleteDirectory(workspace); DeleteDirectory(data); DeleteDirectory(cursorHome); }
     }
 
 #if DEBUG
@@ -1752,6 +1754,7 @@ public sealed class CoreContractTests
         finally { DeleteDirectory(main); DeleteDirectory(sibling); }
     }
 
+#if DEBUG
     [Fact]
     public void CursorMaterializationHoldsRepositoryLockUntilOwnerRefExists()
     {
@@ -1801,6 +1804,7 @@ public sealed class CoreContractTests
         }
         finally { if (child is not null) { try { child.Kill(entireProcessTree: true); child.WaitForExit(); } catch { } child.Dispose(); } DeleteDirectory(workspace); }
     }
+#endif
 
     [Fact]
     public void OwnedJsonSchemasAreStrictAndEnumWireNamesAreStable()
@@ -2046,8 +2050,10 @@ public sealed class CoreContractTests
     private static void InitializeRepository(string workspace, bool commit = false)
     {
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "init"]).ExitCode);
+        Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "config", "user.name", "Plan Forge"]).ExitCode);
+        Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "config", "user.email", "forge@example.test"]).ExitCode);
         if (!commit) return;
-        Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "-c", "user.name=Plan Forge", "-c", "user.email=forge@example.test", "commit", "--allow-empty", "-m", "initial"]).ExitCode);
+        Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "commit", "--allow-empty", "-m", "initial"]).ExitCode);
     }
 
     private static ForgeState InitializeReviewWorkspace(string workspace)
@@ -2072,7 +2078,9 @@ public sealed class CoreContractTests
 
     private static string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "planforge-flow-tests", Guid.NewGuid().ToString("N"));
+        var tempRoot = Path.GetTempPath();
+        if (OperatingSystem.IsMacOS() && (tempRoot == "/var" || tempRoot.StartsWith("/var/", StringComparison.Ordinal))) tempRoot = "/private" + tempRoot;
+        var path = Path.Combine(tempRoot, "planforge-flow-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }
