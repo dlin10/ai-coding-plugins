@@ -31,7 +31,6 @@ internal static class StateStore
             var state = JsonSerializer.Deserialize(text, ForgeJsonContext.Default.ForgeState) ?? throw new JsonException("JSON value is null");
             if (string.IsNullOrWhiteSpace(state.RepositoryScopeId) || state.RepositoryScopeId.Length != 24 || state.RepositoryScopeId.Any(character => !Uri.IsHexDigit(character))) throw new CliFailure("unsupported-state-schema", "Forge state repositoryScopeId is invalid", 3);
             if (state.SourceRun is { } source && (string.IsNullOrWhiteSpace(source.Source) || string.IsNullOrWhiteSpace(source.TransactionId))) throw new CliFailure("unsupported-state-schema", "Forge state source run is invalid", 3);
-            if (state.ModelWaiver is { } waiver && (string.IsNullOrWhiteSpace(waiver.Role) || string.IsNullOrWhiteSpace(waiver.Reason))) throw new CliFailure("unsupported-state-schema", "Forge state model waiver is invalid", 3);
             if (state.ReviewerGuarantee is { Kind.Length: 0 } || state.ApprovalGuarantee is { Kind.Length: 0 }) throw new CliFailure("unsupported-state-schema", "Forge state guarantee is invalid", 3);
             return state;
         }

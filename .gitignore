@@ -11,6 +11,7 @@ scratch/
 plugins/plan-forge-flow/bin/planforge
 plugins/plan-forge-flow/bin/planforge.exe
 plugins/plan-forge-flow/artifacts/
+plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user
 .codex/config.toml
 /.codex/config.toml

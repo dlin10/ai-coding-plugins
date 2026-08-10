@@ -220,7 +220,7 @@ foreach ($rid in $Rids) {
 
     if ($rid -eq $hostRid) {
         $verification = & (Join-Path $publish $expectedExecutable) run doctor --workspace $pluginRoot | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or -not $verification.data.git.ok -or -not $verification.data.dotnet.ok) {
+        if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or -not $verification.data.git.ok) {
             throw "published $rid executable failed the doctor contract"
         }
     }

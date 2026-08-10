@@ -53,25 +53,28 @@ internal sealed class ParsedArgs
             var equals = token.IndexOf('=');
             if (equals >= 0)
             {
-                if (values.ContainsKey(token[..equals])) throw new CliFailure("usage", $"option --{token[..equals]} was specified more than once");
-                values[token[..equals]] = token[(equals + 1)..];
+                AddValue(values, token[..equals], token[(equals + 1)..]);
                 continue;
             }
 
             if (index + 1 < list.Length && !list[index + 1].StartsWith("--", StringComparison.Ordinal))
             {
-                if (values.ContainsKey(token)) throw new CliFailure("usage", $"option --{token} was specified more than once");
-                values[token] = list[++index];
+                AddValue(values, token, list[++index]);
             }
             else
             {
-                if (values.ContainsKey(token)) throw new CliFailure("usage", $"option --{token} was specified more than once");
-                values[token] = "true";
+                AddValue(values, token, "true");
             }
         }
 
         parsed.Positionals = positionals;
         return parsed;
+    }
+
+    private static void AddValue(Dictionary<string, string?> values, string name, string value)
+    {
+        if (values.ContainsKey(name)) throw new CliFailure("usage", $"option --{name} was specified more than once");
+        values[name] = value;
     }
 
     private static List<string> ParsePathArray(string? raw, string option)
