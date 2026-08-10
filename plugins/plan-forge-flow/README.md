@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.5.1
+# Plan Forge Flow 0.5.2
 
 Plan Forge Flow is a Codex and Cursor plugin for decision-complete planning,
 fresh adversarial review, controlled implementation, and final code review. The

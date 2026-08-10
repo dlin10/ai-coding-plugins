@@ -1,0 +1,1691 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan Forge Flow — как работает плагин и CLI</title>
+<style>
+:root{
+  --bg:#fbfaf8; --fg:#1c1b19; --muted:#6b675f; --line:#ddd8cf; --card:#ffffff;
+  --accent:#9a4b1e; --accent2:#1f5f72; --ok:#2f6b3a; --warn:#8a6d13; --bad:#94301f;
+  --code-bg:#f3f0ea; --shadow:0 1px 2px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#16171a; --fg:#e6e3dd; --muted:#9a958c; --line:#2f3136; --card:#1d1f23;
+    --accent:#e0864f; --accent2:#6cb6cd; --ok:#7cc08a; --warn:#d8b45c; --bad:#e0796a;
+    --code-bg:#232529; --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;}
+.wrap{max-width:1080px;margin:0 auto;padding:40px 24px 120px}
+h1{font-size:2.1rem;line-height:1.2;margin:0 0 8px;letter-spacing:-.02em}
+h2{font-size:1.5rem;margin:56px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line);letter-spacing:-.01em}
+h3{font-size:1.15rem;margin:32px 0 8px;color:var(--accent)}
+h4{font-size:1rem;margin:20px 0 6px}
+p{margin:10px 0}
+.lede{color:var(--muted);font-size:1.05rem;margin-bottom:28px}
+code{background:var(--code-bg);padding:.12em .38em;border-radius:4px;
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  overflow-x:auto;margin:12px 0}
+pre code{background:none;padding:0;font-size:12.5px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);font-weight:600;white-space:nowrap}
+td code{white-space:nowrap}
+.fig{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin:20px 0;
+  box-shadow:var(--shadow);overflow-x:auto}
+.fig svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.fig figcaption{color:var(--muted);font-size:13px;margin-top:12px;text-align:center}
+.note{border-left:3px solid var(--accent2);background:var(--card);padding:10px 16px;margin:16px 0;border-radius:0 6px 6px 0}
+.warnbox{border-left:3px solid var(--warn)}
+.badbox{border-left:3px solid var(--bad)}
+.okbox{border-left:3px solid var(--ok)}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:4px 0}
+.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 22px;margin:24px 0}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:36px}
+@media(max-width:640px){.toc ol{columns:1}}
+.toc a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--muted)}
+.toc a:hover{color:var(--accent)}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;
+  border:1px solid currentColor;vertical-align:middle}
+.p-ro{color:var(--ok)} .p-w{color:var(--accent)} .p-git{color:var(--accent2)} .p-net{color:var(--warn)}
+.p-cx{color:var(--accent2)} .p-cu{color:var(--accent)}
+.cmd{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:16px 0;box-shadow:var(--shadow)}
+.cmd h4{margin-top:0;font:600 15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--accent)}
+.cmd dl{margin:8px 0 0;display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:14px}
+.cmd dt{color:var(--muted);font-weight:600;white-space:nowrap}
+.cmd dd{margin:0}
+.small{font-size:13px;color:var(--muted)}
+svg text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Plan Forge Flow — устройство плагина и CLI</h1>
+<p class="lede">Плагин для Codex и Cursor: планирование, независимое ревью, контролируемая реализация
+и финальное код-ревью. Версия 0.5.1; рантайм — <code>planforge</code>, .NET 10, ~3 620 строк C# и
+84 контрактных теста. Документ описывает текущее состояние: что делает каждая команда, в какой
+момент она вызывается и какие инварианты защищает.</p>
+
+<div class="toc">
+<ol>
+  <li><a href="#arch">Архитектура и слои</a></li>
+  <li><a href="#hosts">Два хоста: Codex и Cursor</a></li>
+  <li><a href="#trust">Границы доверия и одобрение</a></li>
+  <li><a href="#state">Состояние, фазы и стадии</a></li>
+  <li><a href="#locks">Локи и идентичность репозитория</a></li>
+  <li><a href="#codex">Workflow Codex: 4 акта</a></li>
+  <li><a href="#hook">Хук <code>capture-context</code></a></li>
+  <li><a href="#cursor">Workflow Cursor: chat-first</a></li>
+  <li><a href="#materialize">Материализация (обе схемы)</a></li>
+  <li><a href="#build">Сборка: dispatch-цикл</a></li>
+  <li><a href="#review">Код-ревью и фиксы</a></li>
+  <li><a href="#service">Служебные команды</a></li>
+  <li><a href="#internals">Файлы, подсистемы, инварианты</a></li>
+  <li><a href="#files">Артефакты на диске и поставка</a></li>
+  <li><a href="#bugs">Наблюдения и риски</a></li>
+  <li><a href="#simplify">Карта сложности</a></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="arch">1. Архитектура и слои</h2>
+
+<p>Плагин — это набор независимых частей, которые общаются только через файлы и JSON на
+stdin/stdout. Один и тот же бинарь обслуживает оба хоста; хост выбирается флагом
+<code>--host codex|cursor</code>.</p>
+
+<ul>
+<li><b>Skill/команда хоста</b> — инструкции для LLM-оркестратора. Два комплекта:
+    <code>skills/forge/</code> (Codex: <code>workflow.md</code>, <code>native-plan-ux.md</code>,
+    <code>model-selection.md</code>) и <code>cursor/skills/forge/</code> (Cursor:
+    <code>workflow.md</code>, <code>native-plan-contract.md</code>, <code>model-waiver.md</code>)
+    плюс слэш-команда <code>cursor/commands/forge.md</code>. Здесь живёт всё «поведение», включая
+    требование работать в Plan mode: сам CLI режим не проверяет.</li>
+<li><b>CLI</b> (<code>bin/&lt;rid&gt;/planforge</code> через launcher) — конечный
+    автомат-привратник: валидирует, пишет состояние, отказывает при нарушении инварианта.</li>
+<li><b>Hook</b> (<code>UserPromptSubmit</code> → <code>planforge hook capture-context</code>) —
+    только для Codex: читает транскрипт сессии и переносит последний предложенный план в файл.
+    У Cursor хуков нет — их роль играет внешний <code>PendingRun</code>.</li>
+<li><b>Agents</b> — <code>agents/forge_builder.toml</code>, <code>forge_reviewer.toml</code> для
+    Codex (постоянный билдер <code>workspace-write</code>, свежий ревьюер <code>read-only</code>)
+    и <code>cursor/agents/forge-builder.md</code>, <code>forge-reviewer.md</code> для Cursor
+    (свежие и билдер, и ревьюер; <code>readonly: true</code> — только флаг намерения).</li>
+</ul>
+
+<figure class="fig">
+<svg viewBox="0 0 960 520" role="img" aria-label="Схема архитектуры и слоёв">
+  <defs>
+    <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g fill="none" stroke="currentColor" stroke-width="1.4" color="var(--muted)">
+
+  <rect x="16" y="20" width="256" height="150" rx="10" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="30" y="44" font-size="14" font-weight="700" fill="var(--accent2)">Codex CLI / Desktop</text>
+  <rect x="32" y="56" width="224" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="76" font-size="12" fill="var(--fg)">оркестратор + skills/forge</text>
+  <rect x="32" y="92" width="108" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="112" font-size="11" fill="var(--fg)">forge_builder</text>
+  <rect x="148" y="92" width="108" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="160" y="112" font-size="11" fill="var(--fg)">forge_reviewer</text>
+  <rect x="32" y="128" width="224" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="148" font-size="11" fill="var(--fg)">UserPromptSubmit · rollout.jsonl</text>
+
+  <rect x="16" y="190" width="256" height="140" rx="10" stroke="var(--accent)" stroke-width="2"/>
+  <text x="30" y="214" font-size="14" font-weight="700" fill="var(--accent)">Cursor 3.15.6+</text>
+  <rect x="32" y="226" width="224" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="246" font-size="12" fill="var(--fg)">/forge + cursor/skills/forge</text>
+  <rect x="32" y="262" width="108" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="282" font-size="11" fill="var(--fg)">forge-builder</text>
+  <rect x="148" y="262" width="108" height="30" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="160" y="282" font-size="11" fill="var(--fg)">forge-reviewer</text>
+  <rect x="32" y="298" width="224" height="24" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="44" y="315" font-size="11" fill="var(--fg)">чат-черновик → &lt;name&gt;.plan.md</text>
+
+  <rect x="348" y="20" width="256" height="380" rx="10" stroke="var(--accent)" stroke-width="2"/>
+  <text x="362" y="44" font-size="14" font-weight="700" fill="var(--accent)">planforge · слои</text>
+  <rect x="364" y="56" width="224" height="40" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="72" font-size="12" font-weight="600" fill="var(--fg)">Cli/</text>
+  <text x="376" y="88" font-size="10.5" fill="var(--muted)">Program · CliApplication · CliCommands</text>
+  <rect x="364" y="102" width="224" height="40" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="118" font-size="12" font-weight="600" fill="var(--fg)">Codex/</text>
+  <text x="376" y="134" font-size="10.5" fill="var(--muted)">HookService · TranscriptReader · PendingPlan</text>
+  <rect x="364" y="148" width="224" height="40" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="164" font-size="12" font-weight="600" fill="var(--fg)">Cursor/</text>
+  <text x="376" y="180" font-size="10.5" fill="var(--muted)">PendingRun v2 · транзакция материализации</text>
+  <rect x="364" y="194" width="224" height="52" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="210" font-size="12" font-weight="600" fill="var(--fg)">Workflow/</text>
+  <text x="376" y="225" font-size="10.5" fill="var(--muted)">ForgeWorkflow.{Build,Run,Session,Selection}</text>
+  <text x="376" y="239" font-size="10.5" fill="var(--muted)">Planning/{Materializer,CanonicalText} · State/</text>
+  <rect x="364" y="252" width="224" height="40" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="268" font-size="12" font-weight="600" fill="var(--fg)">Review/</text>
+  <text x="376" y="284" font-size="10.5" fill="var(--muted)">ForgeReview · Evidence · DecisionReader</text>
+  <rect x="364" y="298" width="224" height="46" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="314" font-size="12" font-weight="600" fill="var(--fg)">Infrastructure/</text>
+  <text x="376" y="329" font-size="10.5" fill="var(--muted)">Process/{Git,Hash,Exec}</text>
+  <text x="376" y="341" font-size="10.5" fill="var(--muted)">Workspace/{Paths,Guards,Policy,RunLock}</text>
+  <rect x="364" y="350" width="224" height="38" rx="6" fill="var(--code-bg)" stroke="var(--line)"/>
+  <text x="376" y="366" font-size="12" font-weight="600" fill="var(--fg)">Serialization/</text>
+  <text x="376" y="381" font-size="10.5" fill="var(--muted)">ForgeJsonContext (Disallow) · CodexJsonContext (Skip)</text>
+
+  <rect x="660" y="20" width="284" height="150" rx="10" stroke="var(--ok)" stroke-width="2"/>
+  <text x="674" y="44" font-size="14" font-weight="700" fill="var(--ok)">Репозиторий</text>
+  <text x="674" y="66" font-size="12" fill="var(--fg)">.forge/ — целиком владение Forge:</text>
+  <text x="674" y="85" font-size="12" fill="var(--fg)">state.json · PLAN.md · REVIEW-LOG</text>
+  <text x="674" y="103" font-size="12" fill="var(--fg)">patches · review-manifest · критики</text>
+  <text x="674" y="121" font-size="12" fill="var(--fg)">refs/plan-forge/&lt;scope&gt;/{owner,head-base,</text>
+  <text x="674" y="137" font-size="12" fill="var(--fg)">worktree-base}</text>
+  <text x="674" y="157" font-size="12" fill="var(--fg)">.git/info/exclude — managed-блок</text>
+
+  <rect x="660" y="184" width="284" height="96" rx="10" stroke="var(--ok)" stroke-width="2"/>
+  <text x="674" y="208" font-size="14" font-weight="700" fill="var(--ok)">Данные вне репозитория</text>
+  <text x="674" y="229" font-size="11.5" fill="var(--fg)">~/.codex/plugin-data/…/pending-plans/</text>
+  <text x="674" y="247" font-size="11.5" fill="var(--fg)">~/.cursor/plugin-data/…/cursor-runs/</text>
+  <text x="674" y="265" font-size="11.5" fill="var(--fg)">%LOCALAPPDATA%/plan-forge-flow/locks/</text>
+
+  <rect x="660" y="294" width="284" height="70" rx="10" stroke="var(--warn)" stroke-width="2"/>
+  <text x="674" y="318" font-size="13" font-weight="700" fill="var(--warn)">внешние процессы</text>
+  <text x="674" y="338" font-size="12" fill="var(--fg)">git (GitClient) — единственная точка</text>
+  <text x="674" y="356" font-size="12" fill="var(--fg)">dotnet --version — только в doctor</text>
+
+  <path d="M274 95 H346" marker-end="url(#a1)"/>
+  <text x="280" y="88" font-size="11" fill="var(--muted)">argv + stdin</text>
+  <path d="M346 130 H276" marker-end="url(#a1)"/>
+  <text x="280" y="147" font-size="11" fill="var(--muted)">1 JSON-конверт</text>
+  <path d="M274 265 H346" marker-end="url(#a1)"/>
+  <text x="280" y="258" font-size="11" fill="var(--muted)">--host cursor</text>
+  <path d="M606 90 H658" marker-end="url(#a1)"/>
+  <path d="M606 230 H658" marker-end="url(#a1)"/>
+  <path d="M606 325 H658" marker-end="url(#a1)"/>
+
+  <text x="16" y="440" font-size="11" fill="var(--muted)">Launcher (bin/planforge-launcher.sh|.ps1) выбирает bin/&lt;rid&gt;/planforge по uname/OSArchitecture; шесть RID лежат в плагине.</text>
+  <text x="16" y="462" font-size="11" fill="var(--muted)">CLI не держит состояния в памяти между вызовами: каждая команда — отдельный процесс.</text>
+  </g>
+</svg>
+<figcaption>Рис. 1. Один бинарь, два хоста. Codex попадает в CLI через хук и skill, Cursor — через
+слэш-команду и внешний <code>PendingRun</code>; после материализации оба идут одним путём.</figcaption>
+</figure>
+
+<h3>Две политики JSON</h3>
+<p>Сериализация — source-generated, без reflection, двумя разными контекстами:</p>
+<ul>
+<li><code>ForgeJsonContext</code> — всё, что принадлежит Forge (<code>ForgeState</code>,
+    <code>PendingRun</code>, манифест, pending-план, stdin-запросы, все DTO ответов). Политика
+    <code>UnmappedMemberHandling.Disallow</code>: любое лишнее поле роняет чтение. Свои файлы
+    fail-closed.</li>
+<li><code>CodexJsonContext</code> — payload'ы Codex (вход хука, записи транскрипта). Политика
+    <code>Skip</code>: новое поле в Codex не должно ломать захват плана. Чужие данные fail-open.</li>
+</ul>
+<p><code>JsonOutput.Success</code> принимает <code>JsonTypeInfo&lt;JsonSuccess&lt;T&gt;&gt;</code>
+явным параметром, поэтому забытая регистрация DTO в контексте — ошибка компиляции, а не рантайма.
+Любой stdin читается через <code>JsonInput.Read</code>, который снимает BOM перед разбором.</p>
+
+<h3>Контракт вывода</h3>
+<pre><code>{"ok":true, "command":"build dispatch", "data":{...}}
+{"ok":false,"command":"review verdict","error":{"code":"verdict","message":"…","details":[…]}}</code></pre>
+<p>Коды выхода: <code>0</code> — успех; <code>1</code> — usage/environment/unexpected;
+<code>2</code> — verdict (провал ревью, покрытия, чувствительные данные); <code>3</code> — state
+(нарушен инвариант автомата, включая <code>unsupported-state-schema</code>). Исключение —
+<code>hook capture-context</code>: он пишет объект в формате хуков Codex (без обёртки CLI) и
+<b>всегда</b> возвращает 0.</p>
+
+<h3>Полный набор команд</h3>
+<pre><code>plan   lock | materialize | stage | finalize | invalidate | abandon
+build  dispatch | complete | resolve | begin
+review prepare | record-response | authorize-preexisting | verdict
+session builder | reviewer
+run    doctor | status | set | cleanup
+agents install
+hook   capture-context</code></pre>
+<p>Двадцать одна интерактивная команда плюс хук. Дерево команд и допустимые опции описаны в
+единственном месте — <code>CliCommands.Definitions</code>. Там же флаг <code>LoadsState</code>:
+он определяет, загрузит ли роутер <code>.forge/state.json</code> в <code>CommandContext</code> до
+входа в обработчик (и заодно сверит <code>host</code> и <code>repositoryScopeId</code>).
+<code>--workspace</code> и <code>--host</code> доступны везде; workspace по умолчанию равен текущему
+каталогу и приводится к корню Git-репозитория, host по умолчанию — <code>codex</code>.</p>
+
+<table>
+<tr><th>Опции по командам</th><th></th></tr>
+<tr><td><code>plan lock</code></td><td><code>--relock --amendment</code></td></tr>
+<tr><td><code>plan materialize</code></td><td>Codex: <code>--amendment</code> + stdin JSON; Cursor: <code>--host cursor --run-id</code></td></tr>
+<tr><td><code>plan stage</code> <span class="pill p-cu">Cursor</span></td><td><code>--run-id --model --effort --cursor-version --observed-model --waiver-reason --accept-risk --authorization-note</code> + <b>чат-черновик на stdin</b></td></tr>
+<tr><td><code>plan finalize</code> <span class="pill p-cu">Cursor</span></td><td><code>--run-id --model --effort --cursor-version --observed-model --waiver-reason</code></td></tr>
+<tr><td><code>plan invalidate</code> / <code>abandon</code> <span class="pill p-cu">Cursor</span></td><td><code>--run-id --reason</code> / <code>--run-id</code></td></tr>
+<tr><td><code>build dispatch</code></td><td><code>--stage --task-number --retry --cancel --dispatch-id --model --effort --accept-risk --authorization-note</code></td></tr>
+<tr><td><code>build complete</code></td><td><code>--task-number --dispatch-id --verification-passed --accept-risk --authorization-note</code></td></tr>
+<tr><td><code>build resolve</code> / <code>begin</code></td><td><code>--conflict --dispatch-id</code> / <code>--amendment --relock</code></td></tr>
+<tr><td><code>review prepare</code></td><td><code>--full --allow-paths --authorization-note</code></td></tr>
+<tr><td><code>review record-response</code> <span class="pill p-cu">Cursor</span></td><td><code>--dispatch-id --stage [--run-id]</code> + полный ответ ревьюера на stdin</td></tr>
+<tr><td><code>review authorize-preexisting</code></td><td><code>--authorized-paths --authorization-note --accept-risk</code></td></tr>
+<tr><td><code>review verdict</code></td><td><code>--stage --critique-file --accept-risk --authorization-note</code></td></tr>
+<tr><td><code>session builder|reviewer</code></td><td><code>--id --dispatch-id --model --effort --authorization-note</code></td></tr>
+<tr><td><code>run set</code> / <code>cleanup</code></td><td><code>--key --value --amendment --accept-risk --authorization-note</code> / <code>--purge-generated-agents</code></td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="hosts">2. Два хоста: Codex и Cursor</h2>
+
+<p>До материализации хосты работают по разным протоколам, после — по одному и тому же автомату.
+Разница закреплена в состоянии полем <code>host</code>, и любая команда со stateful-флагом
+отказывает, если <code>--host</code> не совпадает с записанным.</p>
+
+<table>
+<tr><th></th><th>Codex</th><th>Cursor</th></tr>
+<tr><td>Минимальная версия</td><td>0.145 с <code>multi_agent</code></td><td>3.15.6</td></tr>
+<tr><td>Что ревьюится</td><td><code>&lt;proposed_plan&gt;</code> в переписке Plan mode</td><td><b>чат-черновик</b>, переданный на stdin; нативного файла ещё нет</td></tr>
+<tr><td>Порядок</td><td>грилл → ревью → превью → нативное одобрение → материализация</td><td>грилл → ревью черновика → выбор билдера → <code>finalize</code> → <b>создание нативного плана (терминальное действие)</b> → материализация при Build</td></tr>
+<tr><td>Как план попадает в CLI</td><td>хук <code>UserPromptSubmit</code> стейджит его в <code>pending-plans/</code></td><td><code>plan stage</code> кладёт канонический черновик в <code>PendingRun.draftText</code>; при материализации CLI сам находит нативный файл по маркеру</td></tr>
+<tr><td>Ревью плана</td><td>критика + sidecar <code>&lt;file&gt;.json</code>, вне CLI (акты 1–2 ничего не пишут)</td><td>полный ответ ревьюера на stdin → <code>review record-response --stage plan</code>, автомат <code>PendingRun</code></td></tr>
+<tr><td>Билдер</td><td>один постоянный <code>forge_builder</code>; смена id требует <code>--authorization-note</code></td><td>свежий <code>forge-builder</code> на каждый шаг; повтор id запрещён (<code>agents.builderIds</code>)</td></tr>
+<tr><td>Модель и эффорт</td><td>подтверждаются рантаймом (no-edit hold), 3 попытки на роль</td><td>гарантии нет: <code>modelGuarantee=waived</code> + явное согласие на каждую роль</td></tr>
+<tr><td>Изоляция ревьюера</td><td><code>sandbox_mode = "read-only"</code></td><td><code>readonly: true</code> — <b>advisory</b>, <code>reviewerGuarantee=advisory</code></td></tr>
+<tr><td>Гарантия одобрения</td><td>нативный виджет Plan mode</td><td>видимая преамбула в плане — <b>advisory</b>, <code>approvalGuarantee=advisory</code></td></tr>
+<tr><td>Поправки (<code>--amendment</code>)</td><td>поддержаны</td><td>запрещены (<code>Cursor amendments are unsupported</code>)</td></tr>
+<tr><td>Материализация</td><td>прямая запись <code>.forge/</code> под локом</td><td>двухфазная транзакция со staging-каталогом и журналом</td></tr>
+<tr><td><code>run doctor</code></td><td>проверка окружения</td><td>то же + <b>отказ, если <code>.forge</code> уже существует</b></td></tr>
+</table>
+
+<div class="note warnbox">
+<b>Что означает «advisory».</b> Cursor может проигнорировать и <code>readonly: true</code>, и
+видимую преамбулу плана. Поэтому <code>run status</code> честно возвращает
+<code>reviewerGuarantee=advisory</code> и <code>approvalGuarantee=advisory</code>, а skill требует
+считать мутацию рабочего дерева на ревью-прогоне поводом остановить релиз и разобраться вручную.
+Единственный жёсткий барьер — сам CLI: без успешной материализации нет ни
+<code>.forge/</code>, ни рефов, ни dispatch, поэтому обойти гейт «тихо, но по правилам» нельзя —
+можно только начать писать в репозиторий вне процесса.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="trust">3. Границы доверия и одобрение</h2>
+
+<figure class="fig">
+<svg viewBox="0 0 940 320" role="img" aria-label="Два пути плана до .forge/PLAN.md">
+ <defs>
+  <marker id="t1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+ </defs>
+ <g font-size="12">
+  <text x="16" y="24" font-size="12" font-weight="700" fill="var(--accent2)">Codex</text>
+  <g fill="var(--card)" stroke="var(--accent2)" stroke-width="1.6">
+   <rect x="16" y="34" width="196" height="58" rx="8"/>
+   <rect x="248" y="34" width="196" height="58" rx="8"/>
+   <rect x="480" y="34" width="196" height="58" rx="8"/>
+   <rect x="712" y="34" width="212" height="58" rx="8"/>
+  </g>
+  <g text-anchor="middle" fill="var(--fg)" font-weight="700" font-size="12">
+   <text x="114" y="56">Plan mode</text>
+   <text x="346" y="56">хук на любом промпте</text>
+   <text x="578" y="56">plan materialize</text>
+   <text x="818" y="56">.forge/</text>
+  </g>
+  <g text-anchor="middle" fill="var(--muted)" font-size="10.5">
+   <text x="114" y="72">&lt;proposed_plan&gt;…&lt;/proposed_plan&gt;</text>
+   <text x="114" y="85">phase=final_answer, mode=plan</text>
+   <text x="346" y="72">LatestPlan(rollout.jsonl)</text>
+   <text x="346" y="85">→ pending-plans/&lt;sha(cwd)&gt;.json</text>
+   <text x="578" y="72">pending + stdin JSON</text>
+   <text x="578" y="85">{reviewLog, rounds, модели}</text>
+   <text x="818" y="72">PLAN.md · REVIEW-LOG</text>
+   <text x="818" y="85">state.json · exclude · refs</text>
+  </g>
+  <g stroke="var(--muted)" fill="none" stroke-width="1.4">
+   <path d="M214 63 H246" marker-end="url(#t1)"/>
+   <path d="M446 63 H478" marker-end="url(#t1)"/>
+   <path d="M678 63 H710" marker-end="url(#t1)"/>
+  </g>
+
+  <text x="16" y="130" font-size="12" font-weight="700" fill="var(--accent)">Cursor</text>
+  <g fill="var(--card)" stroke="var(--accent)" stroke-width="1.6">
+   <rect x="16" y="140" width="196" height="62" rx="8"/>
+   <rect x="248" y="140" width="196" height="62" rx="8"/>
+   <rect x="480" y="140" width="196" height="62" rx="8"/>
+   <rect x="712" y="140" width="212" height="62" rx="8"/>
+  </g>
+  <g text-anchor="middle" fill="var(--fg)" font-weight="700" font-size="12">
+   <text x="114" y="160">чат-черновик</text>
+   <text x="346" y="160">stage → record → finalize</text>
+   <text x="578" y="160">&lt;name&gt;.plan.md</text>
+   <text x="818" y="160">plan materialize</text>
+  </g>
+  <g text-anchor="middle" fill="var(--muted)" font-size="10.5">
+   <text x="114" y="176">никакого файла ещё нет</text>
+   <text x="114" y="189">stdin → PendingRun.draftText</text>
+   <text x="346" y="176">ревью черновика; finalize</text>
+   <text x="346" y="189">парсит ## Approach и стирает draft</text>
+   <text x="578" y="176">создаётся ПОСЛЕ ревью,</text>
+   <text x="578" y="189">маркер + преамбула, ready</text>
+   <text x="818" y="176">поиск по маркеру, снимок</text>
+   <text x="818" y="189">текста в транзакцию → .forge/</text>
+  </g>
+  <g stroke="var(--muted)" fill="none" stroke-width="1.4">
+   <path d="M214 171 H246" marker-end="url(#t1)"/>
+   <path d="M446 171 H478" marker-end="url(#t1)"/>
+   <path d="M678 171 H710" marker-end="url(#t1)"/>
+  </g>
+
+  <g font-size="11" fill="var(--muted)">
+   <text x="16" y="242" font-weight="700" fill="var(--fg)">Общие проверки текста плана (CanonicalText):</text>
+   <text x="16" y="260">• канонизация UTF-8/LF, снятие BOM, ровно один терминальный перевод строки, ≤ 256 КБ, без NUL и непарных суррогатов;</text>
+   <text x="16" y="278">• запрет тегов &lt;proposed_plan&gt; в теле; обязательная секция <tspan font-family="monospace">## Approach</tspan> (ровно одна) с задачами 1..N строго по порядку;</text>
+   <text x="16" y="296">• план и review-лог прогоняются через <tspan font-family="monospace">SensitiveInput</tspan> до любой записи в репозиторий.</text>
+  </g>
+ </g>
+</svg>
+<figcaption>Рис. 2. Codex доверяет pending-плану, застейдженному хуком. Cursor ревьюит текст в чате,
+а на Build находит нативный файл по маркеру прогона и снимает с него снимок.</figcaption>
+</figure>
+
+<div class="note warnbox">
+<b>Граница доверия Codex.</b> Стейджинг — не одобрение. Хук не определяет режим текущего хода и
+ничего не блокирует: он просто обновляет pending-план, если в транскрипте есть Plan-mode превью.
+Требования «Act 1 только в Plan mode» и «материализовать только в первом Default-ходе» живут
+исключительно в skill; CLI их проверить не может и не пытается. Одноразового токена одобрения нет,
+привязки к конкретному ходу или сессии нет. Любой процесс с доступом к
+<code>~/.codex/plugin-data</code> может подменить pending-план.
+</div>
+
+<div class="note badbox">
+<b>Граница доверия Cursor: ревью и исполнение развязаны намеренно.</b> Ревьюер видит
+<b>чат-черновик</b>, а собирается по <b>нативному файлу</b>. Единственное, что связывает их, — это
+идентичность прогона: маркер
+<code>&lt;!-- plan-forge-flow:run=&lt;id&gt;;workspace=&lt;scope&gt; --&gt;</code> и идущая ровно за ним
+преамбула. Ни пути, ни хеша черновика в <code>PendingRun</code> после <code>finalize</code> не
+остаётся: <code>draftText</code> стирается. При материализации CLI проверяет у нативного файла
+только форму — маркер, преамбулу, отсутствие секретов и корректный <code>## Approach</code> — и
+берёт его текст целиком (включая frontmatter Cursor) как <code>.forge/PLAN.md</code>. Тело может
+сколь угодно отличаться от одобренного черновика, и это <b>зафиксировано как решение</b>
+(<code>native-plan-contract.md</code>: «user edits to the native plan do not require another plan
+review»). Хеш транзакции защищает атомарный replay, а не идентичность одобрения. Практическое
+следствие: <code>PLAN-REVIEW-LOG.md</code> описывает один текст, а <code>PLAN.md</code> и
+<code>tasks[]</code> происходят из другого.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="state">4. Состояние, фазы и стадии</h2>
+
+<p>Состояние прогона живёт в <code>.forge/state.json</code>. Документ версионирован явно:
+<code>schemaVersion: 1</code> плюс <code>host</code> (<code>codex</code>|<code>cursor</code>).
+Отсутствующая, нулевая, чужая или будущая схема отклоняется как
+<code>unsupported-state-schema</code> <b>до</b> любой мутации. Совместимость держится и строгостью
+чтения: лишнее или переименованное поле роняет загрузку. Константы
+<code>ForgeState.Version = 5</code> и <code>Generation = "v4"</code> существуют только для вывода
+<code>run status</code> и поля <code>generation</code> в манифесте улик.</p>
+
+<table>
+<tr><th>Группа (record)</th><th>Поля</th><th>Кто пишет</th></tr>
+<tr><td>корень</td><td>schemaVersion, host, repositoryScopeId, sourceRun (<code>{source, transactionId}</code>), modelWaiver, modelWaiverAudit[], reviewerGuarantee, approvalGuarantee, createdAt, updatedAt</td><td>materialize</td></tr>
+<tr><td><code>WorkflowState</code></td><td>phase (<code>ForgePhase</code>), round, maxRounds, maxFixRounds, maxBuildRetries, taskCount, nextTaskNumber, amendment, tasks[]</td><td>materialize, plan&nbsp;lock, build&nbsp;complete, review&nbsp;verdict, run&nbsp;set</td></tr>
+<tr><td><code>ModelState</code></td><td>reviewer, builder (<code>PinnedSelection</code>) + метод <code>For(role)</code></td><td>materialize, run&nbsp;set (сброс билдера при поправке)</td></tr>
+<tr><td><code>AgentState</code></td><td>builderId, builderIds[], lastBuilderDispatchId, reviewerIds[], lastReviewerId, lastReviewerDispatchId</td><td>session builder/reviewer, build dispatch --retry</td></tr>
+<tr><td><code>DispatchState</code></td><td>id, stage (<code>DispatchStage?</code>), taskNumber, retry, pending, lastVerificationPassed, model, effort, conflict</td><td>build dispatch/complete/resolve, review verdict</td></tr>
+<tr><td><code>BaselinesState</code></td><td>head, worktree, untracked[] (<code>BaselineEntry</code>: path + hash)</td><td>plan lock, build begin</td></tr>
+<tr><td><code>ReviewState</code></td><td>coverage, verdict, fixRound, authorizedPaths[], manifest, critiqueFile, verdictFile, verdictHash, critiqueFiles[]</td><td>review prepare/verdict/authorize-preexisting</td></tr>
+</table>
+
+<p>Запись идёт только через <code>StateStore.Update</code>: берётся workspace-лок, состояние
+перечитывается, при наличии ожидаемого снимка сравниваются SHA-256 сериализованных документов
+(оптимистическая блокировка против гонок между параллельными вызовами CLI), затем документ пишется
+атомарно — temp + fsync + rename. Опциональный колбэк <code>beforePersist</code> позволяет
+зажурналировать будущий документ до записи — этим пользуется транзакция Cursor.</p>
+
+<h3>Таблица стадий — ядро автомата</h3>
+<p><code>DispatchStages.Definitions</code> — единственный источник правды о том, как ведёт себя
+каждая стадия dispatch:</p>
+<pre><code>DispatchStage.Code      → (Reviewer, CodeReview, freshReview: да,  closedByBuilder: нет)
+DispatchStage.Build     → (Builder,  Build,      freshReview: нет, closedByBuilder: да)
+DispatchStage.FixBuild  → (Builder,  CodeReview, freshReview: нет, closedByBuilder: да)
+DispatchStage.FixReview → (Reviewer, CodeReview, freshReview: да,  closedByBuilder: нет)</code></pre>
+<p>Из таблицы выводятся: какая роль вправе зарегистрировать сессию, какая фаза требуется для
+dispatch, нужен ли свежий манифест улик, кто закрывает dispatch (<code>build complete</code> против
+<code>review verdict</code>) и что считается ревью-стадией
+(<code>IsReview() = !CompletedByBuilder</code>). Внешние имена стадий и фаз заданы словарём
+<code>enum → string</code> с обратным индексом, который обслуживает и разбор аргумента, и вывод.</p>
+
+<div class="note">
+<b><code>review record-response --stage plan</code> у Cursor не является dispatch-стадией.</b>
+Команда работает с внешним <code>PendingRun</code> до материализации и хранит <code>plan</code> как
+тип ответа ревьюера. В <code>DispatchStage</code> такого значения нет.
+</div>
+
+<h3>Конечный автомат фаз</h3>
+
+<figure class="fig">
+<svg viewBox="0 0 900 330" role="img" aria-label="Диаграмма фаз workflow">
+ <defs>
+  <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+  <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+  </marker>
+ </defs>
+ <g font-size="13">
+  <rect x="20" y="120" width="130" height="52" rx="26" fill="var(--card)" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="85" y="145" text-anchor="middle" font-weight="700" fill="var(--fg)">materialized</text>
+  <text x="85" y="162" text-anchor="middle" font-size="10" fill="var(--muted)">plan materialize</text>
+
+  <rect x="205" y="120" width="120" height="52" rx="26" fill="var(--card)" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="265" y="145" text-anchor="middle" font-weight="700" fill="var(--fg)">locked</text>
+  <text x="265" y="162" text-anchor="middle" font-size="10" fill="var(--muted)">plan lock</text>
+
+  <rect x="380" y="120" width="120" height="52" rx="26" fill="var(--card)" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="440" y="145" text-anchor="middle" font-weight="700" fill="var(--fg)">build</text>
+  <text x="440" y="162" text-anchor="middle" font-size="10" fill="var(--muted)">build begin</text>
+
+  <rect x="555" y="120" width="140" height="52" rx="26" fill="var(--card)" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="625" y="145" text-anchor="middle" font-weight="700" fill="var(--fg)">code-review</text>
+  <text x="625" y="162" text-anchor="middle" font-size="10" fill="var(--muted)">все задачи готовы</text>
+
+  <rect x="750" y="60" width="120" height="46" rx="23" fill="var(--card)" stroke="var(--ok)" stroke-width="2"/>
+  <text x="810" y="88" text-anchor="middle" font-weight="700" fill="var(--ok)">done</text>
+
+  <rect x="736" y="185" width="148" height="46" rx="23" fill="var(--card)" stroke="var(--warn)" stroke-width="2"/>
+  <text x="810" y="206" text-anchor="middle" font-weight="700" font-size="12" fill="var(--warn)">done-with-findings</text>
+  <text x="810" y="222" text-anchor="middle" font-size="10" fill="var(--muted)">только run set + accept-risk</text>
+
+  <g stroke="var(--muted)" fill="none" stroke-width="1.6">
+   <path d="M152 146 H203" marker-end="url(#a2)"/>
+   <path d="M327 146 H378" marker-end="url(#a2)"/>
+   <path d="M502 146 H553" marker-end="url(#a2)"/>
+   <path d="M697 138 L735 100" marker-end="url(#a2)"/>
+   <path d="M697 155 L734 195" marker-end="url(#a2)"/>
+  </g>
+  <text x="163" y="138" font-size="10" fill="var(--muted)">tasks[] из ## Approach</text>
+  <text x="336" y="138" font-size="10" fill="var(--muted)">git refs (scope)</text>
+  <text x="505" y="138" font-size="10" fill="var(--muted)">next &gt; taskCount</text>
+  <text x="700" y="112" font-size="10" fill="var(--ok)">APPROVED + FULL</text>
+
+  <g stroke="var(--accent)" fill="none" stroke-width="1.6" stroke-dasharray="5 4">
+   <path d="M625 118 C625 60, 440 55, 440 118" marker-end="url(#a3)"/>
+   <path d="M600 176 C560 250, 500 250, 470 250 C420 250, 380 220, 380 176" marker-end="url(#a3)"/>
+  </g>
+  <text x="470" y="52" font-size="10" fill="var(--accent)">поправка (только Codex): run set --key phase --value build --amendment</text>
+  <text x="390" y="270" font-size="10" fill="var(--accent)">fix-раунд: --stage fix-build, затем --stage fix-review</text>
+
+  <g stroke="var(--accent)" fill="none" stroke-width="1.6" stroke-dasharray="5 4">
+   <path d="M265 118 C265 40, 120 40, 100 40 C60 40, 55 90, 68 118" marker-end="url(#a3)"/>
+  </g>
+  <text x="90" y="34" font-size="10" fill="var(--accent)">plan materialize --amendment → plan lock --relock --amendment</text>
+
+  <text x="20" y="305" font-size="11" fill="var(--muted)">Сплошные стрелки — обычный ход. Пунктир — поправки и повторы; каждая требует явного флага пользователя. Для Cursor пунктирные пути недоступны.</text>
+ </g>
+</svg>
+<figcaption>Рис. 3. Фазы (<code>enum ForgePhase</code>). Переходы зашиты в <code>LockPlan</code>,
+<code>BeginBuild</code>, <code>Complete</code>, <code>Verdict</code> и в матрицу легальности
+<code>run set --key phase</code> — единственный ручной переход. У Cursor
+<code>materialize</code> проходит materialized → locked → build за один вызов.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="locks">5. Локи и идентичность репозитория</h2>
+
+<p>Каждый прогон привязан к <b>scope id</b> — первым 24 hex-символам
+<code>SHA-256(gitCommonDir + "\n" + workspaceRoot)</code> (на Windows обе части понижаются в
+регистре). Scope попадает в <code>state.repositoryScopeId</code>, в имена рефов
+<code>refs/plan-forge/&lt;scope&gt;/…</code> и в путь внешнего <code>PendingRun</code>. Благодаря
+этому linked worktrees одного репозитория не путают свои прогоны, а состояние, перенесённое в
+другой каталог, отклоняется до мутации.</p>
+
+<table>
+<tr><th>Лок</th><th>Ключ</th><th>Что защищает</th></tr>
+<tr><td><code>RepositoryRunLock</code></td><td><code>&lt;root&gt;/locks/&lt;sha256(gitCommonDir)&gt;.lock</code></td><td>общие для всех worktree'ев ресурсы: <code>refs/plan-forge/*</code>, <code>info/exclude</code>, внешние <code>PendingRun</code></td></tr>
+<tr><td><code>ForgeStateLock</code></td><td><code>&lt;root&gt;/workspace-locks/&lt;sha256(workspace)&gt;.lock</code></td><td><code>.forge/state.json</code> конкретного рабочего дерева</td></tr>
+</table>
+
+<p>Корень локов — <code>%LOCALAPPDATA%/plan-forge-flow</code> (или <code>FORGE_LOCK_DATA</code>),
+то есть <b>вне репозитория</b>: локи не видны в <code>git status</code> и не попадают в улики
+ревью. Сам лок — это удерживаемый OS-хендл (<code>FileShare.None</code>), а не факт существования
+файла, поэтому после падения процесса ядро освобождает его само и ручная чистка не нужна. Занятый
+лок сразу даёт ошибку <code>state</code> без ожидания.</p>
+
+<p>Порядок вложения фиксирован: сначала repository lock, потом workspace lock. Методы, которые
+могут вызываться и напрямую, и изнутри уже удерживаемого repository lock, принимают флаг
+<code>repositoryLockHeld</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="codex">6. Workflow Codex: 4 акта</h2>
+
+<figure class="fig">
+<svg viewBox="0 0 960 690" role="img" aria-label="Последовательность вызовов CLI по актам">
+ <defs>
+  <marker id="s1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+ </defs>
+ <g font-size="12.5">
+  <g stroke="var(--line)" stroke-width="1">
+   <line x1="130" y1="60" x2="130" y2="670"/>
+   <line x1="370" y1="60" x2="370" y2="670"/>
+   <line x1="610" y1="60" x2="610" y2="670"/>
+   <line x1="840" y1="60" x2="840" y2="670"/>
+  </g>
+  <g text-anchor="middle" font-weight="700" font-size="12">
+   <rect x="55" y="20" width="150" height="30" rx="6" fill="var(--card)" stroke="var(--accent2)"/>
+   <text x="130" y="40" fill="var(--accent2)">Пользователь</text>
+   <rect x="295" y="20" width="150" height="30" rx="6" fill="var(--card)" stroke="var(--accent2)"/>
+   <text x="370" y="40" fill="var(--accent2)">Оркестратор</text>
+   <rect x="535" y="20" width="150" height="30" rx="6" fill="var(--card)" stroke="var(--accent)"/>
+   <text x="610" y="40" fill="var(--accent)">planforge CLI</text>
+   <rect x="770" y="20" width="150" height="30" rx="6" fill="var(--card)" stroke="var(--ok)"/>
+   <text x="845" y="40" fill="var(--ok)">Сабагенты / FS</text>
+  </g>
+
+  <g opacity="0.35">
+   <rect x="20" y="66" width="920" height="70" rx="6" fill="var(--code-bg)"/>
+   <rect x="20" y="330" width="920" height="122" rx="6" fill="var(--code-bg)"/>
+   <rect x="20" y="584" width="920" height="86" rx="6" fill="var(--code-bg)"/>
+  </g>
+  <g font-size="11" font-weight="700" fill="var(--accent)">
+   <text x="28" y="82">ФАЗА 0 · Plan mode (проверяет skill)</text>
+   <text x="28" y="164">АКТ 1–2 · грилл, выбор моделей, ревью плана (вне CLI)</text>
+   <text x="28" y="346">ПЕРЕХОД · первый Default-ход</text>
+   <text x="28" y="470">АКТ 3 · сборка по задачам</text>
+   <text x="28" y="600">АКТ 4 · финальное ревью</text>
+  </g>
+
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none">
+   <path d="M132 100 H366" marker-end="url(#s1)"/>
+   <path d="M372 122 H606" marker-end="url(#s1)"/>
+   <path d="M372 184 H134" marker-end="url(#s1)"/>
+   <path d="M132 204 H366" marker-end="url(#s1)"/>
+   <path d="M372 226 H838" marker-end="url(#s1)"/>
+   <path d="M838 248 H374" marker-end="url(#s1)"/>
+   <path d="M372 294 H134" marker-end="url(#s1)"/>
+   <path d="M132 364 H366" marker-end="url(#s1)"/>
+   <path d="M372 384 H606" marker-end="url(#s1)"/>
+   <path d="M372 404 H606" marker-end="url(#s1)"/>
+   <path d="M372 424 H606" marker-end="url(#s1)"/>
+   <path d="M372 488 H606" marker-end="url(#s1)"/>
+   <path d="M372 510 H838" marker-end="url(#s1)"/>
+   <path d="M372 532 H606" marker-end="url(#s1)"/>
+   <path d="M372 554 H606" marker-end="url(#s1)"/>
+   <path d="M372 618 H606" marker-end="url(#s1)"/>
+   <path d="M372 638 H838" marker-end="url(#s1)"/>
+   <path d="M372 660 H606" marker-end="url(#s1)"/>
+  </g>
+
+  <g fill="var(--fg)">
+   <text x="140" y="96">«$forge …» в Plan mode</text>
+   <text x="380" y="118">run doctor</text>
+
+   <text x="142" y="180">«Какую модель и эффорт для ревьюера?» (свободный текст)</text>
+   <text x="140" y="200">«Sol, high» → нормализация, 3 попытки на роль</text>
+   <text x="380" y="222">spawn forge_reviewer (read-only, свежий на раунд)</text>
+   <text x="382" y="244">критика + &lt;critique&gt;.json с решением</text>
+   <text x="142" y="290">&lt;proposed_plan&gt; канонический план &lt;/proposed_plan&gt;</text>
+
+   <text x="140" y="360">«Implement the plan» → Default mode; хук уже застейджил план</text>
+   <text x="380" y="380">plan materialize  ← stdin {reviewLog, rounds, models}</text>
+   <text x="380" y="400">plan lock  (парсит ## Approach → tasks[])</text>
+   <text x="380" y="420">build begin  (пинит owner/head-base/worktree-base)</text>
+
+   <text x="380" y="484">build dispatch --stage build --task-number N</text>
+   <text x="382" y="506">forge_builder реализует задачу N</text>
+   <text x="380" y="528">session builder --id … --dispatch-id … --model/--effort</text>
+   <text x="380" y="550">build complete --task-number N</text>
+
+   <text x="380" y="614">review prepare --full  → .forge/*.patch</text>
+   <text x="382" y="634">forge_reviewer читает патчи → критика + sidecar JSON</text>
+   <text x="380" y="656">review verdict --stage code --critique-file …</text>
+  </g>
+
+  <g stroke="var(--accent)" stroke-dasharray="4 4" fill="none" stroke-width="1.3">
+   <path d="M330 560 C300 578, 300 468, 330 480" marker-end="url(#s1)"/>
+   <path d="M330 666 C290 683, 285 608, 330 610" marker-end="url(#s1)"/>
+  </g>
+  <text x="200" y="524" font-size="10" fill="var(--accent)">для каждой задачи 1..N</text>
+  <text x="170" y="682" font-size="10" fill="var(--accent)">REVISE → fix-build + fix-review (≤ maxFixRounds)</text>
+ </g>
+</svg>
+<figcaption>Рис. 4. CLI никогда не запускает сабагентов сам — он выдаёт <code>dispatch-id</code>, а
+затем требует, чтобы регистрация сессии совпала с ним. Ревью плана (акт 2) в CLI не записывается:
+его итог приходит одной строкой <code>reviewLog</code> в <code>plan materialize</code>.</figcaption>
+</figure>
+
+<div class="cmd">
+<h4>run doctor</h4>
+<dl>
+<dt>Когда</dt><dd>единственная команда фазы 0: проверка готовности окружения перед гриллом.</dd>
+<dt>Делает</dt><dd><code>git --version</code>, <code>dotnet --version</code>, наличие
+<code>.forge/state.json</code> и, если каталог — Git-репозиторий, канонический
+<code>repositoryScopeId</code>. Работает и в каталоге без Git (тогда scope не возвращается).
+Тот же вызов используется как smoke-тест при упаковке релиза — <code>build/package.ps1</code>
+требует <code>ok</code> и у <code>git</code>, и у <code>dotnet</code>.</dd>
+<dt>Для Cursor</dt><dd>дополнительно отказывает с кодом 3, если в корне workspace уже есть
+<code>.forge</code> (каталог или файл): «inspect and remove or archive the previous Forge run».
+Ничего не удаляет и не мигрирует.</dd>
+</dl>
+</div>
+
+<h3>Выбор моделей (Codex)</h3>
+<p>Команд выбора моделей в CLI нет: процедура описана в
+<code>references/model-selection.md</code> и целиком выполняется оркестратором.</p>
+<ul>
+<li>Роли (ревьюер и билдер) спрашиваются <b>по отдельности</b> свободным текстом.</li>
+<li>Нормализация: Unicode, регистр, разделители; канонические ID; уникальные алиасы отображаемых
+    имён; русские и английские синонимы эффорта; исправление ровно одной однобуквенной опечатки при
+    уникальном совпадении.</li>
+<li>Источник истины о доступности — сам multi-agent-рантайм: билдер спавнится в «no-edit hold»,
+    чтобы неверная пара выяснилась до материализации.</li>
+<li><b>Три попытки на роль</b>, счётчики независимы; после третьей — остановка без дефолта и без
+    материализации.</li>
+<li><code>ultra</code> и <code>ультра</code> запрещены всегда.</li>
+</ul>
+<p>CLI видит только результат: <code>ModelSelections.Validate</code> проверяет модель по
+<code>^[A-Za-z0-9][A-Za-z0-9._\[\]=,-]{0,255}$</code>, эффорт по
+<code>^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$</code>, запрещает <code>ultra</code> и приводит эффорт к
+нижнему регистру. Существование модели в рантайме CLI не проверяет.</p>
+
+<h3>Ревью плана (Codex)</h3>
+<p>Каждый раунд — свежий read-only <code>forge_reviewer</code>; критика и sidecar-решение живут в
+переписке и в файлах, которые skill просит сохранить, но <code>.forge/</code> в актах 1–2 ещё не
+существует, поэтому ни <code>build dispatch</code>, ни <code>review verdict</code> в этих раундах не
+вызываются. Начальный кап — 5 раундов; счётчики попадают в состояние только через
+<code>completedReviewRounds</code> и <code>maxRounds</code> в stdin материализации.</p>
+
+<!-- ============================================================ -->
+<h2 id="hook">7. Хук <code>hook capture-context</code> <span class="pill p-cx">только Codex</span></h2>
+
+<p><code>Program.Main</code> перехватывает <code>hook capture-context</code> до общего парсера
+аргументов и передаёт stdin в <code>HookService.Run</code>. Это единственная команда, работающая по
+протоколу хуков Codex, а не по конверту CLI, и единственная, которая всегда завершается нулём.
+<code>hooks/hooks.json</code> вызывает RID-aware launcher с таймаутом 5 секунд.</p>
+
+<ol>
+<li>Вход ограничен 256 КБ, BOM снимается; при любой ошибке — тихо <code>return 0</code> без вывода.</li>
+<li>Из <code>HookInput</code> читаются <code>cwd</code> и <code>transcript_path</code>; без любого
+    из них хук молча выходит. Других полей DTO не содержит.</li>
+<li><code>TranscriptReader.ReadDocument</code> построчно парсит <code>rollout.jsonl</code>
+    (лимит 64 МБ, отказ на симлинках и симлинкнутых родителях, открытие с
+    <code>FileShare.ReadWrite | Delete</code>, чтобы не конфликтовать с пишущим Codex).</li>
+<li><code>TranscriptReader.LatestPlan</code> ищет последнее сообщение ассистента с
+    <code>phase = final_answer</code>, <code>mode = plan</code> и телом
+    <code>&lt;proposed_plan&gt;…&lt;/proposed_plan&gt;</code> и снимает теги. Если такого нет —
+    выход без вывода.</li>
+<li><code>PendingPlan.Write</code> сохраняет канонизированный план в
+    <code>&lt;plugin-data&gt;/pending-plans/&lt;sha256(cwd)&gt;.json</code> вместе с
+    <code>schemaVersion</code>, <code>host: codex</code> и путём workspace.</li>
+<li>В <code>additionalContext</code> уходит текст: план застейджен, не материализовать его, пока
+    текущий ход в Plan mode; в первом Default-ходе выполнить <code>plan materialize</code> с
+    review-логом, счётчиками раундов и закреплёнными моделями.</li>
+</ol>
+
+<p><code>TranscriptReader</code> различает виды записей: <code>turn</code> (turn_context с
+режимом), <code>message</code> (роль, phase, склеенный текст), <code>tool</code>,
+<code>reasoning</code>, <code>unsupported-activity</code>, <code>other</code>. Режим сообщения
+берётся из последнего предшествующего <code>turn_context</code>; хук не смотрит на
+<code>permission_mode</code>, который описывает поведение одобрений, а не режим совместной работы.</p>
+
+<!-- ============================================================ -->
+<h2 id="cursor">8. Workflow Cursor: chat-first и PendingRun v2</h2>
+
+<p>У Cursor нет хука, поэтому предодобрение живёт в отдельном версионированном файле вне
+репозитория:
+<code>&lt;plugin-data&gt;/cursor-runs/&lt;scopeId&gt;/&lt;sha256(runId)&gt;.json</code>. Корень —
+<code>$FORGE_PLUGIN_DATA</code>, иначе <code>$CURSOR_HOME/plugin-data/plan-forge-flow</code>, иначе
+<code>~/.cursor/plugin-data/plan-forge-flow</code>. До успешной материализации в репозитории не
+появляется ничего: ни <code>.forge/</code>, ни рефов, ни managed-блока exclude.</p>
+
+<p><b>Порядок 0.5.1 — chat-first.</b> Ревью идёт по тексту в чате; нативный
+<code>&lt;name&gt;.plan.md</code> создаётся <b>последним действием</b> Plan-хода, уже после
+<code>plan finalize</code>. Схема <code>PendingRun</code> — версия 2: у неё есть поле
+<code>draftText</code>, которое живёт только в фазах <code>reviewing</code>,
+<code>revision-required</code> и <code>review-approved</code> и обнуляется при
+<code>finalize</code> и <code>abandon</code> (инвариант проверяется при каждой загрузке).</p>
+
+<figure class="fig">
+<svg viewBox="0 0 920 310" role="img" aria-label="Фазы PendingRun">
+ <defs>
+  <marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+  <marker id="p2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+  </marker>
+ </defs>
+ <g font-size="12">
+  <rect x="20" y="96" width="128" height="46" rx="23" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>
+  <text x="84" y="118" text-anchor="middle" font-weight="700" fill="var(--fg)">reviewing</text>
+  <text x="84" y="133" text-anchor="middle" font-size="9.5" fill="var(--muted)">plan stage (stdin)</text>
+
+  <rect x="196" y="30" width="150" height="46" rx="23" fill="var(--card)" stroke="var(--warn)" stroke-width="2"/>
+  <text x="271" y="52" text-anchor="middle" font-weight="700" font-size="12" fill="var(--fg)">revision-required</text>
+  <text x="271" y="67" text-anchor="middle" font-size="9.5" fill="var(--muted)">REVISE / invalidate</text>
+
+  <rect x="196" y="150" width="150" height="46" rx="23" fill="var(--card)" stroke="var(--ok)" stroke-width="2"/>
+  <text x="271" y="172" text-anchor="middle" font-weight="700" font-size="12" fill="var(--fg)">review-approved</text>
+  <text x="271" y="187" text-anchor="middle" font-size="9.5" fill="var(--muted)">VERDICT: APPROVED</text>
+
+  <rect x="396" y="150" width="118" height="46" rx="23" fill="var(--card)" stroke="var(--ok)" stroke-width="2"/>
+  <text x="455" y="172" text-anchor="middle" font-weight="700" fill="var(--fg)">ready</text>
+  <text x="455" y="187" text-anchor="middle" font-size="9.5" fill="var(--muted)">plan finalize</text>
+
+  <rect x="562" y="150" width="140" height="46" rx="23" fill="var(--card)" stroke="var(--accent2)" stroke-width="2"/>
+  <text x="632" y="172" text-anchor="middle" font-weight="700" font-size="12" fill="var(--fg)">materializing</text>
+  <text x="632" y="187" text-anchor="middle" font-size="9.5" fill="var(--muted)">транзакция открыта</text>
+
+  <rect x="750" y="150" width="130" height="46" rx="23" fill="var(--card)" stroke="var(--ok)" stroke-width="2"/>
+  <text x="815" y="172" text-anchor="middle" font-weight="700" fill="var(--ok)">consumed</text>
+  <text x="815" y="187" text-anchor="middle" font-size="9.5" fill="var(--muted)">phase = build</text>
+
+  <rect x="750" y="40" width="130" height="42" rx="21" fill="var(--card)" stroke="var(--bad)" stroke-width="2"/>
+  <text x="815" y="66" text-anchor="middle" font-weight="700" fill="var(--bad)">abandoned</text>
+
+  <g stroke="var(--muted)" fill="none" stroke-width="1.5">
+   <path d="M150 110 L194 60" marker-end="url(#p1)"/>
+   <path d="M150 128 L194 168" marker-end="url(#p1)"/>
+   <path d="M348 173 H394" marker-end="url(#p1)"/>
+   <path d="M516 173 H560" marker-end="url(#p1)"/>
+   <path d="M704 173 H748" marker-end="url(#p1)"/>
+  </g>
+  <g stroke="var(--accent)" fill="none" stroke-width="1.5" stroke-dasharray="5 4">
+   <path d="M240 28 C200 -6, 60 0, 66 94" marker-end="url(#p2)"/>
+   <path d="M346 46 C520 20, 700 24, 748 52" marker-end="url(#p2)"/>
+  </g>
+  <text x="88" y="20" font-size="10" fill="var(--accent)">повторный plan stage со stdin (перестейдж, свежее ревью)</text>
+  <text x="520" y="16" font-size="10" fill="var(--accent)">plan abandon</text>
+
+  <g font-size="11" fill="var(--muted)">
+   <text x="20" y="234" font-weight="700" fill="var(--fg)">Инварианты PendingRun v2 (проверяются при каждой загрузке):</text>
+   <text x="20" y="252">• schemaVersion = 2 и host = cursor до десериализации; путь файла обязан совпадать с PathFor(scope, runId); один активный run на scope;</text>
+   <text x="20" y="270">• draftText присутствует ровно в reviewing / revision-required / review-approved и канонизирован; число plan-ответов равно reviewRound;</text>
+   <text x="20" y="288">• каждый ответ канонизирован и совпадает со своим хешем; waiver ревьюера обязателен всегда, билдера — с фазы ready;</text>
+   <text x="20" y="306">• reviewCap выводится из цепочки capAudits (5 и по +1); транзакция существует ровно в materializing / consumed.</text>
+  </g>
+ </g>
+</svg>
+<figcaption>Рис. 5. <code>ready</code>, <code>materializing</code> и <code>consumed</code> нельзя
+<code>invalidate</code>; <code>materializing</code> и <code>consumed</code> нельзя ещё и
+<code>abandon</code> — начатую транзакцию можно только доиграть.</figcaption>
+</figure>
+
+<div class="cmd">
+<h4>plan stage --host cursor --run-id &lt;id&gt; + waiver ревьюера <span class="pill p-net">stdin: чат-план</span> <span class="pill p-cu">Cursor</span></h4>
+<dl>
+<dt>Вход</dt><dd>полный текст плана из чата на stdin. Файл, путь и <code>--source</code> больше не
+участвуют.</dd>
+<dt>Проверяет</dt><dd><code>--run-id</code> по
+<code>^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$</code>; непустой текст; канонизацию и лимит 256 КБ;
+отсутствие чувствительного содержимого; отсутствие другого активного run в этом scope. Waiver роли
+<code>reviewer</code> обязателен: модель, эффорт, фактическая версия Cursor (≥ 3.15.6), наблюдённое
+состояние селектора (<code>Auto</code> или <code>unavailable</code>), текст согласия ≤ 512
+символов, метка времени, <code>modelGuarantee = waived</code>.</dd>
+<dt>Чего <b>не</b> проверяет</dt><dd>секцию <code>## Approach</code>. Её впервые парсит
+<code>plan finalize</code>, поэтому черновик без корректной нумерации задач пройдёт все раунды
+ревью и упадёт только на финализации.</dd>
+<dt>Идемпотентность</dt><dd>повторный вызов с тем же текстом в активной фазе возвращает
+существующий run; другой текст в активной фазе (кроме <code>revision-required</code>) — ошибка
+«finalize or abandon the existing run first».</dd>
+<dt>Перестейдж</dt><dd>из <code>revision-required</code> текст заменяется, run возвращается в
+<code>reviewing</code>, активный dispatch сбрасывается. На капе (по умолчанию 5) нужны
+<code>--accept-risk</code> и <code>--authorization-note</code>: кап растёт ровно на 1 и попадает в
+<code>capAudits</code>. Вне капа эти флаги, наоборот, запрещены.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>review record-response --host cursor --dispatch-id --stage plan|code|fix-review [--run-id] <span class="pill p-net">stdin</span></h4>
+<dl>
+<dt>Смысл</dt><dd>единственный способ занести вердикт Cursor-ревьюера: полный текст ответа идёт на
+stdin, CLI сам владеет уликами и решением. Оркестратор не переписывает терминальные строки.</dd>
+<dt>Стадия <code>plan</code></dt><dd>работает по <code>PendingRun</code> (без
+<code>.forge/</code>). Без <code>--run-id</code> прогон определяется через
+<code>ResolvePlanDispatch</code>: должен существовать ровно один run в фазе
+<code>reviewing</code>, у которого нет активного dispatch либо он совпадает с переданным. Ответ
+канонизируется, ≤ 256 КБ; требуется ровно одна строка <code>VERDICT: APPROVED|REVISE</code>, и она
+обязана быть последней непустой; строка <code>COVERAGE:</code> запрещена. Dispatch-id обязан быть
+свежим для этого run, а <code>reviewRound</code> — меньше капа. Накопленный review-лог проверяется
+детектором секретов. <code>APPROVED</code> → <code>review-approved</code>, <code>REVISE</code> →
+<code>revision-required</code>.</dd>
+<dt>Стадии <code>code</code>/<code>fix-review</code></dt><dd>работают уже по материализованному
+состоянию: ответ ≤ 512 КБ, ровно одна <code>VERDICT:</code> (терминальная) и ровно одна
+<code>COVERAGE: FULL|PARTIAL</code>. Прогон резолвится не по <code>--run-id</code>, а из
+<code>state.sourceRun.source = "cursor:&lt;runId&gt;"</code>; сверяются pending-dispatch, стадия и
+<code>transactionId</code>, run обязан быть <code>consumed</code>. Затем пишутся
+<code>.forge/cursor-review-&lt;dispatch-id&gt;.md</code> и sidecar <code>.json</code> — тот же
+формат решения, что и у Codex.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>plan finalize --host cursor --run-id + waiver билдера</h4>
+<dl>
+<dt>Требует</dt><dd>фазу <code>review-approved</code>, waiver роли <code>builder</code> и
+сохранённый <code>draftText</code>.</dd>
+<dt>Проверяет</dt><dd><code>CanonicalText.ParseTasks(draft)</code> — ровно одна секция
+<code>## Approach</code> с задачами 1..N; обе пары модель/эффорт; отсутствие секретов в черновике и
+в накопленном review-логе.</dd>
+<dt>Результат</dt><dd>фаза <code>ready</code>, <code>draftText</code> обнуляется, сохраняются оба
+waiver'а и все ответы ревьюера. Только после успешного <code>ready</code> skill разрешает создать
+нативный план — и это терминальное действие хода.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>plan invalidate --run-id --reason · plan abandon --run-id</h4>
+<dl>
+<dt>invalidate</dt><dd>переводит run в <code>revision-required</code> с причиной ≤ 512 символов и
+сбрасывает активный dispatch. Недоступен в <code>ready</code>, <code>materializing</code>,
+<code>consumed</code>, <code>abandoned</code>.</dd>
+<dt>abandon</dt><dd>терминально закрывает run и стирает черновик. Недоступен в
+<code>materializing</code> и <code>consumed</code> — начатую транзакцию нельзя «отменить», её нужно
+доиграть.</dd>
+</dl>
+</div>
+
+<h3>Контракт нативного плана</h3>
+<p>Файл создаётся оркестратором после <code>ready</code> и должен содержать ровно один маркер и
+идущую <b>непосредственно</b> за ним видимую преамбулу:</p>
+<pre><code>&lt;!-- plan-forge-flow:run=&lt;run-id&gt;;workspace=&lt;scope-id&gt; --&gt;
+&gt; **Plan Forge execution gate (advisory):** Before any repository write, run Plan Forge
+&gt; `plan materialize --host cursor --workspace "&lt;workspace&gt;" --run-id "&lt;run-id&gt;"` using the
+&gt; installed launcher. Stop if it does not succeed. Cursor can bypass this instruction;
+&gt; approval enforcement is advisory.</code></pre>
+<p>Текст преамбулы генерируется методом <code>PendingRuns.ExpectedPreamble</code> и сверяется
+побайтово (это одна строка; выше она разбита только для чтения). Дальше идут заголовок,
+<code>## Approach</code> с задачами 1..N, верификация и исключения из скоупа.</p>
+
+<p><code>DiscoverNativePlan</code> вызывается один раз — в <code>BeginMaterialize</code>:</p>
+<ul>
+<li>корень поиска — <code>$CURSOR_HOME/plans</code>, по умолчанию <code>~/.cursor/plans</code>;
+    в Debug-сборке дополнительно сканируется корень workspace;</li>
+<li>перебираются только файлы <code>*.plan.md</code> <b>верхнего уровня</b>; каталог проверяется на
+    симлинки, файл — на регулярность;</li>
+<li>отбираются те, что содержат <code>&lt;!-- plan-forge-flow:run=&lt;id&gt;;</code>. Совпадений
+    обязано быть <b>ровно одно</b>: ноль — «no Cursor native plan matches», два и больше —
+    «multiple Cursor native plans match»;</li>
+<li>файл больше 256 КБ читается префиксом и, если маркер найден, отклоняется как oversized;</li>
+<li>в канонизированном тексте проверяются: ровно один префикс <code>plan-forge-flow:run=</code>,
+    ровно один полный маркер <code>run=&lt;id&gt;;workspace=&lt;scope&gt;</code>, ровно одна
+    преамбула и ровно одно вхождение пары «маркер + перевод строки + преамбула»;</li>
+<li>текст прогоняется через детектор секретов и <code>ParseTasks</code>;</li>
+<li>результат целиком (вместе с frontmatter Cursor) становится
+    <code>transaction.PlanText</code> и после переезда — <code>.forge/PLAN.md</code>.</li>
+</ul>
+<p>После открытия транзакции нативный файл больше не нужен: повтор <code>plan materialize</code>
+играет по снимку, даже если файл отредактировали или удалили. <code>run cleanup</code> его никогда
+не трогает.</p>
+
+<h3><code>/forge resume</code></h3>
+<p>Только восстановление — обычный ход его не использует. По <code>run status</code> находится
+единственный подходящий run, и дальше по фазе: <code>reviewing</code> — показать черновик и позвать
+свежего ревьюера; <code>revision-required</code> — обновить, перестейджить, снова ревью;
+<code>review-approved</code> — waiver билдера, <code>finalize</code>, создать нативный план;
+<code>ready</code> — если файл уже есть, это успешный no-op, а если создание прервалось и черновик
+уже стёрт, восстановить его нельзя: run нужно бросить и начать заново; <code>materializing</code> —
+повторить <code>plan materialize</code>; <code>consumed</code> — уже материализовано;
+<code>abandoned</code> — нужен новый run.</p>
+
+<!-- ============================================================ -->
+<h2 id="materialize">9. Материализация и подготовка сборки</h2>
+
+<h3>Codex: прямая запись</h3>
+
+<div class="cmd">
+<h4>plan materialize [--amendment] <span class="pill p-net">stdin JSON</span> <span class="pill p-w">пишет .forge/</span> <span class="pill p-git">git</span></h4>
+<dl>
+<dt>Когда</dt><dd>первая команда первого Default-хода; читает pending-план, застейдженный хуком.</dd>
+<dt>Вход</dt><dd>stdin ≤ 2 МБ, DTO <code>MaterializationRequest</code> с ключами
+<code>reviewLog</code> (одна непустая строка со всеми раундами, не массив и не объект),
+<code>completedReviewRounds</code>, <code>maxRounds</code>, <code>reviewer</code>,
+<code>builder</code> (каждая роль — <code>{model, effort}</code>). Лишнее поле или неверный тип
+дают ошибку <code>usage</code> с описанием ожидаемой формы. Сам план приходит не из stdin, а из
+pending-артефакта.</dd>
+<dt>Проверки входа</dt><dd>план и review-лог канонизируются и прогоняются через
+<code>SensitiveInput.IsSensitiveContent</code>; пара модель/эффорт валидируется для обеих ролей;
+если состояние уже существует, сверяются <code>host</code> и <code>repositoryScopeId</code>.</dd>
+<dt>Свежий прогон</dt><dd><code>ResetRun</code>: рекурсивно удаляет <code>.forge/</code>, снимает
+managed-блок из <code>.git/info/exclude</code>, удаляет три scoped-рефа. Затем создаётся пустое
+состояние в фазе <code>materialized</code>.</dd>
+<dt>Поправка</dt><dd>с <code>--amendment</code>: загружает состояние, требует фазу <code>build</code>
+или <code>code-review</code>, сверяет, что уже выполненные задачи совпадают по хешу с новым планом,
+затем сбрасывает dispatch, <code>builderId</code> и review (историю критик сохраняет).</dd>
+<dt>Пишет</dt><dd><code>.forge/PLAN.md</code>, <code>.forge/PLAN-REVIEW-LOG.md</code>,
+<code>.forge/state.json</code> с закреплёнными моделями и счётчиками раундов, managed-блок в
+<code>info/exclude</code>. Затем удаляет pending-план.</dd>
+</dl>
+</div>
+
+<h3>Cursor: двухфазная транзакция</h3>
+
+<p><code>plan materialize --host cursor --run-id</code> — это единственный шаг Cursor, который
+пишет в репозиторий, и он же выполняет за один вызов discovery + materialize + lock + begin. Из-за
+этого он устроен как восстановимая транзакция.</p>
+
+<figure class="fig">
+<svg viewBox="0 0 940 340" role="img" aria-label="Транзакция материализации Cursor">
+ <defs>
+  <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+ </defs>
+ <g font-size="11.5">
+  <g fill="var(--card)" stroke="var(--accent)" stroke-width="1.5">
+   <rect x="16" y="40" width="160" height="82" rx="8"/>
+   <rect x="208" y="40" width="176" height="82" rx="8"/>
+   <rect x="416" y="40" width="160" height="82" rx="8"/>
+   <rect x="608" y="40" width="152" height="82" rx="8"/>
+   <rect x="792" y="40" width="132" height="82" rx="8"/>
+  </g>
+  <g text-anchor="middle" font-weight="700" fill="var(--fg)" font-size="12">
+   <text x="96" y="62">BeginMaterialize</text>
+   <text x="296" y="62">staging-каталог</text>
+   <text x="496" y="62">Directory.Move</text>
+   <text x="684" y="62">lock + begin</text>
+   <text x="858" y="62">Consume</text>
+  </g>
+  <g text-anchor="middle" fill="var(--muted)" font-size="10">
+   <text x="96" y="80">discovery нативного плана</text>
+   <text x="96" y="93">phase → materializing</text>
+   <text x="96" y="106">снимок текста, хеши,</text>
+   <text x="96" y="118">модели, refs, артефакты</text>
+   <text x="296" y="80">.forge.materializing-&lt;tx&gt;/</text>
+   <text x="296" y="93">.materialization-transaction</text>
+   <text x="296" y="106">PLAN.md · REVIEW-LOG</text>
+   <text x="296" y="118">state.json</text>
+   <text x="496" y="80">→ .forge/  (атомарно)</text>
+   <text x="496" y="93">managed exclude уже upsert'нут</text>
+   <text x="496" y="106">повтор сверяет содержимое</text>
+   <text x="496" y="118">побайтово</text>
+   <text x="684" y="80">journal successor →</text>
+   <text x="684" y="93">write state → reconcile</text>
+   <text x="684" y="106">refs owner/head/worktree</text>
+   <text x="684" y="118">tasks[] из PLAN.md</text>
+   <text x="858" y="80">verify: phase=build,</text>
+   <text x="858" y="93">рефы, exclude, хеши</text>
+   <text x="858" y="106">planText стирается</text>
+   <text x="858" y="118">phase → consumed</text>
+  </g>
+  <g stroke="var(--muted)" fill="none" stroke-width="1.4">
+   <path d="M178 80 H206" marker-end="url(#m1)"/>
+   <path d="M386 80 H414" marker-end="url(#m1)"/>
+   <path d="M578 80 H606" marker-end="url(#m1)"/>
+   <path d="M762 80 H790" marker-end="url(#m1)"/>
+  </g>
+
+  <g font-size="11" fill="var(--muted)">
+   <text x="16" y="158" font-weight="700" fill="var(--fg)">Восстановление (повторный вызов с тем же --run-id):</text>
+   <text x="16" y="178">• <tspan font-weight="700" fill="var(--fg)">consumed</tspan> — VerifyMaterialization и выход: успешный replay, ничего не пишется;</text>
+   <text x="16" y="196">• <tspan font-weight="700" fill="var(--fg)">materializing + .forge уже есть</tspan> — состояние дочитывается, недостающие шаги (lock, begin) доигрываются;</text>
+   <text x="16" y="214">• <tspan font-weight="700" fill="var(--fg)">materializing + staging уже есть</tspan> — содержимое побайтово сверяется с ожидаемым; лишний файл или расхождение = отказ;</text>
+   <text x="16" y="232">• прерывание между записью state.json и журналом ловится парой <tspan font-family="monospace">stateHash/statePhase</tspan> ↔ <tspan font-family="monospace">successorStateHash/Phase</tspan>:</text>
+   <text x="16" y="250">  совпал предыдущий — откат журнала; совпал успешный — фиксация; ни один — отказ «not an expected journal state»;</text>
+   <text x="16" y="268">• 11 именованных точек инъекции сбоев (<tspan font-family="monospace">FORGE_FAULT_POINT</tspan>) покрывают каждый разрыв и прогоняются тестами.</text>
+
+   <text x="16" y="300" font-weight="700" fill="var(--fg)">Что верифицируется в конце:</text>
+   <text x="16" y="318">host, scope, sourceRun.source = «cursor:&lt;runId&gt;», transactionId, обе закреплённые пары модель/эффорт, обе гарантии = advisory,</text>
+   <text x="16" y="336">точный список файлов в .forge, хеши PLAN.md и PLAN-REVIEW-LOG.md, маркер транзакции, три рефа = базлайнам, managed exclude.</text>
+  </g>
+ </g>
+</svg>
+<figcaption>Рис. 6. Каталог <code>.forge/</code> собирается рядом и въезжает одним
+<code>Directory.Move</code>; всё, что происходит после переезда (lock, begin), защищено журналом
+ожидаемого следующего состояния.</figcaption>
+</figure>
+
+<h3>Общие шаги после материализации</h3>
+
+<div class="cmd">
+<h4>plan lock [--relock --amendment] <span class="pill p-git">git</span></h4>
+<dl>
+<dt>Делает</dt><dd>читает <code>.forge/PLAN.md</code>; <code>CanonicalText.ParseTasks</code>
+требует ровно одну секцию <code>## Approach</code> (до следующего заголовка уровня 2) и парсит
+нумерованный список — номера обязаны идти строго 1..N по порядку; текст каждой задачи хешируется.
+Фиксирует git-базлайн: <code>rev-parse HEAD</code> и список untracked-файлов с хешами.
+Фаза → <code>locked</code>.</dd>
+<dt>Relock</dt><dd>с <code>--relock --amendment</code> разрешён из <code>build</code> и
+<code>code-review</code>; запрещает изменять или удалять завершённые задачи; базлайны не
+перезаписывает.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>build begin [--amendment|--relock] <span class="pill p-git">git</span></h4>
+<dl>
+<dt>Делает</dt><dd>пинит три scoped-рефа: <code>owner</code> и <code>head-base</code> (текущий HEAD)
+и <code>worktree-base</code>. Если дерево грязное по отслеживаемым файлам, делает
+<code>git stash create</code> и указывает worktree-баз на этот объект — так правки пользователя
+отделяются от правок прогона. Фаза → <code>build</code>.</dd>
+<dt>Защита</dt><dd>если все три рефа существуют и это не amendment/relock — отказ: в репозитории
+следы предыдущего прогона. Для Cursor частично записанные рефы — это признак прерванной
+транзакции: тогда <code>owner</code> обязан совпадать с <code>baselines.head</code>, иначе отказ.</dd>
+</dl>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="build">10. Сборка: dispatch-цикл</h2>
+
+<figure class="fig">
+<svg viewBox="0 0 900 250" role="img" aria-label="Жизненный цикл dispatch">
+ <defs>
+  <marker id="d1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+    <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/>
+  </marker>
+ </defs>
+ <g font-size="12.5">
+  <rect x="20" y="70" width="180" height="70" rx="8" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/>
+  <text x="110" y="96" text-anchor="middle" font-weight="700" fill="var(--fg)">build dispatch</text>
+  <text x="110" y="114" text-anchor="middle" font-size="10.5" fill="var(--muted)">pending=true, id=dispatch-…</text>
+  <text x="110" y="130" text-anchor="middle" font-size="10.5" fill="var(--muted)">роль и фаза из таблицы стадий</text>
+
+  <rect x="255" y="70" width="190" height="70" rx="8" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/>
+  <text x="350" y="96" text-anchor="middle" font-weight="700" fill="var(--fg)">session builder</text>
+  <text x="350" y="114" text-anchor="middle" font-size="10.5" fill="var(--muted)">--id &lt;native session id&gt;</text>
+  <text x="350" y="130" text-anchor="middle" font-size="10.5" fill="var(--muted)">--model/--effort обязательны</text>
+
+  <rect x="500" y="70" width="180" height="70" rx="8" fill="var(--card)" stroke="var(--accent)" stroke-width="1.6"/>
+  <text x="590" y="96" text-anchor="middle" font-weight="700" fill="var(--fg)">build complete</text>
+  <text x="590" y="114" text-anchor="middle" font-size="10.5" fill="var(--muted)">pending=false</text>
+  <text x="590" y="130" text-anchor="middle" font-size="10.5" fill="var(--muted)">nextTaskNumber = N+1</text>
+
+  <rect x="735" y="70" width="145" height="70" rx="8" fill="var(--card)" stroke="var(--ok)" stroke-width="1.6"/>
+  <text x="807" y="100" text-anchor="middle" font-weight="700" fill="var(--ok)">N == taskCount ?</text>
+  <text x="807" y="120" text-anchor="middle" font-size="11" fill="var(--fg)">фаза → code-review</text>
+
+  <g stroke="var(--muted)" fill="none" stroke-width="1.4">
+   <path d="M202 105 H253" marker-end="url(#d1)"/>
+   <path d="M447 105 H498" marker-end="url(#d1)"/>
+   <path d="M682 105 H733" marker-end="url(#d1)"/>
+   <path d="M590 142 C590 200, 110 205, 110 142" marker-end="url(#d1)"/>
+  </g>
+  <text x="330" y="196" font-size="11" fill="var(--muted)">следующая задача (nextTaskNumber должен совпасть с --task-number)</text>
+
+  <g font-size="11" fill="var(--muted)">
+   <text x="20" y="40">между вызовами работает нативный билдер; CLI видит только id его сессии</text>
+   <text x="20" y="232">Ветки: <tspan font-family="monospace">--cancel</tspan>, <tspan font-family="monospace">--retry</tspan> (≤ maxBuildRetries = 3), <tspan font-family="monospace">--verification-passed false</tspan> (нужен --accept-risk + --authorization-note)</text>
+  </g>
+ </g>
+</svg>
+<figcaption>Рис. 7. Тройка dispatch → session → complete. <code>build complete</code> требует
+<code>agents.lastBuilderDispatchId == dispatch.id</code>, поэтому пропустить регистрацию сессии
+нельзя.</figcaption>
+</figure>
+
+<div class="cmd">
+<h4>build dispatch --stage code|build|fix-build|fix-review [--task-number N] [--retry|--cancel] [--dispatch-id]</h4>
+<dl>
+<dt>Проверки</dt><dd>стадия парсится в <code>DispatchStage</code>; текущая фаза сверяется с
+<code>definition.ExpectedPhase</code>; нет уже висящего dispatch; для fix-стадий
+<code>review.fixRound</code> должен быть строго меньше <code>maxFixRounds</code>; для
+<code>build</code> — существуют оба baseline-рефа этого scope, <code>--task-number</code> равен
+<code>nextTaskNumber</code> и не выходит за <code>taskCount</code>; если
+<code>definition.RequiresFreshReview</code> — свежий манифест улик.</dd>
+<dt>Выбор роли и модели</dt><dd><code>state.Models.For(definition.Role)</code>. Модель и эффорт
+берутся из состояния; если переданы <code>--model/--effort</code>, они обязаны совпасть.</dd>
+<dt>Ветки</dt><dd><code>--cancel</code> снимает pending; <code>--retry</code> увеличивает счётчик
+(за капом <code>maxBuildRetries</code> требует <code>--accept-risk</code> и
+<code>--authorization-note</code>). Обе требуют совпадения <code>--dispatch-id</code>, если он
+передан. <b>Для Cursor</b> <code>--retry</code> дополнительно генерирует новый
+<code>dispatch.id</code> и обнуляет зарегистрированную сессию соответствующей роли — потому что
+повторная попытка обязана достаться свежему агенту.</dd>
+<dt>Результат</dt><dd><code>dispatch.id = "dispatch-" + nonce[..16]</code>,
+<code>pending = true</code>, стадия, модель и эффорт записаны в состояние.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>session builder | session reviewer --id --dispatch-id --model --effort</h4>
+<dl>
+<dt>Смысл</dt><dd>привязать реальную сессию нативного сабагента к выданному dispatch. Без этого ни
+<code>build complete</code>, ни <code>review verdict</code> не пройдут.</dd>
+<dt>Проверки</dt><dd>dispatch pending и <code>--dispatch-id</code> совпадает;
+<code>stage.Definition().Role == role</code>; <code>--model/--effort</code> обязательны и должны
+точно совпадать с закреплёнными в dispatch; <b>reviewer-id нельзя переиспользовать</b> (каждый
+раунд — свежий агент).</dd>
+<dt>Билдер по хостам</dt><dd>Codex: билдер постоянный, смена уже зарегистрированного id требует
+<code>--authorization-note</code>. Cursor: id проверяется по накопленному списку
+<code>agents.builderIds</code> и повтор запрещён вовсе.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>build complete --task-number N [--dispatch-id] [--verification-passed false]</h4>
+<dl>
+<dt>Делает</dt><dd>закрывает dispatch стадии <code>build</code> или <code>fix-build</code>.
+Для <code>build</code> увеличивает <code>nextTaskNumber</code> и, когда задачи кончились,
+переводит фазу в <code>code-review</code>.</dd>
+<dt>Провал верификации</dt><dd><code>--verification-passed false</code> требует
+<code>--accept-risk</code> и <code>--authorization-note</code>, иначе ошибка кода 2.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>build resolve --conflict &lt;текст&gt;</h4>
+<dl>
+<dt>Делает</dt><dd>аварийный выход: снимает pending с build-dispatch и записывает произвольную
+строку в <code>dispatch.conflict</code>.</dd>
+</dl>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="review">11. Код-ревью и фиксы</h2>
+
+<div class="cmd">
+<h4>review prepare [--full] [--allow-paths JSON] [--authorization-note] <span class="pill p-w">пишет .forge/</span> <span class="pill p-git">git</span></h4>
+<dl>
+<dt>Когда</dt><dd>в фазе <code>code-review</code>, перед каждым ревью-dispatch (включая
+<code>fix-review</code>).</dd>
+<dt>Три класса изменений</dt><dd>
+<ul>
+<li><b>pre-existing</b>: <code>git diff head-base worktree-base</code> — то, что было в дереве до прогона;</li>
+<li><b>in-run</b>: <code>git diff worktree-base</code> — то, что сделал билдер;</li>
+<li><b>untracked</b>: текущий <code>ls-files --others --exclude-standard</code> против
+    зафиксированного базлайна, сравнение по хешам.</li>
+</ul>
+Все списки путей проходят через <code>ReviewEvidence.PathList</code>, который нормализует
+разделители, отбрасывает дубликаты и валидирует путь (без traversal, без NUL, ≤ 4096).</dd>
+<dt>Решение по файлу</dt><dd><code>ReviewEvidence.Inspect</code> возвращает
+<code>(Reason?, Bytes)</code>. Причины удержания: pre-existing без авторизации, недоступная
+untracked-улика, превышение размера (100 КБ на файл, 1 МБ суммарно), бинарник без явного
+разрешения. Чувствительный путь или содержимое без разрешения — не удержание, а ошибка кода 2.</dd>
+<dt>Покрытие</dt><dd><code>--full</code> с непустым списком удержанных путей — ошибка кода 2 со
+списком в <code>details</code>. Иначе <code>coverage</code> = <code>FULL</code> при
+<code>--full</code> или при пустом наборе изменений, иначе <code>PARTIAL</code>.</dd>
+<dt>Пишет</dt><dd><code>.forge/pre-existing.patch</code>, <code>in-run.patch</code>,
+<code>untracked-review.patch</code> (свой tsv-формат: путь, вид, хеш, base64),
+<code>changed-files.txt</code> и <code>review-manifest.json</code> — манифест version 4 с SHA-256
+каждого из четырёх файлов улик и <code>treeFingerprint</code>.</dd>
+<dt>Anti-TOCTOU</dt><dd><code>treeFingerprint</code> считает HEAD, <code>ls-files --stage</code>,
+<code>diff --raw --cached</code> и <code>diff --raw</code> против head-base, плюс хеш каждого
+затронутого пути. Он вычисляется до и после генерации улик и ещё раз внутри транзакции записи
+состояния; при расхождении — отказ с просьбой повторить. Тот же fingerprint и хеши файлов
+перепроверяются в <code>RequireFreshReviewManifest</code> при каждом dispatch и вердикте, а сам
+манифест на диске побайтово сверяется с копией в состоянии.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>review authorize-preexisting --authorized-paths '["a","b"]' --authorization-note '…'</h4>
+<dl>
+<dt>Делает</dt><dd>добавляет пути в <code>review.authorizedPaths</code> (не более 256), после чего
+<code>review prepare</code> перестаёт их удерживать. Требует note с явным согласием пользователя.
+Массив разбирается общим бандед-парсером <code>ParsedArgs.ParsePathArray</code>: ≤ 256 КБ JSON,
+только относительные пути ≤ 4096 символов, без <code>..</code> и NUL.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>review verdict --stage code|fix-review --critique-file .forge/&lt;file&gt; [--accept-risk --authorization-note]</h4>
+<dl>
+<dt>Решение</dt><dd>читается из sidecar-файла <code>&lt;critique-file&gt;.json</code> (≤ 16 КБ,
+внутри <code>.forge</code>, не симлинк):
+<pre><code>{"verdict":"APPROVED","coverage":"FULL"}
+{"verdict":"REVISE","coverage":"PARTIAL"}</code></pre>
+Для стадии <code>plan</code> поле <code>coverage</code> должно отсутствовать; для <code>code</code>
+и <code>fix-review</code> — обязательно. Текст критики на вердикт не парсится. В Cursor и критику,
+и sidecar пишет сам CLI из ответа ревьюера.</dd>
+<dt>Проверки</dt><dd><code>DispatchStages.RequirePendingReviewVerdict</code> сверяет, что висит
+ревью-dispatch и запрошенная стадия ему соответствует; нужен зарегистрированный свежий ревьюер
+именно на этот dispatch; свежий манифест, если стадия его требует; фаза <code>locked</code> для
+<code>plan</code> и <code>code-review</code> для остальных; критика внутри <code>.forge</code>,
+≤ 100 КБ, не симлинк, без чувствительного содержимого; для <code>APPROVED</code> требуется
+<code>coverage == FULL</code> и <code>manifest.Coverage == FULL</code>.</dd>
+<dt>Капы</dt><dd><code>REVISE</code> за капом: для <code>plan</code> — нужен
+<code>--accept-risk</code> с note, для fix-стадий — расширение через
+<code>run set --key max-fix-rounds</code>.</dd>
+<dt>Пишет</dt><dd><code>review.verdict/coverage/critiqueFile/verdictFile/verdictHash</code>,
+запись <code>{path, hash}</code> в историю <code>critiqueFiles</code> (до 256), счётчик раундов;
+фаза → <code>done</code> при одобрении на code/fix-review. Внутри транзакции хеши критики и
+sidecar-решения сверяются повторно.</dd>
+</dl>
+</div>
+
+<h3>Анатомия fix-раунда</h3>
+<p>Один fix-раунд — два явных dispatch:</p>
+<table>
+<tr><th>#</th><th>Команды</th><th>Стадия</th><th>Роль</th></tr>
+<tr><td>1</td><td><code>build dispatch --stage fix-build</code></td><td><code>fix-build</code></td><td>builder</td></tr>
+<tr><td>2</td><td><code>session builder</code> → <code>build complete</code></td><td><code>fix-build</code></td><td>builder</td></tr>
+<tr><td>3</td><td><code>review prepare</code> → <code>build dispatch --stage fix-review</code></td><td><code>fix-review</code></td><td>reviewer</td></tr>
+<tr><td>4</td><td><code>session reviewer</code> → <code>review verdict --stage fix-review</code> (Cursor: сначала <code>review record-response</code>)</td><td><code>fix-review</code></td><td>reviewer</td></tr>
+</table>
+<p>Билдер обязан закрыть свой dispatch до того, как ревьюер сможет зарегистрироваться: роль каждой
+стадии задана таблицей, а <code>build complete</code> принимает только стадии с
+<code>CompletedByBuilder</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="service">12. Служебные команды</h2>
+
+<div class="cmd">
+<h4>agents install <span class="pill p-w">пишет в ~/.codex/agents</span></h4>
+<dl>
+<dt>Делает</dt><dd>копирует <code>agents/forge_builder.toml</code> и
+<code>forge_reviewer.toml</code> в <code>~/.codex/agents/</code> (или
+<code>$FORGE_AGENTS_DIR</code>). Файл ищется вверх по дереву от каталога исполняемого файла до
+каталога с <code>.codex-plugin</code>. Перезаписывает только файлы, чья первая строка —
+<code># plan-forge-flow:generated</code>; чужой файл с тем же именем вызывает отказ. Cursor-агенты
+не устанавливаются — они читаются плагином из <code>cursor/agents/</code>.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>run status</h4>
+<dl>
+<dt>Делает</dt><dd>возвращает одну из трёх форм:
+<ul>
+<li>полный дамп состояния — <code>version</code> (5), <code>generation</code> (<code>v4</code>),
+    <code>schemaVersion</code>, <code>host</code>, <code>repositoryScopeId</code>,
+    <code>sourceRun</code>, <code>modelWaiverAudit</code>, обе гарантии, метки времени и все шесть
+    групп состояния;</li>
+<li><code>{"exists":false}</code>, если <code>.forge/state.json</code> нет (Codex);</li>
+<li>текущий <code>PendingRun</code> (или <code>null</code>), если хост Cursor и состояния ещё нет.
+    Берётся самый свежий по <code>updatedAt</code>; если два верхних не в терминальной фазе —
+    ошибка «Cursor status is ambiguous».</li>
+</ul>
+Перед выводом сверяются <code>host</code> и <code>repositoryScopeId</code>.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>run set --key phase|max-rounds|max-fix-rounds --value V</h4>
+<dl>
+<dt>Делает</dt><dd>единственная «ручка» состояния:
+<ul>
+<li><code>phase</code> — значение разбирается через <code>ForgePhases.Parse</code>, переход
+сверяется с матрицей легальности на паре <code>(ForgePhase, ForgePhase)</code>. Помимо обычных
+переходов разрешены <code>code-review → build</code> (поправка: <code>--amendment</code> + note;
+обнуляет <code>models.builder</code>, <code>agents.builderId</code> и вердикт) и
+<code>code-review → done-with-findings</code> (<code>--accept-risk</code> + note).
+Переход в <code>done</code> дополнительно проходит <code>RequireApprovedReviewEvidence</code> —
+перепроверку манифеста, ревьюер-сессии, файла критики и его sidecar-решения.</li>
+<li><code>max-rounds</code> / <code>max-fix-rounds</code> — <b>ровно +1</b>, только после того как
+текущий кап достигнут и последний вердикт был <code>REVISE</code>, с <code>--accept-risk</code> и
+note.</li>
+</ul>
+Ключи <code>round</code>, <code>fix-round</code>, <code>verdict</code>, <code>coverage</code> явно
+запрещены — их двигают только вердикты.</dd>
+</dl>
+</div>
+
+<div class="cmd">
+<h4>run cleanup [--purge-generated-agents]</h4>
+<dl>
+<dt>Делает</dt><dd>под repository- и workspace-локом проверяет, что существующий
+<code>.forge/</code> принадлежит этому хосту и scope, затем рекурсивно удаляет его, снимает три
+scoped-рефа и managed-блок из <code>.git/info/exclude</code>. Managed-блок снимается <b>только</b>
+если в репозитории не осталось ни одного <code>refs/plan-forge/*/owner</code> — блок общий для всех
+linked worktrees. Для Codex дополнительно удаляется pending-план. План и review-лог лежат внутри
+<code>.forge/</code>, поэтому удаляются вместе с ним; Cursor-owned <code>.plan.md</code> и внешний
+<code>PendingRun</code> не трогаются никогда.</dd>
+<dt>Опция</dt><dd><code>--purge-generated-agents</code> удаляет
+<code>&lt;agents-dir&gt;/forge_*.toml</code>, но только файлы с маркером генерации.</dd>
+</dl>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="internals">13. Файлы, подсистемы, инварианты</h2>
+
+<table>
+<tr><th>Файл</th><th>Строк</th><th>Ответственность</th></tr>
+<tr><td><code>Cursor/PendingRun.cs</code></td><td>383</td><td>внешнее предодобрение Cursor: схема v2 и её валидация, фазы, ревью-ответы, waiver'ы, кап-аудит, discovery нативного плана, транзакция материализации и её журнал</td></tr>
+<tr><td><code>Workflow/Planning/Materializer.cs</code></td><td>288</td><td>материализация (обычная и транзакционная), cleanup, managed-exclude, валидация поправки, удаление рефов</td></tr>
+<tr><td><code>Review/ForgeReview.cs</code></td><td>258</td><td>prepare, authorize-preexisting, verdict, свежесть манифеста, готовность к <code>done</code></td></tr>
+<tr><td><code>Review/ReviewEvidence.cs</code></td><td>258</td><td>treeFingerprint, Inspect, untracked-улики, проверка манифеста, path-хелперы</td></tr>
+<tr><td><code>Workflow/ForgeWorkflow.Build.cs</code></td><td>248</td><td>build begin/dispatch/complete/resolve, agents install</td></tr>
+<tr><td><code>Workflow/State/ForgeStateSchema.cs</code></td><td>233</td><td>enum'ы фаз и стадий, словари wire-имён с обратным индексом, таблица <code>DispatchStages</code>, все record'ы состояния</td></tr>
+<tr><td><code>Cli/CliApplication.cs</code></td><td>200</td><td>роутер, валидация опций, ветвление по команде с явным JSON-контрактом ответа</td></tr>
+<tr><td><code>Workflow/ForgeWorkflow.Run.cs</code></td><td>167</td><td>run set/doctor/cleanup, общие хелперы</td></tr>
+<tr><td><code>Workflow/Planning/ForgeWorkflow.Plan.cs</code></td><td>161</td><td>materialize (Codex и Cursor), достройка Cursor-транзакции, lock</td></tr>
+<tr><td><code>Serialization/JsonSerialization.cs</code></td><td>145</td><td>два source-gen контекста и все DTO ввода/вывода</td></tr>
+<tr><td><code>Infrastructure/Process/ProcessExecution.cs</code></td><td>129</td><td>запуск процессов: лимит вывода 8 МБ, таймаут 30 с, убийство дерева процессов</td></tr>
+<tr><td><code>Codex/TranscriptReader.cs</code></td><td>114</td><td>парсер <code>rollout.jsonl</code> и <code>LatestPlan</code></td></tr>
+<tr><td><code>Infrastructure/Workspace/RepositoryPaths.cs</code></td><td>108</td><td>канонизация путей и симлинков, scope id, CODEX_HOME, каталоги plugin-data</td></tr>
+<tr><td><code>Cli/ParsedArgs.cs</code></td><td>93</td><td>парсер <code>--key value</code> / <code>--key=value</code> / флагов + бандед-разбор JSON-массива путей</td></tr>
+<tr><td><code>Workflow/Planning/CanonicalText.cs</code></td><td>70</td><td>канонизация текста, парсер задач из <code>## Approach</code></td></tr>
+<tr><td><code>Workflow/State/ForgeStateLock.cs</code></td><td>66</td><td>workspace-лок вне репозитория</td></tr>
+<tr><td><code>Infrastructure/Workspace/DurableFiles.cs</code></td><td>63</td><td>атомарная запись: temp + fsync + rename</td></tr>
+<tr><td><code>Infrastructure/Workspace/OwnershipGuards.cs</code></td><td>57</td><td>симлинки, регулярные файлы, маркер сгенерированных агентов</td></tr>
+<tr><td><code>Workflow/State/StateStore.cs</code></td><td>55</td><td>чтение/запись состояния с локом, версией схемы и оптимистической проверкой</td></tr>
+<tr><td><code>Workflow/ForgeWorkflow.Session.cs</code></td><td>50</td><td>регистрация сессий сабагентов</td></tr>
+<tr><td><code>Codex/HookService.cs</code></td><td>48</td><td>обработчик UserPromptSubmit</td></tr>
+<tr><td><code>Cli/CliCommandTree.cs</code>, <code>Codex/PendingPlan.cs</code>, <code>Workflow/State/ForgeCore.cs</code></td><td>46 ×3</td><td>дерево команд и флаг <code>LoadsState</code>; pending-план Codex; доменные записи + <code>ModelSelections.Validate</code></td></tr>
+<tr><td><code>Infrastructure/Workspace/RepositoryRunLock.cs</code></td><td>41</td><td>лок общих ресурсов репозитория (рефы, exclude, PendingRun)</td></tr>
+<tr><td><code>Review/{ReviewDecisionReader,SensitiveInput}.cs</code></td><td>72</td><td>sidecar-решение; детектор секретов по путям и содержимому</td></tr>
+<tr><td><code>Infrastructure/Process/{GitClient,Hashing}.cs</code></td><td>63</td><td>единственная точка вызова git; SHA-256, nonce, base64url</td></tr>
+<tr><td>прочее (<code>Program</code>, <code>JsonOutput</code>, <code>CliFailure</code>, <code>CommandContext</code>, <code>Selection</code>, <code>JsonInput</code>, <code>WorkspacePathPolicy</code>, <code>AssemblyInfo</code>)</td><td>115</td><td>точка входа, вывод конверта, типизированная ошибка, контекст команды, сверка наблюдённой пары модель/эффорт, чтение stdin, единая политика сравнения путей</td></tr>
+</table>
+
+<p class="small">Итого ~3 623 строки в <code>PlanForgeFlow.Cli</code> и 1 990 строк / 84 теста в
+<code>PlanForgeFlow.Cli.Tests/CoreContractTests.cs</code> — одна сборка тестов на весь контракт,
+включая параллельные прогоны CLI в дочерних процессах и все 11 точек инъекции сбоев.</p>
+
+<h3>Инварианты, которые защищает CLI</h3>
+<ol>
+<li><b>Автомат</b>: фаза, стадия, роль и «кто закрывает dispatch» выводятся из одной таблицы.</li>
+<li><b>Версия и хост</b>: <code>schemaVersion</code> и <code>host</code> проверяются до
+    десериализации и до любой мутации; чужой хост, чужой scope или иная схема — отказ.</li>
+<li><b>Привязка к репозиторию</b>: scope id входит в состояние, в имена рефов и в путь
+    <code>PendingRun</code>; перенос каталога или чужой worktree отклоняется.</li>
+<li><b>Строгость своих файлов</b>: любое неизвестное поле в Forge-owned JSON роняет чтение;
+    контракт ответа каждой команды задан в коде типом и проверяется компилятором.</li>
+<li><b>Мягкость чужих</b>: новое поле в payload'е Codex не ломает захват плана.</li>
+<li><b>Порядок сборки</b>: <code>--task-number</code> обязан равняться <code>nextTaskNumber</code>;
+    задачи нельзя пропускать и переставлять.</li>
+<li><b>Пиннинг моделей</b>: модель и эффорт берутся из состояния, аргументы только подтверждают;
+    <code>ultra</code> запрещён на всех путях.</li>
+<li><b>Свежесть агентов</b>: reviewer-id нельзя переиспользовать никогда; Cursor-билдер тоже
+    одноразовый, Codex-билдер постоянный и его смена требует note.</li>
+<li><b>Связь dispatch и сессии</b>: закрыть dispatch может только тот, кто зарегистрировал сессию
+    под этот же <code>dispatch-id</code>.</li>
+<li><b>Свежесть улик</b>: treeFingerprint и хеши четырёх файлов проверяются при каждом
+    использовании манифеста; сам манифест сверяется с копией в состоянии побайтово.</li>
+<li><b>Разделение чужих правок</b>: два git-базлайна и stash-объект отделяют pre-existing от in-run.</li>
+<li><b>Одноразовость прогона (Cursor)</b>: один активный run на scope, свежий dispatch-id на каждый
+    раунд ревью, ровно один нативный план по маркеру, <code>run doctor</code> отказывается стартовать
+    поверх существующего <code>.forge</code>.</li>
+<li><b>Атомарность снимка (Cursor)</b>: текст нативного плана фиксируется в транзакции и
+    перепроверяется по хешу при каждом replay и при финальной верификации.</li>
+<li><b>Утечки</b>: детектор секретов на плане, review-логе, ответах ревьюера, путях и содержимом
+    улик, патчах и файле критики.</li>
+<li><b>Капы</b>: 5 раундов плана, 3 fix-раунда, 3 ретрая билда; расширение только на +1 и только с
+    <code>--accept-risk</code> и непустым <code>--authorization-note</code> (≤ 16 КБ).</li>
+<li><b>Отказ от симлинков</b>: проверки <code>ReparsePoint</code> и <code>LinkTarget</code> на всех
+    путях записи и чтения, включая всех родителей.</li>
+<li><b>Атомарность</b>: temp + fsync + rename, два уровня локов вне репозитория, оптимистическая
+    проверка снимка состояния, журнал ожидаемого следующего состояния для Cursor.</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="files">14. Артефакты на диске и поставка</h2>
+
+<pre><code>&lt;repo&gt;/
+  .forge/                     ← целиком принадлежит Forge, удаляется рекурсивно
+    state.json                  schemaVersion 1, host, repositoryScopeId
+    PLAN.md  PLAN-REVIEW-LOG.md
+    .materialization-transaction  (только Cursor, id открытой транзакции)
+    review-manifest.json        version 4, generation v4
+    pre-existing.patch  in-run.patch  untracked-review.patch  changed-files.txt
+    &lt;critique&gt;  &lt;critique&gt;.json            критика + решение
+    cursor-review-&lt;dispatch-id&gt;.md/.json  критика Cursor, пишет сам CLI
+  .forge.materializing-&lt;tx&gt;/  ← staging Cursor, живёт до Directory.Move
+  .git/info/exclude           ← managed-блок со строкой .forge/
+  refs/plan-forge/&lt;scope&gt;/owner | head-base | worktree-base
+
+~/.codex/                     (CODEX_HOME)
+  agents/forge_builder.toml  forge_reviewer.toml     (FORGE_AGENTS_DIR)
+  plugin-data/plan-forge-flow/                       (FORGE_PLUGIN_DATA)
+    pending-plans/&lt;sha256(workspace)&gt;.json           ← план, застейдженный хуком
+
+~/.cursor/                    (CURSOR_HOME)
+  plans/&lt;name&gt;.plan.md                               ← владелец Cursor, Forge не трогает
+  plugin-data/plan-forge-flow/                       (FORGE_PLUGIN_DATA)
+    cursor-runs/&lt;scope&gt;/&lt;sha256(runId)&gt;.json         ← PendingRun v2
+
+%LOCALAPPDATA%/plan-forge-flow/                      (FORGE_LOCK_DATA)
+  locks/&lt;sha256(gitCommonDir)&gt;.lock
+  workspace-locks/&lt;sha256(workspace)&gt;.lock</code></pre>
+
+<p class="small">Переменные окружения: <code>CODEX_HOME</code>, <code>CURSOR_HOME</code>,
+<code>FORGE_PLUGIN_DATA</code>, <code>FORGE_AGENTS_DIR</code>, <code>FORGE_LOCK_DATA</code>.
+Тестовые: <code>FORGE_FAULT_POINT</code> (в релизе тоже активна),
+<code>FORGE_TEST_HOLD_LOCK</code> и <code>FORGE_TEST_HOLD_AFTER_EXCLUDE</code> (только Debug).</p>
+
+<h3>Поставка</h3>
+<p>Плагин содержит исполняемые файлы для шести RID, launcher выбирает нужный по хосту:</p>
+<pre><code>bin/planforge-launcher.sh   → uname -s/-m → bin/&lt;rid&gt;/planforge
+bin/planforge-launcher.ps1  → OSArchitecture → bin/win-{x64,arm64}/planforge.exe
+
+bin/{win-x64,win-arm64,linux-x64,linux-arm64,osx-x64,osx-arm64}/planforge[.exe]
+.codex-plugin/plugin.json   skills/  agents/  hooks/hooks.json
+.cursor-plugin/plugin.json  cursor/{commands,agents,skills}/</code></pre>
+<p>Хук и оба skill'а вызывают именно launcher. Исполняемые файлы self-contained, trimmed,
+single-file — предустановленный .NET не нужен. Основная поверхность установки — репозиторий как
+marketplace: бинарники лежат в Git LFS, <code>artifacts/</code> игнорируется.
+<code>build/package.ps1</code> публикует все шесть RID, требует совпадения версий в обоих
+манифестах, отказывается писать в общий каталог, проверяет, что в каталоге публикации не осталось
+sidecar-файлов, собирает bundle с обоими marketplace-манифестами, чинит Unix-биты и origin в ZIP,
+проверяет наличие всех обязательных путей (включая <code>cursor/commands</code>,
+<code>cursor/skills</code>, <code>cursor/agents</code>) и для RID текущего хоста дополнительно
+запускает собранный бинарь с <code>run doctor</code>, требуя <code>ok</code> и у <code>git</code>,
+и у <code>dotnet</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="bugs">15. Наблюдения и риски</h2>
+
+<div class="note okbox">
+Дефектов, ломающих основной сценарий, при этом проходе не найдено. Ниже — места, где поведение
+зависит от внешней дисциплины, где остаётся мусор, или где в релизном бинаре живёт тестовая
+оснастка.
+</div>
+
+<div class="note badbox">
+<b>Главное расхождение: у Cursor ревьюится не то, что исполняется.</b> Ревью работает по
+чат-черновику, сборка — по нативному файлу, а связывает их только маркер прогона. После
+<code>plan finalize</code> черновик стирается, поэтому даже сопоставить два текста постфактум
+нечем. Это осознанное решение (оно записано и в skill, и в README), но у него есть цена:
+<ul>
+<li><code>PLAN-REVIEW-LOG.md</code> описывает один текст, а <code>PLAN.md</code> и
+<code>tasks[]</code> получены из другого — журнал ревью перестаёт быть свидетельством о
+реализуемом плане;</li>
+<li>«одобрение» проверяет форму (маркер, преамбула, <code>## Approach</code>), а не содержание,
+поэтому <code>approvalGuarantee=advisory</code> теперь честен вдвойне;</li>
+<li>дешёвая середина существует: хранить в <code>PendingRun</code> хеши задач одобренного
+черновика и при материализации сравнивать с задачами нативного плана — расхождение показывать
+пользователю (или требовать <code>--accept-risk</code>), не блокируя правки.</li>
+</ul>
+</div>
+
+<div class="note warnbox">
+<ul>
+<li><b>Discovery по маркеру хрупок.</b> <code>DiscoverNativePlan</code> требует ровно одно
+совпадение среди <code>*.plan.md</code> <b>верхнего уровня</b> <code>$CURSOR_HOME/plans</code>.
+Любая копия или бэкап с тем же маркером (<code>plan (1).plan.md</code>, синхронизация папки)
+превращает материализацию в «multiple Cursor native plans match» без указания путей; вложенные
+подкаталоги не просматриваются вовсе. Диагностику стоит усилить хотя бы списком найденных файлов в
+<code>details</code>.</li>
+
+<li><b><code>plan stage</code> не проверяет <code>## Approach</code>.</b> Черновик без корректной
+нумерации проходит все раунды ревью и падает только на <code>plan finalize</code>. Вызов
+<code>CanonicalText.ParseTasks</code> прямо в <code>Stage</code> — одна строка, которая переносит
+отказ на несколько минут раньше.</li>
+
+<li><b>Осиротевший staging-каталог Cursor.</b> Материализация собирает <code>.forge/</code> в
+<code>.forge.materializing-&lt;tx&gt;/</code> и переезжает одним <code>Directory.Move</code>. Если
+процесс умрёт до переезда, каталог останется в корне репозитория: managed-блок
+<code>info/exclude</code> перечисляет только <code>.forge/</code>, поэтому мусор виден в
+<code>git status</code>, а <code>run cleanup</code> его не удаляет (<code>DeleteForgeDirectory</code>
+знает лишь про <code>.forge</code>). Повторная материализация того же run его подберёт и сверит, но
+после <code>abandon</code>-подобного отказа чистить придётся руками.</li>
+
+<li><b>Точки инъекции сбоев компилируются в релиз.</b> <code>PendingRuns.Fault</code> не обёрнут в
+<code>#if DEBUG</code>: установка <code>FORGE_FAULT_POINT</code> в одно из 11 известных имён
+(<code>snapshot-written</code>, <code>cursor-plan-written</code>,
+<code>locked-successor-journaled</code>, <code>baseline-head-written</code>, …) заставит релизный
+бинарь падать в выбранной точке. Это только отказ в обслуживании и только для того, кто уже
+контролирует окружение процесса, но соседние тестовые хуки
+(<code>FORGE_TEST_HOLD_LOCK</code>, <code>FORGE_TEST_HOLD_AFTER_EXCLUDE</code>, разрешение
+plan-источника внутри workspace) корректно спрятаны за <code>#if DEBUG</code> — эта нет.</li>
+
+<li><b>Режим работы по-прежнему не проверяется кодом (Codex).</b> Требования «Act 1 только в Plan
+mode» и «материализовать только в первом Default-ходе» существуют лишь как правила skill. Хук
+выполняется на каждом промпте и не смотрит на режим хода, а <code>plan materialize</code> не знает,
+в каком режиме его позвали.</li>
+
+<li><b>Обход преамбулы в Cursor молча перекрашивает изменения.</b> Если агент проигнорирует
+advisory-гейт и начнёт писать в репозиторий до <code>plan materialize</code>, материализация
+пройдёт, а <code>build begin</code> запинит базлайны уже поверх этих правок — они станут
+<b>pre-existing</b> и потребуют отдельной авторизации вместо того, чтобы попасть в in-run-улики.
+Ошибка обнаружится, но как «неожиданные pre-existing файлы», а не как нарушение гейта.</li>
+
+<li><b>Целостность плана между материализацией и <code>plan lock</code> не подтверждается для
+Codex</b>: хеша материализованного плана в состоянии нет, поэтому правка
+<code>.forge/PLAN.md</code> между двумя командами пройдёт незамеченной. У Cursor этот зазор закрыт
+<code>transaction.PlanHash</code>.</li>
+
+<li><b><code>--amendment</code> не требует, чтобы план отличался</b> от текущего: повторная
+материализация того же текста легальна и просто сбрасывает dispatch и review.</li>
+
+<li><b><code>review prepare</code> не берёт repository lock</b>, хотя читает scoped-рефы и
+untracked-дерево. Параллельный <code>run cleanup</code> в другом worktree того же репозитория может
+удалить рефы посреди подготовки улик; итог — ошибка <code>environment</code>, не порча данных, но
+диагностика будет невнятной.</li>
+
+<li><b><code>run doctor</code> проверяет <code>dotnet --version</code></b>, хотя релизный бинарь
+self-contained; более того, <code>build/package.ps1</code> требует, чтобы эта проверка прошла,
+привязывая упаковку к наличию SDK на машине сборки. Для пользователя без .NET
+<code>doctor</code> сообщит о проблеме, которой нет.</li>
+
+<li><b><code>README</code> перечисляет четыре переменные окружения</b> и не упоминает
+<code>FORGE_LOCK_DATA</code>, хотя именно она переносит оба лока.</li>
+
+<li><b>Жёсткая привязка к <code>$CURSOR_HOME/plans</code>.</b> В релизной сборке discovery ищет
+план только там. Если Cursor изменит расположение планов или начнёт хранить их в рабочем
+пространстве, Build перестанет запускаться без правки кода.</li>
+
+<li><b>Мёртвые члены.</b> <code>Hashing.Base64UrlEncode/Decode</code> используются только
+собственным тестом; <code>PendingRuns.ResolveActive</code> не вызывается ниоткуда (его заменил
+<code>ResolvePlanDispatch</code>); <code>agents.lastReviewerId</code> и
+<code>dispatch.conflict</code> только записываются; <code>state.modelWaiver</code> валидируется, но
+не читается, дублирует <code>modelWaiverAudit</code> и не попадает в <code>run status</code>;
+<code>TranscriptReader.Record.Type</code> хранится, но решения принимаются по <code>Kind</code>;
+регистрация <code>JsonSuccess&lt;PendingRun?&gt;</code> в контексте не используется.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="simplify">16. Карта сложности</h2>
+
+<p>Оценка того, где сосредоточена сложность и что можно сократить без потери гарантий.</p>
+
+<h3>А. Дешёвые чистки</h3>
+<table>
+<tr><th>Что</th><th>Где</th><th>Почему</th></tr>
+<tr><td><b>Удалить мёртвые члены</b></td>
+  <td><code>Hashing.Base64Url*</code>, <code>PendingRuns.ResolveActive</code>,
+      <code>Record.Type</code>, <code>JsonSuccess&lt;PendingRun?&gt;</code></td>
+  <td>Читатель предполагает, что это часть контракта; удаление делает контракт честным.
+      Тест на base64url уходит вместе с методами.</td></tr>
+<tr><td><b>Свернуть <code>modelWaiver</code> в <code>modelWaiverAudit</code></b></td>
+  <td><code>ForgeState.ModelWaiver</code> + сборка строки <code>consent + " | " + consent</code></td>
+  <td>Одна и та же информация хранится дважды в разных формах; вторая форма нигде не читается.</td></tr>
+<tr><td><b><code>ParseTasks</code> в <code>plan stage</code></b></td>
+  <td><code>PendingRuns.Stage</code></td>
+  <td>Одна строка. Ошибка структуры плана всплывает до раундов ревью, а не после них.</td></tr>
+<tr><td><b>Вынести Cursor-ветки из роутера</b></td>
+  <td><code>CliApplication.cs:87</code> — одна строка с пятью операторами, чтением stdin и
+      ветвлением; то же для <code>plan stage/finalize/abandon/invalidate</code> (строки 55–61)</td>
+  <td>Роутер должен разбирать команду и печатать конверт, а не решать, какой run резолвить.</td></tr>
+<tr><td><b>Убрать <code>dotnet --version</code> из <code>run doctor</code></b></td>
+  <td><code>ForgeWorkflow.Doctor</code> + проверка в <code>package.ps1</code></td>
+  <td>Бинарь self-contained; .NET нужен только для сборки из исходников. Проверка вводит в
+      заблуждение и привязывает упаковку к SDK.</td></tr>
+<tr><td><b>Спрятать <code>Fault</code> за <code>#if DEBUG</code></b></td>
+  <td><code>PendingRuns.Fault</code> + 13 вызовов</td>
+  <td>Единственная тестовая оснастка, попадающая в релиз. Вызовы можно оставить —
+      в Release метод станет пустым.</td></tr>
+<tr><td><b>Один helper для дублей опций</b></td>
+  <td><code>ParsedArgs.Parse</code> — проверка «указано дважды» повторена три раза</td>
+  <td>Три идентичные ветки на 15 строк парсера.</td></tr>
+<tr><td><b>Список кандидатов в ошибке discovery</b></td>
+  <td><code>DiscoverNativePlan</code></td>
+  <td>«multiple native plans match» без путей — самая дорогая для пользователя ошибка Build.</td></tr>
+</table>
+
+<h3>Б. Решения по существу</h3>
+<ul>
+<li><b>Привязать одобренный черновик к нативному плану — хотя бы наблюдаемо.</b> Сейчас связь
+только по маркеру. Достаточно сохранить в <code>PendingRun</code> хеши задач черновика (они и так
+считаются в <code>ParseTasks</code>) и на материализации сравнить их с задачами нативного файла:
+совпало — тихо, разошлось — вывести дифф в <code>details</code>. Это не отменяет решения «правки
+пользователя не требуют повторного ревью», но перестаёт делать вид, что review-лог описывает
+собираемый план.</li>
+
+<li><b>Заменить <code>bool repositoryLockHeld</code> на тип-токен.</b> Флаг протянут через
+<code>Materializer.Materialize</code>, <code>BeginBuild</code>, <code>Consume</code>,
+<code>JournalMaterializationSuccessor</code>, <code>ReconcileMaterializationState</code>,
+<code>CompleteCursorMaterialization</code>. Передача самого <code>RepositoryRunLock?</code>
+(или scope-объекта <code>RunScope</code>, владеющего обоими локами) убирает шесть булевых
+параметров и делает невозможным вызвать вложенный метод без лока вообще.</li>
+
+<li><b>Разделить <code>Materializer.Materialize</code>.</b> Тринадцать параметров, из них шесть
+опциональных, и три разных режима (Codex fresh, Codex amendment, Cursor transactional), которые
+внутри метода ветвятся по <code>materializationTransactionId is not null</code>. Выделение
+общего «записать план+лог+state в каталог X» и трёх тонких вызывающих сторон уберёт большинство
+взаимоисключающих проверок вроде «transactional materialization is Cursor-only».</li>
+
+<li><b>Убрать журнал successor-состояния, доиграв транзакцию внутри staging.</b> Сейчас после
+<code>Directory.Move</code> ещё два шага (<code>plan lock</code>, <code>build begin</code>)
+мутируют <code>state.json</code> на месте, и именно ради них существуют
+<code>successorStateHash/Phase</code>, <code>JournalMaterializationSuccessor</code>,
+<code>ReconcileMaterializationState</code> и связанные ветки валидации — суммарно ~70 строк
+и половина сложности <code>PendingRun</code>. Разбор задач (<code>plan lock</code>) не требует
+записи в репозиторий и может быть выполнен в staging до переезда; тогда журналировать останется
+только <code>build begin</code>, который пишет git-рефы, — или можно пинить рефы до Move, и тогда
+переезд станет единственной точкой невозврата.</li>
+
+<li><b>Разнести <code>Cursor/PendingRun.cs</code> на три файла.</b> 383 строки и три темы в одном
+типе: схема + <code>ValidateLoaded</code> (~35 строк инвариантов), автомат фаз
+(stage/record/finalize/invalidate/abandon) и транзакция материализации вместе с discovery
+нативного плана. Третья тема ещё и пишет в <code>.forge/cursor-review-*.md</code>, то есть класс с
+именем «pending run» владеет уликами ревью — это ответственность <code>Review/</code>.</li>
+
+<li><b>Свести <code>run status</code> к одной форме.</b> Три возможных shape'а (<code>{exists:false}</code>,
+<code>StatusPresentData</code>, <code>PendingRun|null</code>) заставляют каждого потребителя
+угадывать. Конверт вида <code>{state: …|null, pendingRun: …|null}</code> убирает ветвление и из
+CLI, и из skill — и заодно закрывает вопрос «что показывать в resume, когда есть и то, и другое».</li>
+
+<li><b>Целостность плана для Codex</b>: хранить SHA-256 материализованного плана в состоянии и
+сверять в <code>plan lock</code> — порядка пяти строк, закрывает класс «файл поменяли между
+командами» и приводит Codex к тому же уровню, что уже есть у Cursor.</li>
+
+<li><b>Чистить <code>.forge.materializing-*</code> в <code>run cleanup</code></b> и добавить
+шаблон в managed-блок exclude — два места, снимает единственный источник мусора в репозитории.</li>
+
+<li><b>Модель доверия к pending-плану, режиму и нативным правкам</b>: сейчас это полностью зона
+ответственности skill. Стоит зафиксировать решение явно в README или ADR, чтобы будущая ревизия не
+приняла отсутствие проверок за недосмотр.</li>
+</ul>
+
+<h3>В. Оправданная сложность</h3>
+<ul>
+<li><b>Улики ревью</b> (<code>ReviewEvidence</code> + <code>ForgeReview</code>, ~500 строк): три
+класса изменений, четыре причины удержания, tsv-формат для untracked, тройная сверка fingerprint.
+Это ядро ценности акта 4; дальнейшее сжатие требует отказаться либо от untracked-улик, либо от
+разделения pre-existing / in-run.</li>
+<li><b><code>ValidateLoaded</code> для <code>PendingRun</code></b> (~35 строк): внешний файл вне
+репозитория, который решает, можно ли писать в репозиторий, обязан валидироваться целиком, включая
+пересчёт хешей ответов, привязку <code>draftText</code> к фазе и вывод <code>reviewCap</code> из
+цепочки аудита. Дублирование инвариантов писателя здесь — фича, а не долг.</li>
+<li><b>Два JSON-контекста</b> — именно они дают «свои файлы fail-closed, чужие fail-open»,
+а явная передача <code>JsonTypeInfo</code> переносит проверку контракта в компиляцию.</li>
+<li><b>Scope id и два уровня локов</b> — цена поддержки linked worktrees; без них два worktree
+одного репозитория дрались бы за рефы и <code>info/exclude</code>.</li>
+<li><b>Детектор секретов</b> (34 строки) — дёшево и полезно.</li>
+<li><b>ProcessExecution</b> (129 строк) — избыточен для двух вызываемых программ, но безвреден;
+станет ближе к оправданному, если убрать проверку <code>dotnet</code> и оставить только git.</li>
+</ul>
+
+<h3>Г. Оценка бюджета</h3>
+<table>
+<tr><th>Направление</th><th>Примерно строк</th><th>Риск</th></tr>
+<tr><td>Удалить мёртвые члены и <code>modelWaiver</code></td><td>−35</td><td>нулевой</td></tr>
+<tr><td><code>ParseTasks</code> в <code>plan stage</code> + список кандидатов в discovery</td><td>+6</td><td>нулевой, лучше диагностика</td></tr>
+<tr><td><code>Fault</code> под <code>#if DEBUG</code></td><td>±3</td><td>убирает оснастку из релиза</td></tr>
+<tr><td>Вынести Cursor-ветки из роутера в <code>Cursor/CursorCommands</code></td><td>±60</td><td>нулевой, читаемость</td></tr>
+<tr><td>Хеши задач черновика + сверка на материализации</td><td>+20</td><td>низкий; меняет только вывод, не блокирует</td></tr>
+<tr><td>Токен лока вместо <code>repositoryLockHeld</code></td><td>−20</td><td>снимает класс ошибок «забыли лок»</td></tr>
+<tr><td>Удалить стадию <code>plan</code></td><td>−40</td><td>средний: ломает совместимость CLI, требует правки тестов</td></tr>
+<tr><td>Разбить <code>Materializer.Materialize</code> на три входа</td><td>±40</td><td>средний, покрыт тестами</td></tr>
+<tr><td>Разнести <code>PendingRun.cs</code> на три файла</td><td>±0</td><td>нулевой, читаемость</td></tr>
+<tr><td>Убрать successor-журнал, доиграв lock в staging</td><td>−70</td><td>высокий: трогает восстановление; нужен полный прогон 11 fault-точек</td></tr>
+<tr><td>Хеш плана в состоянии + сверка в <code>plan lock</code> (Codex)</td><td>+8</td><td>добавляет гарантию</td></tr>
+<tr><td>Чистка <code>.forge.materializing-*</code> в cleanup + exclude</td><td>+10</td><td>убирает мусор в репозитории</td></tr>
+<tr><td>Единая форма <code>run status</code></td><td>±25</td><td>ломает потребителей вывода</td></tr>
+</table>
+
+<p class="small" style="margin-top:32px">Документ соответствует исходникам ветки
+<code>main</code> (plugin 0.5.1, коммит <code>bc934f6</code>). Пути даны относительно
+<code>plugins/plan-forge-flow/</code>.</p>
+
+</div>
+</body>
+</html>
