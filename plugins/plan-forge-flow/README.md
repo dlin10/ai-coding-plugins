@@ -112,6 +112,11 @@ run set                    --key --value --amendment --accept-risk --authorizati
 run cleanup                --purge-generated-agents
 ```
 
+`run status` always returns one data shape: `{ "state": <status-or-null>,
+"pendingRun": <cursor-run-or-null> }`. Cursor status reports both values when a
+materialized state and its external pending run coexist; Codex always reports a
+null `pendingRun`.
+
 `--workspace` and `--host` are available on stateful commands; omitted `--host`
 means `codex` for clean-install Codex command compatibility. Cursor always passes
 `--host cursor`. `hook capture-context` reads its JSON input from stdin.
@@ -134,7 +139,7 @@ persisted `codex` or `cursor` host. Missing, zero, unknown, or future schemas ar
 rejected as `unsupported-state-schema` before mutation. Plan Forge Flow 0.5.x
 does not migrate or resume pre-0.5 state; start a fresh run instead.
 
-Cursor preapproval is a schema-v2 external `PendingRun` under host user data
+Cursor preapproval is a schema-v3 external `PendingRun` under host user data
 (`FORGE_PLUGIN_DATA` overrides its root). During review it temporarily stores
 the canonical chat draft; finalization clears that draft and retains review
 responses, dispatch evidence, model waivers, and guarantees. At the first Build
@@ -172,6 +177,18 @@ implementation builder is `gpt-5.6-terra/medium`.
 mutations, writing shell commands, delegation, and state changes, but this is
 not an isolation boundary. A normal acceptance run must leave its disposable
 workspace unchanged.
+
+## Pending-plan trust model
+
+Pending plans are untrusted transport artifacts, not proof of approval. For
+Codex, the CLI validates the pending document's schema, host, and workspace,
+while the skill owns the collaboration-mode and first-Default-turn sequencing;
+the runtime has no authoritative mode signal to verify. For Cursor, reviewer
+isolation and approval remain advisory, and edits to the native plan after chat
+review are intentionally accepted. The materialization transaction binds the
+exact native plan bytes used for replay and the final staged state, but does not
+claim that those bytes are identical to the reviewed chat draft. See
+[`docs/adr/0001-pending-plan-trust-model.md`](docs/adr/0001-pending-plan-trust-model.md).
 
 ## Codex hook behavior
 

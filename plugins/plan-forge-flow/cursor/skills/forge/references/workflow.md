@@ -32,7 +32,7 @@
 
 Use this branch only for an interrupted run; normal flow does not require resume.
 
-1. Run `planforge run status --host cursor --workspace <workspace>` and require one unambiguous matching run. Do not infer a run ID or choose a plan by recency.
+1. Run `planforge run status --host cursor --workspace <workspace>` and inspect `data.pendingRun`; require one unambiguous matching run. `data.state` may coexist with it after materialization. Do not infer a run ID or choose a plan by recency.
 2. Recover by phase:
    - `reviewing`: show the retained chat draft and dispatch a fresh reviewer, then continue the automatic review loop.
    - `revision-required`: update and show the retained chat draft, restage it through stdin, and dispatch a fresh reviewer. Preserve the review-cap authorization rules.

@@ -1,6 +1,7 @@
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Infrastructure.Workspace;
+using PlanForgeFlow.Review;
 using PlanForgeFlow.Workflow.State;
 
 namespace PlanForgeFlow.Cursor;
@@ -28,7 +29,7 @@ internal static class CursorCommandHandlers
         var dispatchId = context.Args.GetRequired("dispatch-id");
         var stage = context.Args.GetRequired("stage");
         var response = input.ReadToEnd();
-        if (stage != "plan") return PendingRuns.RecordCodeEvidence(repository, dispatchId, stage, response);
+        if (stage != "plan") return CursorReviewEvidence.Record(repository, dispatchId, stage, response);
         var run = context.Args.Get("run-id") is { } runId ? PendingRuns.Load(repository, runId) : PendingRuns.ResolvePlanDispatch(repository, dispatchId);
         return PendingRuns.Record(repository, run.RunId, dispatchId, stage, response);
     }

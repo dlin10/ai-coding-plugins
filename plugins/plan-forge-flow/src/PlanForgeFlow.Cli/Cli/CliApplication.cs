@@ -19,7 +19,7 @@ internal sealed class CliApplication
             if (!string.IsNullOrWhiteSpace(workspaceArgument))
             {
                 var workspace = RepositoryPaths.CanonicalWorkspaceRoot(workspaceArgument);
-                using var repositoryLock = RepositoryRunLock.Acquire(RepositoryPaths.Identify(workspace));
+                using var repositoryLock = RepositoryRunLock.Acquire(RepositoryPaths.Identify(workspace), HostKind.Codex);
                 using var stateLock = ForgeStateLock.Acquire(workspace);
                 File.WriteAllText(marker, "held");
                 Thread.Sleep(TimeSpan.FromSeconds(30));
@@ -93,22 +93,15 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace, context.Host), ForgeJsonContext.Default.JsonSuccessDoctorData);
                     break;
                 case "run status":
-                    if (context.Host == HostKind.Cursor && !File.Exists(StateStore.StatePath(context.Workspace)))
-                    {
-                        JsonOutput.Success(command, PendingRuns.Status(RepositoryPaths.Identify(context.Workspace)), ForgeJsonContext.Default.JsonSuccessPendingRun);
-                        break;
-                    }
-                    if (!File.Exists(StateStore.StatePath(context.Workspace)))
-                    {
-                        JsonOutput.Success(command, new StatusMissingData(false), ForgeJsonContext.Default.JsonSuccessStatusMissingData);
-                    }
-                    else
+                    RepositoryIdentity? statusRepository = null;
+                    StatusPresentData? statusState = null;
+                    if (File.Exists(StateStore.StatePath(context.Workspace)))
                     {
                         var state = StateStore.Load(context.Workspace);
                         if (state.Host != context.Host) throw new CliFailure("state", "Forge state host does not match --host", 3);
-                        var statusRepository = RepositoryPaths.Identify(context.Workspace);
+                        statusRepository = RepositoryPaths.Identify(context.Workspace);
                         if (state.RepositoryScopeId != RepositoryPaths.ScopeId(statusRepository)) throw new CliFailure("state", "Forge state repository scope does not match this workspace", 3);
-                        JsonOutput.Success(command, new StatusPresentData(
+                        statusState = new StatusPresentData(
                             ForgeState.Version,
                             ForgeState.Generation,
                             state.CreatedAt,
@@ -126,8 +119,12 @@ internal sealed class CliApplication
                             state.ModelWaiverAudit,
                             state.ReviewerGuarantee,
                             state.ApprovalGuarantee,
-                            state.RepositoryScopeId), ForgeJsonContext.Default.JsonSuccessStatusPresentData);
+                            state.RepositoryScopeId);
                     }
+                    var pendingRun = context.Host == HostKind.Cursor
+                                         ? PendingRuns.Status(statusRepository ?? RepositoryPaths.Identify(context.Workspace))
+                                         : null;
+                    JsonOutput.Success(command, new RunStatusData(statusState, pendingRun), ForgeJsonContext.Default.JsonSuccessRunStatusData);
                     break;
                 case "run set":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context), ForgeJsonContext.Default.JsonSuccessForgeState);

@@ -304,6 +304,7 @@ public sealed class CoreContractTests
             Assert.False(File.Exists(Path.Combine(workspace, ".forge", "stale.txt")));
             Assert.False(File.Exists(RepositoryPaths.PendingPlanPath(workspace)));
             Assert.Contains(".forge/\n", File.ReadAllText(Path.Combine(workspace, ".git", "info", "exclude")), StringComparison.Ordinal);
+            Assert.Contains(".forge.materializing-*/\n", File.ReadAllText(Path.Combine(workspace, ".git", "info", "exclude")), StringComparison.Ordinal);
             Assert.DoesNotContain(".forge.lock", File.ReadAllText(Path.Combine(workspace, ".git", "info", "exclude")), StringComparison.Ordinal);
             var state = StateStore.Load(workspace);
             Assert.Equal(ForgePhase.Materialized, state.Workflow.Phase);
@@ -412,10 +413,15 @@ public sealed class CoreContractTests
             PendingPlan.Write(workspace, "# Plan\n\n## Approach\n1. Implement.\n");
             Assert.Equal(0, RunMaterialize(workspace));
             PendingPlan.Write(workspace, "# Pending\n\n## Approach\n1. Later.\n");
+            var staging = Path.Combine(workspace, ".forge.materializing-orphan");
+            Directory.CreateDirectory(staging);
+            File.WriteAllText(Path.Combine(staging, ".materialization-transaction"), "orphan\n");
+            File.WriteAllText(Path.Combine(staging, "PLAN.md"), "partial\n");
 
             Assert.Equal(0, new CliApplication().Run(["run", "cleanup", "--workspace", workspace]));
 
             Assert.False(Directory.Exists(Path.Combine(workspace, ".forge")));
+            Assert.False(Directory.Exists(staging));
             Assert.False(File.Exists(RepositoryPaths.PendingPlanPath(workspace)));
         }
         finally
@@ -601,15 +607,15 @@ public sealed class CoreContractTests
             state.Review.CritiqueFiles.Add(critique);
             DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
 
-            Materializer.Materialize(
+            Materializer.MaterializeCodexAmendment(
                 RepositoryPaths.Identify(workspace),
-                "# Plan\n\n## Approach\n1. Implement the slice.\n",
-                "# Review\n",
-                1,
-                5,
-                new ModelSelection("reviewer", "high"),
-                new ModelSelection("builder", "low"),
-                amendment: true);
+                new MaterializationContent(
+                    "# Plan\n\n## Approach\n1. Implement the slice.\n",
+                    "# Review\n",
+                    1,
+                    5,
+                    new ModelSelection("reviewer", "high"),
+                    new ModelSelection("builder", "low")));
 
             Assert.Equal([critique], StateStore.Load(workspace).Review.CritiqueFiles);
         }
@@ -743,15 +749,15 @@ public sealed class CoreContractTests
             Directory.CreateDirectory(forge);
             File.WriteAllText(Path.Combine(forge, "preserve.txt"), "existing");
 
-            var error = Assert.Throws<CliFailure>(() => Materializer.Materialize(
+            var error = Assert.Throws<CliFailure>(() => Materializer.MaterializeCodexFresh(
                 RepositoryPaths.Identify(workspace),
-                plan,
-                reviewLog,
-                0,
-                5,
-                new ModelSelection("reviewer", "low"),
-                new ModelSelection("builder", "low"),
-                amendment: false));
+                new MaterializationContent(
+                    plan,
+                    reviewLog,
+                    0,
+                    5,
+                    new ModelSelection("reviewer", "low"),
+                    new ModelSelection("builder", "low"))));
 
             Assert.Equal("usage", error.Code);
             Assert.True(File.Exists(Path.Combine(forge, "preserve.txt")));
@@ -862,7 +868,7 @@ public sealed class CoreContractTests
             var exitCode = new CliApplication().Run(["plan", "stage", "--host", "cursor", "--workspace", workspace, "--run-id", "stdin-run", "--model", "reviewer", "--effort", "xhigh", "--cursor-version", "3.15.6", "--observed-model", "Auto", "--waiver-reason", "consent"]);
 
             Assert.Equal(0, exitCode);
-            Assert.Contains("\"schemaVersion\":2", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("\"schemaVersion\":3", output.ToString(), StringComparison.Ordinal);
             Assert.Contains("\"draftText\":\"# Chat plan\\n\\n## Approach\\n1. Implement.\\n\"", output.ToString(), StringComparison.Ordinal);
             Assert.DoesNotContain("sourcePath", output.ToString(), StringComparison.OrdinalIgnoreCase);
             output.GetStringBuilder().Clear();
@@ -1090,7 +1096,7 @@ public sealed class CoreContractTests
     }
 
     [Theory]
-    [InlineData("\"schemaVersion\":2,")]
+    [InlineData("\"schemaVersion\":3,")]
     [InlineData("\"host\":\"cursor\",")]
     public void CursorPendingRunRequiresRawSchemaAndHostAndUsesWirePhases(string token)
     {
@@ -1139,10 +1145,93 @@ public sealed class CoreContractTests
             var planPath = Path.Combine(forge, "PLAN.md"); File.WriteAllText(planPath, "original");
             var state = ForgeState.CreateEmpty(HostKind.Cursor, RepositoryPaths.ScopeId(repository)); state.Workflow.Phase = ForgePhase.CodeReview; DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
             Assert.Equal(3, new CliApplication().Run(["run", "status", "--host", "codex", "--workspace", workspace]));
-            Assert.Throws<CliFailure>(() => Materializer.Materialize(repository, "# Plan\n\n## Approach\n1. Replace.\n", "review\n", 1, 5, new ModelSelection("reviewer", "high"), new ModelSelection("builder", "medium"), true, HostKind.Codex));
+            Assert.Throws<CliFailure>(() => Materializer.MaterializeCodexAmendment(
+                repository,
+                new MaterializationContent(
+                    "# Plan\n\n## Approach\n1. Replace.\n",
+                    "review\n",
+                    1,
+                    5,
+                    new ModelSelection("reviewer", "high"),
+                    new ModelSelection("builder", "medium"))));
             Assert.Equal("original", File.ReadAllText(planPath));
         }
         finally { DeleteDirectory(workspace); }
+    }
+
+    [Fact]
+    public void RunStatusAlwaysReturnsStateAndPendingRunEnvelope()
+    {
+        var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
+        var oldOut = Console.Out; using var output = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data); InitializeRepository(workspace, commit: true); Console.SetOut(output);
+            JsonElement Run(params string[] hostArgs)
+            {
+                output.GetStringBuilder().Clear();
+                Assert.Equal(0, new CliApplication().Run(["run", "status", "--workspace", workspace, .. hostArgs]));
+                return JsonDocument.Parse(output.ToString()).RootElement.GetProperty("data").Clone();
+            }
+
+            var missing = Run();
+            Assert.Equal(JsonValueKind.Null, missing.GetProperty("state").ValueKind);
+            Assert.Equal(JsonValueKind.Null, missing.GetProperty("pendingRun").ValueKind);
+
+            var repository = RepositoryPaths.Identify(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), ForgeState.CreateEmpty(HostKind.Codex, RepositoryPaths.ScopeId(repository)),
+                                   Serialization.ForgeJsonContext.Default.ForgeState);
+            var present = Run();
+            Assert.Equal(JsonValueKind.Object, present.GetProperty("state").ValueKind);
+            Assert.Equal(JsonValueKind.Null, present.GetProperty("pendingRun").ValueKind);
+
+            Directory.Delete(Path.Combine(workspace, ".forge"), recursive: true);
+            var waiver = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
+            PendingRuns.Stage(repository, "# Plan\n\n## Approach\n1. Implement.\n", "status-run", waiver);
+            var pendingOnly = Run("--host", "cursor");
+            Assert.Equal(JsonValueKind.Null, pendingOnly.GetProperty("state").ValueKind);
+            Assert.Equal("status-run", pendingOnly.GetProperty("pendingRun").GetProperty("runId").GetString());
+
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), ForgeState.CreateEmpty(HostKind.Cursor, RepositoryPaths.ScopeId(repository)),
+                                   Serialization.ForgeJsonContext.Default.ForgeState);
+            var both = Run("--host", "cursor");
+            Assert.Equal(JsonValueKind.Object, both.GetProperty("state").ValueKind);
+            Assert.Equal("status-run", both.GetProperty("pendingRun").GetProperty("runId").GetString());
+        }
+        finally
+        {
+            Console.SetOut(oldOut); Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data);
+        }
+    }
+
+    [Fact]
+    public void CleanupPreservesUnownedMaterializationDirectory()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            InitializeRepository(workspace);
+            var repository = RepositoryPaths.Identify(workspace);
+            var forge = Path.Combine(workspace, ".forge");
+            Directory.CreateDirectory(forge);
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), ForgeState.CreateEmpty(HostKind.Codex, RepositoryPaths.ScopeId(repository)),
+                                   Serialization.ForgeJsonContext.Default.ForgeState);
+            var staging = Path.Combine(workspace, ".forge.materializing-foreign");
+            Directory.CreateDirectory(staging);
+            File.WriteAllText(Path.Combine(staging, "user.txt"), "preserve");
+
+            var error = Assert.Throws<CliFailure>(() => Materializer.Cleanup(workspace));
+
+            Assert.Equal("state", error.Code);
+            Assert.True(Directory.Exists(forge));
+            Assert.Equal("preserve", File.ReadAllText(Path.Combine(staging, "user.txt")));
+        }
+        finally
+        {
+            DeleteDirectory(workspace);
+        }
     }
 
     [Theory]
@@ -1366,9 +1455,14 @@ public sealed class CoreContractTests
             InitializeRepository(workspace, commit: true);
             var repository = RepositoryPaths.Identify(workspace);
             using (ForgeStateLock.Acquire(workspace)) Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
-            using (RepositoryRunLock.Acquire(repository, HostKind.Codex)) Assert.Throws<CliFailure>(() => RepositoryRunLock.Acquire(repository, HostKind.Cursor));
+            using (var held = RepositoryRunLock.Acquire(repository, HostKind.Codex))
+            {
+                held.Require(repository, HostKind.Codex);
+                Assert.Throws<CliFailure>(() => held.Require(repository, HostKind.Cursor));
+                Assert.Throws<CliFailure>(() => RepositoryRunLock.Acquire(repository, HostKind.Cursor));
+            }
             using var workspaceLock = ForgeStateLock.Acquire(workspace);
-            using var repositoryLock = RepositoryRunLock.Acquire(repository);
+            using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Codex);
         }
         finally { DeleteDirectory(workspace); }
     }
@@ -1420,14 +1514,14 @@ public sealed class CoreContractTests
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "plan-dispatch", "plan", "VERDICT: APPROVED\n"); PendingRuns.Finalize(repository, runId, builder); var materializing = PendingRuns.BeginMaterialize(repository, runId); PendingRuns.Consume(repository, runId);
             var forge = Path.Combine(workspace, ".forge"); Directory.CreateDirectory(forge);
             var state = ForgeState.CreateEmpty(HostKind.Cursor, RepositoryPaths.ScopeId(repository)); state.SourceRun = new RunIdentity("cursor:" + runId, materializing.TransactionId!); state.Models.Reviewer = new PinnedSelection("review", "low"); state.Models.Builder = new PinnedSelection("build", "low"); state.ReviewerGuarantee = new ReviewerGuarantee("advisory"); state.ApprovalGuarantee = new ApprovalGuarantee("advisory"); state.Dispatch.Id = dispatchId; state.Dispatch.Stage = DispatchStages.Parse(stage); state.Dispatch.Pending = true; DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState);
-            var recorded = PendingRuns.RecordCodeEvidence(repository, dispatchId, stage, $"analysis\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n");
+            var recorded = CursorReviewEvidence.Record(repository, dispatchId, stage, $"analysis\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n");
             var evidence = Path.Combine(forge, $"cursor-review-{dispatchId}.md");
             Assert.Equal($"analysis\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n", File.ReadAllText(evidence));
             var decision = JsonSerializer.Deserialize(File.ReadAllText(evidence + ".json"), Serialization.ForgeJsonContext.Default.ReviewDecision)!;
             Assert.Equal(coverage, decision.Coverage); Assert.Equal(dispatchId, recorded.ActiveDispatchId);
-            Assert.Throws<CliFailure>(() => PendingRuns.RecordCodeEvidence(repository, dispatchId, stage, $"replacement\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n"));
+            Assert.Throws<CliFailure>(() => CursorReviewEvidence.Record(repository, dispatchId, stage, $"replacement\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n"));
             Assert.Equal($"analysis\nCOVERAGE: {coverage}\nVERDICT: APPROVED\n", File.ReadAllText(evidence));
-            Assert.Throws<CliFailure>(() => PendingRuns.RecordCodeEvidence(repository, "stale", stage, "COVERAGE: FULL\nVERDICT: APPROVED\n"));
+            Assert.Throws<CliFailure>(() => CursorReviewEvidence.Record(repository, "stale", stage, "COVERAGE: FULL\nVERDICT: APPROVED\n"));
             Assert.False(File.Exists(Path.Combine(forge, "cursor-review-stale.md")));
         }
         finally { Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previous); DeleteDirectory(workspace); DeleteDirectory(data); }
@@ -1436,19 +1530,14 @@ public sealed class CoreContractTests
 #if DEBUG
     [Theory]
     [InlineData("snapshot-written")]
-    [InlineData("cursor-plan-written")]
-    [InlineData("state-configured")]
-    [InlineData("cursor-state-written")]
-    [InlineData("materialized-successor-journaled")]
-    [InlineData("forge-moved-before-reconcile")]
-    [InlineData("forge-artifacts-written")]
-    [InlineData("locked-successor-journaled")]
-    [InlineData("locked-state-written")]
-    [InlineData("build-successor-journaled")]
-    [InlineData("build-state-written")]
     [InlineData("baseline-owner-written")]
     [InlineData("baseline-head-written")]
     [InlineData("baseline-worktree-written")]
+    [InlineData("build-state-bound")]
+    [InlineData("cursor-plan-written")]
+    [InlineData("state-configured")]
+    [InlineData("cursor-state-written")]
+    [InlineData("forge-moved")]
     public void CursorMaterializationFaultsRemainReplayable(string faultPoint)
     {
         var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA"); var previousFault = Environment.GetEnvironmentVariable("FORGE_FAULT_POINT");
@@ -1473,7 +1562,7 @@ public sealed class CoreContractTests
 
     [Theory]
     [InlineData("snapshot-written")]
-    [InlineData("forge-artifacts-written")]
+    [InlineData("forge-moved")]
     public void CursorMaterializationReplayRefusesConflictingArtifacts(string faultPoint)
     {
         var workspace = CreateTempDirectory(); var data = CreateTempDirectory(); var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA"); var previousFault = Environment.GetEnvironmentVariable("FORGE_FAULT_POINT");
@@ -1520,7 +1609,7 @@ public sealed class CoreContractTests
             var reviewer = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O")); var builder = new CursorModelWaiver("builder", "builder", "medium", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "review", "plan", "VERDICT: APPROVED\n"); PendingRuns.Finalize(repository, runId, builder);
             var context = new CommandContext("plan materialize", workspace, ParsedArgs.Parse(["--run-id", runId]), null, HostKind.Cursor);
-            Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", "forge-artifacts-written"); Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context)); Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", null);
+            Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", "forge-moved"); Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context)); Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", null);
             File.WriteAllText(Path.Combine(workspace, ".forge", ".materialization-transaction"), "conflict\n");
             var stateBefore = File.ReadAllText(StateStore.StatePath(workspace)); var refsBefore = new GitClient(workspace).Run(["for-each-ref", "--format=%(refname):%(objectname)", "refs/plan-forge"]).Stdout; var excludePath = Path.Combine(repository.GitCommonDir, "info", "exclude"); var excludeBefore = File.ReadAllText(excludePath);
             Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context));
@@ -1540,7 +1629,7 @@ public sealed class CoreContractTests
             var reviewer = new CursorModelWaiver("reviewer", "reviewer", "xhigh", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O")); var builder = new CursorModelWaiver("builder", "builder", "medium", "3.15.6", "Auto", "consent", DateTimeOffset.UtcNow.ToString("O"));
             PendingRuns.Stage(repository, File.ReadAllText(source), runId, reviewer); PendingRuns.Record(repository, runId, "review", "plan", "VERDICT: APPROVED\n"); PendingRuns.Finalize(repository, runId, builder);
             var context = new CommandContext("plan materialize", workspace, ParsedArgs.Parse(["--run-id", runId]), null, HostKind.Cursor);
-            Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", "forge-artifacts-written"); Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context)); Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", null);
+            Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", "forge-moved"); Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context)); Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", null);
             var state = StateStore.Load(workspace); state.ModelWaiverAudit.Clear(); DurableFiles.WriteJson(StateStore.StatePath(workspace), state, Serialization.ForgeJsonContext.Default.ForgeState); var before = File.ReadAllText(StateStore.StatePath(workspace));
             Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.Planning.ForgeWorkflow.MaterializeCursorPlan(context)); Assert.Equal(before, File.ReadAllText(StateStore.StatePath(workspace))); Assert.Equal(PendingRunPhase.Materializing, PendingRuns.Load(repository, runId).Phase);
         }
@@ -1706,9 +1795,9 @@ public sealed class CoreContractTests
             child = Process.Start(start)!;
             for (var attempt = 0; attempt < 100 && !File.Exists(marker); attempt++) Thread.Sleep(25);
             Assert.True(File.Exists(marker)); var repository = RepositoryPaths.Identify(workspace);
-            Assert.Throws<CliFailure>(() => RepositoryRunLock.Acquire(repository)); Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
+            Assert.Throws<CliFailure>(() => RepositoryRunLock.Acquire(repository, HostKind.Codex)); Assert.Throws<CliFailure>(() => ForgeStateLock.Acquire(workspace));
             child.Kill(entireProcessTree: true); child.WaitForExit(); child.Dispose(); child = null;
-            using var repositoryLock = RepositoryRunLock.Acquire(repository); using var stateLock = ForgeStateLock.Acquire(workspace);
+            using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Codex); using var stateLock = ForgeStateLock.Acquire(workspace);
         }
         finally { if (child is not null) { try { child.Kill(entireProcessTree: true); child.WaitForExit(); } catch { } child.Dispose(); } DeleteDirectory(workspace); }
     }
@@ -1873,10 +1962,14 @@ public sealed class CoreContractTests
     {
         var project = Path.Combine(FindPluginRoot(), "src", "PlanForgeFlow.Cli");
 
-        foreach (var module in new[] { "Cli", "Codex", "Infrastructure", "Review", "Serialization", "Workflow" })
+        foreach (var module in new[] { "Cli", "Codex", "Cursor", "Infrastructure", "Review", "Serialization", "Workflow" })
         {
             Assert.True(Directory.Exists(Path.Combine(project, module)), $"missing module directory: {module}");
         }
+
+        foreach (var file in new[] { "PendingRun.cs", "PendingRunWorkflow.cs", "CursorMaterialization.cs" })
+            Assert.True(File.Exists(Path.Combine(project, "Cursor", file)), $"missing Cursor source: {file}");
+        Assert.True(File.Exists(Path.Combine(project, "Review", "CursorReviewEvidence.cs")), "missing Cursor review evidence source");
 
         Assert.Empty(Directory.EnumerateFiles(project, "*.cs", SearchOption.TopDirectoryOnly));
     }

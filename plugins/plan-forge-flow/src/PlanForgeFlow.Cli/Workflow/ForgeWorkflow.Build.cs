@@ -12,12 +12,34 @@ namespace PlanForgeFlow.Workflow;
 
 internal static partial class ForgeWorkflow
 {
-    internal static ForgeState BeginBuild(CommandContext context, bool repositoryLockHeld = false, Action<ForgeState>? beforePersist = null)
+    internal static ForgeState BeginBuild(CommandContext context)
     {
         var workspace = context.Workspace;
-        using RepositoryRunLock? repositoryLock = repositoryLockHeld ? null : RepositoryRunLock.Acquire(RepositoryPaths.Identify(workspace), context.Host);
+        var repository = RepositoryPaths.Identify(workspace);
+        using var repositoryLock = RepositoryRunLock.Acquire(repository, context.Host);
+        return BeginBuild(context, repositoryLock);
+    }
+
+    internal static ForgeState BeginBuild(CommandContext context, RepositoryRunLock repositoryLock)
+    {
+        var original = context.RequireState();
+        var prepared = PrepareBuild(context, repositoryLock);
+        return StateStore.Update(context.Workspace, original, current =>
+        {
+            current.Workflow.Phase = prepared.Workflow.Phase;
+            current.Baselines.Head = prepared.Baselines.Head;
+            current.Baselines.Worktree = prepared.Baselines.Worktree;
+            current.Baselines.Untracked = prepared.Baselines.Untracked;
+        });
+    }
+
+    internal static ForgeState PrepareBuild(CommandContext context, RepositoryRunLock repositoryLock)
+    {
+        var workspace = context.Workspace;
+        var repository = RepositoryPaths.Identify(workspace);
+        repositoryLock.Require(repository, context.Host);
         var parsed = context.Args;
-        var state = context.RequireState();
+        var state = context.RequireState().DeepCopy();
         var phase = state.Workflow.Phase;
         if (phase != ForgePhase.Locked) throw new CliFailure("state", $"build begin requires a locked plan (current phase: {phase.ToWireName()})", 3);
         if (state.Dispatch.Pending) throw new CliFailure("state", "a dispatch is already pending", 3);
@@ -80,13 +102,11 @@ internal static partial class ForgeWorkflow
             untracked = ReviewEvidence.BaselineEntries(workspace, untrackedPaths);
         }
 
-        return StateStore.Update(workspace, state, current =>
-        {
-            current.Workflow.Phase = ForgePhase.Build;
-            current.Baselines.Head = head.Stdout.Trim();
-            current.Baselines.Worktree = worktree;
-            current.Baselines.Untracked = untracked;
-        }, beforePersist);
+        state.Workflow.Phase = ForgePhase.Build;
+        state.Baselines.Head = head.Stdout.Trim();
+        state.Baselines.Worktree = worktree;
+        state.Baselines.Untracked = untracked;
+        return state;
     }
 
     internal static InstallAgentsData InstallAgents()

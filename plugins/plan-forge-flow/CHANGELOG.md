@@ -4,7 +4,7 @@
 
 - Moves Cursor review before native plan creation: the chat draft is staged through stdin, reviewed automatically, finalized after builder selection, and only then materialized as the terminal native plan action.
 - Makes `/forge resume` recovery-only and restores the exact native preamble to the materialization gate without a resume requirement.
-- Adds schema-v2 Cursor pending runs with temporary chat drafts and transaction-only native plan snapshots; native edits after review are intentionally accepted.
+- Uses schema-v3 Cursor pending runs with temporary chat drafts, transaction-only native plan snapshots, and a single final materialization-state binding; native edits after review are intentionally accepted.
 - Makes Cursor doctor fail before planning when the workspace already contains a `.forge` target.
 - Adds static plugin validation for chat-first review ordering, terminal native creation, and the exact materialization preamble.
 - Restores release packaging on Windows PowerShell 5.1 without weakening bundle path checks.
