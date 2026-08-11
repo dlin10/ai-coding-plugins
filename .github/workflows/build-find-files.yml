@@ -1,0 +1,61 @@
+name: build-find-files
+
+on:
+  push:
+    paths:
+      - 'plugins/find-files/**'
+      - '.github/workflows/build-find-files.yml'
+  pull_request:
+    paths:
+      - 'plugins/find-files/**'
+      - '.github/workflows/build-find-files.yml'
+
+jobs:
+  build:
+    # Windows only: Everything, and therefore this plugin, exists only on Windows.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/find-files
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Runs against the binary as committed, before anything republishes over it. This is the check
+      # that catches a source change that was never republished: the version is baked in at build
+      # time, so a stale binary reports the previous version while the manifests declare the new one.
+      - name: Committed binary matches the declared version
+        shell: pwsh
+        run: |
+          $executable = 'bin/win-x64/esfind.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { throw "The shipped binary is missing: $executable" }
+          $reported = (& $executable --version).Trim()
+          foreach ($manifest in '.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.cursor-plugin/plugin.json') {
+            $declared = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).version
+            if ($declared -ne $reported) {
+              throw "$manifest declares $declared but the committed binary reports $reported. Run build/package.ps1 and commit the result."
+            }
+          }
+          Write-Host "Committed binary reports $reported"
+
+      # Republishes from source and runs the whole suite against the fresh binary, so correctness is
+      # verified from the sources rather than from whatever happens to be committed. FINDFILES_REQUIRE_E2E
+      # is set inside package.ps1: the transport test must run here, never skip.
+      - name: Publish from source and test
+        shell: pwsh
+        run: ./build/package.ps1
+
+      # Everything is not installed on the runner, so the integration tests take their documented
+      # skip path. This asserts that the skip is the only thing missing, not a silent pass.
+      - name: Integration tests reported their skip reason
+        shell: pwsh
+        run: |
+          $env:FINDFILES_REQUIRE_E2E = '1'
+          $output = dotnet test src/FindFiles.slnx -c Release --no-build --nologo `
+            --filter 'FullyQualifiedName~EverythingIntegrationTests' `
+            --logger 'console;verbosity=detailed' 2>&1 | Out-String
+          if ($output -notmatch 'Skipped: (es\.exe was not found|Everything is unavailable)') {
+            throw "Expected the Everything integration tests to report a skip reason on a runner without Everything.`n$output"
+          }

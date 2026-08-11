@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>esfind</AssemblyName>
+    <RootNamespace>FindFiles</RootNamespace>
+    <PublishAot>false</PublishAot>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FindFiles.Cli.Tests" />
+  </ItemGroup>
+</Project>

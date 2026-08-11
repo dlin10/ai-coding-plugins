@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "find-files": {
+      "command": "./bin/win-x64/esfind.exe",
+      "args": ["mcp"],
+      "cwd": ".",
+      "tool_timeout_sec": 60
+    }
+  }
+}

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FindFiles.Cli.Tests/FindFiles.Cli.Tests.csproj" />
+  <Project Path="FindFiles.Cli/FindFiles.Cli.csproj" />
+</Solution>
