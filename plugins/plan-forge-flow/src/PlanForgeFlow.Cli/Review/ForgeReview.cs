@@ -39,7 +39,7 @@ internal static class ForgeReview
         if (!review.CritiqueFiles.Any(entry => string.Equals(entry.Path, absolute, WorkspacePathPolicy.Comparison) && string.Equals(entry.Hash, critiqueHash, StringComparison.Ordinal))) throw new CliFailure("state", "approved critique file is not bound to the recorded review history", 3);
         try
         {
-            var decision = ReviewDecisionReader.Read(absolute, workspace, DispatchStage.Code);
+            var decision = ReviewDecisionReader.Read(absolute, workspace);
             if (review.VerdictFile != decision.Path || review.VerdictHash != decision.Hash || decision.Verdict != "APPROVED" || decision.Coverage != "FULL") throw new FormatException("review decision is not an approved full verdict");
         }
         catch (CliFailure error) when (error.Code is "usage" or "verdict")
@@ -201,10 +201,9 @@ internal static class ForgeReview
         var state = context.RequireState();
         var dispatch = state.Dispatch;
         var expectedStage = DispatchStages.RequirePendingReviewVerdict(dispatch, parsed.Get("stage"));
-        if (expectedStage.Definition().RequiresFreshReview) RequireFreshReviewManifest(workspace, state);
+        RequireFreshReviewManifest(workspace, state);
         if (state.Agents.ReviewerIds.Count == 0 || !string.Equals(state.Agents.LastReviewerDispatchId, dispatch.Id, StringComparison.Ordinal)) throw new CliFailure("state", "review verdict requires a registered fresh reviewer session for this dispatch", 3);
-        if (expectedStage == DispatchStage.Plan && state.Workflow.Phase != ForgePhase.Locked) throw new CliFailure("state", "plan review verdict requires locked phase", 3);
-        if (expectedStage != DispatchStage.Plan && state.Workflow.Phase != ForgePhase.CodeReview) throw new CliFailure("state", "code review verdict requires code-review phase", 3);
+        if (state.Workflow.Phase != ForgePhase.CodeReview) throw new CliFailure("state", "code review verdict requires code-review phase", 3);
         var critiquePath = parsed.GetRequired("critique-file");
         var absoluteCritique = Path.GetFullPath(Path.IsPathRooted(critiquePath) ? critiquePath : Path.Combine(workspace, critiquePath));
         var forgeRoot = Path.Combine(workspace, ".forge");
@@ -213,22 +212,21 @@ internal static class ForgeReview
         if ((File.GetAttributes(absoluteCritique) & FileAttributes.ReparsePoint) != 0 || new FileInfo(absoluteCritique).Length > 100 * 1024) throw new CliFailure("usage", "critique-file is oversized or symlinked");
         var critique = File.ReadAllText(absoluteCritique);
         if (SensitiveInput.IsSensitiveContent(critique)) throw new CliFailure("verdict", "critique-file contains withheld sensitive content", 2);
-        var decision = ReviewDecisionReader.Read(absoluteCritique, workspace, expectedStage);
+        var decision = ReviewDecisionReader.Read(absoluteCritique, workspace);
         var verdict = decision.Verdict;
         var coverage = decision.Coverage;
-        if (expectedStage.Definition().RequiresFreshReview && verdict == "APPROVED")
+        if (verdict == "APPROVED")
         {
             if (coverage != "FULL" || state.Review.Manifest?.Coverage != "FULL") throw new CliFailure("verdict", "approval requires a fresh FULL review manifest and FULL critique coverage", 2);
         }
         if (parsed.Has("accept-risk")) ForgeWorkflow.RequireAuthorizationNote(parsed);
         var critiqueHash = Hashing.Sha256File(absoluteCritique);
-        var currentRound = expectedStage == DispatchStage.Plan ? state.Workflow.Round : state.Review.FixRound;
-        var roundCap = expectedStage == DispatchStage.Plan ? state.Workflow.MaxRounds : state.Workflow.MaxFixRounds;
+        var currentRound = state.Review.FixRound;
+        var roundCap = state.Workflow.MaxFixRounds;
         var nextRound = currentRound + 1;
         if (verdict == "REVISE" && nextRound > roundCap)
         {
-            if (expectedStage != DispatchStage.Plan) throw new CliFailure("verdict", $"{expectedStage.ToWireName()} review retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 2);
-            if (!parsed.Has("accept-risk")) throw new CliFailure("verdict", $"{expectedStage.ToWireName()} review retry cap reached; require --accept-risk with --authorization-note", 2);
+            throw new CliFailure("verdict", $"{expectedStage.ToWireName()} review retry cap reached; extend it with run set --key max-fix-rounds --value <next> --accept-risk --authorization-note", 2);
         }
         state = StateStore.Update(workspace, state, value =>
         {
@@ -243,9 +241,8 @@ internal static class ForgeReview
             value.Review.CritiqueFiles.RemoveAll(item => string.Equals(item.Path, absoluteCritique, WorkspacePathPolicy.Comparison));
             if (value.Review.CritiqueFiles.Count >= 256) throw new CliFailure("state", "critique history exceeds the size bound", 3);
             value.Review.CritiqueFiles.Add(new CritiqueEntry(absoluteCritique, critiqueHash));
-            if (expectedStage == DispatchStage.Plan) value.Workflow.Round = nextRound;
-            else if (verdict == "REVISE") value.Review.FixRound = nextRound;
-            if (expectedStage.Definition().RequiresFreshReview) value.Workflow.Phase = verdict == "APPROVED" ? ForgePhase.Done : ForgePhase.CodeReview;
+            if (verdict == "REVISE") value.Review.FixRound = nextRound;
+            value.Workflow.Phase = verdict == "APPROVED" ? ForgePhase.Done : ForgePhase.CodeReview;
         });
         return new VerdictData(
             verdict == "APPROVED" ? "approved" : nextRound > roundCap ? "deadlock" : "revise",

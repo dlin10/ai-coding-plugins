@@ -27,7 +27,6 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(ReviewManifest))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
 [JsonSerializable(typeof(JsonSuccess<PendingRun>))]
-[JsonSerializable(typeof(JsonSuccess<PendingRun?>))]
 [JsonSerializable(typeof(JsonSuccess<MaterializeData>))]
 [JsonSerializable(typeof(JsonSuccess<InstallAgentsData>))]
 [JsonSerializable(typeof(JsonSuccess<DispatchState>))]
@@ -36,8 +35,8 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(JsonSuccess<VerdictData>))]
 [JsonSerializable(typeof(JsonSuccess<AgentState>))]
 [JsonSerializable(typeof(JsonSuccess<DoctorData>))]
-[JsonSerializable(typeof(JsonSuccess<StatusMissingData>))]
 [JsonSerializable(typeof(JsonSuccess<StatusPresentData>))]
+[JsonSerializable(typeof(JsonSuccess<RunStatusData>))]
 [JsonSerializable(typeof(JsonSuccess<CleanupData>))]
 [JsonSerializable(typeof(JsonSuccess<HelpData>))]
 [JsonSerializable(typeof(JsonFailure))]
@@ -109,9 +108,7 @@ internal sealed record VerdictData(string Action, string Stage, string Verdict, 
 
 internal sealed record ToolCheckData(bool Ok, string? Version, string? Error);
 
-internal sealed record DoctorData(string Workspace, ToolCheckData Git, ToolCheckData Dotnet, bool State, string? RepositoryScopeId = null);
-
-internal sealed record StatusMissingData(bool Exists);
+internal sealed record DoctorData(string Workspace, ToolCheckData Git, bool State, string? RepositoryScopeId = null);
 
 internal sealed record StatusPresentData(int Version,
                                          string Generation,
@@ -131,6 +128,8 @@ internal sealed record StatusPresentData(int Version,
                                          ReviewerGuarantee? ReviewerGuarantee = null,
                                          ApprovalGuarantee? ApprovalGuarantee = null,
                                          string? RepositoryScopeId = null);
+
+internal sealed record RunStatusData(StatusPresentData? State, PendingRun? PendingRun);
 
 internal sealed record CleanupData(bool Cleaned, bool PurgedAgents);
 

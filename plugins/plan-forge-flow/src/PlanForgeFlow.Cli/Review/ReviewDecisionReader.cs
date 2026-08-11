@@ -2,13 +2,12 @@ using System.Text.Json;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Serialization;
-using PlanForgeFlow.Workflow.State;
 
 namespace PlanForgeFlow.Review;
 
 internal static class ReviewDecisionReader
 {
-    public static (string Verdict, string? Coverage, string Path, string Hash) Read(string critiquePath, string workspace, DispatchStage expectedStage)
+    public static (string Verdict, string Coverage, string Path, string Hash) Read(string critiquePath, string workspace)
     {
         var forgeRoot = Path.Combine(workspace, ".forge");
         var path = critiquePath + ".json";
@@ -22,14 +21,7 @@ internal static class ReviewDecisionReader
             var verdict = value.Verdict.ToUpperInvariant();
             var coverage = value.Coverage?.ToUpperInvariant();
             if (verdict is not ("APPROVED" or "REVISE")) throw new FormatException("verdict must be APPROVED or REVISE");
-            if (expectedStage == DispatchStage.Plan)
-            {
-                if (coverage is not null) throw new FormatException("plan decisions must not include coverage");
-            }
-            else if (coverage is not ("FULL" or "PARTIAL"))
-            {
-                throw new FormatException("code decisions must include FULL or PARTIAL coverage");
-            }
+            if (coverage is not ("FULL" or "PARTIAL")) throw new FormatException("code decisions must include FULL or PARTIAL coverage");
             return (verdict, coverage, path, Hashing.Sha256File(path));
         }
         catch (CliFailure) { throw; }

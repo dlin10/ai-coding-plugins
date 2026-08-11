@@ -13,6 +13,7 @@ plugins/plan-forge-flow/bin/planforge.exe
 !plugins/find-files/bin/
 !plugins/find-files/bin/**
 plugins/plan-forge-flow/artifacts/
+plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user
 .codex/config.toml
 /.codex/config.toml

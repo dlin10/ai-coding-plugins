@@ -9,7 +9,7 @@ internal static class TranscriptReader
 {
     private const long MaxTranscriptBytes = 64 * 1024 * 1024;
 
-    internal sealed record Record(string Type, string? Mode, string? Role, string? Phase, string? Text, string Kind = "other");
+    internal sealed record Record(string? Mode, string? Role, string? Phase, string? Text, string Kind = "other");
 
     public static IReadOnlyList<Record> ReadDocument(string path)
     {
@@ -40,7 +40,7 @@ internal static class TranscriptReader
                 var payload = RequireObject(raw.Payload, "record payload is missing");
                 if (type == "session_meta")
                 {
-                    result.Add(new Record(type, mode, null, null, null));
+                    result.Add(new Record(mode, null, null, null));
                 }
                 else if (type == "turn_context")
                 {
@@ -50,7 +50,7 @@ internal static class TranscriptReader
                                     ? OptionalString(collaboration, "mode")
                                     : null;
                     mode = candidate is "plan" or "default" ? candidate : "unknown";
-                    result.Add(new Record(type, mode, null, null, null, "turn"));
+                    result.Add(new Record(mode, null, null, null, "turn"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") == "message")
                 {
@@ -67,20 +67,20 @@ internal static class TranscriptReader
                         text.Append(RequireString(item, "text", "message content text is missing"));
                     }
 
-                    result.Add(new Record(type, mode, role, OptionalString(payload, "phase"), text.ToString(), "message"));
+                    result.Add(new Record(mode, role, OptionalString(payload, "phase"), text.ToString(), "message"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") is { } activity &&
                          (activity.EndsWith("call", StringComparison.Ordinal) || activity.EndsWith("call_output", StringComparison.Ordinal) || activity == "tool_search_output"))
                 {
-                    result.Add(new Record(type, mode, null, null, null, "tool"));
+                    result.Add(new Record(mode, null, null, null, "tool"));
                 }
                 else if (type == "response_item" && OptionalString(payload, "type") == "reasoning")
                 {
-                    result.Add(new Record(type, mode, null, null, null, "reasoning"));
+                    result.Add(new Record(mode, null, null, null, "reasoning"));
                 }
                 else
                 {
-                    result.Add(new Record(type, mode, null, null, null, type == "response_item" ? "unsupported-activity" : "other"));
+                    result.Add(new Record(mode, null, null, null, type == "response_item" ? "unsupported-activity" : "other"));
                 }
             }
             catch (Exception error) when (error is not CliFailure)
