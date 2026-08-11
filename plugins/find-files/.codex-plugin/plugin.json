@@ -1,0 +1,22 @@
+{
+  "name": "find-files",
+  "version": "0.1.0",
+  "description": "Find files and folders by name anywhere on a Windows machine using the Everything index, without walking the filesystem.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Find Files",
+    "shortDescription": "Instant file name search outside the current project",
+    "longDescription": "Exposes voidtools Everything as a single MCP tool so an agent can locate files and folders outside the working tree instantly instead of walking directories. Ranks the shallowest path first, reports the true match total so a truncated result set is never mistaken for the whole answer, and distinguishes a stopped Everything service from a name that is genuinely absent from the index.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": "Where on this machine is the file I am looking for?"
+  }
+}

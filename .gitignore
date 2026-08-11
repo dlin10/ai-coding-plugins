@@ -10,6 +10,8 @@ scratch/
 !plugins/plan-forge-flow/bin/**
 plugins/plan-forge-flow/bin/planforge
 plugins/plan-forge-flow/bin/planforge.exe
+!plugins/find-files/bin/
+!plugins/find-files/bin/**
 plugins/plan-forge-flow/artifacts/
 *.user
 .codex/config.toml

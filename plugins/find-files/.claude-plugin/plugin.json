@@ -1,0 +1,17 @@
+{
+  "name": "find-files",
+  "version": "0.1.0",
+  "description": "Index-backed file and folder lookup for Windows via voidtools Everything: finds files outside the current project instantly, with no directory walk.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": {
+    "find-files": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/win-x64/esfind.exe",
+      "args": ["mcp"]
+    }
+  }
+}

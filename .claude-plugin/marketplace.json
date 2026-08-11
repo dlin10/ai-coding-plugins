@@ -5,6 +5,11 @@
   },
   "plugins": [
     {
+      "name": "find-files",
+      "source": "./plugins/find-files",
+      "description": "Index-backed file and folder lookup for Windows via voidtools Everything — finds files outside the current project instantly, with no directory walk."
+    },
+    {
       "name": "roslyn-mcp",
       "source": "./plugins/roslyn-mcp",
       "description": "Roslyn MCP for Visual Studio — per-repository ports and live Roslyn workspace access for Codex, Claude Code, and Cursor."
