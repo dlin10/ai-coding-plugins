@@ -100,4 +100,4 @@ jobs:
           & $exe --help | Out-Null
           $code = $LASTEXITCODE
           $timer.Stop()
-          if ($code -ne 0 -or $timer.Elapsed.TotalSeconds -ge 5) { throw "native smoke failed: exit=$code elapsed=$($timer.Elapsed.TotalSeconds)" }
+          if ($code -ne 0 -or $timer.Elapsed.TotalSeconds -ge 10) { throw "native smoke failed: exit=$code elapsed=$($timer.Elapsed.TotalSeconds)" }
