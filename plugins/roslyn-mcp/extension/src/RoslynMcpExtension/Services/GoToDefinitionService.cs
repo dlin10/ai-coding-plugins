@@ -15,12 +15,6 @@ internal class GoToDefinitionService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
-			if (document == null)
-			{
-				result.ErrorMessage = $"File not found in any project: {filePath}";
-				return result;
-			}
-
 			var semanticModel = await document.GetSemanticModelAsync();
 			var syntaxTree = await document.GetSyntaxTreeAsync();
 			if (semanticModel == null || syntaxTree == null)
@@ -35,8 +29,8 @@ internal class GoToDefinitionService(DocumentFinder documentFinder)
 			var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, documentFinder.Workspace);
 			if (symbol == null)
 			{
-				result.ErrorMessage = $"No symbol found at line {line}, column {column}";
-				return result;
+				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
+				                               $"No symbol found at line {line}, column {column}");
 			}
 
 			result.Symbol = CodeMemberInfoFactory.Create(

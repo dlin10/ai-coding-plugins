@@ -13,9 +13,6 @@ internal class SymbolInfoService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
-			if (document == null)
-				return new SymbolInfoResult { ErrorMessage = $"File not found in any project: {filePath}" };
-
 			var semanticModel = await document.GetSemanticModelAsync();
 			var syntaxTree = await document.GetSyntaxTreeAsync();
 			if (semanticModel == null || syntaxTree == null)
@@ -24,10 +21,12 @@ internal class SymbolInfoService(DocumentFinder documentFinder)
 			var compilation = DocumentFinder.CreateCompilationInfo(document, semanticModel);
 			var position = DocumentFinder.GetPosition(syntaxTree, line, column);
 			var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, documentFinder.Workspace);
+			// Reported inline rather than thrown so the caller still learns which compilation was searched.
 			if (symbol == null)
 				return new SymbolInfoResult
 				{
 					Compilation = compilation,
+					ErrorCode = ToolErrorCodes.InvalidArgument,
 					ErrorMessage = $"No symbol found at line {line}, column {column}"
 				};
 

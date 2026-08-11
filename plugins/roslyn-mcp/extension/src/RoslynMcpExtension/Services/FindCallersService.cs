@@ -17,12 +17,6 @@ internal class FindCallersService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
-			if (document == null)
-			{
-				result.ErrorMessage = $"File not found in any project: {filePath}";
-				return result;
-			}
-
 			var semanticModel = await document.GetSemanticModelAsync();
 			var syntaxTree = await document.GetSyntaxTreeAsync();
 			if (semanticModel == null || syntaxTree == null)
@@ -39,8 +33,8 @@ internal class FindCallersService(DocumentFinder documentFinder)
 			                                                              documentFinder.Workspace);
 			if (symbol == null)
 			{
-				result.ErrorMessage = $"No symbol found at line {line}, column {column}";
-				return result;
+				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
+				                               $"No symbol found at line {line}, column {column}");
 			}
 
 			result.Symbol = CodeMemberInfoFactory.Create(symbol,
@@ -77,6 +71,7 @@ internal class FindCallersService(DocumentFinder documentFinder)
 					                                                  projectName);
 					member.Name = displayName;
 					member.MemberType = caller.IsDirect ? "caller" : "indirect-caller";
+					await CodeMemberInfoFactory.SetEnclosingSpanAsync(member, caller.CallingSymbol, location);
 					result.Members.Add(member);
 				}
 

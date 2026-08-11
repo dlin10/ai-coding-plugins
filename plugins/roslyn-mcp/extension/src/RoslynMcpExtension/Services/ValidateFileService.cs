@@ -16,12 +16,6 @@ internal class ValidateFileService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
-			if (document == null)
-			{
-				result.ErrorMessage = $"File not found in any project: {filePath}";
-				return result;
-			}
-
 			result.ProjectName = document.Project.Name;
 			result.FilePath = document.FilePath!;
 			var compilation = await document.Project.GetCompilationAsync();

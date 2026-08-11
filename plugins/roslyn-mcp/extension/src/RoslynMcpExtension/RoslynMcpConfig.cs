@@ -12,10 +12,7 @@ internal static class RoslynMcpConfig
 {
     public const string FileName = ".roslynmcp.json";
 
-    public static int ResolvePort(string? solutionDir, int fallback)
-		=> ResolvePort(solutionDir, fallback, out _);
-
-	public static int ResolvePort(string? solutionDir, int fallback, out string? configPath)
+    public static int ResolvePort(string? solutionDir, int fallback, out string? configPath)
     {
 		configPath = null;
         if (string.IsNullOrEmpty(solutionDir))

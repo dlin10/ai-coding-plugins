@@ -17,12 +17,6 @@ internal class FindReferencesService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
-			if (document == null)
-			{
-				result.ErrorMessage = $"File not found in any project: {filePath}";
-				return result;
-			}
-
 			var semanticModel = await document.GetSemanticModelAsync();
 			var syntaxTree = await document.GetSyntaxTreeAsync();
 			if (semanticModel == null || syntaxTree == null)
@@ -37,8 +31,8 @@ internal class FindReferencesService(DocumentFinder documentFinder)
 			var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, documentFinder.Workspace);
 			if (symbol == null)
 			{
-				result.ErrorMessage = $"No symbol found at line {line}, column {column}";
-				return result;
+				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
+				                               $"No symbol found at line {line}, column {column}");
 			}
 
 			result.Symbol = CodeMemberInfoFactory.Create(
@@ -94,7 +88,7 @@ internal class FindReferencesService(DocumentFinder documentFinder)
 		var semanticModel = document == null ? null : await document.GetSemanticModelAsync();
 		var containingSymbol = semanticModel?.GetEnclosingSymbol(location.SourceSpan.Start);
 
-		return new SymbolLocation
+		var info = new SymbolLocation
 		{
 			Name = referencedSymbol.Name,
 			MemberType = memberType,
@@ -105,5 +99,12 @@ internal class FindReferencesService(DocumentFinder documentFinder)
 			StartColumn = lineSpan.StartLinePosition.Character + 1,
 			EndLine = lineSpan.EndLinePosition.Line + 1
 		};
+
+		// On a definition the position sits on the declaration's identifier, whose enclosing symbol is the
+		// containing type; the declared symbol itself is the useful span there.
+		var spanSymbol = memberType == "definition" ? referencedSymbol : containingSymbol;
+		await CodeMemberInfoFactory.SetEnclosingSpanAsync(info, spanSymbol, location);
+
+		return info;
 	}
 }

@@ -1,9 +1,8 @@
-using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace RoslynMcpExtension.Shared;
 
-public partial interface IRoslynAnalysisRpc
+public interface IRoslynAnalysisRpc
 {
     Task LogAsync(string message);
     Task ReadyAsync();

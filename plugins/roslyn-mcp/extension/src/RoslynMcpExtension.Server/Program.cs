@@ -108,7 +108,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
                 options.ServerInfo = new Implementation
                 {
                     Name = serverName,
-                    Version = "1.4.0"
+                    Version = "1.5.0"
                 };
             })
             .WithHttpTransport(options =>
@@ -143,7 +143,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
         // RFC 9728: serve protected resource metadata with no authorization_servers
         // to tell MCP clients (e.g. Copilot) this server is public and needs no OAuth.
         app.MapGet("/.well-known/oauth-protected-resource", (HttpContext ctx) =>
-            Microsoft.AspNetCore.Http.Results.Json(new
+            Results.Json(new
             {
                 resource = $"{ctx.Request.Scheme}://{ctx.Request.Host}",
                 authorization_servers = Array.Empty<string>()
@@ -153,7 +153,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
         app.Urls.Add(bindingUrl);
 
         var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-        shutdownCts.Token.Register(() => lifetime.StopApplication());
+        shutdownCts.Token.Register(lifetime.StopApplication);
 
 		await app.StartAsync();
 		await rpcClient.ReadyAsync();

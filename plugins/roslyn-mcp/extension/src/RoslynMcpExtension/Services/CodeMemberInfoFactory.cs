@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using RoslynMcpExtension.Shared;
 
@@ -40,6 +41,33 @@ internal static class CodeMemberInfoFactory
         info.Accessibility = symbol.DeclaredAccessibility.ToString();
 
         return info;
+    }
+
+    /// <summary>
+    /// Records the declaration span of the member that encloses <paramref name="location"/>, so callers can read
+    /// that member's source directly instead of listing the whole document's symbols to find its boundaries.
+    /// </summary>
+    public static async Task SetEnclosingSpanAsync(SymbolLocation info, ISymbol? enclosingSymbol, Location location)
+    {
+        for (var symbol = enclosingSymbol; symbol != null && symbol is not INamespaceSymbol; symbol = symbol.ContainingSymbol)
+        {
+            // A lambda's own span is too narrow to read as context; report the member that declares it.
+            if (symbol is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction })
+                continue;
+
+            foreach (var reference in symbol.DeclaringSyntaxReferences)
+            {
+                // Partial types and overloads can declare the same symbol elsewhere; keep the declaration we are inside of.
+                if (reference.SyntaxTree != location.SourceTree || !reference.Span.Contains(location.SourceSpan.Start))
+                    continue;
+
+                var syntax = await reference.GetSyntaxAsync();
+                var lineSpan = syntax.GetLocation().GetLineSpan();
+                info.EnclosingStartLine = lineSpan.StartLinePosition.Line + 1;
+                info.EnclosingEndLine = lineSpan.EndLinePosition.Line + 1;
+                return;
+            }
+        }
     }
 
     public static SymbolInfoResult CreateSymbolInfo(
