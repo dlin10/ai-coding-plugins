@@ -41,6 +41,10 @@ Rule: search finds candidates; Roslyn states facts.
 - Document symbol listings and declaration searches.
 - Conservative dead-code discovery.
 
+## Reading the surrounding code
+
+`roslyn_find_references` and `roslyn_find_callers` return `enclosingStartLine` and `enclosingEndLine` for every location: the declaration span of the member containing it. When the surrounding logic matters, read exactly that line range instead of calling `roslyn_get_document_symbols` to find where the member begins and ends.
+
 ## Continue to use shell and build tools for
 
 - Locating files before a Roslyn request needs an absolute path.

@@ -9,7 +9,7 @@ namespace RoslynMcpExtension.Server.Tools;
 public sealed class FindReferencesTool(RpcClient rpc)
 {
 	[McpServerTool(Name = "roslyn_find_references")]
-	[Description("Finds deduplicated references to a symbol, ordered by file and line. The referenced symbol appears once at the response level; each location includes its fully-qualified containingSymbol. Also returns document-scoped compilation identity; projectName includes the target framework for multi-targeted projects.")]
+	[Description("Finds deduplicated references to a symbol, ordered by file and line. The referenced symbol appears once at the response level; each location includes its fully-qualified containingSymbol plus enclosingStartLine/enclosingEndLine, the declaration span of that containing member — read those lines directly to see the surrounding code instead of calling roslyn_get_document_symbols. Also returns document-scoped compilation identity; projectName includes the target framework for multi-targeted projects.")]
 	public Task<SymbolListResult> FindReferences(
 		[Description("Absolute path to the C# file")] string filePath,
 		[Description("Line number (1-based)")] int line,

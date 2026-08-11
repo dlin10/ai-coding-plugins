@@ -22,6 +22,8 @@ Unlike standalone Roslyn MCP servers that create their own `MSBuildWorkspace`, t
 
 Position-based responses also identify the active compilation: project/target, assembly, C# language version, preprocessor defines, and document-scoped error count.
 
+Reference and caller locations additionally carry `enclosingStartLine` and `enclosingEndLine`, the declaration span of the member containing them, so the surrounding source can be read directly without a separate symbol listing.
+
 ## Prerequisites
 
 - Native Windows with Visual Studio 2022 or later

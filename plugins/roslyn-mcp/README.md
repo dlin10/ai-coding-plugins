@@ -1,4 +1,4 @@
-# Roslyn MCP 0.4.0
+# Roslyn MCP 0.5.0
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each repository uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk.
 
@@ -70,7 +70,7 @@ The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.4.0**.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.5.0**.
 - `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.

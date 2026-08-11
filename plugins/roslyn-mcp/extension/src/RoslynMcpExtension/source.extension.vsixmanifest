@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="RoslynMcpExtension.e4924d05-35e0-422f-8b55-79cdb57771bf" Version="1.4.0" Language="en-US" Publisher="DmitryLine" />
+        <Identity Id="RoslynMcpExtension.e4924d05-35e0-422f-8b55-79cdb57771bf" Version="1.5.0" Language="en-US" Publisher="DmitryLine" />
         <DisplayName>Roslyn MCP Extension</DisplayName>
         <Description xml:space="preserve">Exposes C# code analysis capabilities via the Model Context Protocol (MCP) using the live Visual Studio Roslyn workspace.</Description>
         <ReleaseNotes>README.md</ReleaseNotes>

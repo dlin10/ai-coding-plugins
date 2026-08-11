@@ -6,10 +6,8 @@ public static class ToolErrorCodes
 {
 	public const string InvalidArgument = "invalid_argument";
 	public const string DocumentNotFound = "document_not_found";
-	public const string DocumentAmbiguous = "document_ambiguous";
 	public const string WorkspaceNotReady = "workspace_not_ready";
 	public const string Cancelled = "cancelled";
-	public const string TimedOut = "timed_out";
 	public const string InternalError = "internal_error";
 }
 
@@ -43,6 +41,8 @@ public class SymbolLocation
     public int StartLine { get; set; }
     public int StartColumn { get; set; }
     public int EndLine { get; set; }
+    public int? EnclosingStartLine { get; set; }
+    public int? EnclosingEndLine { get; set; }
 }
 
 public class DiagnosticInfo

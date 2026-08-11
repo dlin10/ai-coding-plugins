@@ -9,7 +9,7 @@ namespace RoslynMcpExtension.Server.Tools;
 public sealed class FindCallersTool(RpcClient rpc)
 {
 	[McpServerTool(Name = "roslyn_find_callers")]
-	[Description("Finds call sites grouped by calling member. Direct calls are marked caller; calls through interface or override relationships are marked indirect-caller. Includes document-scoped compilation identity; projectName carries the target framework.")]
+	[Description("Finds call sites grouped by calling member. Direct calls are marked caller; calls through interface or override relationships are marked indirect-caller. Each call site carries enclosingStartLine/enclosingEndLine, the declaration span of the calling member — read those lines directly to see the call in context instead of calling roslyn_get_document_symbols. Includes document-scoped compilation identity; projectName carries the target framework.")]
 	public Task<SymbolListResult> FindCallers(
 		[Description("Absolute path to the C# file containing the method or property")] string filePath,
 		[Description("Line number (1-based)")] int line,

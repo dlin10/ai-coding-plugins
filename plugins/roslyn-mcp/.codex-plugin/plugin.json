@@ -1,6 +1,6 @@
 {
   "name": "roslyn-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Use Visual Studio's live Roslyn workspace from Codex, Claude Code, and Cursor with per-repository MCP ports.",
   "author": {
     "name": "Dmitry Linetsky"
