@@ -1,0 +1,10 @@
+{
+  "name": "explain-code-simply",
+  "version": "0.1.0",
+  "description": "Explain code and .NET concepts in clear, accurate language matched to the user's language and level of detail.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}

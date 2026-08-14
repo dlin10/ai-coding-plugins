@@ -1,0 +1,22 @@
+{
+  "name": "explain-code-simply",
+  "version": "0.1.0",
+  "description": "Explain code and .NET concepts in clear, accurate language matched to the user's language and level of detail.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Explain Code Simply",
+    "shortDescription": "Clear, accurate explanations of code and .NET concepts",
+    "longDescription": "Explains code, errors, execution flow, architecture, and C#/.NET concepts in everyday language without sacrificing technical accuracy. Matches the user's language, uses concrete examples, and calls out the most relevant side effects and gotchas.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Interactive"
+    ],
+    "defaultPrompt": "Use $explain-code-simply to explain this code clearly."
+  }
+}
