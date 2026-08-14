@@ -176,6 +176,7 @@ function Test-PluginArchive([string]$Archive, [string]$Rid) {
             'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
             'plugins/plan-forge-flow/skills/forge/SKILL.md',
             'plugins/plan-forge-flow/hooks/hooks.claude.json',
+            'plugins/plan-forge-flow/scripts/claude-workflow-hook.mjs',
             'plugins/plan-forge-flow/scripts/capture-claude-agent-evidence.mjs'
         )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive for $Rid is missing $required" }
@@ -310,7 +311,7 @@ foreach ($rid in $Rids) {
             [ordered]@{
                 name = 'plan-forge-flow'
                 source = './plugins/plan-forge-flow'
-                description = 'Plan hardening, independent review, and stepwise implementation for Codex, Claude Code 2.1.226 and newer, and Cursor 3.15.6 and newer.'
+                description = 'Plan hardening, independent review, and stepwise implementation for Codex, Claude Code 2.1.232 and newer, and Cursor 3.15.6 and newer.'
             }
         )
     }
@@ -332,6 +333,7 @@ foreach ($rid in $Rids) {
         (Join-Path $bundlePlugin 'cursor/agents/forge-builder.md'),
         (Join-Path $bundlePlugin 'hooks/hooks.json'),
         (Join-Path $bundlePlugin 'hooks/hooks.claude.json'),
+        (Join-Path $bundlePlugin 'scripts/claude-workflow-hook.mjs'),
         (Join-Path $bundlePlugin 'scripts/capture-claude-agent-evidence.mjs'),
         (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),

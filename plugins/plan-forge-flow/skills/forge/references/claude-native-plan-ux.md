@@ -2,8 +2,9 @@
 
 Claude Code uses its native Plan mode and `ExitPlanMode` as the approval
 surface. Keep the canonical plan and review record in conversation until that
-native approval. Agent evidence hooks are observational only: they do not grant
-approval, block a stop, materialize state, or establish a write boundary.
+native approval. Synchronous workflow hooks arm Forge at skill entry and block
+`ExitPlanMode` until review/finalize succeeds with the exact snapshot. The
+separate agent-evidence hooks remain observational only.
 
 Use a fresh `forge-reviewer-<effort>` agent for each review round and retain one
 `forge-builder-<effort>` agent across implementation dispatches. The
@@ -21,8 +22,8 @@ reviewed snapshot. The CLI performs this comparison before its repository lock,
 pending begin, `.forge`, ref, or exclude writes. A plan or reviewer-selection
 revision invalidates review evidence and the builder hold. A successful
 materialize owns lock/build-begin and is the gate for resuming the persistent
-builder. The surrounding Claude instruction order is advisory; these CLI
-checks are enforced.
+builder. The pre-`ExitPlanMode` order and exact reviewed snapshot are enforced
+for the armed Claude session; the native dialog still owns user approval.
 
 Reviewer and builder providers are independent, supporting Anthropic/Anthropic,
 Anthropic/OpenAI, OpenAI/Anthropic, and OpenAI/OpenAI. Codex App Server is

@@ -140,8 +140,8 @@ public sealed class AnthropicModelContractTests
     }
 
     [Theory]
-    [InlineData("2.1.225 (Claude Code)", false)]
-    [InlineData("2.1.226 (Claude Code)", true)]
+    [InlineData("2.1.231 (Claude Code)", false)]
+    [InlineData("2.1.232 (Claude Code)", true)]
     [InlineData("2.2.0-beta.1 (Claude Code)", true)]
     [InlineData("unparseable", false)]
     public void PersistentBuilderCapabilityRequiresMinimumClaudeVersion(string output, bool expected)
@@ -154,9 +154,9 @@ public sealed class AnthropicModelContractTests
         try
         {
             var unavailable = ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                   () => new ToolCheckData(false, "2.1.225", "unsupported"), AbsentCodex);
+                                                   () => new ToolCheckData(false, "2.1.231", "unsupported"), AbsentCodex);
             var supported = ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                 () => new ToolCheckData(true, "2.1.226", null), AbsentCodex);
+                                                 () => new ToolCheckData(true, "2.1.232", null), AbsentCodex);
             var codex = ForgeWorkflow.Doctor(workspace, HostKind.Codex, _ => null,
                                              () => throw new InvalidOperationException("Codex must not probe Claude"));
 

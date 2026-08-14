@@ -5,12 +5,51 @@ pending-plan hook, `forge_reviewer`/`forge_builder` spawn names, Codex
 `<proposed_plan>` handling, and plan-review sidecar instructions in the common
 workflow. Claude uses native Plan mode, `ExitPlanMode`, the twelve
 `forge-reviewer-<effort>` / `forge-builder-<effort>` Agent definitions, and the
-host-qualified commands below. The approval/materialization order is advisory;
-the CLI's identity, phase, and exact-snapshot checks are enforced.
+host-qualified commands below. Forge supersedes Claude's default planning
+workflow. Synchronous entry
+hooks arm the run, and a synchronous `PreToolUse:ExitPlanMode` hook enforces
+review/finalize order plus exact reviewed-snapshot identity before native
+approval can be shown.
 
 Use the bundled launcher as `planforge` in the examples. Keep one safe run ID
 for the planning transaction and retain every JSON envelope needed by the next
 command.
+
+## 0. Automatic activation gate
+
+Direct `/plan-forge-flow:forge` expansion and model-invoked
+`Skill(plan-forge-flow:forge)` both run the equivalent of this command before
+the skill starts:
+
+```text
+planforge run begin --host claude --workspace <repo>
+```
+
+The command is idempotent for the current `CLAUDE_CODE_SESSION_ID` and returns
+the random run ID injected by the hook. Use that exact ID for every planning
+command. The activation is external under `${CLAUDE_PLUGIN_DATA}`; it creates no
+repository artifact. An active run in another Claude session blocks a new Forge
+start for the same workspace and names its run, session, and phase.
+
+Never call `ExitPlanMode` before `plan finalize` returns `ready`. The gate denies
+missing staging, reviewing, revision-required, and review-approved phases. At
+`ready`, it normalizes Claude's injected `tool_input.plan` and permits only an
+ordinal match with the reviewed `DraftText`; it returns no allow decision, so
+Claude's normal approval dialog remains the sole consent surface. A session
+without a Forge activation is unaffected.
+
+Use `run status --host claude` to inspect the current activation. To close an
+abandoned run before materialization:
+
+```text
+planforge run abandon --host claude --workspace <repo> --run-id <run>
+```
+
+Taking over a run from another session additionally requires `--accept-risk`
+and a bounded `--authorization-note`. There is no TTL: `/clear` creates another
+session ID, and stale ownership must be resolved explicitly.
+Pre-0.6.2 unarmed pending state is unsupported and is not migrated or adopted;
+remove that legacy external state before starting a new run.
 
 ## 1. Read-only readiness
 
@@ -41,7 +80,8 @@ nonblocking; record unavailable, wrong-solution, or inconclusive results as a
 warning and use the audited text fallback. It never changes the doctor verdict.
 Do not create `.forge/`, a plan file, a Git ref, or another repository artifact.
 The Claude doctor payload also reports the installed Claude Code capability.
-Version 2.1.226 or newer is required for persistent Anthropic builder resume;
+Version 2.1.232 or newer is required for the activation/approval hooks and
+persistent Anthropic builder resume;
 an older, missing, or unparseable Claude installation fails the Anthropic
 builder finalize boundary. It does not block an OpenAI builder.
 
@@ -157,6 +197,10 @@ an ordinary protocol, process, auth, network, timeout, rate-limit, cancellation,
 context, tool, permission, model, or unknown failure. Replacement is allowed
 only after confirmed terminal identity loss under the explicit replacement
 contract.
+
+Successful materialization removes the activation. An interrupted
+materializing transaction retains enough state for recovery; successful replay
+also removes the activation.
 
 ## 5. Dispatch every locked build task
 

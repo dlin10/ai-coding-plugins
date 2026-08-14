@@ -48,7 +48,7 @@ public sealed class ClaudeTransactionContractTests
             Assert.Equal(builderProvider, result.Builder.Provider);
             Assert.Equal("persistent-hold", PendingRuns.Load(repository, "providers", HostKind.Claude).BuilderHoldId);
             Assert.True(PlanForgeFlow.Workflow.ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                                   () => new(true, "2.1.226", null), AbsentCodex).Git.Ok);
+                                                                   () => new(true, "2.1.232", null), AbsentCodex).Git.Ok);
         }
         finally
         {
@@ -71,7 +71,7 @@ public sealed class ClaudeTransactionContractTests
             Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
             var doctor = Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.ForgeWorkflow.Doctor(
                                                             workspace, HostKind.Claude, _ => null,
-                                                            () => new(true, "2.1.226", null), AbsentCodex));
+                                                            () => new(true, "2.1.232", null), AbsentCodex));
             Assert.Contains("Claude workspace already contains .forge", doctor.Message, StringComparison.Ordinal);
 
             var missing = Assert.Throws<CliFailure>(() => PendingRuns.Load(RepositoryPaths.Identify(workspace), "missing", HostKind.Claude));
@@ -379,7 +379,7 @@ public sealed class ClaudeTransactionContractTests
                ? ProviderSelections.Validate(provider, "sonnet", "claude-sonnet-4-6", null, "high")
                : ProviderSelections.Validate(provider, "gpt-5.6-sol", "gpt-5.6-sol", null, "high");
 
-    private static ToolCheckData SupportedClaude() => new(true, "2.1.226 (Claude Code)", null);
+    private static ToolCheckData SupportedClaude() => new(true, "2.1.232 (Claude Code)", null);
 
     private static string CreateRepository()
     {

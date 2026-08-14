@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.6.1
+# Plan Forge Flow 0.6.2
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete
 planning, fresh adversarial review, controlled implementation, and final code
@@ -18,17 +18,18 @@ ignore `readonly: true` or the preamble, so status reports both
 
 ## Requirements
 
-- Codex 0.145 or newer with `multi_agent` enabled, Claude Code 2.1.226 or newer,
+- Codex 0.145 or newer with `multi_agent` enabled, Claude Code 2.1.232 or newer,
   or Cursor 3.15.6 or newer
 - Git
 - .NET 10 SDK only when building from source
 - Git LFS when checking out the repository or publishing bundles
-- Node.js 18 or newer for Claude's asynchronous agent-evidence hooks
+- Node.js 18 or newer for Claude's synchronous workflow gate and asynchronous
+  agent-evidence hooks
 - A Git repository for the target change
 
 The distributed executable is self-contained, trimmed, single-file, and does
-not require a preinstalled .NET runtime. Node.js is used only by Claude's
-fail-open evidence hook; Codex and Cursor operation does not require Node.js.
+not require a preinstalled .NET runtime. Node.js dispatches Claude's blocking
+workflow hooks and fail-open evidence hooks; Codex and Cursor do not require it.
 
 ## Installation
 
@@ -108,6 +109,13 @@ model, effort, agent, and result evidence under
 `${CLAUDE_PLUGIN_DATA}/agent-evidence/`. They fail open and never write evidence
 inside the repository or installed plugin directory.
 
+Synchronous `UserPromptExpansion` and `PreToolUse:Skill` hooks automatically
+arm an external session-scoped run for both `/plan-forge-flow:forge` entry
+paths. A synchronous `PreToolUse:ExitPlanMode` hook blocks native approval until
+the run is `ready` and Claude's injected plan normalizes to the exact reviewed
+snapshot. Runs without a current-session activation retain ordinary Claude Plan
+Mode behavior. Hook dispatch selects the bundled RID binary through Node.js.
+
 All host reviewer prompts use a Roslyn-first contract for C#/.NET semantic
 claims. A reviewer first verifies the intended solution from an absolute path
 and returned compilation identity. Missing, unreachable, wrong-solution, and
@@ -146,8 +154,8 @@ agents install
 build dispatch|complete|resolve|begin
 review prepare|record-response|authorize-preexisting|verdict
 session builder|reviewer|start|status|result|cancel
-run doctor|status|set|cleanup
-hook capture-context
+run doctor|begin|abandon|status|set|cleanup
+hook capture-context|claude-workflow
 ```
 
 OpenAI roles optionally use a typed `codex app-server` JSONL client. It accepts
@@ -180,18 +188,21 @@ review authorize-preexisting --authorized-paths --authorization-note --accept-ri
 review verdict             --stage --critique-file --accept-risk --authorization-note
 session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
 run status                 (no additional options)
+run begin                  --host claude
+run abandon                --host claude --run-id --accept-risk --authorization-note
 run set                    --key --value --amendment --accept-risk --authorization-note
 run cleanup                --purge-generated-agents --legacy
 ```
 
 `run status` always returns one data shape: `{ "state": <status-or-null>,
-"pendingRun": <host-run-or-null> }`. Cursor and Claude status report both values when a
-materialized state and its external pending run coexist; Codex always reports a
-null `pendingRun`.
+"pendingRun": <host-run-or-null>, "activation": <claude-activation-or-null> }`.
+Cursor and Claude status report both state and pending run when they coexist;
+Claude also reports the activation belonging to the current session. Codex
+always reports null pending run and activation.
 
 `--workspace` and `--host` are available on stateful commands; omitted `--host`
 means `codex` for clean-install Codex command compatibility. Cursor always passes
-`--host cursor`. `hook capture-context` reads its JSON input from stdin.
+`--host cursor`. Hook commands read their native host JSON input from stdin.
 `--authorized-paths` is a bounded JSON array, and `--authorization-note` is
 bounded text.
 
@@ -222,6 +233,16 @@ current text plus a technical hash only inside the replayable transaction.
 gate succeeds. Conflicting or unowned artifacts fail without reset. Cleanup
 never edits or deletes the Cursor-owned plan file.
 
+Claude skill entry additionally creates schema-v1 `ClaudeActivation` state at
+`${CLAUDE_PLUGIN_DATA}/claude-activations/<session-sha256>.json`, binding the
+canonical workspace, scope, random run ID, and `CLAUDE_CODE_SESSION_ID` without
+touching the repository. Claude planning commands require that binding. A
+foreign session must explicitly authorize takeover through `run abandon`; no
+TTL silently expires ownership. Successful materialization, abandon, or cleanup
+removes the activation.
+Pre-0.6.2 unarmed pending runs are unsupported and must be removed from external
+plugin data before starting a new Forge run; no migration path is provided.
+
 Claude retains the exact canonical reviewed plan through Ready. After native
 approval, `plan materialize --host claude --run-id … --plan-file …` accepts only
 a regular, non-symlink UTF-8 file whose bytes exactly match that snapshot. This
@@ -233,8 +254,10 @@ builder hold after the transaction is committed.
 Claude's first post-approval Default-mode action is this manual materialize
 command. Its successful result establishes the transaction, acquires the
 repository lock, performs plan lock/build begin, and only then permits the held
-builder to resume. The conversational instruction ordering remains advisory;
-the CLI's exact-snapshot and ownership checks are the enforced boundary.
+builder to resume. Before approval, the armed-session hook enforces Act 2,
+finalization, and exact plan identity while leaving the native approval dialog
+unchanged. The CLI's transaction and ownership checks remain the post-approval
+boundary.
 Reviewer and builder providers are selected independently, so all four
 Anthropic/OpenAI pairings are supported. OpenAI through Codex App Server is
 optional. Claude doctor distinguishes absence from a broken installation and
@@ -330,8 +353,8 @@ package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
 Operational overrides are `CODEX_HOME`, `CURSOR_HOME`, `FORGE_PLUGIN_DATA`, and
-`FORGE_AGENTS_DIR`. Claude Code supplies `CLAUDE_PLUGIN_DATA` for its external,
-persistent plugin evidence.
+`FORGE_AGENTS_DIR`. Claude Code supplies `CLAUDE_PLUGIN_DATA` for external
+activation/evidence and `CLAUDE_CODE_SESSION_ID` for direct planning commands.
 Each critique is accompanied by a small JSON decision file at
 `<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
 

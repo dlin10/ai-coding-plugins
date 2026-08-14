@@ -71,6 +71,7 @@ internal static class ForgeWorkflow
         {
             PendingRuns.VerifyMaterialization(repository, pending, host);
             var existing = StateStore.Load(context.Workspace);
+            if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.Complete(repository, runId);
             return new MaterializeData("forge-materialized", existing.Workflow.Phase.ToWireName(), existing.Models.Reviewer!, existing.Models.Builder!);
         }
         var suppliedPlan = sourcePlan(repository, pending);
@@ -126,6 +127,7 @@ internal static class ForgeWorkflow
             }
         }
         if (run.Phase != PendingRunPhase.Consumed) PendingRuns.Consume(repository, run.RunId, repositoryLock, host);
+        if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.Complete(repository, run.RunId);
         return new MaterializeData("forge-materialized", completed.Workflow.Phase.ToWireName(), completed.Models.Reviewer!, completed.Models.Builder!);
     }
 

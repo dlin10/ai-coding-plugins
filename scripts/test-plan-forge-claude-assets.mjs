@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -44,7 +45,7 @@ function frontmatter(path) {
 
 const manifests = ['.codex-plugin', '.claude-plugin', '.cursor-plugin']
   .map((directory) => json(join(pluginRoot, directory, 'plugin.json')));
-assert.deepEqual(new Set(manifests.map(({ version }) => version)), new Set(['0.6.0']));
+assert.deepEqual(new Set(manifests.map(({ version }) => version)), new Set(['0.6.2']));
 assert.equal(manifests[1].agents, undefined, 'Claude discovers the conventional agents/ directory');
 assert.equal(manifests[1].hooks, './hooks/hooks.claude.json');
 
@@ -72,6 +73,16 @@ for (const role of ['reviewer', 'builder']) {
 }
 
 const hooks = json(join(pluginRoot, 'hooks', 'hooks.claude.json')).hooks;
+assert.equal(hooks.UserPromptExpansion[0].matcher, '^plan-forge-flow:forge$');
+assert.equal(hooks.PreToolUse[0].matcher, 'Skill');
+assert.equal(hooks.PreToolUse[0].hooks[0].if, 'Skill(plan-forge-flow:forge)');
+assert.equal(hooks.PreToolUse[1].matcher, 'ExitPlanMode');
+for (const hook of [hooks.UserPromptExpansion[0].hooks[0], ...hooks.PreToolUse.flatMap(({ hooks: handlers }) => handlers)]) {
+  assert.equal(hook.command, 'node');
+  assert.equal(hook.async, undefined, 'workflow gate hooks are synchronous');
+  assert.equal(hook.timeout, 10);
+  assert.deepEqual(hook.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/claude-workflow-hook.mjs']);
+}
 assert.equal(hooks.PostToolUse[0].matcher, 'Agent');
 assert.equal(hooks.SubagentStop[0].matcher, '^plan-forge-flow:forge-(reviewer|builder)-(none|low|medium|high|xhigh|max)$');
 for (const event of ['PostToolUse', 'SubagentStop']) {
@@ -85,6 +96,11 @@ const hookScript = join(pluginRoot, 'scripts', 'capture-claude-agent-evidence.mj
 const hookSource = readFileSync(hookScript, 'utf8');
 assert.match(hookSource, /CLAUDE_PLUGIN_DATA/);
 assert.doesNotMatch(hookSource, /CLAUDE_PROJECT_DIR/);
+const workflowHookScript = join(pluginRoot, 'scripts', 'claude-workflow-hook.mjs');
+const workflowHookSource = readFileSync(workflowHookScript, 'utf8');
+assert.match(workflowHookSource, /claude-activations/);
+assert.match(workflowHookSource, /hook', 'claude-workflow/);
+assert.match(workflowHookSource, /ExitPlanMode/);
 
 const packageSource = readFileSync(join(pluginRoot, 'build', 'package.ps1'), 'utf8');
 assert.match(packageSource, /\.claude-plugin\/plugin\.json/);
@@ -92,6 +108,7 @@ assert.match(packageSource, /\.claude-plugin\/marketplace\.json/);
 assert.match(packageSource, /hooks\/hooks\.claude\.json/);
 assert.match(packageSource, /foreach \(\$directory in @\('skills', 'agents', 'cursor', 'assets', 'hooks', 'scripts'\)\)/);
 assert.match(packageSource, /scripts\/capture-claude-agent-evidence\.mjs/);
+assert.match(packageSource, /scripts\/claude-workflow-hook\.mjs/);
 assert.match(packageSource, /must contain exactly 12 Claude agent descriptors/);
 
 const skillSource = readFileSync(join(pluginRoot, 'skills', 'forge', 'SKILL.md'), 'utf8');
@@ -101,9 +118,11 @@ assert.match(skillSource, /\[claude-workflow\.md\]\(references\/claude-workflow\
 assert.match(skillSource, /Claude workflow is\s+authoritative/);
 assert.match(skillSource, /Start only when the user explicitly invokes `\$forge`/);
 assert.match(skillSource, /staged or pending plan are\s+not consent/);
+assert.match(skillSource, /Never call\s+`ExitPlanMode` until Act 2/);
 assert.match(claudeWorkflow, /overrides the Codex-only\s+pending-plan hook/);
 
 const lifecycle = [
+  'run begin --host claude',
   'run doctor --host claude',
   'plan stage --host claude',
   'review record-response --host claude',
@@ -128,7 +147,9 @@ for (const command of lifecycle) {
 assert.match(claudeWorkflow, /plan-forge-flow:forge-reviewer-<effort>/);
 assert.match(claudeWorkflow, /plan-forge-flow:forge-builder-<effort>/);
 assert.match(claudeWorkflow, /builder-resume/);
-assert.match(claudeWorkflow, /Version 2\.1\.226 or newer is required/);
+assert.match(claudeWorkflow, /Version 2\.1\.232 or newer is required/);
+assert.match(claudeWorkflow, /PreToolUse:ExitPlanMode/);
+assert.doesNotMatch(claudeWorkflow, /approval\/materialization order is advisory/);
 assert.match(claudeWorkflow, /\{"to":"<held-agent-id>","message":"<complete locked task and dispatch evidence>"\}/);
 assert.match(claudeWorkflow, /\{"to":"<held-agent-id>","message":"<bounded accepted fix findings and dispatch evidence>"\}/);
 assert.match(claudeWorkflow, /SendMessage` does not\s+require Agent Teams/);
@@ -242,6 +263,52 @@ try {
   assert.equal(malformed.status, 0, 'malformed advisory evidence never blocks Claude');
 } finally {
   rmSync(dataRoot, { recursive: true, force: true });
+}
+
+const dispatcherRoot = mkdtempSync(join(tmpdir(), 'plan-forge-claude-dispatcher-'));
+try {
+  const scripts = join(dispatcherRoot, 'scripts');
+  const dispatcherData = join(dispatcherRoot, 'data');
+  mkdirSync(scripts, { recursive: true });
+  copyFileSync(workflowHookScript, join(scripts, 'claude-workflow-hook.mjs'));
+  const env = { ...process.env, CLAUDE_PLUGIN_DATA: dispatcherData, FORGE_PLUGIN_DATA: '' };
+  const entry = {
+    session_id: 'missing-binary-entry',
+    cwd: pluginRoot,
+    hook_event_name: 'UserPromptExpansion',
+    command_name: 'plan-forge-flow:forge',
+  };
+  const entryResult = spawnSync(process.execPath, [join(scripts, 'claude-workflow-hook.mjs')], {
+    input: JSON.stringify(entry), env, encoding: 'utf8',
+  });
+  assert.equal(entryResult.status, 0, entryResult.stderr);
+  assert.equal(JSON.parse(entryResult.stdout).decision, 'block', 'entry fails closed when the RID binary is unavailable');
+
+  const exit = {
+    session_id: 'missing-binary-exit',
+    cwd: pluginRoot,
+    hook_event_name: 'PreToolUse',
+    tool_name: 'ExitPlanMode',
+    tool_input: { plan: '# Ordinary plan' },
+  };
+  const ordinaryExit = spawnSync(process.execPath, [join(scripts, 'claude-workflow-hook.mjs')], {
+    input: JSON.stringify(exit), env, encoding: 'utf8',
+  });
+  assert.equal(ordinaryExit.status, 0, ordinaryExit.stderr);
+  assert.equal(ordinaryExit.stdout, '', 'ordinary Plan Mode stays available without an activation');
+
+  const activations = join(dispatcherData, 'claude-activations');
+  mkdirSync(activations, { recursive: true });
+  const key = createHash('sha256').update(exit.session_id).digest('hex');
+  writeFileSync(join(activations, `${key}.json`), '{');
+  const activeExit = spawnSync(process.execPath, [join(scripts, 'claude-workflow-hook.mjs')], {
+    input: JSON.stringify(exit), env, encoding: 'utf8',
+  });
+  assert.equal(activeExit.status, 0, activeExit.stderr);
+  assert.equal(JSON.parse(activeExit.stdout).hookSpecificOutput.permissionDecision, 'deny',
+               'active Forge Plan Mode fails closed when the RID binary is unavailable');
+} finally {
+  rmSync(dispatcherRoot, { recursive: true, force: true });
 }
 
 console.log('Plan Forge Claude asset tests passed.');

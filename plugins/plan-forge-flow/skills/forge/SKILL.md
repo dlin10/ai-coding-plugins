@@ -35,6 +35,11 @@ When using an OpenAI role through Codex App Server, also read
   never infer it from a hook `permission_mode`, which describes approvals.
 - Ask grill questions one at a time and keep the complete canonical plan and
   review record in conversation until native approval.
+- On Claude, Forge supersedes the host's default planning workflow. Both skill
+  entry paths automatically arm a session-scoped run. Never call
+  `ExitPlanMode` until Act 2 is recorded, the builder hold exists, and `plan
+  finalize --host claude` returns `ready`; the exact reviewed plan is the only
+  plan the gate may pass to native approval.
 - Act 1 and Act 2 do not create repository artifacts before native approval.
   Use `run doctor`, then perform the optional non-mutating Roslyn capability
   probe described in the reviewer contract. Its result is a readiness warning
@@ -76,7 +81,8 @@ When using an OpenAI role through Codex App Server, also read
 
 ## Command boundary
 
-Interactive commands emit one JSON success/error envelope. The hook command is
-the protocol exception: `planforge hook capture-context` writes a native Codex
-hook object at the JSON root or nothing and always exits zero for malformed or
-unrelated input.
+Interactive commands emit one JSON success/error envelope. Hook commands are
+protocol exceptions: `planforge hook capture-context` writes a native Codex
+hook object, while `planforge hook claude-workflow` writes a native Claude hook
+decision/context object or nothing. Neither wraps output in an interactive CLI
+envelope.
