@@ -1,0 +1,23 @@
+{
+  "name": "explain-code-simply",
+  "displayName": "Explain Code Simply",
+  "version": "0.1.0",
+  "description": "Explain code and .NET concepts in clear, accurate language matched to the user's language and level of detail.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "category": "developer-tools",
+  "keywords": [
+    "explain-code",
+    "eli5",
+    "csharp",
+    "dotnet"
+  ],
+  "tags": [
+    "education",
+    "productivity",
+    "developer-tools"
+  ],
+  "skills": "./skills/"
+}
