@@ -160,6 +160,16 @@ function validatePluginManifest(pluginDir, manifestPath, hostKind) {
   const manifest = readJson(manifestPath);
   if (!manifest) return;
 
+  if (
+    hostKind !== 'claude' &&
+    existsSync(join(pluginDir, 'skills')) &&
+    componentPaths(manifest.skills).length === 0
+  ) {
+    fail(
+      `${relative(repoRoot, manifestPath)}: plugins with a root skills/ directory must declare skills`,
+    );
+  }
+
   if (!manifest.name || !KEBAB_CASE.test(manifest.name)) {
     fail(`${relative(repoRoot, manifestPath)}: invalid plugin name "${manifest.name}"`);
   }
