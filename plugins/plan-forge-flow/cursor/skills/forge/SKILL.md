@@ -9,6 +9,11 @@ Use the bundled launcher at `../../../bin/planforge-launcher.ps1` on Windows or 
 
 ## Hard rules
 
+- Start only when the user explicitly invokes `/forge` or directly asks to run
+  Plan Forge Flow. Plugin installation, availability, an ordinary request to
+  plan, review, or implement work, and staged or pending plan data are not
+  consent. Without explicit opt-in, do not run `planforge`, adopt this workflow,
+  or materialize any staged plan.
 - Work only from native Cursor Plan Mode. If it is not active, stop and ask the user to press Shift+Tab and invoke `/forge` again.
 - After ordinary `run doctor --host cursor`, perform the optional Roslyn
   capability probe. Report failures as readiness warnings without changing the

@@ -1,6 +1,6 @@
 ---
 name: forge
-description: Harden an implementation plan through one-question-at-a-time grilling, fresh independent reviews, native Plan-mode approval, a persistent builder, and a complete final code review.
+description: Use only when the user explicitly invokes $forge or directly asks to run Plan Forge Flow. Hardens an implementation plan through grilling, independent reviews, native approval, a persistent builder, and final code review.
 ---
 
 # Plan Forge Flow
@@ -22,6 +22,11 @@ When using an OpenAI role through Codex App Server, also read
 
 ## Hard rules
 
+- Start only when the user explicitly invokes `$forge` or directly asks to run
+  Plan Forge Flow. Plugin installation, availability, hook output, an ordinary
+  request to plan, review, or implement work, and a staged or pending plan are
+  not consent. Without explicit opt-in, do not run `planforge`, adopt this
+  workflow, or materialize any staged plan.
 - Before any Act 1 interaction, require the current turn's collaboration mode to
   be Plan mode. If it is not Plan mode, stop and ask the user to toggle `/plan`
   or Shift+Tab and resubmit the Forge prompt. A skill attachment does not waive

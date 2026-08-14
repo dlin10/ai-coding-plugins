@@ -99,6 +99,8 @@ const claudeWorkflowPath = join(pluginRoot, 'skills', 'forge', 'references', 'cl
 const claudeWorkflow = readFileSync(claudeWorkflowPath, 'utf8');
 assert.match(skillSource, /\[claude-workflow\.md\]\(references\/claude-workflow\.md\)/);
 assert.match(skillSource, /Claude workflow is\s+authoritative/);
+assert.match(skillSource, /Start only when the user explicitly invokes `\$forge`/);
+assert.match(skillSource, /staged or pending plan are\s+not consent/);
 assert.match(claudeWorkflow, /overrides the Codex-only\s+pending-plan hook/);
 
 const lifecycle = [

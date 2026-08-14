@@ -47,6 +47,9 @@ for (const effort of ['none', 'low', 'medium', 'high', 'xhigh', 'max']) {
 
 for (const skill of ['skills/forge/SKILL.md', 'cursor/skills/forge/SKILL.md']) {
   const text = read(skill);
+  assert.match(text, /Start only when the user explicitly invokes/);
+  assert.match(text, /not\s+consent/);
+  assert.match(text, /Without explicit opt-in, do not run `planforge`/);
   assert.match(text, /optional.*Roslyn[\s\S]*capability\s+probe/i, `${skill} runs the post-doctor probe`);
   assert.match(text, /never changes the doctor verdict|without changing the[\s\S]*doctor verdict/i);
 }

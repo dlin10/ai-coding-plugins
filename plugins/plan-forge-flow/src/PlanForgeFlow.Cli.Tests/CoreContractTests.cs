@@ -186,6 +186,8 @@ public sealed class CoreContractTests
 
             Assert.Equal(plan, PendingPlan.Read(workspace).Plan);
             Assert.Contains("staged the latest proposed plan", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("staging is not consent", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Without explicit opt-in, do not materialize", output.ToString(), StringComparison.Ordinal);
             Assert.Contains("first Default-mode implementation turn", output.ToString(), StringComparison.Ordinal);
 
             var revisedPlan = "# Revised plan\n\n## Approach\n1. Implement the revised slice.\n";

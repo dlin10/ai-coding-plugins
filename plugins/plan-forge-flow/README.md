@@ -281,12 +281,15 @@ The `UserPromptSubmit` hook invokes the RID-aware launcher at
 launcher selects the matching bundled executable from `bin/<rid>/`. On the
 first prompt after a Plan-mode `<proposed_plan>`, the hook stages the latest plan
 as a temporary per-workspace pending plan outside the repository and refreshes
-it after later proposed plans. Staging is not approval or materialization; only
-the first Default-mode implementation turn may materialize it. The hook does
-not infer collaboration mode from `permission_mode`, which describes approval
-behavior. Malformed or unrelated hook input produces no stdout and exits 0. The
-hook response is written directly at the Codex hook JSON root; it is not an
-interactive CLI envelope.
+it after later proposed plans. Staging is not approval, materialization, or
+consent to use Forge. Only an explicit `$forge` invocation or a direct request
+to run Plan Forge Flow opts in; ordinary planning, review, and implementation
+requests must continue without Forge even when pending plan data exists. For an
+opted-in run, only the first Default-mode implementation turn may materialize
+the plan. The hook does not infer collaboration mode from `permission_mode`,
+which describes approval behavior. Malformed or unrelated hook input produces
+no stdout and exits 0. The hook response is written directly at the Codex hook
+JSON root; it is not an interactive CLI envelope.
 
 Plans and review logs use canonical UTF-8/LF bytes but no ownership marker.
 `plan materialize` writes `.forge/PLAN.md`, `.forge/PLAN-REVIEW-LOG.md`, and

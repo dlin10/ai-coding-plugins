@@ -35,7 +35,7 @@ internal static class HookService
             Console.Out.WriteLine(JsonSerializer.Serialize(
                 new HookCaptureOutput(new HookSpecificOutput(
                     "UserPromptSubmit",
-                    "Forge staged the latest proposed plan. Do not materialize it while the current turn is in Plan mode. On the first Default-mode implementation turn, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections before implementation.")),
+                    "Forge staged the latest proposed plan, but staging is not consent to use Plan Forge Flow. Use Forge only if the user explicitly invoked $forge or directly asked to run Plan Forge Flow; generic planning, review, or implementation requests do not opt in. Without explicit opt-in, do not materialize the plan or use Forge. If the user explicitly opted in, do not materialize while the current turn is in Plan mode; on the first Default-mode implementation turn, run planforge plan materialize with the review log, completed review rounds, and pinned reviewer and builder selections before implementation.")),
                 CodexJsonContext.Default.HookCaptureOutput));
             return 0;
         }
