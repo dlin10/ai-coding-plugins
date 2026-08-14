@@ -1,6 +1,6 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Harden, independently review, approve, and implement plans in Claude Code with pinned native subagents.",
   "author": {
     "name": "Dmitry Linetsky"

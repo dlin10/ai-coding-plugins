@@ -1,5 +1,9 @@
 # Plan Forge Flow releases
 
+## 0.6.1
+
+- Moves Claude OpenAI readiness into doctor with native/npm-shim resolution, structured ready/absent/unusable results, a live ordered catalog, and an explicit continue-without-Codex or stop-and-repair gate before provider-first reviewer and builder selection.
+
 ## 0.6.0
 
 - Adds a Claude Code 2.1.226+ plugin manifest and marketplace entry alongside the existing Codex and Cursor surfaces.

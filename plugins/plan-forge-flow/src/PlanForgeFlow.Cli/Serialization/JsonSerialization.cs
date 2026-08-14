@@ -25,6 +25,7 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(MaterializationRequest))]
 [JsonSerializable(typeof(ReviewDecision))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(AppServerModel))]
 [JsonSerializable(typeof(ReviewManifest))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
 [JsonSerializable(typeof(JsonSuccess<PendingRun>))]
@@ -122,12 +123,20 @@ internal sealed record RoslynReadinessData(string Status,
                                            string? ConfigPath = null,
                                            int? Port = null);
 
+internal sealed record CodexReadinessData(string Status,
+                                          string? Executable,
+                                          string? LaunchKind,
+                                          string? ErrorCode,
+                                          string? Error,
+                                          List<AppServerModel> Models);
+
 internal sealed record DoctorData(string Workspace,
                                   ToolCheckData Git,
                                   bool State,
                                   RoslynReadinessData Roslyn,
                                   string? RepositoryScopeId = null,
-                                  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolCheckData? Claude = null);
+                                  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolCheckData? Claude = null,
+                                  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CodexReadinessData? Codex = null);
 
 internal sealed record StatusPresentData(int Version,
                                          string Generation,

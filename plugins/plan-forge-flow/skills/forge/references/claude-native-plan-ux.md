@@ -26,6 +26,9 @@ checks are enforced.
 
 Reviewer and builder providers are independent, supporting Anthropic/Anthropic,
 Anthropic/OpenAI, OpenAI/Anthropic, and OpenAI/OpenAI. Codex App Server is
-optional; if it is absent or unavailable, reject an OpenAI role without
-blocking an Anthropic-only run. Never infer provider/model validity merely from
-an agent filename or hook record.
+optional. Use the initial Claude doctor result before either role selection. An
+absent Codex selects the Anthropic-only path automatically. An installed but
+unusable Codex requires an explicit continue-without-Codex or stop-and-repair
+decision; continuing disables OpenAI for both roles for the run. A ready Codex
+enables independent provider-first selection. Never infer provider/model
+validity merely from an agent filename or hook record.

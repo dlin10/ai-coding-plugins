@@ -5,6 +5,13 @@ client initializes once, acknowledges with `initialized`, accepts only OpenAI
 API-key or ChatGPT account types, and obtains model/effort pairs only from all
 pages of `model/list` and each entry's `supportedReasoningEfforts`.
 
+On Claude, the initial `run doctor --host claude` owns executable discovery,
+App Server initialization, account validation, and the catalog used for the
+provider-first UI. It supports native executables plus Windows npm `.cmd` and
+`.bat` shims. The orchestrator never launches Codex directly. Every actual
+session repeats account and exact model/effort validation against a fresh
+catalog so a stale doctor result fails closed.
+
 Every reviewer round creates a fresh thread with `approvalPolicy: never` and a
 `readOnly` sandbox. After the completed turn is read back and its OpenAI
 provider, thread identity, and idle status are audited, delete the thread even
@@ -46,9 +53,10 @@ Cancellation sends `turn/interrupt`, consumes its response and terminal
 `turn/completed`, then records a terminal cancelled result. Never infer
 replacement eligibility from the human-readable error message.
 
-App Server is optional for Claude workflows. Its absence or startup failure
-rejects only roles selected with provider `openai`; Anthropic-only runs remain
-available. Automatic builder replacement is allowed only when a thread read
+App Server is optional for Claude workflows. Doctor absence selects the
+Anthropic-only path. An installed but unusable App Server requires explicit
+user consent before continuing without Codex. Automatic builder replacement is
+allowed only when a thread read
 confirms terminal identity loss and the stable category is
 `terminal-identity-loss`. Timeout, cancellation, auth, permissions, sandbox,
 model drift, protocol, process, network, and unknown failures retain the

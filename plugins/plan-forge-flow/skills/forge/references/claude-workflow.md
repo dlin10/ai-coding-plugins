@@ -20,7 +20,21 @@ In native Plan mode, run:
 planforge run doctor --host claude --workspace <repo>
 ```
 
-Report failed checks. Then perform the optional host-side probe from
+This is the only allowed Codex discovery call. Doctor resolves native Codex
+executables and Windows npm `.cmd`/`.bat` shims, initializes App Server,
+validates its OpenAI/ChatGPT account, and reads every model catalog page. Handle
+its `codex.status` before Act 1:
+
+- `absent`: continue with Anthropic choices only.
+- `unusable`: show the returned path, launch kind, stable error code, and full
+  error. Ask whether to continue without Codex or stop and repair it. Continue
+  disables OpenAI for reviewer and builder for the run; stop immediately with
+  no artifacts and no model-selection attempt consumed.
+- `ready`: retain the returned ordered catalog and use the provider-first model
+  flow in `claude-model-selection.md` for both roles.
+
+Do not run Codex or another model-listing command directly. Report other failed
+checks. Then perform the optional host-side probe from
 `roslyn-first-review.md`: verify the active Roslyn solution belongs to `<repo>`
 before calling a named read-only Roslyn tool. This probe is non-mutating and
 nonblocking; record unavailable, wrong-solution, or inconclusive results as a
@@ -31,11 +45,13 @@ Version 2.1.226 or newer is required for persistent Anthropic builder resume;
 an older, missing, or unparseable Claude installation fails the Anthropic
 builder finalize boundary. It does not block an OpenAI builder.
 
-Choose reviewer and builder providers independently. Anthropic roles use
+When doctor reports Codex ready, choose reviewer and builder providers
+independently. Anthropic roles use
 `claude-model-selection.md` and the captured Agent evidence. OpenAI roles use an
 exact model and advertised effort from Codex App Server as described in
-`openai-app-server.md`. Codex App Server is optional; its absence rejects only
-the requested OpenAI role.
+`openai-app-server.md`. Session startup revalidates the doctor-selected pair;
+an environmental failure after successful selection does not consume a model
+selection attempt and never silently switches provider.
 
 ## 2. Stage and review the canonical plan
 

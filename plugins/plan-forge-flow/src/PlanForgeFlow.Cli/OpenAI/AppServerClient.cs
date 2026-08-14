@@ -34,20 +34,14 @@ internal sealed class AppServerClient : IDisposable
 
     public IReadOnlyList<AppServerNotification> Notifications => notifications;
 
-    public static AppServerClient Start(string executable = "codex")
+    public static AppServerClient Start() => Start(CodexExecutableResolver.RequireLaunch());
+
+    internal static AppServerClient Start(CodexLaunch launch)
     {
         var process = new Process
         {
-            StartInfo = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            },
+            StartInfo = launch.CreateAppServerStartInfo(),
         };
-        process.StartInfo.ArgumentList.Add("app-server");
         try
         {
             if (!process.Start()) throw new InvalidOperationException("process did not start");
@@ -59,6 +53,8 @@ internal sealed class AppServerClient : IDisposable
             throw new CliFailure("process", $"could not start Codex App Server: {error.Message}", 3);
         }
     }
+
+    internal static AppServerClient Start(string executable) => Start(new CodexLaunch(executable, "native"));
 
     public void Initialize()
     {

@@ -154,9 +154,9 @@ public sealed class AnthropicModelContractTests
         try
         {
             var unavailable = ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                   () => new ToolCheckData(false, "2.1.225", "unsupported"));
+                                                   () => new ToolCheckData(false, "2.1.225", "unsupported"), AbsentCodex);
             var supported = ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                 () => new ToolCheckData(true, "2.1.226", null));
+                                                 () => new ToolCheckData(true, "2.1.226", null), AbsentCodex);
             var codex = ForgeWorkflow.Doctor(workspace, HostKind.Codex, _ => null,
                                              () => throw new InvalidOperationException("Codex must not probe Claude"));
 
@@ -167,6 +167,8 @@ public sealed class AnthropicModelContractTests
         }
         finally { Directory.Delete(workspace, recursive: true); }
     }
+
+    private static CodexReadinessData AbsentCodex() => new("absent", null, null, null, null, []);
 
     private static string CreateRepository()
     {
