@@ -2184,9 +2184,7 @@ public sealed class CoreContractTests
 
     private static string CreateTempDirectory()
     {
-        var tempRoot = Path.GetTempPath();
-        if (OperatingSystem.IsMacOS() && (tempRoot == "/var" || tempRoot.StartsWith("/var/", StringComparison.Ordinal))) tempRoot = "/private" + tempRoot;
-        var path = Path.Combine(tempRoot, "planforge-flow-tests", Guid.NewGuid().ToString("N"));
+        var path = TestPaths.Unique("planforge-flow-tests");
         Directory.CreateDirectory(path);
         return path;
     }

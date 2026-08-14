@@ -25,7 +25,7 @@ public sealed class ClaudeTransactionContractTests
         var reviewerProvider = Enum.Parse<ProviderKind>(reviewerProviderName, ignoreCase: true);
         var builderProvider = Enum.Parse<ProviderKind>(builderProviderName, ignoreCase: true);
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         var previousCodex = Environment.GetEnvironmentVariable("CODEX_HOME");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
@@ -63,7 +63,7 @@ public sealed class ClaudeTransactionContractTests
     public void ClaudeDoctorRejectsForeignForgeAndMissingRunErrorsNameClaude()
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -90,7 +90,7 @@ public sealed class ClaudeTransactionContractTests
     public void AnthropicBuilderFinalizeRequiresResumeCapabilityButOpenAiDoesNot()
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -119,7 +119,7 @@ public sealed class ClaudeTransactionContractTests
     public void ClaudePlanMismatchDoesNotWriteRepositoryOrAdvancePendingTransaction()
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -162,7 +162,7 @@ public sealed class ClaudeTransactionContractTests
     public void ClaudeRevisionInvalidatesReviewsAndBuilderHold()
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -194,7 +194,7 @@ public sealed class ClaudeTransactionContractTests
     public void IdenticalClaudeRestagePreservesApprovedReviewAndHold()
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -233,7 +233,7 @@ public sealed class ClaudeTransactionContractTests
     public void InterruptedClaudeMaterializationReplays(string faultPoint)
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         var previousFault = Environment.GetEnvironmentVariable("FORGE_FAULT_POINT");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
@@ -279,7 +279,7 @@ public sealed class ClaudeTransactionContractTests
     public void LegacyCleanupRemovesOwnedSchemaOneStateRefsExcludeAndCursorPending(bool finalForgeExists)
     {
         var workspace = CreateRepository();
-        var data = Path.Combine(Path.GetTempPath(), "planforge-flow-external-tests", Guid.NewGuid().ToString("N"));
+        var data = TestPaths.Unique("planforge-flow-external-tests");
         var previous = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
@@ -381,7 +381,7 @@ public sealed class ClaudeTransactionContractTests
 
     private static string CreateRepository()
     {
-        var workspace = Path.Combine(Path.GetTempPath(), "planforge-flow-tests", Guid.NewGuid().ToString("N"));
+        var workspace = TestPaths.Unique("planforge-flow-tests");
         Directory.CreateDirectory(workspace);
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "init"]).ExitCode);
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "config", "user.name", "Plan Forge"]).ExitCode);

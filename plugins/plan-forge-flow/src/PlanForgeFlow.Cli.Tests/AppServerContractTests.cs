@@ -48,11 +48,11 @@ public sealed class AppServerContractTests
     [Fact]
     public void ClaudeSessionsUseClaudePluginDataWithoutTouchingCodexHome()
     {
-        var workspace = Path.Combine(Path.GetTempPath(), "planforge-app-server-root", Guid.NewGuid().ToString("N"));
+        var workspace = TestPaths.Unique("planforge-app-server-root");
         Directory.CreateDirectory(workspace);
         Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "init"]).ExitCode);
-        var claudeData = Path.Combine(Path.GetTempPath(), "planforge-claude-data", Guid.NewGuid().ToString("N"));
-        var codexHome = Path.Combine(Path.GetTempPath(), "planforge-codex-home", Guid.NewGuid().ToString("N"));
+        var claudeData = TestPaths.Unique("planforge-claude-data");
+        var codexHome = TestPaths.Unique("planforge-codex-home");
         var originalForgeData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         var originalClaudeData = Environment.GetEnvironmentVariable("CLAUDE_PLUGIN_DATA");
         var originalCodexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
@@ -196,7 +196,7 @@ public sealed class AppServerContractTests
     {
         lock (SessionEnvironmentLock)
         {
-            var workspace = Path.Combine(Path.GetTempPath(), "planforge-app-server-tests", Guid.NewGuid().ToString("N"));
+            var workspace = TestPaths.Unique("planforge-app-server-tests");
             var data = Path.Combine(workspace, "data");
             Directory.CreateDirectory(workspace);
             var originalData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
@@ -236,7 +236,7 @@ public sealed class AppServerContractTests
     {
         lock (SessionEnvironmentLock)
         {
-            var workspace = Path.Combine(Path.GetTempPath(), "planforge-app-server-tests", Guid.NewGuid().ToString("N"));
+            var workspace = TestPaths.Unique("planforge-app-server-tests");
             var data = Path.Combine(workspace, "data");
             Directory.CreateDirectory(workspace);
             var originalData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
@@ -328,7 +328,7 @@ public sealed class AppServerContractTests
     {
         lock (SessionEnvironmentLock)
         {
-            var workspace = Path.Combine(Path.GetTempPath(), "planforge-app-server-tests", Guid.NewGuid().ToString("N"));
+            var workspace = TestPaths.Unique("planforge-app-server-tests");
             var data = Path.Combine(workspace, "data");
             Directory.CreateDirectory(workspace);
             var originalData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
@@ -364,7 +364,7 @@ public sealed class AppServerContractTests
     {
         lock (SessionEnvironmentLock)
         {
-            var workspace = Path.Combine(Path.GetTempPath(), "planforge-app-server-tests", Guid.NewGuid().ToString("N"));
+            var workspace = TestPaths.Unique("planforge-app-server-tests");
             var data = Path.Combine(workspace, "data");
             Directory.CreateDirectory(workspace);
             var originalData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");

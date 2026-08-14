@@ -170,7 +170,7 @@ public sealed class AnthropicModelContractTests
 
     private static string CreateRepository()
     {
-        var workspace = Path.Combine(Path.GetTempPath(), "planforge-flow-tests", Guid.NewGuid().ToString("N"));
+        var workspace = TestPaths.Unique("planforge-flow-tests");
         Directory.CreateDirectory(workspace);
         Assert.Equal(0, Infrastructure.Process.ProcessExecution.Run("git", ["-C", workspace, "init"]).ExitCode);
         return workspace;
