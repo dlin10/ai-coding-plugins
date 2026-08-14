@@ -38,14 +38,17 @@ When using an OpenAI role through Codex App Server, also read
 - Act 1 and Act 2 do not create repository artifacts before native approval.
   Use `run doctor`, then perform the optional non-mutating Roslyn capability
   probe described in the reviewer contract. Its result is a readiness warning
-  and never changes the doctor verdict. Never invoke a
-  catalog command or launch Codex CLI to enumerate models.
+  and never changes the doctor verdict. On Claude, `run doctor --host claude`
+  is the sole allowed Codex discovery boundary: it may launch App Server,
+  validate the account, and return its model catalog. Never invoke Codex or a
+  catalog command directly from the orchestrator.
 - After a Plan-mode `<proposed_plan>`, the hook stages or refreshes the pending
   plan on the next prompt. Staging is not approval or materialization; the
   pending plan is required only by `plan materialize` in Default mode.
 - Ask separately for the reviewer and builder model/effort as free text. Resolve
   the answer against the currently available multi-agent runtime, accept only a
-  unique canonical pair, and never accept `ultra`.
+  unique canonical pair, and never accept `ultra`. On Claude, follow the
+  provider-first doctor/catalog flow in `claude-model-selection.md` instead.
 - A selection parse failure or runtime rejection consumes one of three attempts
   for that role. After the third failure, stop the workflow without a fallback,
   approval, materialization, or dispatch.

@@ -5,6 +5,7 @@ using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
+using PlanForgeFlow.OpenAI;
 using PlanForgeFlow.Pending;
 using PlanForgeFlow.Review;
 using PlanForgeFlow.Serialization;
@@ -38,7 +39,8 @@ internal static partial class ForgeWorkflow
     internal static DoctorData Doctor(string workspace,
                                       HostKind host,
                                       Func<string, string?>? readEnvironment = null,
-                                      Func<ToolCheckData>? claudeProbe = null)
+                                      Func<ToolCheckData>? claudeProbe = null,
+                                      Func<CodexReadinessData>? codexProbe = null)
     {
         if (host == HostKind.Claude) AnthropicModels.ValidateDoctorEnvironment(readEnvironment ?? Environment.GetEnvironmentVariable, requireClaudeMarker: false);
         var claude = host == HostKind.Claude ? (claudeProbe ?? ClaudeCapabilities.Probe)() : null;
@@ -61,7 +63,8 @@ internal static partial class ForgeWorkflow
             throw new CliFailure("state", $"{PendingRuns.HostName(host)} workspace already contains .forge; inspect and remove or archive the previous Forge run before starting a new run", 3);
         }
 
-        return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), ProbeRoslynReadiness(repository), RepositoryPaths.ScopeId(repository), claude);
+        var codex = host == HostKind.Claude ? codexProbe is null ? CodexCapabilities.Probe() : codexProbe() : null;
+        return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), ProbeRoslynReadiness(repository), RepositoryPaths.ScopeId(repository), claude, codex);
     }
 
     private static bool IsClaudeRecovery(RepositoryIdentity repository)

@@ -149,6 +149,20 @@ function Set-ArchiveUnixOrigin([string]$Archive) {
     [IO.File]::WriteAllBytes($Archive, $bytes)
 }
 
+function Copy-InstalledBinary([string]$Source, [string]$Destination) {
+    $attempts = 12
+    for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq $attempts) { throw }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
 function Test-PluginArchive([string]$Archive, [string]$Rid) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zipArchive = [IO.Compression.ZipFile]::OpenRead($Archive)
@@ -255,7 +269,7 @@ foreach ($rid in $Rids) {
     if ($InstallBinaries) {
         $installed = Join-Path $pluginRoot "bin/$rid"
         New-Item -ItemType Directory -Force -Path $installed | Out-Null
-        Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $installed $expectedExecutable)
+        Copy-InstalledBinary -Source (Join-Path $publish $expectedExecutable) -Destination (Join-Path $installed $expectedExecutable)
     }
 
     $bundlePlugin = Join-Path $bundle 'plugins/plan-forge-flow'

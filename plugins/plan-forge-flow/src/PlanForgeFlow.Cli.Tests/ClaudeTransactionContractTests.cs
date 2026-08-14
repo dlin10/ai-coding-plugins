@@ -48,7 +48,7 @@ public sealed class ClaudeTransactionContractTests
             Assert.Equal(builderProvider, result.Builder.Provider);
             Assert.Equal("persistent-hold", PendingRuns.Load(repository, "providers", HostKind.Claude).BuilderHoldId);
             Assert.True(PlanForgeFlow.Workflow.ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
-                                                                   () => new(true, "2.1.226", null)).Git.Ok);
+                                                                   () => new(true, "2.1.226", null), AbsentCodex).Git.Ok);
         }
         finally
         {
@@ -71,7 +71,7 @@ public sealed class ClaudeTransactionContractTests
             Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
             var doctor = Assert.Throws<CliFailure>(() => PlanForgeFlow.Workflow.ForgeWorkflow.Doctor(
                                                             workspace, HostKind.Claude, _ => null,
-                                                            () => new(true, "2.1.226", null)));
+                                                            () => new(true, "2.1.226", null), AbsentCodex));
             Assert.Contains("Claude workspace already contains .forge", doctor.Message, StringComparison.Ordinal);
 
             var missing = Assert.Throws<CliFailure>(() => PendingRuns.Load(RepositoryPaths.Identify(workspace), "missing", HostKind.Claude));
@@ -85,6 +85,8 @@ public sealed class ClaudeTransactionContractTests
             if (Directory.Exists(data)) DeleteDirectory(data);
         }
     }
+
+    private static CodexReadinessData AbsentCodex() => new("absent", null, null, null, null, []);
 
     [Fact]
     public void AnthropicBuilderFinalizeRequiresResumeCapabilityButOpenAiDoesNot()

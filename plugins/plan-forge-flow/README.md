@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.6.0
+# Plan Forge Flow 0.6.1
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete
 planning, fresh adversarial review, controlled implementation, and final code
@@ -88,6 +88,14 @@ model argument. Evidence preserves the requested alias, requires the resolved
 model, normalizes a missing `modelsUsed` list, and flags family or exact-model
 swaps. Doctor rejects Claude's global effort and subagent-model overrides when
 running inside Claude Code.
+
+`run doctor --host claude` also resolves Codex, including Windows npm
+`.cmd`/`.bat` shims, initializes App Server, validates OpenAI/ChatGPT auth, and
+returns its ordered model/effort catalog. It reports `ready`, `absent`, or
+`unusable`. An absent Codex selects Anthropic-only behavior; an installed but
+unusable Codex requires an explicit continue-without-Codex or stop-and-repair
+decision before Act 1. A ready Codex enables provider-first model then effort
+selection independently for reviewer and builder.
 
 Each reviewer has an exact allowlist containing `Read`, `Grep`, `Glob`,
 `ToolSearch`, and the current nine read-only Roslyn MCP semantic tools. It has
@@ -229,8 +237,9 @@ builder to resume. The conversational instruction ordering remains advisory;
 the CLI's exact-snapshot and ownership checks are the enforced boundary.
 Reviewer and builder providers are selected independently, so all four
 Anthropic/OpenAI pairings are supported. OpenAI through Codex App Server is
-optional: an unavailable Codex executable prevents only an OpenAI role and does
-not disable an Anthropic-only Claude run.
+optional. Claude doctor distinguishes absence from a broken installation and
+keeps failures non-mutating. Continuing after an `unusable` result disables
+OpenAI for both roles for that run; stopping leaves Forge unstarted.
 
 ## Cursor native plan behavior
 
