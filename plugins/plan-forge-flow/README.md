@@ -1,10 +1,10 @@
-# Plan Forge Flow 0.5.2
+# Plan Forge Flow 0.6.0
 
-Plan Forge Flow is a Codex and Cursor plugin for decision-complete planning,
-fresh adversarial review, controlled implementation, and final code review. The
-runtime is a typed .NET 10 executable named `planforge`; the supported install
-surface is a repository marketplace containing all supported RID-specific
-executables.
+Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete
+planning, fresh adversarial review, controlled implementation, and final code
+review. The runtime is a typed .NET 10 executable named `planforge`; the
+supported install surface is a repository marketplace containing all supported
+RID-specific executables.
 
 Codex retains its enforced clean-run workflow. Cursor 3.15.6 and newer uses an
 editable native `.plan.md` and local Build in the current or a new Agent. Cursor
@@ -18,14 +18,17 @@ ignore `readonly: true` or the preamble, so status reports both
 
 ## Requirements
 
-- Codex 0.145 or newer with `multi_agent` enabled, or Cursor 3.15.6 or newer
+- Codex 0.145 or newer with `multi_agent` enabled, Claude Code 2.1.226 or newer,
+  or Cursor 3.15.6 or newer
 - Git
 - .NET 10 SDK only when building from source
 - Git LFS when checking out the repository or publishing bundles
+- Node.js 18 or newer for Claude's asynchronous agent-evidence hooks
 - A Git repository for the target change
 
 The distributed executable is self-contained, trimmed, single-file, and does
-not require a preinstalled .NET runtime or Node.js.
+not require a preinstalled .NET runtime. Node.js is used only by Claude's
+fail-open evidence hook; Codex and Cursor operation does not require Node.js.
 
 ## Installation
 
@@ -37,6 +40,14 @@ codex plugin marketplace add <owner>/<repository>
 codex plugin add plan-forge-flow@dlin10-codex-plugins
 ```
 
+In Claude Code, add the same repository marketplace and install its Claude
+plugin:
+
+```text
+/plugin marketplace add <owner>/<repository>
+/plugin install plan-forge-flow@dlin10-ai-coding-plugins
+```
+
 The plugin contains every supported RID and a launcher selects the current
 host automatically:
 
@@ -44,6 +55,7 @@ host automatically:
 .agents/plugins/marketplace.json
 plugins/plan-forge-flow/
   .codex-plugin/plugin.json
+  .claude-plugin/plugin.json
   .cursor-plugin/plugin.json
   bin/planforge-launcher.sh
   bin/planforge-launcher.ps1
@@ -60,6 +72,47 @@ plugins/plan-forge-flow/
   cursor/agents/
   hooks/
 ```
+
+## Claude agent behavior
+
+Claude Code receives six fresh read-only reviewer definitions and six
+persistent builder definitions, covering `none`, `low`, `medium`, `high`,
+`xhigh`, and `max` effort. Agent definitions do not pin a model; the
+orchestrator supplies the selected model at invocation time or leaves it
+inherited. The `none` variants likewise omit an effort override.
+
+Claude selections use exactly `sonnet`, `opus`, `haiku`, `fable`, or
+`inherit`. Haiku supports only `none`; Sonnet, Opus, and Fable support
+`low` through `max`; inherit supports every shipped effort and omits the Agent
+model argument. Evidence preserves the requested alias, requires the resolved
+model, normalizes a missing `modelsUsed` list, and flags family or exact-model
+swaps. Doctor rejects Claude's global effort and subagent-model overrides when
+running inside Claude Code.
+
+Each reviewer has an exact allowlist containing `Read`, `Grep`, `Glob`,
+`ToolSearch`, and the current nine read-only Roslyn MCP semantic tools. It has
+no shell, mutation, delegation, arbitrary MCP namespace, or wildcard Roslyn
+access. Builders inherit normal Claude Code tools and remain subject to the
+user's permissions.
+
+Asynchronous `PostToolUse(Agent)` and `SubagentStop` hooks capture advisory
+model, effort, agent, and result evidence under
+`${CLAUDE_PLUGIN_DATA}/agent-evidence/`. They fail open and never write evidence
+inside the repository or installed plugin directory.
+
+All host reviewer prompts use a Roslyn-first contract for C#/.NET semantic
+claims. A reviewer first verifies the intended solution from an absolute path
+and returned compilation identity. Missing, unreachable, wrong-solution, and
+inconclusive Roslyn states activate an explicit read-only text fallback without
+blocking Forge or automatically reducing coverage. Every critique carries
+exactly one `ROSLYN: USED`, `ROSLYN: FALLBACK`, or
+`ROSLYN: NOT_APPLICABLE` marker. Build, analyzers, tests, and runtime checks
+remain the final verification evidence.
+
+`run doctor` reports a structured advisory `roslyn` object. A valid local
+configuration is not proof of MCP capability or solution identity; after the
+ordinary doctor, the host skill performs an optional read-only semantic probe
+and reports failures only as readiness warnings.
 
 The root `.cursor-plugin/marketplace.json` exposes the Cursor package. Install
 it from the local marketplace, enter native Plan Mode with Shift+Tab, and invoke
@@ -84,20 +137,31 @@ plan lock|stage|finalize|invalidate|abandon|materialize
 agents install
 build dispatch|complete|resolve|begin
 review prepare|record-response|authorize-preexisting|verdict
-session builder|reviewer
+session builder|reviewer|start|status|result|cancel
 run doctor|status|set|cleanup
 hook capture-context
 ```
+
+OpenAI roles optionally use a typed `codex app-server` JSONL client. It accepts
+only OpenAI/ChatGPT authentication and exact model/effort pairs advertised by
+the paginated App Server catalog. Reviewer threads are fresh, read-only, and
+deleted after audit. Builder holds remain read-only and persistent, then resume
+after materialization with repository-scoped write access, network enabled, and
+no approvals. Detached `session start` reads its prompt from stdin; status,
+heartbeat, stable failure category, cancellation, and atomic terminal results
+remain under external `FORGE_PLUGIN_DATA`.
 
 Options are command-specific:
 
 ```text
 plan lock                  --relock --amendment
 plan stage                 --host cursor --run-id --model --effort --cursor-version --observed-model --waiver-reason --accept-risk --authorization-note + chat draft on stdin
+                           Claude: --host claude --run-id --provider --requested-model --resolved-model --models-used --effort + canonical plan on stdin
 plan finalize              --host cursor --run-id --model --effort --cursor-version --observed-model --waiver-reason
-plan invalidate            --host cursor --run-id --reason
-plan abandon               --host cursor --run-id
-plan materialize           Codex: --amendment + stdin JSON; Cursor: --host cursor --run-id
+                           Claude: --host claude --run-id --provider --requested-model --resolved-model --models-used --effort --builder-hold-id
+plan invalidate            --host cursor|claude --run-id --reason
+plan abandon               --host cursor|claude --run-id
+plan materialize           Codex: --amendment + stdin JSON; Cursor: --host cursor --run-id; Claude: --host claude --run-id --plan-file
 build dispatch             --stage --task-number --retry --cancel --dispatch-id --model --effort --authorization-note --accept-risk
 build complete             --task-number --dispatch-id --verification-passed --authorization-note --accept-risk
 build resolve              --conflict --dispatch-id
@@ -109,11 +173,11 @@ review verdict             --stage --critique-file --accept-risk --authorization
 session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
 run status                 (no additional options)
 run set                    --key --value --amendment --accept-risk --authorization-note
-run cleanup                --purge-generated-agents
+run cleanup                --purge-generated-agents --legacy
 ```
 
 `run status` always returns one data shape: `{ "state": <status-or-null>,
-"pendingRun": <cursor-run-or-null> }`. Cursor status reports both values when a
+"pendingRun": <host-run-or-null> }`. Cursor and Claude status report both values when a
 materialized state and its external pending run coexist; Codex always reports a
 null `pendingRun`.
 
@@ -134,12 +198,13 @@ bounded stdin keys `reviewLog`, `completedReviewRounds`, `maxRounds`,
 metadata and normalized model choices manually. `reviewLog` must be one
 non-empty string containing all review rounds, not an array or object.
 
-Every new materialized `.forge/state.json` requires `schemaVersion: 1` and a
-persisted `codex` or `cursor` host. Missing, zero, unknown, or future schemas are
-rejected as `unsupported-state-schema` before mutation. Plan Forge Flow 0.5.x
-does not migrate or resume pre-0.5 state; start a fresh run instead.
+Every new materialized `.forge/state.json` requires `schemaVersion: 2`, a
+persisted `codex`, `cursor`, or `claude` host, and complete provider-qualified
+role selections. Missing, old, unknown, or future schemas are rejected as
+`unsupported-state-schema` before mutation. Runs are not migrated; use the
+ownership-audited `run cleanup --legacy` and start a fresh run.
 
-Cursor preapproval is a schema-v3 external `PendingRun` under host user data
+Cursor and Claude preapproval use a schema-v4 external `PendingRun` under host user data
 (`FORGE_PLUGIN_DATA` overrides its root). During review it temporarily stores
 the canonical chat draft; finalization clears that draft and retains review
 responses, dispatch evidence, model waivers, and guarantees. At the first Build
@@ -148,6 +213,24 @@ current text plus a technical hash only inside the replayable transaction.
 `.forge`, scoped refs, and managed exclude state are created only after this
 gate succeeds. Conflicting or unowned artifacts fail without reset. Cleanup
 never edits or deletes the Cursor-owned plan file.
+
+Claude retains the exact canonical reviewed plan through Ready. After native
+approval, `plan materialize --host claude --run-id … --plan-file …` accepts only
+a regular, non-symlink UTF-8 file whose bytes exactly match that snapshot. This
+comparison precedes the repository lock and every `.forge`, Git-ref, or exclude
+write. A plan or reviewer-selection revision clears all reviews and the builder
+hold. The materialize operation then owns lock/begin and resumes the persistent
+builder hold after the transaction is committed.
+
+Claude's first post-approval Default-mode action is this manual materialize
+command. Its successful result establishes the transaction, acquires the
+repository lock, performs plan lock/build begin, and only then permits the held
+builder to resume. The conversational instruction ordering remains advisory;
+the CLI's exact-snapshot and ownership checks are the enforced boundary.
+Reviewer and builder providers are selected independently, so all four
+Anthropic/OpenAI pairings are supported. OpenAI through Codex App Server is
+optional: an unavailable Codex executable prevents only an OpenAI role and does
+not disable an Anthropic-only Claude run.
 
 ## Cursor native plan behavior
 
@@ -198,12 +281,15 @@ The `UserPromptSubmit` hook invokes the RID-aware launcher at
 launcher selects the matching bundled executable from `bin/<rid>/`. On the
 first prompt after a Plan-mode `<proposed_plan>`, the hook stages the latest plan
 as a temporary per-workspace pending plan outside the repository and refreshes
-it after later proposed plans. Staging is not approval or materialization; only
-the first Default-mode implementation turn may materialize it. The hook does
-not infer collaboration mode from `permission_mode`, which describes approval
-behavior. Malformed or unrelated hook input produces no stdout and exits 0. The
-hook response is written directly at the Codex hook JSON root; it is not an
-interactive CLI envelope.
+it after later proposed plans. Staging is not approval, materialization, or
+consent to use Forge. Only an explicit `$forge` invocation or a direct request
+to run Plan Forge Flow opts in; ordinary planning, review, and implementation
+requests must continue without Forge even when pending plan data exists. For an
+opted-in run, only the first Default-mode implementation turn may materialize
+the plan. The hook does not infer collaboration mode from `permission_mode`,
+which describes approval behavior. Malformed or unrelated hook input produces
+no stdout and exits 0. The hook response is written directly at the Codex hook
+JSON root; it is not an interactive CLI envelope.
 
 Plans and review logs use canonical UTF-8/LF bytes but no ownership marker.
 `plan materialize` writes `.forge/PLAN.md`, `.forge/PLAN-REVIEW-LOG.md`, and
@@ -235,7 +321,8 @@ package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
 Operational overrides are `CODEX_HOME`, `CURSOR_HOME`, `FORGE_PLUGIN_DATA`, and
-`FORGE_AGENTS_DIR`.
+`FORGE_AGENTS_DIR`. Claude Code supplies `CLAUDE_PLUGIN_DATA` for its external,
+persistent plugin evidence.
 Each critique is accompanied by a small JSON decision file at
 `<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
 

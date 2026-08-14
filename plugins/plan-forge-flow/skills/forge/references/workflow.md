@@ -12,6 +12,9 @@ usage/environment/unexpected 1, verdict 2, and state 3.
 In Plan mode:
 
 1. Run `planforge run doctor --workspace <repo>` and report failed checks.
+2. Follow [roslyn-first-review.md](roslyn-first-review.md) for the optional
+   host-side Roslyn capability probe. Report its result separately as a
+   nonblocking readiness warning; it never changes the doctor verdict.
 
 A pending plan can be staged only after a Plan-mode `<proposed_plan>` and a
 following user prompt. The hook refreshes it when a later proposed plan exists;

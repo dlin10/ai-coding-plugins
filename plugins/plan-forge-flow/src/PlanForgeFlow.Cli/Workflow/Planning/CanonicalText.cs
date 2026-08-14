@@ -22,14 +22,18 @@ internal static class CanonicalText
 
     public static string NormalizeReviewLog(string value) => NormalizeText(value, "review log");
 
+    public static string Canonicalize(string value)
+    {
+        if (value.Length > 0 && value[0] == '\uFEFF') value = value[1..];
+        return value.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n') + "\n";
+    }
+
     private static string NormalizeText(string value, string label)
     {
         if (value is null) throw new CliFailure("usage", $"{label} is required");
         if (value.Contains('\0')) throw new CliFailure("usage", $"{label} contains a NUL byte");
         if (Encoding.UTF8.GetByteCount(value) > 256 * 1024) throw new CliFailure("usage", $"{label} exceeds the size bound");
-        if (value.Length > 0 && value[0] == '\uFEFF') value = value[1..];
-        value = value.Replace("\r\n", "\n").Replace('\r', '\n');
-        value = value.TrimEnd('\n') + "\n";
+        value = Canonicalize(value);
 
         for (var index = 0; index < value.Length; index++)
         {

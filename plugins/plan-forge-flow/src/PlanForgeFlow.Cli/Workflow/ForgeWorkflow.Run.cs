@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Text.Json;
+using PlanForgeFlow.Claude;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Review;
 using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.Planning;
@@ -12,6 +15,8 @@ namespace PlanForgeFlow.Workflow;
 
 internal static partial class ForgeWorkflow
 {
+    private const int MaxRoslynConfigBytes = 16 * 1024;
+
     internal static void RequireAuthorizationNote(ParsedArgs parsed)
     {
         var note = parsed.Get("authorization-note");
@@ -30,10 +35,15 @@ internal static partial class ForgeWorkflow
         return null;
     }
     
-    internal static DoctorData Doctor(string workspace, HostKind host)
+    internal static DoctorData Doctor(string workspace,
+                                      HostKind host,
+                                      Func<string, string?>? readEnvironment = null,
+                                      Func<ToolCheckData>? claudeProbe = null)
     {
+        if (host == HostKind.Claude) AnthropicModels.ValidateDoctorEnvironment(readEnvironment ?? Environment.GetEnvironmentVariable, requireClaudeMarker: false);
+        var claude = host == HostKind.Claude ? (claudeProbe ?? ClaudeCapabilities.Probe)() : null;
         var git = ToolCheck("git", ["--version"]);
-        if (!git.Ok) return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)));
+        if (!git.Ok) return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), RoslynUnavailable("repository identity is unavailable because Git is unavailable"), Claude: claude);
         RepositoryIdentity repository;
         try
         {
@@ -41,17 +51,76 @@ internal static partial class ForgeWorkflow
         }
         catch (CliFailure error)
         {
-            return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), File.Exists(StateStore.StatePath(workspace)));
+            return new DoctorData(workspace, new ToolCheckData(false, null, error.Message), File.Exists(StateStore.StatePath(workspace)), RoslynUnavailable("repository identity is unavailable"), Claude: claude);
         }
 
         var forgeTarget = Path.Combine(repository.WorkspaceRoot, ".forge");
-        if (host == HostKind.Cursor && (Directory.Exists(forgeTarget) || File.Exists(forgeTarget)))
+        if (host is HostKind.Cursor or HostKind.Claude && (Directory.Exists(forgeTarget) || File.Exists(forgeTarget)) &&
+            !(host == HostKind.Claude && IsClaudeRecovery(repository)))
         {
-            throw new CliFailure("state", "Cursor workspace already contains .forge; inspect and remove or archive the previous Forge run before starting a new run", 3);
+            throw new CliFailure("state", $"{PendingRuns.HostName(host)} workspace already contains .forge; inspect and remove or archive the previous Forge run before starting a new run", 3);
         }
 
-        return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), RepositoryPaths.ScopeId(repository));
+        return new DoctorData(workspace, git, File.Exists(StateStore.StatePath(workspace)), ProbeRoslynReadiness(repository), RepositoryPaths.ScopeId(repository), claude);
     }
+
+    private static bool IsClaudeRecovery(RepositoryIdentity repository)
+    {
+        try
+        {
+            var state = StateStore.Load(repository.WorkspaceRoot);
+            if (state.Host != HostKind.Claude || state.SourceRun is not { Source: var source, TransactionId: var transactionId } ||
+                !source.StartsWith("claude:", StringComparison.Ordinal)) return false;
+            var run = PendingRuns.Load(repository, source[7..], HostKind.Claude);
+            return run.Phase is (PendingRunPhase.Materializing or PendingRunPhase.Consumed) && run.TransactionId == transactionId;
+        }
+        catch (CliFailure)
+        {
+            return false;
+        }
+    }
+
+    private static RoslynReadinessData ProbeRoslynReadiness(RepositoryIdentity repository)
+    {
+        try
+        {
+            var projects = ProcessExecution.Run("git", ["-C", repository.WorkspaceRoot, "ls-files", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/*.csproj", ":(glob)**/*.cs"]);
+            if (projects.ExitCode != 0)
+            {
+                return RoslynUnavailable("could not inspect the repository for C# projects");
+            }
+            if (string.IsNullOrWhiteSpace(projects.Stdout))
+            {
+                return new RoslynReadinessData("not-applicable", false, null, null);
+            }
+
+            var configPath = Path.Combine(repository.WorkspaceRoot, ".roslynmcp.json");
+            if (!File.Exists(configPath))
+            {
+                return new RoslynReadinessData("not-configured", true, false, "optional Roslyn MCP is not configured for this C# repository; review may use an explicit audited text fallback");
+            }
+            if ((File.GetAttributes(configPath) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0 || new FileInfo(configPath).Length > MaxRoslynConfigBytes)
+            {
+                return new RoslynReadinessData("invalid-config", true, false, "optional Roslyn MCP config must be a small regular file", configPath);
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(configPath));
+            if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("port", out var portElement) ||
+                portElement.ValueKind != JsonValueKind.Number || !portElement.TryGetInt32(out var port) || port is < 1024 or > 65535)
+            {
+                return new RoslynReadinessData("invalid-config", true, false, "optional Roslyn MCP config must contain an integer port in 1024..65535", configPath);
+            }
+
+            return new RoslynReadinessData("configured", true, true, "configuration found; the host must still verify Roslyn MCP and the returned solution/project identity", configPath, port);
+        }
+        catch (Exception error) when (error is CliFailure or IOException or UnauthorizedAccessException or JsonException)
+        {
+            return RoslynUnavailable($"optional Roslyn readiness probe was inconclusive: {error.Message}");
+        }
+    }
+
+    private static RoslynReadinessData RoslynUnavailable(string warning)
+        => new("unavailable", null, null, warning);
 
     internal static void Cleanup(string workspace, bool purgeGeneratedAgents, HostKind host = HostKind.Codex)
         => Materializer.Cleanup(workspace, purgeGeneratedAgents, host);

@@ -1,7 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForgeFlow.Workflow.State;
-using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
+using PlanForgeFlow.OpenAI;
 
 namespace PlanForgeFlow.Serialization;
 
@@ -39,6 +40,12 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(JsonSuccess<RunStatusData>))]
 [JsonSerializable(typeof(JsonSuccess<CleanupData>))]
 [JsonSerializable(typeof(JsonSuccess<HelpData>))]
+[JsonSerializable(typeof(JsonSuccess<AppServerSessionState>))]
+[JsonSerializable(typeof(JsonSuccess<AppServerSessionResult>))]
+[JsonSerializable(typeof(JsonSuccess<WorkerData>))]
+[JsonSerializable(typeof(AppServerSessionRequest))]
+[JsonSerializable(typeof(AppServerSessionState))]
+[JsonSerializable(typeof(AppServerSessionResult))]
 [JsonSerializable(typeof(JsonFailure))]
 internal sealed partial class ForgeJsonContext : JsonSerializerContext;
 
@@ -108,7 +115,19 @@ internal sealed record VerdictData(string Action, string Stage, string Verdict, 
 
 internal sealed record ToolCheckData(bool Ok, string? Version, string? Error);
 
-internal sealed record DoctorData(string Workspace, ToolCheckData Git, bool State, string? RepositoryScopeId = null);
+internal sealed record RoslynReadinessData(string Status,
+                                           bool? Applicable,
+                                           bool? Configured,
+                                           string? Warning,
+                                           string? ConfigPath = null,
+                                           int? Port = null);
+
+internal sealed record DoctorData(string Workspace,
+                                  ToolCheckData Git,
+                                  bool State,
+                                  RoslynReadinessData Roslyn,
+                                  string? RepositoryScopeId = null,
+                                  [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolCheckData? Claude = null);
 
 internal sealed record StatusPresentData(int Version,
                                          string Generation,
@@ -134,6 +153,8 @@ internal sealed record RunStatusData(StatusPresentData? State, PendingRun? Pendi
 internal sealed record CleanupData(bool Cleaned, bool PurgedAgents);
 
 internal sealed record HelpData(string Usage, List<string> Commands);
+
+internal sealed record WorkerData(bool Completed);
 
 internal sealed record HookInput(string? Cwd, [property: JsonPropertyName("transcript_path")] string? TranscriptPath);
 

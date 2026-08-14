@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Codex;
-using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -66,27 +66,29 @@ internal static class Materializer
         return Result("forge-amendment-materialized", state, materialization);
     }
 
-    public static MaterializeData MaterializeCursorTransaction(RepositoryIdentity repository,
-                                                               RepositoryRunLock repositoryLock,
-                                                               MaterializationTransaction transaction,
-                                                               MaterializationContent content,
-                                                               ForgeState materializationState)
+    public static void  MaterializePendingTransaction(RepositoryIdentity repository,
+                                                                RepositoryRunLock repositoryLock,
+                                                                MaterializationTransaction transaction,
+                                                                MaterializationContent content,
+                                                                ForgeState materializationState,
+                                                                HostKind host)
     {
-        repositoryLock.Require(repository, HostKind.Cursor);
+        repositoryLock.Require(repository, host);
+        var hostName = PendingRuns.HostName(host);
         var materialization = Prepare(content);
         using var stateLock = ForgeStateLock.Acquire(repository.WorkspaceRoot);
         var state = materializationState.DeepCopy();
-        ApplyContent(state, repository, HostKind.Cursor, materialization);
-        ValidateCursorState(transaction, state, materialization);
+        ApplyContent(state, repository, host, materialization);
+        ValidatePendingState(transaction, state, materialization, host);
 
         var finalForgeDirectory = Path.Combine(repository.WorkspaceRoot, ".forge");
         if (Directory.Exists(finalForgeDirectory) || File.Exists(finalForgeDirectory))
-            throw new CliFailure("state", "Cursor materialization target already exists", 3);
+            throw new CliFailure("state", $"{hostName} materialization target already exists", 3);
         var forgeDirectory = Path.Combine(repository.WorkspaceRoot, MaterializingPrefix + transaction.Id);
         foreach (var candidate in Directory.EnumerateFileSystemEntries(repository.WorkspaceRoot, MaterializingPrefix + "*", SearchOption.TopDirectoryOnly))
         {
             if (!string.Equals(candidate, forgeDirectory, WorkspacePathPolicy.Comparison))
-                throw new CliFailure("state", "another Cursor materialization staging directory exists", 3);
+                throw new CliFailure("state", $"another {hostName} materialization staging directory exists", 3);
         }
 
         OwnershipGuards.EnsureDirectory(forgeDirectory);
@@ -94,23 +96,23 @@ internal static class Materializer
         var expected = ExpectedCatalog(transaction.Id, materialization, state);
         if (File.Exists(marker))
         {
-            OwnershipGuards.EnsureRegularFile(marker, "Cursor materialization marker");
+            OwnershipGuards.EnsureRegularFile(marker, $"{hostName} materialization marker");
             if (File.ReadAllText(marker) != transaction.Id + "\n")
-                throw new CliFailure("state", "Cursor materialization staging marker conflicts", 3);
+                throw new CliFailure("state", $"{hostName} materialization staging marker conflicts", 3);
             foreach (var entry in Directory.EnumerateFileSystemEntries(forgeDirectory))
             {
                 var name = Path.GetFileName(entry);
                 if (!expected.TryGetValue(name, out var expectedContent) || Directory.Exists(entry))
-                    throw new CliFailure("state", "Cursor materialization staging directory contains an unowned artifact", 3);
-                OwnershipGuards.EnsureRegularFile(entry, "Cursor materialization staging artifact");
+                    throw new CliFailure("state", $"{hostName} materialization staging directory contains an unowned artifact", 3);
+                OwnershipGuards.EnsureRegularFile(entry, $"{hostName} materialization staging artifact");
                 if (File.ReadAllText(entry) != expectedContent)
-                    throw new CliFailure("state", $"Cursor materialization staging artifact conflicts: {name}", 3);
+                    throw new CliFailure("state", $"{hostName} materialization staging artifact conflicts: {name}", 3);
             }
         }
         else
         {
             if (Directory.EnumerateFileSystemEntries(forgeDirectory).Any())
-                throw new CliFailure("state", "Cursor materialization staging directory is unowned", 3);
+                throw new CliFailure("state", $"{hostName} materialization staging directory is unowned", 3);
             DurableFiles.WriteAtomic(marker, transaction.Id + "\n");
         }
 
@@ -126,7 +128,6 @@ internal static class Materializer
 #endif
         PendingRuns.Fault("cursor-state-written");
         Directory.Move(forgeDirectory, finalForgeDirectory);
-        return Result("forge-materialized", state, materialization);
     }
 
     public static void Cleanup(string workspace, bool purgeAgents = false, HostKind host = HostKind.Codex)
@@ -135,7 +136,7 @@ internal static class Materializer
         using (RepositoryRunLock.Acquire(repository, host))
             using (ForgeStateLock.Acquire(workspace))
             {
-                var materializationDirectories = OwnedMaterializationDirectories(workspace);
+                var materializationDirectories = OwnedMaterializationDirectories(workspace, host);
                 var forgeDirectory = Path.Combine(workspace, ".forge");
                 if (Directory.Exists(forgeDirectory))
                 {
@@ -166,17 +167,59 @@ internal static class Materializer
         }
     }
 
-    internal static void VerifyManagedExclude(RepositoryIdentity repository)
+    public static void CleanupLegacy(string workspace, bool purgeAgents = false, HostKind host = HostKind.Codex)
+    {
+        var repository = RepositoryPaths.Identify(workspace);
+        Dictionary<string, string>? ownedRefs = null;
+        IReadOnlyList<string> pendingArtifacts = [];
+        string? codexPending = null;
+        using (RepositoryRunLock.Acquire(repository, host))
+            using (ForgeStateLock.Acquire(workspace))
+            {
+                var materializationDirectories = OwnedMaterializationDirectories(workspace, host);
+                var forgeDirectory = Path.Combine(workspace, ".forge");
+                if (Directory.Exists(forgeDirectory))
+                {
+                    OwnershipGuards.EnsureSafeDirectory(forgeDirectory);
+                    var statePath = StateStore.StatePath(workspace);
+                    if (!File.Exists(statePath)) throw new CliFailure("state", "refusing to remove unowned legacy .forge artifacts", 3);
+                    ownedRefs = AuditLegacyState(repository, host, statePath);
+                }
+                else if (materializationDirectories.Count == 1 &&
+                         File.Exists(Path.Combine(materializationDirectories[0], "state.json")))
+                    ownedRefs = AuditLegacyState(repository, host, Path.Combine(materializationDirectories[0], "state.json"));
+                ValidateManagedExclude(repository);
+                if (host == HostKind.Cursor) pendingArtifacts = PendingRuns.AuditLegacyArtifacts(repository, host);
+                if (host == HostKind.Codex) codexPending = PendingPlan.AuditLegacy(workspace);
+
+                DeleteForgeDirectory(workspace);
+                foreach (var directory in materializationDirectories) Directory.Delete(directory, recursive: true);
+                if (ownedRefs is not null) RemoveBaselineRefs(repository);
+                RemoveManagedExclude(repository);
+                foreach (var artifact in pendingArtifacts) File.Delete(artifact);
+                if (codexPending is not null) File.Delete(codexPending);
+            }
+        if (!purgeAgents) return;
+        var agents = RepositoryPaths.AgentsDirectory();
+        OwnershipGuards.EnsureSafeDirectory(agents);
+        foreach (var name in new[] { "forge_builder.toml", "forge_reviewer.toml" })
+        {
+            var path = Path.Combine(agents, name);
+            if (File.Exists(path) && OwnershipGuards.IsOwnedAgentFile(path)) File.Delete(path);
+        }
+    }
+
+    internal static void VerifyManagedExclude(RepositoryIdentity repository, HostKind host = HostKind.Cursor)
     {
         ValidateManagedExclude(repository);
         var path = ExcludePath(repository);
         if (!File.Exists(path) || !File.ReadAllText(path).Replace("\r\n", "\n").Contains(ExcludeBlock, StringComparison.Ordinal))
-            throw new CliFailure("state", "Cursor materialization managed exclude is missing", 3);
+            throw new CliFailure("state", $"{PendingRuns.HostName(host)} materialization managed exclude is missing", 3);
     }
 
-    internal static void EnsureManagedExclude(RepositoryIdentity repository, RepositoryRunLock repositoryLock)
+    internal static void EnsureManagedExclude(RepositoryIdentity repository, RepositoryRunLock repositoryLock, HostKind host = HostKind.Cursor)
     {
-        repositoryLock.Require(repository, HostKind.Cursor);
+        repositoryLock.Require(repository, host);
         UpsertManagedExclude(repository);
     }
 
@@ -200,19 +243,34 @@ internal static class Materializer
         state.RepositoryScopeId = RepositoryPaths.ScopeId(repository);
         state.Workflow.Round = materialization.CompletedRounds;
         state.Workflow.MaxRounds = materialization.MaxRounds;
-        state.Models.Reviewer = materialization.Reviewer;
-        state.Models.Builder = materialization.Builder;
+        if (host == HostKind.Claude)
+        {
+            if (state.Models.Reviewer is not { } reviewer || state.Models.Builder is not { } builder ||
+                reviewer.Model != materialization.Reviewer.Model || reviewer.Effort != materialization.Reviewer.Effort ||
+                builder.Model != materialization.Builder.Model || builder.Effort != materialization.Builder.Effort)
+                throw new CliFailure("state", "Claude provider selections do not match the materialization transaction", 3);
+        }
+        else
+        {
+            state.Models.Reviewer = materialization.Reviewer;
+            state.Models.Builder = materialization.Builder;
+        }
     }
 
-    private static void ValidateCursorState(MaterializationTransaction transaction, ForgeState state, PreparedMaterialization materialization)
+    private static void ValidatePendingState(MaterializationTransaction transaction,
+                                             ForgeState state,
+                                             PreparedMaterialization materialization,
+                                             HostKind host)
     {
         var stateJson = JsonSerializer.Serialize(state, ForgeJsonContext.Default.ForgeState) + "\n";
         if (state.Workflow.Phase != ForgePhase.Build || state.SourceRun?.TransactionId != transaction.Id ||
             Hashing.Sha256Hex(materialization.Plan) != transaction.PlanHash || Hashing.Sha256Hex(materialization.ReviewLog) != transaction.ReviewHash ||
             materialization.Reviewer.Model != transaction.ReviewerModel || materialization.Reviewer.Effort != transaction.ReviewerEffort ||
             materialization.Builder.Model != transaction.BuilderModel || materialization.Builder.Effort != transaction.BuilderEffort ||
-            transaction.StateHash is null || Hashing.Sha256Hex(stateJson) != transaction.StateHash)
-            throw new CliFailure("state", "Cursor materialization state does not match its transaction", 3);
+            transaction.StateHash is null || Hashing.Sha256Hex(stateJson) != transaction.StateHash ||
+            host == HostKind.Claude && (!PendingRuns.SameSelection(transaction.ReviewerSelection, state.Models.Reviewer?.ToProviderSelection()) ||
+                                        !PendingRuns.SameSelection(transaction.BuilderSelection, state.Models.Builder?.ToProviderSelection())))
+            throw new CliFailure("state", "pending materialization state does not match its transaction", 3);
     }
 
     private static Dictionary<string, string> ExpectedCatalog(string transactionId, PreparedMaterialization materialization, ForgeState state) =>
@@ -233,7 +291,8 @@ internal static class Materializer
     }
 
     private static MaterializeData Result(string action, ForgeState state, PreparedMaterialization materialization) =>
-        new(action, state.Workflow.Phase.ToWireName(), materialization.Reviewer, materialization.Builder);
+        new(action, state.Workflow.Phase.ToWireName(), state.Models.Reviewer ?? materialization.Reviewer,
+            state.Models.Builder ?? materialization.Builder);
 
     private static PinnedSelection ToPinnedSelection(string role, ModelSelection selection)
     {
@@ -270,21 +329,22 @@ internal static class Materializer
         Directory.Delete(forgeDirectory, recursive: true);
     }
 
-    private static IReadOnlyList<string> OwnedMaterializationDirectories(string workspace)
+    private static IReadOnlyList<string> OwnedMaterializationDirectories(string workspace, HostKind host)
     {
+        var hostName = PendingRuns.HostName(host);
         var directories = new List<string>();
         foreach (var candidate in Directory.EnumerateFileSystemEntries(workspace, MaterializingPrefix + "*", SearchOption.TopDirectoryOnly))
         {
             if (!Directory.Exists(candidate) || (File.GetAttributes(candidate) & FileAttributes.ReparsePoint) != 0)
-                throw new CliFailure("state", "refusing to remove an unowned Cursor materialization staging artifact", 3);
+                throw new CliFailure("state", $"refusing to remove an unowned {hostName} materialization staging artifact", 3);
             OwnershipGuards.EnsureSafeDirectory(candidate);
             var transactionId = Path.GetFileName(candidate)[MaterializingPrefix.Length..];
             var marker = Path.Combine(candidate, ".materialization-transaction");
             if (transactionId.Length == 0 || !File.Exists(marker))
-                throw new CliFailure("state", "refusing to remove an unowned Cursor materialization staging directory", 3);
-            OwnershipGuards.EnsureRegularFile(marker, "Cursor materialization marker");
+                throw new CliFailure("state", $"refusing to remove an unowned {hostName} materialization staging directory", 3);
+            OwnershipGuards.EnsureRegularFile(marker, $"{hostName} materialization marker");
             if (File.ReadAllText(marker) != transactionId + "\n")
-                throw new CliFailure("state", "refusing to remove a conflicting Cursor materialization staging directory", 3);
+                throw new CliFailure("state", $"refusing to remove a conflicting {hostName} materialization staging directory", 3);
             directories.Add(candidate);
         }
         return directories;
@@ -301,6 +361,39 @@ internal static class Materializer
             var removed = new GitClient(workspace).Run(["update-ref", "-d", reference]);
             if (removed.ExitCode != 0) throw new CliFailure("environment", $"could not remove Git baseline ref {reference}");
         }
+    }
+
+    private static void ValidateOwnedRefs(RepositoryIdentity repository, IReadOnlyDictionary<string, string> expected)
+    {
+        foreach (var pair in expected)
+        {
+            var existing = new GitClient(repository.WorkspaceRoot).Run(["rev-parse", "--verify", pair.Key]);
+            if (existing.ExitCode == 0 && !string.Equals(existing.Stdout.Trim(), pair.Value, StringComparison.Ordinal))
+                throw new CliFailure("state", $"refusing to remove conflicting legacy baseline ref {pair.Key}", 3);
+        }
+    }
+
+    private static Dictionary<string, string> AuditLegacyState(RepositoryIdentity repository, HostKind host, string statePath)
+    {
+        OwnershipGuards.EnsureRegularFile(statePath, "legacy Forge state");
+        using var document = JsonDocument.Parse(File.ReadAllText(statePath));
+        var root = document.RootElement;
+        if (!root.TryGetProperty("schemaVersion", out var schema) || schema.GetInt32() != 1 ||
+            !root.TryGetProperty("host", out var storedHost) || storedHost.GetString() != host.ToString().ToLowerInvariant() ||
+            !root.TryGetProperty("repositoryScopeId", out var scope) || scope.GetString() != RepositoryPaths.ScopeId(repository))
+            throw new CliFailure("state", "refusing to remove unowned or current-schema .forge artifacts", 3);
+        var baselines = root.GetProperty("baselines");
+        var head = baselines.GetProperty("head").GetString() ?? string.Empty;
+        var worktree = baselines.GetProperty("worktree").GetString() ?? string.Empty;
+        var scopeId = RepositoryPaths.ScopeId(repository);
+        var refs = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [$"refs/plan-forge/{scopeId}/owner"] = head,
+            [$"refs/plan-forge/{scopeId}/head-base"] = head,
+            [$"refs/plan-forge/{scopeId}/worktree-base"] = worktree,
+        };
+        ValidateOwnedRefs(repository, refs);
+        return refs;
     }
 
     private static void ValidateAmendment(ForgeState state, string humanPlan)

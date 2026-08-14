@@ -160,6 +160,16 @@ function validatePluginManifest(pluginDir, manifestPath, hostKind) {
   const manifest = readJson(manifestPath);
   if (!manifest) return;
 
+  if (
+    hostKind !== 'claude' &&
+    existsSync(join(pluginDir, 'skills')) &&
+    componentPaths(manifest.skills).length === 0
+  ) {
+    fail(
+      `${relative(repoRoot, manifestPath)}: plugins with a root skills/ directory must declare skills`,
+    );
+  }
+
   if (!manifest.name || !KEBAB_CASE.test(manifest.name)) {
     fail(`${relative(repoRoot, manifestPath)}: invalid plugin name "${manifest.name}"`);
   }
@@ -241,6 +251,57 @@ function validatePluginManifest(pluginDir, manifestPath, hostKind) {
     const nativeContractText = existsSync(nativeContract) ? readFileSync(nativeContract, 'utf8') : '';
     if (!/Before any repository write, run Plan Forge `plan materialize/.test(nativeContractText) || !/using the installed launcher/.test(nativeContractText) || /not build-ready until `\/forge resume`/.test(nativeContractText) || /using the installed launcher at/i.test(nativeContractText)) {
       fail(`${relative(repoRoot, nativeContract)}: native preamble must contain the materialize gate without a resume gate or launcher-path substitution`);
+    }
+  }
+
+  if (hostKind === 'claude' && manifest.name === 'plan-forge-flow') {
+    const efforts = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+    const expectedReviewerTools = [
+      'Read',
+      'Grep',
+      'Glob',
+      'ToolSearch',
+      'mcp__roslyn-mcp__roslyn_validate_file',
+      'mcp__roslyn-mcp__roslyn_search_symbols',
+      'mcp__roslyn-mcp__roslyn_get_symbol_info',
+      'mcp__roslyn-mcp__roslyn_find_references',
+      'mcp__roslyn-mcp__roslyn_find_implementations',
+      'mcp__roslyn-mcp__roslyn_find_callers',
+      'mcp__roslyn-mcp__roslyn_go_to_definition',
+      'mcp__roslyn-mcp__roslyn_get_document_symbols',
+      'mcp__roslyn-mcp__roslyn_find_dead_code',
+    ];
+    const markdownAgents = readdirSync(join(pluginDir, 'agents')).filter((file) => file.endsWith('.md'));
+    if (markdownAgents.length !== 12) {
+      fail(`${relative(repoRoot, pluginDir)}: Claude Plan Forge Flow must ship exactly 12 Markdown agents`);
+    }
+    for (const role of ['reviewer', 'builder']) {
+      for (const effort of efforts) {
+        const agentPath = join(pluginDir, 'agents', `forge-${role}-${effort}.md`);
+        const text = existsSync(agentPath) ? readFileSync(agentPath, 'utf8').replace(/\r\n/g, '\n') : '';
+        const frontmatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? '';
+        const model = frontmatter.match(/^model:\s*(.+)$/m)?.[1];
+        const actualEffort = frontmatter.match(/^effort:\s*(.+)$/m)?.[1];
+        const tools = frontmatter.match(/^tools:\s*(.+)$/m)?.[1]?.split(',').map((tool) => tool.trim());
+        if (!text || model || actualEffort !== (effort === 'none' ? undefined : effort)) {
+          fail(`${relative(repoRoot, agentPath)}: Claude agent must omit model and encode its effort suffix exactly`);
+        }
+        if (role === 'reviewer' && JSON.stringify(tools) !== JSON.stringify(expectedReviewerTools)) {
+          fail(`${relative(repoRoot, agentPath)}: reviewer must use the exact built-in and Roslyn least-privilege allowlist`);
+        }
+        if (role === 'builder' && tools) {
+          fail(`${relative(repoRoot, agentPath)}: builder must inherit normal tools and user permissions`);
+        }
+      }
+    }
+
+    const claudeHooksPath = join(pluginDir, 'hooks', 'hooks.claude.json');
+    const claudeHooks = readJson(claudeHooksPath)?.hooks;
+    const postHook = claudeHooks?.PostToolUse?.[0];
+    const stopHook = claudeHooks?.SubagentStop?.[0];
+    if (postHook?.matcher !== 'Agent' || stopHook?.matcher !== '^plan-forge-flow:forge-(reviewer|builder)-(none|low|medium|high|xhigh|max)$' ||
+        !postHook?.hooks?.every((hook) => hook.async === true) || !stopHook?.hooks?.every((hook) => hook.async === true)) {
+      fail(`${relative(repoRoot, claudeHooksPath)}: Claude evidence hooks must be scoped and non-blocking`);
     }
   }
 }

@@ -112,7 +112,24 @@ internal static class ForgePhases
                                                                : throw new ArgumentOutOfRangeException(nameof(phase));
 }
 
-internal sealed record PinnedSelection(string Model, string Effort);
+internal sealed record PinnedSelection(string Model, string Effort)
+{
+    public ProviderKind Provider { get; init; } = ProviderKind.OpenAI;
+    public string RequestedModel { get; init; } = Model;
+    public string ResolvedModel { get; init; } = Model;
+    public IReadOnlyList<string> ModelsUsed { get; init; } = [Model];
+
+    public static PinnedSelection From(ProviderSelection selection)
+        => new(selection.ResolvedModel, selection.Effort)
+        {
+            Provider = selection.Provider,
+            RequestedModel = selection.RequestedModel,
+            ResolvedModel = selection.ResolvedModel,
+            ModelsUsed = selection.ModelsUsed,
+        };
+
+    public ProviderSelection ToProviderSelection() => new(Provider, RequestedModel, ResolvedModel, ModelsUsed, Effort);
+}
 
 internal sealed record BaselineEntry(string Path, string Hash);
 
@@ -188,7 +205,7 @@ internal sealed record ReviewState
 
 internal sealed record ForgeState
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
     public const int Version = 5;
     public const string Generation = "v4";
 

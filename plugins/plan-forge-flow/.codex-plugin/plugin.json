@@ -1,6 +1,6 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "A typed .NET 10 four-act plan hardening, implementation, and independent review workflow for Codex.",
   "author": {
     "name": "Dmitry Linetsky"

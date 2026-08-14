@@ -1,9 +1,10 @@
 using System.Text;
 using PlanForgeFlow.Cli;
-using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Serialization;
+using PlanForgeFlow.Workflow.Planning;
 using PlanForgeFlow.Workflow.State;
 
 namespace PlanForgeFlow.Review;
@@ -53,7 +54,7 @@ internal static class CursorReviewEvidence
 
     private static (string Text, string Verdict, string Coverage) ParseResponse(string response)
     {
-        var normalized = Canonical(response);
+        var normalized = CanonicalText.Canonicalize(response);
         if (Encoding.UTF8.GetByteCount(normalized) > 512 * 1024) throw new CliFailure("usage", "review response exceeds the size bound");
         var verdicts = normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(line => line.StartsWith("VERDICT:", StringComparison.Ordinal))
                                  .ToArray();
@@ -65,6 +66,4 @@ internal static class CursorReviewEvidence
         return (normalized, verdicts[0][9..], coverage[0][10..]);
     }
 
-    private static string Canonical(string text) =>
-        (text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text).Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n') + "\n";
 }

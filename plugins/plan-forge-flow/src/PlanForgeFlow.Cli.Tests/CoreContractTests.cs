@@ -5,6 +5,7 @@ using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Codex;
 using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -16,6 +17,7 @@ using ForgeWorkflow = PlanForgeFlow.Workflow.ForgeWorkflow;
 
 namespace PlanForgeFlow.Tests;
 
+[Collection("Process environment")]
 public sealed class CoreContractTests
 {
     [Fact]
@@ -184,6 +186,8 @@ public sealed class CoreContractTests
 
             Assert.Equal(plan, PendingPlan.Read(workspace).Plan);
             Assert.Contains("staged the latest proposed plan", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("staging is not consent", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Without explicit opt-in, do not materialize", output.ToString(), StringComparison.Ordinal);
             Assert.Contains("first Default-mode implementation turn", output.ToString(), StringComparison.Ordinal);
 
             var revisedPlan = "# Revised plan\n\n## Approach\n1. Implement the revised slice.\n";
@@ -801,7 +805,7 @@ public sealed class CoreContractTests
             Assert.NotEmpty(state.CreatedAt);
             Assert.Equal(state.CreatedAt, state.UpdatedAt);
             var serialized = JsonSerializer.Serialize(state, Serialization.ForgeJsonContext.Default.ForgeState);
-            Assert.Contains("\"schemaVersion\":1", serialized, StringComparison.Ordinal);
+            Assert.Contains("\"schemaVersion\":2", serialized, StringComparison.Ordinal);
             Assert.Contains("\"host\":\"codex\"", serialized, StringComparison.Ordinal);
             Assert.DoesNotContain("\"version\"", serialized, StringComparison.Ordinal);
             Assert.DoesNotContain("\"generation\"", serialized, StringComparison.Ordinal);
@@ -868,7 +872,7 @@ public sealed class CoreContractTests
             var exitCode = new CliApplication().Run(["plan", "stage", "--host", "cursor", "--workspace", workspace, "--run-id", "stdin-run", "--model", "reviewer", "--effort", "xhigh", "--cursor-version", "3.15.6", "--observed-model", "Auto", "--waiver-reason", "consent"]);
 
             Assert.Equal(0, exitCode);
-            Assert.Contains("\"schemaVersion\":3", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("\"schemaVersion\":4", output.ToString(), StringComparison.Ordinal);
             Assert.Contains("\"draftText\":\"# Chat plan\\n\\n## Approach\\n1. Implement.\\n\"", output.ToString(), StringComparison.Ordinal);
             Assert.DoesNotContain("sourcePath", output.ToString(), StringComparison.OrdinalIgnoreCase);
             output.GetStringBuilder().Clear();
@@ -919,13 +923,52 @@ public sealed class CoreContractTests
             var doctor = ForgeWorkflow.Doctor(workspace, HostKind.Codex);
             Assert.True(doctor.Git.Ok);
             Assert.Equal(RepositoryPaths.ScopeId(RepositoryPaths.Identify(workspace)), doctor.RepositoryScopeId);
+            Assert.Equal("not-applicable", doctor.Roslyn.Status);
             Assert.DoesNotContain("\"dotnet\"", JsonSerializer.Serialize(doctor, Serialization.ForgeJsonContext.Default.DoctorData), StringComparison.OrdinalIgnoreCase);
 
             var invalid = ForgeWorkflow.Doctor(nonRepository, HostKind.Codex);
             Assert.False(invalid.Git.Ok);
             Assert.Null(invalid.RepositoryScopeId);
+            Assert.Equal("unavailable", invalid.Roslyn.Status);
         }
         finally { DeleteDirectory(workspace); DeleteDirectory(nonRepository); }
+    }
+
+    [Fact]
+    public void DoctorReportsNonBlockingStructuredRoslynReadiness()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            InitializeRepository(workspace, commit: true);
+            File.WriteAllText(Path.Combine(workspace, "Sample.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\" />\n");
+
+            var missing = ForgeWorkflow.Doctor(workspace, HostKind.Codex);
+            Assert.True(missing.Git.Ok);
+            Assert.Equal("not-configured", missing.Roslyn.Status);
+            Assert.True(missing.Roslyn.Applicable);
+            Assert.False(missing.Roslyn.Configured);
+            Assert.NotNull(missing.Roslyn.Warning);
+
+            var configPath = Path.Combine(workspace, ".roslynmcp.json");
+            File.WriteAllText(configPath, "{\"port\":1}\n");
+            var invalid = ForgeWorkflow.Doctor(workspace, HostKind.Codex);
+            Assert.True(invalid.Git.Ok);
+            Assert.Equal("invalid-config", invalid.Roslyn.Status);
+
+            const int port = 65534;
+            File.WriteAllText(configPath, $"{{\"port\":{port}}}\n");
+            var configured = ForgeWorkflow.Doctor(workspace, HostKind.Codex);
+            Assert.True(configured.Git.Ok);
+            Assert.Equal("configured", configured.Roslyn.Status);
+            Assert.True(configured.Roslyn.Configured);
+            Assert.NotNull(configured.Roslyn.Warning);
+            Assert.Equal(port, configured.Roslyn.Port);
+
+            var serialized = JsonSerializer.Serialize(configured, Serialization.ForgeJsonContext.Default.DoctorData);
+            Assert.Contains("\"roslyn\":{\"status\":\"configured\",\"applicable\":true,\"configured\":true", serialized, StringComparison.Ordinal);
+        }
+        finally { DeleteDirectory(workspace); }
     }
 
     [Theory]
@@ -1097,7 +1140,7 @@ public sealed class CoreContractTests
     }
 
     [Theory]
-    [InlineData("\"schemaVersion\":3,")]
+    [InlineData("\"schemaVersion\":4,")]
     [InlineData("\"host\":\"cursor\",")]
     public void CursorPendingRunRequiresRawSchemaAndHostAndUsesWirePhases(string token)
     {
@@ -1311,6 +1354,69 @@ public sealed class CoreContractTests
             Assert.Equal("builder-new", ForgeWorkflow.RegisterSession(fresh, ForgeRole.Builder).BuilderId);
         }
         finally { DeleteDirectory(workspace); }
+    }
+
+    [Fact]
+    public void BuildConflictFlowsIntoTheNextDispatchAndClearsOnCompletion()
+    {
+        var workspace = CreateTempDirectory();
+        try
+        {
+            InitializeRepository(workspace, commit: true);
+            var repository = RepositoryPaths.Identify(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, ".forge"));
+            var state = ForgeState.CreateEmpty(HostKind.Codex, RepositoryPaths.ScopeId(repository));
+            state.Workflow.Phase = ForgePhase.Build;
+            state.Workflow.TaskCount = 1;
+            state.Workflow.NextTaskNumber = 1;
+            state.Models.Builder = new PinnedSelection("builder", "medium");
+            state.Dispatch = new DispatchState { Id = "conflicted", Stage = DispatchStage.Build, Pending = true, TaskNumber = 1 };
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, ForgeJsonContext.Default.ForgeState);
+            var head = ProcessExecution.Run("git", ["-C", workspace, "rev-parse", "HEAD"]).Stdout.Trim();
+            foreach (var suffix in new[] { "head-base", "worktree-base" })
+                Assert.Equal(0, ProcessExecution.Run("git", ["-C", workspace, "update-ref", $"refs/plan-forge/{state.RepositoryScopeId}/{suffix}", head]).ExitCode);
+
+            state = ForgeWorkflow.ResolveBuild(new CommandContext("build resolve", workspace,
+                ParsedArgs.Parse(["--conflict", "merge markers in service"]), state));
+            var dispatch = ForgeWorkflow.Dispatch(new CommandContext("build dispatch", workspace,
+                ParsedArgs.Parse(["--stage", "build", "--task-number", "1"]), state));
+
+            Assert.Equal("merge markers in service", dispatch.Conflict);
+            state = StateStore.Load(workspace);
+            state.Agents.BuilderId = "builder-session";
+            state.Agents.LastBuilderDispatchId = dispatch.Id;
+            DurableFiles.WriteJson(StateStore.StatePath(workspace), state, ForgeJsonContext.Default.ForgeState);
+            var completed = ForgeWorkflow.Complete(new CommandContext("build complete", workspace,
+                ParsedArgs.Parse(["--task-number", "1", "--dispatch-id", dispatch.Id!]), state));
+            Assert.Null(completed.Conflict);
+        }
+        finally { DeleteDirectory(workspace); }
+    }
+
+    [Fact]
+    public void PendingRunCommandsRejectCodexBeforeEnteringCursorHandlers()
+    {
+        var workspace = CreateTempDirectory();
+        var oldIn = Console.In;
+        var oldOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetIn(new StringReader("# Plan\n"));
+            Console.SetOut(output);
+
+            var exitCode = new CliApplication().Run(["plan", "stage", "--host", "codex", "--workspace", workspace]);
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("pending-run commands do not support --host codex", output.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Cursor", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetIn(oldIn);
+            Console.SetOut(oldOut);
+            DeleteDirectory(workspace);
+        }
     }
 
     [Theory]
@@ -2078,9 +2184,7 @@ public sealed class CoreContractTests
 
     private static string CreateTempDirectory()
     {
-        var tempRoot = Path.GetTempPath();
-        if (OperatingSystem.IsMacOS() && (tempRoot == "/var" || tempRoot.StartsWith("/var/", StringComparison.Ordinal))) tempRoot = "/private" + tempRoot;
-        var path = Path.Combine(tempRoot, "planforge-flow-tests", Guid.NewGuid().ToString("N"));
+        var path = TestPaths.Unique("planforge-flow-tests");
         Directory.CreateDirectory(path);
         return path;
     }
