@@ -18,4 +18,8 @@
   <ItemGroup>
     <ProjectReference Include="../PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../../tests/anthropic-model-evidence-cases.json" Link="anthropic-model-evidence-cases.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

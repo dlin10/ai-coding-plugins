@@ -8,7 +8,7 @@ using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.Planning;
 using PlanForgeFlow.Workflow.State;
 
-namespace PlanForgeFlow.Cursor;
+namespace PlanForgeFlow.Pending;
 
 internal static partial class PendingRuns
 {
@@ -53,21 +53,65 @@ internal static partial class PendingRuns
         return next;
     }
 
+    public static PendingRun BeginClaudeMaterialize(RepositoryIdentity repository,
+                                                     string runId,
+                                                     string verifiedPlan,
+                                                     RepositoryRunLock repositoryLock)
+    {
+        repositoryLock.Require(repository, HostKind.Claude);
+        var run = Load(repository, runId, HostKind.Claude);
+        if (run.Phase is PendingRunPhase.Consumed or PendingRunPhase.Materializing) return run;
+        if (run.Phase != PendingRunPhase.Ready || run.DraftText is null || run.ReviewerSelection is null || run.BuilderSelection is null ||
+            string.IsNullOrWhiteSpace(run.BuilderHoldId) || !string.Equals(run.DraftText, verifiedPlan, StringComparison.Ordinal))
+            throw new CliFailure("state", "Claude plan is not ready for materialization", 3);
+        var id = Hashing.Nonce();
+        var review = CanonicalText.NormalizeReviewLog(string.Join("\n", run.Responses.Select(response => response.Response)));
+        var refs = new[] { $"refs/plan-forge/{run.ScopeId}/owner", $"refs/plan-forge/{run.ScopeId}/head-base", $"refs/plan-forge/{run.ScopeId}/worktree-base" };
+        var transaction = new MaterializationTransaction(id,
+                                                         run.RunId,
+                                                         run.ScopeId,
+                                                         verifiedPlan,
+                                                         Hashing.Sha256Hex(verifiedPlan),
+                                                         Hashing.Sha256Hex(review),
+                                                         run.ReviewerSelection.ResolvedModel,
+                                                         run.ReviewerSelection.Effort,
+                                                         run.BuilderSelection.ResolvedModel,
+                                                         run.BuilderSelection.Effort,
+                                                         refs,
+                                                         [".materialization-transaction", "PLAN.md", "PLAN-REVIEW-LOG.md", "state.json"],
+                                                         DateTimeOffset.UtcNow.ToString("O"))
+        {
+            ReviewerSelection = run.ReviewerSelection,
+            BuilderSelection = run.BuilderSelection,
+        };
+        var next = run with
+        {
+            Phase = PendingRunPhase.Materializing,
+            DraftText = null,
+            TransactionId = id,
+            Materialization = transaction,
+            UpdatedAt = DateTimeOffset.UtcNow.ToString("O"),
+        };
+        Write(repository, next);
+        return next;
+    }
+
     public static PendingRun BindMaterializationState(RepositoryIdentity repository,
                                                       string runId,
                                                       ForgeState state,
-                                                      RepositoryRunLock repositoryLock)
+                                                      RepositoryRunLock repositoryLock,
+                                                      HostKind host = HostKind.Cursor)
     {
-        repositoryLock.Require(repository, HostKind.Cursor);
-        var run = Load(repository, runId);
+        repositoryLock.Require(repository, host);
+        var run = Load(repository, runId, host);
         if (run.Phase != PendingRunPhase.Materializing || run.Materialization is null)
-            throw new CliFailure("state", "Cursor materialization state cannot be bound in the current phase", 3);
+            throw new CliFailure("state", $"{HostName(host)} materialization state cannot be bound in the current phase", 3);
         if (state.Workflow.Phase != ForgePhase.Build)
-            throw new CliFailure("state", "Cursor materialization can bind only its final build state", 3);
+            throw new CliFailure("state", $"{HostName(host)} materialization can bind only its final build state", 3);
         var stateHash = Hashing.Sha256Hex(JsonSerializer.Serialize(state, ForgeJsonContext.Default.ForgeState) + "\n");
         if (run.Materialization.StateHash is { } existingHash)
         {
-            if (existingHash != stateHash) throw new CliFailure("state", "Cursor materialization state conflicts with its transaction", 3);
+            if (existingHash != stateHash) throw new CliFailure("state", $"{HostName(host)} materialization state conflicts with its transaction", 3);
             return run;
         }
         var transaction = run.Materialization with { StateHash = stateHash };
@@ -83,55 +127,61 @@ internal static partial class PendingRuns
     }
 
     public static void Consume(RepositoryIdentity repository, string runId, RepositoryRunLock repositoryLock)
+        => Consume(repository, runId, repositoryLock, HostKind.Cursor);
+
+    public static void Consume(RepositoryIdentity repository, string runId, RepositoryRunLock repositoryLock, HostKind host)
     {
-        repositoryLock.Require(repository, HostKind.Cursor);
-        var run = Load(repository, runId);
+        repositoryLock.Require(repository, host);
+        var run = Load(repository, runId, host);
         var transaction = run.Materialization is null ? null : run.Materialization with { PlanText = null };
         var next = run with { Phase = PendingRunPhase.Consumed, Materialization = transaction, UpdatedAt = DateTimeOffset.UtcNow.ToString("O") };
         Write(repository, next);
     }
 
-    public static void VerifyMaterialization(RepositoryIdentity repository, PendingRun run)
+    public static void VerifyMaterialization(RepositoryIdentity repository, PendingRun run, HostKind host = HostKind.Cursor)
     {
-        var transaction = run.Materialization ?? throw new CliFailure("state", "Cursor materialization transaction is missing", 3);
+        var transaction = run.Materialization ?? throw new CliFailure("state", $"{HostName(host)} materialization transaction is missing", 3);
         var forge = Path.Combine(repository.WorkspaceRoot, ".forge");
         var state = StateStore.Load(repository.WorkspaceRoot);
-        if (state.Host != HostKind.Cursor || state.RepositoryScopeId != transaction.ScopeId || state.SourceRun?.Source != "cursor:" + transaction.RunId ||
+        if (state.Host != host || state.RepositoryScopeId != transaction.ScopeId ||
+            state.SourceRun?.Source != host.ToString().ToLowerInvariant() + ":" + transaction.RunId ||
             state.SourceRun.TransactionId != transaction.Id || state.Models.Reviewer is not { } reviewer || reviewer.Model != transaction.ReviewerModel ||
             reviewer.Effort != transaction.ReviewerEffort || state.Models.Builder is not { } builder || builder.Model != transaction.BuilderModel ||
-            builder.Effort != transaction.BuilderEffort || state.ReviewerGuarantee?.Kind != "advisory" ||
-            state.ApprovalGuarantee?.Kind != "advisory") throw new CliFailure("state", "Cursor materialization state does not match its transaction", 3);
+            builder.Effort != transaction.BuilderEffort || host == HostKind.Claude &&
+            (!SameSelection(transaction.ReviewerSelection, reviewer.ToProviderSelection()) ||
+             !SameSelection(transaction.BuilderSelection, builder.ToProviderSelection())) || host == HostKind.Cursor && (state.ReviewerGuarantee?.Kind != "advisory" ||
+            state.ApprovalGuarantee?.Kind != "advisory")) throw new CliFailure("state", "pending materialization state does not match its transaction", 3);
         if (transaction.StateHash is null || Hashing.Sha256File(StateStore.StatePath(repository.WorkspaceRoot)) != transaction.StateHash)
-            throw new CliFailure("state", "Cursor materialization state artifact is not bound to its transaction", 3);
+            throw new CliFailure("state", $"{HostName(host)} materialization state artifact is not bound to its transaction", 3);
         if (run.Phase == PendingRunPhase.Materializing)
         {
             var actualArtifacts = Directory.EnumerateFileSystemEntries(forge).Select(Path.GetFileName).OrderBy(value => value, StringComparer.Ordinal).ToArray();
             var expectedArtifacts = transaction.ExpectedArtifacts.OrderBy(value => value, StringComparer.Ordinal).ToArray();
             if (!actualArtifacts.SequenceEqual(expectedArtifacts, StringComparer.Ordinal))
-                throw new CliFailure("state", "Cursor materialization directory contains conflicting artifacts", 3);
+                throw new CliFailure("state", $"{HostName(host)} materialization directory contains conflicting artifacts", 3);
         }
 
         foreach (var artifact in transaction.ExpectedArtifacts)
         {
             var path = Path.Combine(forge, artifact);
-            if (!File.Exists(path)) throw new CliFailure("state", $"Cursor materialization artifact is missing: {artifact}", 3);
+            if (!File.Exists(path)) throw new CliFailure("state", $"{HostName(host)} materialization artifact is missing: {artifact}", 3);
         }
         if (File.ReadAllText(Path.Combine(forge, ".materialization-transaction")) != transaction.Id + "\n")
-            throw new CliFailure("state", "Cursor materialization marker does not match its transaction", 3);
+            throw new CliFailure("state", $"{HostName(host)} materialization marker does not match its transaction", 3);
         if (Hashing.Sha256Hex(File.ReadAllText(Path.Combine(forge, "PLAN.md"))) != transaction.PlanHash ||
             Hashing.Sha256Hex(File.ReadAllText(Path.Combine(forge, "PLAN-REVIEW-LOG.md"))) != transaction.ReviewHash)
-            throw new CliFailure("state", "Cursor materialization artifacts do not match their transaction", 3);
-        if (state.Workflow.Phase != ForgePhase.Build) throw new CliFailure("state", "Cursor materialization did not reach build phase", 3);
+            throw new CliFailure("state", $"{HostName(host)} materialization artifacts do not match their transaction", 3);
+        if (state.Workflow.Phase != ForgePhase.Build) throw new CliFailure("state", $"{HostName(host)} materialization did not reach build phase", 3);
         foreach (var reference in transaction.ExpectedRefs)
         {
             var result = new GitClient(repository.WorkspaceRoot).Run(["rev-parse", "--verify", reference]);
             if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.Stdout))
-                throw new CliFailure("state", $"Cursor materialization ref is missing: {reference}", 3);
+                throw new CliFailure("state", $"{HostName(host)} materialization ref is missing: {reference}", 3);
             var expected = reference.EndsWith("/worktree-base", StringComparison.Ordinal) ? state.Baselines.Worktree : state.Baselines.Head;
             if (!string.Equals(result.Stdout.Trim(), expected, StringComparison.Ordinal))
-                throw new CliFailure("state", $"Cursor materialization ref conflicts: {reference}", 3);
+                throw new CliFailure("state", $"{HostName(host)} materialization ref conflicts: {reference}", 3);
         }
-        Materializer.VerifyManagedExclude(repository);
+        Materializer.VerifyManagedExclude(repository, host);
     }
 
     internal static string ExpectedPreamble(RepositoryIdentity repository, string runId) =>

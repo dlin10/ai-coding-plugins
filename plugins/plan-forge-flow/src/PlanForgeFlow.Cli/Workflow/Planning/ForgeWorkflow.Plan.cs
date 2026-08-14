@@ -3,7 +3,7 @@ using System.Text.Json;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Codex;
-using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -43,17 +43,50 @@ internal static class ForgeWorkflow
     }
 
     internal static MaterializeData MaterializeCursorPlan(CommandContext context)
+        => MaterializePendingPlan(context,
+                                  HostKind.Cursor,
+                                  static (_, _) => null,
+                                  CreateCursorMaterializationState,
+                                  static (_, _) => { });
+
+    internal static MaterializeData MaterializeClaudePlan(CommandContext context)
+        => MaterializePendingPlan(context,
+                                  HostKind.Claude,
+                                  (repository, run) => PendingRuns.ReadExactClaudePlan(repository, run, context.Args.GetRequired("plan-file")),
+                                  CreateClaudeMaterializationState,
+                                  HydrateClaudeRecoveryBaselines);
+
+    private static MaterializeData MaterializePendingPlan(CommandContext context,
+                                                          HostKind host,
+                                                          Func<RepositoryIdentity, PendingRun, string?> sourcePlan,
+                                                          Func<RepositoryIdentity, PendingRun, MaterializationTransaction, ForgeState> createState,
+                                                          Action<RepositoryIdentity, ForgeState> hydrateBaselines)
     {
-        if (context.Args.Has("amendment")) throw new CliFailure("usage", "Cursor amendments are unsupported");
+        var hostName = PendingRuns.HostName(host);
+        if (context.Args.Has("amendment")) throw new CliFailure("usage", $"{hostName} amendments are unsupported");
         var repository = RepositoryPaths.Identify(context.Workspace);
-        using var repositoryLock = RepositoryRunLock.Acquire(repository, HostKind.Cursor);
-        var run = PendingRuns.BeginMaterialize(repository, context.Args.GetRequired("run-id"), repositoryLock);
-        if (run.ReviewerWaiver is null || run.BuilderWaiver is null)
-            throw new CliFailure("state", "Cursor model waivers are missing", 3);
+        var runId = context.Args.GetRequired("run-id");
+        var pending = PendingRuns.Load(repository, runId, host);
+        if (pending.Phase == PendingRunPhase.Consumed)
+        {
+            PendingRuns.VerifyMaterialization(repository, pending, host);
+            var existing = StateStore.Load(context.Workspace);
+            return new MaterializeData("forge-materialized", existing.Workflow.Phase.ToWireName(), existing.Models.Reviewer!, existing.Models.Builder!);
+        }
+        var suppliedPlan = sourcePlan(repository, pending);
+
+        using var repositoryLock = RepositoryRunLock.Acquire(repository, host);
+        var run = host == HostKind.Claude
+                      ? PendingRuns.BeginClaudeMaterialize(repository, runId, suppliedPlan!, repositoryLock)
+                      : PendingRuns.BeginMaterialize(repository, runId, repositoryLock);
+        if (host == HostKind.Claude && (run.ReviewerSelection is null || run.BuilderSelection is null))
+            throw new CliFailure("state", $"{hostName} provider selections are missing", 3);
+        if (host == HostKind.Cursor && (run.ReviewerWaiver is null || run.BuilderWaiver is null))
+            throw new CliFailure("state", $"{hostName} model waivers are missing", 3);
         ForgeState completed;
         if (run.Phase == PendingRunPhase.Consumed)
         {
-            PendingRuns.VerifyMaterialization(repository, run);
+            PendingRuns.VerifyMaterialization(repository, run, host);
             completed = StateStore.Load(context.Workspace);
         }
         else
@@ -61,43 +94,102 @@ internal static class ForgeWorkflow
             var forgeDirectory = Path.Combine(context.Workspace, ".forge");
             if (Directory.Exists(forgeDirectory))
             {
-                PendingRuns.VerifyMaterialization(repository, run);
+                PendingRuns.VerifyMaterialization(repository, run, host);
                 completed = StateStore.Load(context.Workspace);
             }
             else
             {
-                var transaction = run.Materialization ?? throw new CliFailure("state", "Cursor materialization transaction is missing", 3);
-                var plan = transaction.PlanText ?? throw new CliFailure("state", "Cursor materialization execution snapshot is missing", 3);
+                var transaction = run.Materialization ?? throw new CliFailure("state", $"{hostName} materialization transaction is missing", 3);
+                var transactionPlan = transaction.PlanText ?? throw new CliFailure("state", $"{hostName} materialization snapshot is missing", 3);
                 var reviewLog = string.Join("\n", run.Responses.Select(response => response.Response));
-                Materializer.EnsureManagedExclude(repository, repositoryLock);
-                var state = CreateCursorMaterializationState(repository, run, transaction);
-                state = PreparePlanLock(new CommandContext("plan lock", context.Workspace, ParsedArgs.Parse([]), state, HostKind.Cursor), plan);
+                Materializer.EnsureManagedExclude(repository, repositoryLock, host);
+                var state = createState(repository, run, transaction);
+                state = PreparePlanLock(new CommandContext("plan lock", context.Workspace, ParsedArgs.Parse([]), state, host), transactionPlan);
+                hydrateBaselines(repository, state);
                 state = Workflow.ForgeWorkflow.PrepareBuild(
-                    new CommandContext("build begin", context.Workspace, ParsedArgs.Parse([]), state, HostKind.Cursor), repositoryLock);
+                    new CommandContext("build begin", context.Workspace, ParsedArgs.Parse([]), state, host), repositoryLock);
                 state.UpdatedAt = transaction.Timestamp;
-                run = PendingRuns.BindMaterializationState(repository, run.RunId, state, repositoryLock);
-                PendingRuns.Fault("build-state-bound");
+                run = PendingRuns.BindMaterializationState(repository, run.RunId, state, repositoryLock, host);
+                if (host == HostKind.Cursor) PendingRuns.Fault("build-state-bound");
                 transaction = run.Materialization!;
                 var content = new MaterializationContent(
-                    plan,
+                    transactionPlan,
                     reviewLog,
                     run.ReviewRound,
                     run.ReviewCap,
                     new ModelSelection(transaction.ReviewerModel, transaction.ReviewerEffort),
                     new ModelSelection(transaction.BuilderModel, transaction.BuilderEffort));
-                Materializer.MaterializeCursorTransaction(repository, repositoryLock, transaction, content, state);
+                Materializer.MaterializePendingTransaction(repository, repositoryLock, transaction, content, state, host);
                 PendingRuns.Fault("forge-moved");
-                PendingRuns.VerifyMaterialization(repository, run);
+                PendingRuns.VerifyMaterialization(repository, run, host);
                 completed = StateStore.Load(context.Workspace);
             }
         }
-        if (run.Phase != PendingRunPhase.Consumed) PendingRuns.Consume(repository, run.RunId, repositoryLock);
+        if (run.Phase != PendingRunPhase.Consumed) PendingRuns.Consume(repository, run.RunId, repositoryLock, host);
         return new MaterializeData("forge-materialized", completed.Workflow.Phase.ToWireName(), completed.Models.Reviewer!, completed.Models.Builder!);
     }
-    
+
     private static ForgeState CreateCursorMaterializationState(RepositoryIdentity repository, PendingRun run, MaterializationTransaction transaction)
     {
-        var state = StateStore.CreateEmpty(HostKind.Cursor, RepositoryPaths.ScopeId(repository)); state.CreatedAt = transaction.Timestamp; state.UpdatedAt = transaction.Timestamp; state.Workflow.Phase = ForgePhase.Materialized; state.Workflow.Round = run.ReviewRound; state.Workflow.MaxRounds = run.ReviewCap; state.Models.Reviewer = new PinnedSelection(transaction.ReviewerModel, transaction.ReviewerEffort); state.Models.Builder = new PinnedSelection(transaction.BuilderModel, transaction.BuilderEffort); state.SourceRun = new RunIdentity("cursor:" + run.RunId, transaction.Id); state.ModelWaiverAudit = [new CursorModelWaiverAudit(run.ReviewerWaiver!.Role, run.ReviewerWaiver.Model, run.ReviewerWaiver.Effort, run.ReviewerWaiver.CursorVersion, run.ReviewerWaiver.Observed, run.ReviewerWaiver.Consent, run.ReviewerWaiver.Timestamp, run.ReviewerWaiver.ModelGuarantee), new CursorModelWaiverAudit(run.BuilderWaiver!.Role, run.BuilderWaiver.Model, run.BuilderWaiver.Effort, run.BuilderWaiver.CursorVersion, run.BuilderWaiver.Observed, run.BuilderWaiver.Consent, run.BuilderWaiver.Timestamp, run.BuilderWaiver.ModelGuarantee)]; state.ReviewerGuarantee = new ReviewerGuarantee(run.ReviewerGuarantee); state.ApprovalGuarantee = new ApprovalGuarantee(run.ApprovalGuarantee); return state;
+        var state = StateStore.CreateEmpty(HostKind.Cursor, RepositoryPaths.ScopeId(repository));
+        state.CreatedAt = transaction.Timestamp;
+        state.UpdatedAt = transaction.Timestamp;
+        state.Workflow.Phase = ForgePhase.Materialized;
+        state.Workflow.Round = run.ReviewRound;
+        state.Workflow.MaxRounds = run.ReviewCap;
+        state.Models.Reviewer = new PinnedSelection(transaction.ReviewerModel, transaction.ReviewerEffort);
+        state.Models.Builder = new PinnedSelection(transaction.BuilderModel, transaction.BuilderEffort);
+        state.SourceRun = new RunIdentity("cursor:" + run.RunId, transaction.Id);
+        state.ModelWaiverAudit =
+        [
+            new CursorModelWaiverAudit(run.ReviewerWaiver!.Role,
+                                       run.ReviewerWaiver.Model,
+                                       run.ReviewerWaiver.Effort,
+                                       run.ReviewerWaiver.CursorVersion,
+                                       run.ReviewerWaiver.Observed,
+                                       run.ReviewerWaiver.Consent,
+                                       run.ReviewerWaiver.Timestamp,
+                                       run.ReviewerWaiver.ModelGuarantee),
+            new CursorModelWaiverAudit(run.BuilderWaiver!.Role,
+                                       run.BuilderWaiver.Model,
+                                       run.BuilderWaiver.Effort,
+                                       run.BuilderWaiver.CursorVersion,
+                                       run.BuilderWaiver.Observed,
+                                       run.BuilderWaiver.Consent,
+                                       run.BuilderWaiver.Timestamp,
+                                       run.BuilderWaiver.ModelGuarantee)
+        ];
+        state.ReviewerGuarantee = new ReviewerGuarantee(run.ReviewerGuarantee);
+        state.ApprovalGuarantee = new ApprovalGuarantee(run.ApprovalGuarantee);
+        return state;
+    }
+
+    private static ForgeState CreateClaudeMaterializationState(RepositoryIdentity repository,
+                                                               PendingRun run,
+                                                               MaterializationTransaction transaction)
+    {
+        var state = StateStore.CreateEmpty(HostKind.Claude, RepositoryPaths.ScopeId(repository));
+        state.CreatedAt = transaction.Timestamp;
+        state.UpdatedAt = transaction.Timestamp;
+        state.Workflow.Phase = ForgePhase.Materialized;
+        state.Workflow.Round = run.ReviewRound;
+        state.Workflow.MaxRounds = run.ReviewCap;
+        state.Models.Reviewer = PinnedSelection.From(run.ReviewerSelection!);
+        state.Models.Builder = PinnedSelection.From(run.BuilderSelection!);
+        state.SourceRun = new RunIdentity("claude:" + run.RunId, transaction.Id);
+        state.ReviewerGuarantee = new ReviewerGuarantee("fresh");
+        state.ApprovalGuarantee = new ApprovalGuarantee("native");
+        return state;
+    }
+
+    private static void HydrateClaudeRecoveryBaselines(RepositoryIdentity repository, ForgeState state)
+    {
+        var scope = state.RepositoryScopeId;
+        var owner = new GitClient(repository.WorkspaceRoot).Run(["rev-parse", "--verify", $"refs/plan-forge/{scope}/owner"]);
+        if (owner.ExitCode != 0 || string.IsNullOrWhiteSpace(owner.Stdout)) return;
+        state.Baselines.Head = owner.Stdout.Trim();
+        var worktree = new GitClient(repository.WorkspaceRoot).Run(["rev-parse", "--verify", $"refs/plan-forge/{scope}/worktree-base"]);
+        state.Baselines.Worktree = worktree.ExitCode == 0 && !string.IsNullOrWhiteSpace(worktree.Stdout) ? worktree.Stdout.Trim() : state.Baselines.Head;
     }
 
     internal static ForgeState LockPlan(CommandContext context)

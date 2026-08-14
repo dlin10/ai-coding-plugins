@@ -3,13 +3,36 @@ using PlanForgeFlow.Review;
 using PlanForgeFlow.Serialization;
 using PlanForgeFlow.Workflow.State;
 using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Workspace;
+using PlanForgeFlow.OpenAI;
+using PlanForgeFlow.Claude;
 using ForgeWorkflow = PlanForgeFlow.Workflow.Planning.ForgeWorkflow;
 
 namespace PlanForgeFlow.Cli;
 
 internal sealed class CliApplication
 {
+    private sealed record HostPendingHandlers(Func<CommandContext, TextReader, PendingRun> Stage,
+                                              Func<CommandContext, PendingRun> Finalize,
+                                              Func<CommandContext, PendingRun> Abandon,
+                                              Func<CommandContext, PendingRun> Invalidate,
+                                              Func<CommandContext, TextReader, PendingRun> RecordResponse);
+
+    private static readonly IReadOnlyDictionary<HostKind, HostPendingHandlers> PendingHandlers = new Dictionary<HostKind, HostPendingHandlers>
+    {
+        [HostKind.Cursor] = new(CursorCommandHandlers.Stage,
+                                CursorCommandHandlers.Finalize,
+                                CursorCommandHandlers.Abandon,
+                                CursorCommandHandlers.Invalidate,
+                                CursorCommandHandlers.RecordResponse),
+        [HostKind.Claude] = new(ClaudeCommandHandlers.Stage,
+                                ClaudeCommandHandlers.Finalize,
+                                ClaudeCommandHandlers.Abandon,
+                                ClaudeCommandHandlers.Invalidate,
+                                ClaudeCommandHandlers.RecordResponse),
+    };
+
     public int Run(string[] args)
     {
 #if DEBUG
@@ -49,16 +72,23 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, ForgeWorkflow.LockPlan(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "plan materialize":
-                    JsonOutput.Success(command, context.Host == HostKind.Cursor ? ForgeWorkflow.MaterializeCursorPlan(context) : ForgeWorkflow.MaterializePlan(context), ForgeJsonContext.Default.JsonSuccessMaterializeData);
+                    JsonOutput.Success(command,
+                                       context.Host switch
+                                       {
+                                           HostKind.Cursor => ForgeWorkflow.MaterializeCursorPlan(context),
+                                           HostKind.Claude => ForgeWorkflow.MaterializeClaudePlan(context),
+                                           _ => ForgeWorkflow.MaterializePlan(context),
+                                       },
+                                       ForgeJsonContext.Default.JsonSuccessMaterializeData);
                     break;
                 case "plan stage":
-                    JsonOutput.Success(command, CursorCommandHandlers.Stage(context, Console.In), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, PendingHandler(context.Host).Stage(context, Console.In), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan finalize":
-                    JsonOutput.Success(command, CursorCommandHandlers.Finalize(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, PendingHandler(context.Host).Finalize(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan abandon":
-                    JsonOutput.Success(command, CursorCommandHandlers.Abandon(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, PendingHandler(context.Host).Abandon(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "plan invalidate":
-                    JsonOutput.Success(command, CursorCommandHandlers.Invalidate(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command, PendingHandler(context.Host).Invalidate(context), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "agents install":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.InstallAgents(), ForgeJsonContext.Default.JsonSuccessInstallAgentsData);
                     break;
@@ -84,10 +114,47 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, ForgeReview.Verdict(context), ForgeJsonContext.Default.JsonSuccessVerdictData);
                     break;
                 case "review record-response":
-                    JsonOutput.Success(command, CursorCommandHandlers.RecordResponse(context, Console.In), ForgeJsonContext.Default.JsonSuccessPendingRun); break;
+                    JsonOutput.Success(command,
+                                       PendingHandler(context.Host).RecordResponse(context, Console.In),
+                                       ForgeJsonContext.Default.JsonSuccessPendingRun); break;
                 case "session builder":
                 case "session reviewer":
-                    JsonOutput.Success(command, Workflow.ForgeWorkflow.RegisterSession(context, command.EndsWith("builder", StringComparison.Ordinal) ? ForgeRole.Builder : ForgeRole.Reviewer), ForgeJsonContext.Default.JsonSuccessAgentState);
+                    JsonOutput.Success(command,
+                                       Workflow.ForgeWorkflow.RegisterSession(context,
+                                                                              command.EndsWith("builder", StringComparison.Ordinal)
+                                                                                  ? ForgeRole.Builder
+                                                                                  : ForgeRole.Reviewer),
+                                       ForgeJsonContext.Default.JsonSuccessAgentState);
+                    break;
+                case "session start":
+                    JsonOutput.Success(command,
+                                       AppServerSessions.Start(context.Workspace,
+                                                               context.Args.GetRequired("role"),
+                                                               context.Args.GetRequired("model"),
+                                                               context.Args.GetRequired("effort"),
+                                                               context.Args.Get("thread-id"),
+                                                               Console.In.ReadToEnd(),
+                                                               context.Host),
+                                       ForgeJsonContext.Default.JsonSuccessAppServerSessionState);
+                    break;
+                case "session status":
+                    JsonOutput.Success(command,
+                                       AppServerSessions.Status(context.Workspace, context.Args.GetRequired("session-id"), context.Host),
+                                       ForgeJsonContext.Default.JsonSuccessAppServerSessionState);
+                    break;
+                case "session result":
+                    JsonOutput.Success(command,
+                                       AppServerSessions.Result(context.Workspace, context.Args.GetRequired("session-id"), context.Host),
+                                       ForgeJsonContext.Default.JsonSuccessAppServerSessionResult);
+                    break;
+                case "session cancel":
+                    JsonOutput.Success(command,
+                                       AppServerSessions.Cancel(context.Workspace, context.Args.GetRequired("session-id"), context.Host),
+                                       ForgeJsonContext.Default.JsonSuccessAppServerSessionState);
+                    break;
+                case "session worker":
+                    AppServerSessions.RunWorker(context.Workspace, context.Args.GetRequired("session-id"), context.Host);
+                    JsonOutput.Success(command, new WorkerData(true), ForgeJsonContext.Default.JsonSuccessWorkerData);
                     break;
                 case "run doctor":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace, context.Host), ForgeJsonContext.Default.JsonSuccessDoctorData);
@@ -100,29 +167,30 @@ internal sealed class CliApplication
                         var state = StateStore.Load(context.Workspace);
                         if (state.Host != context.Host) throw new CliFailure("state", "Forge state host does not match --host", 3);
                         statusRepository = RepositoryPaths.Identify(context.Workspace);
-                        if (state.RepositoryScopeId != RepositoryPaths.ScopeId(statusRepository)) throw new CliFailure("state", "Forge state repository scope does not match this workspace", 3);
-                        statusState = new StatusPresentData(
-                            ForgeState.Version,
-                            ForgeState.Generation,
-                            state.CreatedAt,
-                            state.UpdatedAt,
-                            state.Workflow,
-                            state.Models,
-                            state.Agents,
-                            state.Dispatch,
-                            state.Baselines,
-                            state.Review,
-                            true,
-                            ForgeState.SchemaVersion,
-                            state.Host,
-                            state.SourceRun,
-                            state.ModelWaiverAudit,
-                            state.ReviewerGuarantee,
-                            state.ApprovalGuarantee,
-                            state.RepositoryScopeId);
+                        if (state.RepositoryScopeId != RepositoryPaths.ScopeId(statusRepository))
+                            throw new CliFailure("state", "Forge state repository scope does not match this workspace", 3);
+                        statusState = new StatusPresentData(ForgeState.Version,
+                                                            ForgeState.Generation,
+                                                            state.CreatedAt,
+                                                            state.UpdatedAt,
+                                                            state.Workflow,
+                                                            state.Models,
+                                                            state.Agents,
+                                                            state.Dispatch,
+                                                            state.Baselines,
+                                                            state.Review,
+                                                            true,
+                                                            ForgeState.SchemaVersion,
+                                                            state.Host,
+                                                            state.SourceRun,
+                                                            state.ModelWaiverAudit,
+                                                            state.ReviewerGuarantee,
+                                                            state.ApprovalGuarantee,
+                                                            state.RepositoryScopeId);
                     }
-                    var pendingRun = context.Host == HostKind.Cursor
-                                         ? PendingRuns.Status(statusRepository ?? RepositoryPaths.Identify(context.Workspace))
+
+                    var pendingRun = context.Host is HostKind.Cursor or HostKind.Claude
+                                         ? PendingRuns.Status(statusRepository ?? RepositoryPaths.Identify(context.Workspace), context.Host)
                                          : null;
                     JsonOutput.Success(command, new RunStatusData(statusState, pendingRun), ForgeJsonContext.Default.JsonSuccessRunStatusData);
                     break;
@@ -130,12 +198,18 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "run cleanup":
-                    Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
-                    JsonOutput.Success(command, new CleanupData(true, context.Args.Has("purge-generated-agents")), ForgeJsonContext.Default.JsonSuccessCleanupData);
+                    if (context.Args.Has("legacy"))
+                        Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                    else
+                        Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                    JsonOutput.Success(command,
+                                       new CleanupData(true, context.Args.Has("purge-generated-agents")),
+                                       ForgeJsonContext.Default.JsonSuccessCleanupData);
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");
             }
+
             return 0;
         }
         catch (CliFailure failure)
@@ -165,6 +239,11 @@ internal sealed class CliApplication
         return args[0];
     }
 
+    private static HostPendingHandlers PendingHandler(HostKind host) => PendingHandlers.TryGetValue(host, out var handlers)
+                                                                            ? handlers
+                                                                            : throw new CliFailure("usage",
+                                                                                                   $"pending-run commands do not support --host {host.ToString().ToLowerInvariant()}");
+
     private static void ValidateOptions(CliCommandDefinition command, ParsedArgs parsed)
     {
         if (parsed.Positionals.Count > 0)
@@ -175,15 +254,15 @@ internal sealed class CliApplication
         foreach (var name in parsed.Names)
         {
             if (!command.Options.Contains(name)) throw new CliFailure("usage", $"unknown option --{name}");
-            if (!CliCommands.IsBoolean(name) && string.Equals(parsed.Get(name), "true", StringComparison.Ordinal)) throw new CliFailure("usage", $"--{name} requires a value");
+            if (!CliCommands.IsBoolean(name) && string.Equals(parsed.Get(name), "true", StringComparison.Ordinal))
+                throw new CliFailure("usage", $"--{name} requires a value");
         }
     }
 
     private static void PrintHelp(string command)
     {
-        JsonOutput.Success(command, new HelpData(
-            $"planforge {command} [options]",
-            CliCommands.Names.Append("hook capture-context").ToList()), ForgeJsonContext.Default.JsonSuccessHelpData);
+        JsonOutput.Success(command,
+                           new HelpData($"planforge {command} [options]", CliCommands.Names.Append("hook capture-context").ToList()),
+                           ForgeJsonContext.Default.JsonSuccessHelpData);
     }
-
 }

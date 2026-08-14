@@ -82,12 +82,26 @@ internal static class RepositoryPaths
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
     }
 
-    private static string PluginData()
+    internal static string PluginData(HostKind host = HostKind.Codex)
     {
         var overridePath = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
-        return string.IsNullOrWhiteSpace(overridePath)
-                   ? Path.Combine(CodexHome(), "plugin-data", "plan-forge-flow")
-                   : Path.GetFullPath(overridePath);
+        if (!string.IsNullOrWhiteSpace(overridePath)) return Path.GetFullPath(overridePath);
+        if (host == HostKind.Claude)
+        {
+            var claudeData = Environment.GetEnvironmentVariable("CLAUDE_PLUGIN_DATA");
+            return string.IsNullOrWhiteSpace(claudeData)
+                       ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "plugin-data", "plan-forge-flow")
+                       : Path.GetFullPath(claudeData);
+        }
+        if (host == HostKind.Cursor)
+        {
+            var cursorHome = Environment.GetEnvironmentVariable("CURSOR_HOME");
+            var home = string.IsNullOrWhiteSpace(cursorHome)
+                           ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cursor")
+                           : Path.GetFullPath(cursorHome);
+            return Path.Combine(home, "plugin-data", "plan-forge-flow");
+        }
+        return Path.Combine(CodexHome(), "plugin-data", "plan-forge-flow");
     }
 
     internal static string AgentsDirectory()
@@ -99,6 +113,12 @@ internal static class RepositoryPaths
     }
 
     private static string PendingPlanDirectory() => Path.Combine(PluginData(), "pending-plans");
+
+    internal static string AppServerSessionDirectory(string workspaceRoot, HostKind host = HostKind.Codex)
+    {
+        var key = OperatingSystem.IsWindows() ? workspaceRoot.ToLowerInvariant() : workspaceRoot;
+        return Path.Combine(PluginData(host), "app-server-sessions", Hashing.Sha256Hex(key));
+    }
 
     public static string PendingPlanPath(string workspaceRoot)
     {

@@ -5,11 +5,14 @@ description: Harden and implement changes through Cursor native Plan Mode, fresh
 
 # Plan Forge Flow for Cursor
 
-Use the bundled launcher at `../../../bin/planforge-launcher.ps1` on Windows or `../../../bin/planforge-launcher.sh` on Unix. Always pass `--host cursor`. Read [workflow.md](references/workflow.md), [native-plan-contract.md](references/native-plan-contract.md), and [model-waiver.md](references/model-waiver.md) completely before acting.
+Use the bundled launcher at `../../../bin/planforge-launcher.ps1` on Windows or `../../../bin/planforge-launcher.sh` on Unix. Always pass `--host cursor`. Read [workflow.md](references/workflow.md), [native-plan-contract.md](references/native-plan-contract.md), [model-waiver.md](references/model-waiver.md), and [roslyn-first-review.md](references/roslyn-first-review.md) completely before acting.
 
 ## Hard rules
 
 - Work only from native Cursor Plan Mode. If it is not active, stop and ask the user to press Shift+Tab and invoke `/forge` again.
+- After ordinary `run doctor --host cursor`, perform the optional Roslyn
+  capability probe. Report failures as readiness warnings without changing the
+  doctor verdict or review coverage by themselves.
 - Keep the reviewed plan in chat until review, builder selection, and `plan finalize` have succeeded. Native plan creation is the terminal action of the normal Plan turn; do not perform another action after creating it.
 - Before local Build, preapproval commands may write only external `PendingRun` data. Do not create `.forge`, refs, or managed excludes.
 - Spawn a fresh `forge-reviewer` for every review round. Its `readonly: true` flag and prompt are advisory, not a security boundary. A normal review that mutates the workspace stops the release and requires manual inspection.

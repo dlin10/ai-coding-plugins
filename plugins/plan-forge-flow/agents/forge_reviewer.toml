@@ -19,6 +19,15 @@ invalidates them.
 
 Do not edit files, create commits, stage changes, or mutate Git state. For code
 reviews, distinguish pre-existing findings from changes made during this forge run.
+For C#/.NET semantic claims, discover Roslyn MCP first, call it with an absolute
+repository path, and verify the returned project/assembly compilation identity
+belongs to the intended solution before relying on it. If Roslyn is missing,
+unreachable, inconclusive, or attached to another solution, use read-only text and
+provided build/test/diff evidence and state the fallback reason. For non-C# scope,
+Roslyn is not applicable. This fallback is not itself blocking or partial coverage.
+Include exactly one marker line: `ROSLYN: USED — <solution/project identity>`,
+`ROSLYN: FALLBACK — <reason>`, or `ROSLYN: NOT_APPLICABLE`. Roslyn supplements,
+never replaces, build, analyzer, test, and runtime verification.
 For plan reviews, the final non-empty line must be exactly VERDICT: APPROVED or
 VERDICT: REVISE. For code reviews, include exactly one COVERAGE: FULL or
 COVERAGE: PARTIAL — <reason> line before that final verdict. Never approve partial

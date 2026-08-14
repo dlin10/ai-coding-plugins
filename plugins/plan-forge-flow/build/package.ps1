@@ -11,9 +11,10 @@ $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
 $project = Join-Path $pluginRoot 'src/PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
+$claudeMetadata = Get-Content (Join-Path $pluginRoot '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json
 $cursorMetadata = Get-Content (Join-Path $pluginRoot '.cursor-plugin/plugin.json') -Raw | ConvertFrom-Json
 $version = $metadata.version
-if ($cursorMetadata.version -ne $version) { throw "Codex and Cursor manifest versions must match" }
+if ($claudeMetadata.version -ne $version -or $cursorMetadata.version -ne $version) { throw "Codex, Claude, and Cursor manifest versions must match" }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $pluginRoot 'artifacts' }
 $outputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot '..\..'))
@@ -69,6 +70,7 @@ $commonPublish = @(
     '--configuration', $Configuration,
     '--self-contained', 'true',
     '-p:PublishSingleFile=true',
+    "-p:Version=$version",
     '-p:PublishTrimmed=true',
     '-p:IncludeNativeLibrariesForSelfExtract=true',
     '-p:EnableCompressionInSingleFile=false',
@@ -153,11 +155,36 @@ function Test-PluginArchive([string]$Archive, [string]$Rid) {
     try {
         foreach ($required in @(
             '.agents/plugins/marketplace.json',
+            '.claude-plugin/marketplace.json',
             '.cursor-plugin/marketplace.json',
             'plugins/plan-forge-flow/.codex-plugin/plugin.json',
-            'plugins/plan-forge-flow/.cursor-plugin/plugin.json'
+            'plugins/plan-forge-flow/.claude-plugin/plugin.json',
+            'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
+            'plugins/plan-forge-flow/skills/forge/SKILL.md',
+            'plugins/plan-forge-flow/hooks/hooks.claude.json',
+            'plugins/plan-forge-flow/scripts/capture-claude-agent-evidence.mjs'
         )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive for $Rid is missing $required" }
+        }
+        $agentPrefix = 'plugins/plan-forge-flow/agents/forge-'
+        $claudeAgents = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($agentPrefix, [StringComparison]::Ordinal) -and $_.FullName.EndsWith('.md', [StringComparison]::Ordinal) })
+        if ($claudeAgents.Count -ne 12) { throw "archive for $Rid must contain exactly 12 Claude agent descriptors; found $($claudeAgents.Count)" }
+        $expectedTools = 'Read, Grep, Glob, ToolSearch, mcp__roslyn-mcp__roslyn_validate_file, mcp__roslyn-mcp__roslyn_search_symbols, mcp__roslyn-mcp__roslyn_get_symbol_info, mcp__roslyn-mcp__roslyn_find_references, mcp__roslyn-mcp__roslyn_find_implementations, mcp__roslyn-mcp__roslyn_find_callers, mcp__roslyn-mcp__roslyn_go_to_definition, mcp__roslyn-mcp__roslyn_get_document_symbols, mcp__roslyn-mcp__roslyn_find_dead_code'
+        foreach ($effort in @('none', 'low', 'medium', 'high', 'xhigh', 'max')) {
+            foreach ($role in @('reviewer', 'builder')) {
+                $path = "${agentPrefix}${role}-${effort}.md"
+                $entry = $zipArchive.GetEntry($path)
+                if ($null -eq $entry) { throw "archive for $Rid is missing $path" }
+                $reader = [IO.StreamReader]::new($entry.Open())
+                try { $text = $reader.ReadToEnd().Replace("`r`n", "`n") } finally { $reader.Dispose() }
+                if ($text -match '(?m)^model:') { throw "archive agent $path must omit model" }
+                if ($role -eq 'reviewer') {
+                    $toolsMatch = [Regex]::Match($text, '(?m)^tools: (.+)$')
+                    if (-not $toolsMatch.Success -or $toolsMatch.Groups[1].Value -cne $expectedTools) { throw "archive reviewer $path has the wrong least-privilege allowlist" }
+                    if ($toolsMatch.Groups[1].Value.Contains('*')) { throw "archive reviewer $path contains a wildcard tool" }
+                }
+                elseif ($text -match '(?m)^tools:') { throw "archive builder $path must inherit user tools" }
+            }
         }
         if ($Rid.StartsWith('win-', [StringComparison]::Ordinal)) { return }
         $paths = @(
@@ -232,10 +259,11 @@ foreach ($rid in $Rids) {
     }
 
     $bundlePlugin = Join-Path $bundle 'plugins/plan-forge-flow'
-    New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundle '.cursor-plugin'), (Join-Path $bundlePlugin 'bin') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundle '.claude-plugin'), (Join-Path $bundle '.cursor-plugin'), (Join-Path $bundlePlugin 'bin') | Out-Null
     Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
+    Copy-Item -LiteralPath (Join-Path $pluginRoot '.claude-plugin') -Destination $bundlePlugin -Recurse
     Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
-    foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks')) {
+    foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks', 'scripts')) {
         Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
     }
     foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
@@ -268,22 +296,33 @@ foreach ($rid in $Rids) {
             [ordered]@{
                 name = 'plan-forge-flow'
                 source = './plugins/plan-forge-flow'
-                description = 'Plan hardening, independent advisory review, and stepwise local implementation for Cursor 3.15.6 and newer.'
+                description = 'Plan hardening, independent review, and stepwise implementation for Codex, Claude Code 2.1.226 and newer, and Cursor 3.15.6 and newer.'
             }
         )
     }
     $cursorMarketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.cursor-plugin/marketplace.json') -Encoding utf8
+    $claudeMarketplace = [ordered]@{
+        name = $cursorMarketplace.name
+        owner = $cursorMarketplace.owner
+        plugins = $cursorMarketplace.plugins
+    }
+    $claudeMarketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.claude-plugin/marketplace.json') -Encoding utf8
 
     foreach ($requiredPath in @(
         (Join-Path $bundlePlugin '.codex-plugin/plugin.json'),
+        (Join-Path $bundlePlugin '.claude-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
         (Join-Path $bundlePlugin 'cursor/commands/forge.md'),
         (Join-Path $bundlePlugin 'cursor/skills/forge/SKILL.md'),
         (Join-Path $bundlePlugin 'cursor/agents/forge-reviewer.md'),
         (Join-Path $bundlePlugin 'cursor/agents/forge-builder.md'),
         (Join-Path $bundlePlugin 'hooks/hooks.json'),
+        (Join-Path $bundlePlugin 'hooks/hooks.claude.json'),
+        (Join-Path $bundlePlugin 'scripts/capture-claude-agent-evidence.mjs'),
+        (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
+        (Join-Path $bundle '.claude-plugin/marketplace.json'),
         (Join-Path $bundle '.cursor-plugin/marketplace.json')
     )) {
         if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) { throw "bundle for $rid is missing $requiredPath" }

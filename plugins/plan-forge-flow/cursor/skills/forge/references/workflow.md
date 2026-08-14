@@ -2,7 +2,7 @@
 
 ## 1. Chat planning and automatic review
 
-1. Determine the actual Cursor client version and run `planforge run doctor --host cursor --workspace <workspace>`. Stop on any error, including an existing `.forge` target; do not clean up or migrate an earlier run automatically. The actual client version must be 3.15.6 or newer.
+1. Determine the actual Cursor client version and run `planforge run doctor --host cursor --workspace <workspace>`. Stop on any error, including an existing `.forge` target; do not clean up or migrate an earlier run automatically. The actual client version must be 3.15.6 or newer. Then follow [roslyn-first-review.md](roslyn-first-review.md) for the optional host-side capability probe; its readiness warning never changes the doctor verdict.
 2. Generate a unique run ID and use the doctor-reported canonical workspace and scope identity.
 3. Grill the request one question at a time until the plan is decision-complete.
 4. Ask for the reviewer model and effort as free text, then obtain the per-run waiver described in [model-waiver.md](model-waiver.md).

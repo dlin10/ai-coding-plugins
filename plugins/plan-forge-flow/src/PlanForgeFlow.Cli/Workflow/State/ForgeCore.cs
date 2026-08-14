@@ -15,7 +15,23 @@ internal enum HostKind
     Codex,
     [JsonStringEnumMemberName("cursor")]
     Cursor,
+    [JsonStringEnumMemberName("claude")]
+    Claude,
 }
+
+internal enum ProviderKind
+{
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+    [JsonStringEnumMemberName("openai")]
+    OpenAI,
+}
+
+internal sealed record ProviderSelection(ProviderKind Provider,
+                                         string RequestedModel,
+                                         string ResolvedModel,
+                                         IReadOnlyList<string> ModelsUsed,
+                                         string Effort);
 
 internal sealed record ProcessResult(int ExitCode, string Stdout, string Stderr);
 

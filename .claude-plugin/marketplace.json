@@ -3,11 +3,17 @@
   "owner": {
     "name": "Dmitry Linetsky"
   },
+  "description": "Cross-host developer tools for Codex, Claude Code, and Cursor.",
   "plugins": [
     {
       "name": "find-files",
       "source": "./plugins/find-files",
       "description": "Index-backed file and folder lookup for Windows via voidtools Everything — finds files outside the current project instantly, with no directory walk."
+    },
+    {
+      "name": "plan-forge-flow",
+      "source": "./plugins/plan-forge-flow",
+      "description": "Plan hardening, independent review, and stepwise implementation for Codex, Claude Code 2.1.226 and newer, and Cursor 3.15.6 and newer."
     },
     {
       "name": "roslyn-mcp",

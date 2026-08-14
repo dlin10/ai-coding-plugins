@@ -3,6 +3,7 @@ using PlanForgeFlow.Cli.Commands;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
 using PlanForgeFlow.Workflow.State;
+using PlanForgeFlow.Pending;
 
 namespace PlanForgeFlow.Cursor;
 

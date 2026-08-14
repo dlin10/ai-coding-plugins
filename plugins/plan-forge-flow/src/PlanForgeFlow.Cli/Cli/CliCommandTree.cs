@@ -6,16 +6,16 @@ internal static class CliCommands
 {
     private static readonly HashSet<string> BooleanOptions = new HashSet<string>(StringComparer.Ordinal)
     {
-        "cancel", "retry", "relock", "amendment", "full", "accept-risk", "purge-generated-agents", "verification-passed",
+        "cancel", "retry", "relock", "amendment", "full", "accept-risk", "purge-generated-agents", "verification-passed", "legacy",
     };
 
     private static readonly IReadOnlyDictionary<string, CliCommandDefinition> Definitions =
         new Dictionary<string, CliCommandDefinition>(StringComparer.Ordinal)
         {
             ["plan lock"] = Define("plan lock", true, "workspace", "relock", "amendment"),
-            ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment", "run-id"),
-            ["plan stage"] = Define("plan stage", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "accept-risk", "authorization-note"),
-            ["plan finalize"] = Define("plan finalize", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason"),
+            ["plan materialize"] = Define("plan materialize", false, "workspace", "amendment", "run-id", "plan-file"),
+            ["plan stage"] = Define("plan stage", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "accept-risk", "authorization-note", "provider", "requested-model", "resolved-model", "models-used"),
+            ["plan finalize"] = Define("plan finalize", false, "workspace", "run-id", "model", "effort", "cursor-version", "observed-model", "waiver-reason", "provider", "requested-model", "resolved-model", "models-used", "builder-hold-id"),
             ["plan abandon"] = Define("plan abandon", false, "workspace", "run-id"),
             ["plan invalidate"] = Define("plan invalidate", false, "workspace", "run-id", "reason"),
             ["agents install"] = Define("agents install", false, "workspace"),
@@ -29,10 +29,15 @@ internal static class CliCommands
             ["review record-response"] = Define("review record-response", false, "workspace", "run-id", "dispatch-id", "stage"),
             ["session builder"] = Define("session builder", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
             ["session reviewer"] = Define("session reviewer", true, "workspace", "id", "dispatch-id", "model", "effort", "authorization-note"),
+            ["session start"] = Define("session start", false, "workspace", "role", "model", "effort", "thread-id"),
+            ["session status"] = Define("session status", false, "workspace", "session-id"),
+            ["session result"] = Define("session result", false, "workspace", "session-id"),
+            ["session cancel"] = Define("session cancel", false, "workspace", "session-id"),
+            ["session worker"] = Define("session worker", false, "workspace", "session-id"),
             ["run doctor"] = Define("run doctor", false, "workspace"),
             ["run status"] = Define("run status", false, "workspace"),
             ["run set"] = Define("run set", true, "workspace", "key", "value", "amendment", "accept-risk", "authorization-note"),
-            ["run cleanup"] = Define("run cleanup", false, "workspace", "purge-generated-agents"),
+            ["run cleanup"] = Define("run cleanup", false, "workspace", "purge-generated-agents", "legacy"),
         };
 
     public static IReadOnlyCollection<string> Names => Definitions.Keys.ToArray();

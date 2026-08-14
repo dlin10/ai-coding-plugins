@@ -1,7 +1,7 @@
 using System.Globalization;
 using PlanForgeFlow.Cli;
 using PlanForgeFlow.Cli.Commands;
-using PlanForgeFlow.Cursor;
+using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Process;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.Review;
@@ -56,9 +56,9 @@ internal static partial class ForgeWorkflow
             if (existing.ExitCode == 0 && !string.IsNullOrWhiteSpace(existing.Stdout)) existingRefs[reference] = existing.Stdout.Trim();
         }
         var refsExist = existingRefs.Count == 3;
-        var cursorRecovery = context.Host == HostKind.Cursor && existingRefs.Count > 0;
-        if (cursorRecovery && (!existingRefs.TryGetValue(ownerRef, out var owner) || owner != state.Baselines.Head || existingRefs.TryGetValue(headRef, out var existingHead) && existingHead != owner)) throw new CliFailure("state", "Cursor baseline refs conflict with the materialization transaction", 3);
-        if (refsExist && !reuseBaseline && !cursorRecovery) throw new CliFailure("state", "Git baseline refs already exist; cleanup the previous run or use amendment relock", 3);
+        var pendingRecovery = context.Host is HostKind.Cursor or HostKind.Claude && existingRefs.Count > 0;
+        if (pendingRecovery && (!existingRefs.TryGetValue(ownerRef, out var owner) || owner != state.Baselines.Head || existingRefs.TryGetValue(headRef, out var existingHead) && existingHead != owner)) throw new CliFailure("state", "pending baseline refs conflict with the materialization transaction", 3);
+        if (refsExist && !reuseBaseline && !pendingRecovery) throw new CliFailure("state", "Git baseline refs already exist; cleanup the previous run or use amendment relock", 3);
 
         var head = existingRefs.TryGetValue(headRef, out var pinnedHead)
                        ? new ProcessResult(0, pinnedHead, string.Empty)
@@ -91,12 +91,12 @@ internal static partial class ForgeWorkflow
                 }
                 var update = new GitClient(workspace).Run(["update-ref", pair.Item1, pair.Item2]);
                 if (update.ExitCode != 0) throw new CliFailure("environment", $"could not pin Git baseline ref {pair.Item1}: {update.Stderr.Trim()}");
-                if (context.Host == HostKind.Cursor) PendingRuns.Fault(pair.Item3);
+                if (context.Host is HostKind.Cursor or HostKind.Claude) PendingRuns.Fault(pair.Item3);
             }
         }
 
-        var untracked = cursorRecovery || refsExist ? state.Baselines.Untracked.ToList() : [];
-        if (!cursorRecovery && !refsExist)
+        var untracked = pendingRecovery || refsExist ? state.Baselines.Untracked.ToList() : [];
+        if (!pendingRecovery && !refsExist)
         {
             var untrackedPaths = ReviewEvidence.PathList(workspace, ["ls-files", "--others", "--exclude-standard", "-z"], "could not record the untracked baseline");
             untracked = ReviewEvidence.BaselineEntries(workspace, untrackedPaths);
@@ -209,6 +209,7 @@ internal static partial class ForgeWorkflow
         if (definition.RequiresFreshReview) ForgeReview.RequireFreshReviewManifest(workspace, state);
 
         var dispatchId = "dispatch-" + Hashing.Nonce()[..16];
+        var conflict = stage == DispatchStage.Build ? state.Dispatch.Conflict : null;
         state = StateStore.Update(workspace, state, value =>
         {
             value.Dispatch.Id = dispatchId;
@@ -218,7 +219,7 @@ internal static partial class ForgeWorkflow
             value.Dispatch.Pending = true;
             value.Dispatch.Model = pinnedSelection.Model;
             value.Dispatch.Effort = pinnedSelection.Effort;
-            value.Dispatch.Conflict = null;
+            value.Dispatch.Conflict = conflict;
         });
         return state.Dispatch;
     }
@@ -257,6 +258,7 @@ internal static partial class ForgeWorkflow
         {
             value.Dispatch.Pending = false;
             value.Dispatch.LastVerificationPassed = passed;
+            value.Dispatch.Conflict = null;
             if (stage == DispatchStage.Build)
             {
                 value.Workflow.NextTaskNumber = taskNumber + 1;

@@ -6,7 +6,7 @@ using PlanForgeFlow.Review;
 using PlanForgeFlow.Workflow.Planning;
 using PlanForgeFlow.Workflow.State;
 
-namespace PlanForgeFlow.Cursor;
+namespace PlanForgeFlow.Pending;
 
 internal static partial class PendingRuns
 {
@@ -64,7 +64,7 @@ internal static partial class PendingRuns
             throw new CliFailure("state", "Cursor review response is not legal", 3);
         if (run.Responses.Any(item => item.DispatchId == dispatchId))
             throw new CliFailure("state", "Cursor reviewer dispatch identity must be fresh for every round", 3);
-        var normalized = Canonical(response);
+        var normalized = CanonicalText.Canonicalize(response);
         if (Encoding.UTF8.GetByteCount(normalized) > 256 * 1024) throw new CliFailure("usage", "review response exceeds the size bound");
         var verdictLines = normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(line => line.StartsWith("VERDICT:", StringComparison.Ordinal))
                                      .ToArray();
