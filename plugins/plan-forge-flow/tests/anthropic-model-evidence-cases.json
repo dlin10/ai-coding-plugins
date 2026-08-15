@@ -1,9 +1,0 @@
-[
-  { "alias": "sonnet", "model": "claude-sonnet-4-6", "valid": true },
-  { "alias": "sonnet", "model": "vendor@sonnet@4", "valid": false },
-  { "alias": "sonnet", "model": "sonnet_v2", "valid": true },
-  { "alias": "sonnet", "model": "claude-sonnet4", "valid": false },
-  { "alias": "sonnet", "model": "claude-2sonnet", "valid": false },
-  { "alias": "opus", "model": "claude-opus-4-6", "valid": true },
-  { "alias": "opus", "model": "claude-opus2", "valid": false }
-]

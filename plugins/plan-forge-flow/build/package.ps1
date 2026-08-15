@@ -13,7 +13,7 @@ if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Syst
 $rid = 'win-x64'
 $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
-$project = Join-Path $pluginRoot 'src/PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj'
+$project = Join-Path $pluginRoot 'src/PlanForge/PlanForge.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
 $claudeMetadata = Get-Content (Join-Path $pluginRoot '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json
 $cursorMetadata = Get-Content (Join-Path $pluginRoot '.cursor-plugin/plugin.json') -Raw | ConvertFrom-Json
@@ -125,6 +125,45 @@ function Copy-InstalledBinary([string]$Source, [string]$Destination) {
     }
 }
 
+function Test-PublishedServer([string]$Executable) {
+    # The published binary is an MCP stdio server, so the smoke test is a protocol handshake:
+    # initialize, then tools/list must name every tool the workflow calls.
+    $startInfo = [Diagnostics.ProcessStartInfo]::new($Executable)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"package-verify","version":"1.0.0"}}}')
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+        $process.StandardInput.Flush()
+
+        $tools = $null
+        while ($null -eq $tools) {
+            $read = $process.StandardOutput.ReadLineAsync()
+            if (-not $read.Wait(60000)) { throw 'published executable did not answer the MCP handshake within 60s' }
+            $line = $read.Result
+            if ($null -eq $line) { throw 'published executable closed stdout during the MCP handshake' }
+            $message = $line | ConvertFrom-Json
+            if ($message.id -eq 2) {
+                if ($message.error) { throw "published executable failed tools/list: $($message.error.message)" }
+                $tools = @($message.result.tools)
+            }
+        }
+
+        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.approve', 'forge.build.next', 'forge.review.code', 'forge.status')) {
+            if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
+        }
+    }
+    finally {
+        if (-not $process.HasExited) { $process.Kill($true) }
+        $process.Dispose()
+    }
+}
+
 function Test-PluginArchive([string]$Archive) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zipArchive = [IO.Compression.ZipFile]::OpenRead($Archive)
@@ -136,10 +175,9 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.codex-plugin/plugin.json',
                 'plugins/plan-forge-flow/.claude-plugin/plugin.json',
                 'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
+                'plugins/plan-forge-flow/.mcp.json',
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
-                'plugins/plan-forge-flow/hooks/hooks.claude.json',
-                'plugins/plan-forge-flow/scripts/claude-workflow-hook.mjs',
-                'plugins/plan-forge-flow/scripts/capture-claude-agent-evidence.mjs'
+                'plugins/plan-forge-flow/prompts/roslyn-contract.md'
             )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive is missing $required" }
         }
@@ -149,25 +187,20 @@ function Test-PluginArchive([string]$Archive) {
         if ($shippedExecutables.Count -ne 1 -or $shippedExecutables[0].FullName -ne 'plugins/plan-forge-flow/bin/win-x64/planforge.exe') {
             throw "archive must contain only the win-x64 executable"
         }
-        $agentPrefix = 'plugins/plan-forge-flow/agents/forge-'
-        $claudeAgents = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($agentPrefix, [StringComparison]::Ordinal) -and $_.FullName.EndsWith('.md', [StringComparison]::Ordinal) })
-        if ($claudeAgents.Count -ne 12) { throw "archive must contain exactly 12 Claude agent descriptors; found $($claudeAgents.Count)" }
-        $expectedTools = 'Read, Grep, Glob, ToolSearch, mcp__roslyn-mcp__roslyn_validate_file, mcp__roslyn-mcp__roslyn_search_symbols, mcp__roslyn-mcp__roslyn_get_symbol_info, mcp__roslyn-mcp__roslyn_find_references, mcp__roslyn-mcp__roslyn_find_implementations, mcp__roslyn-mcp__roslyn_find_callers, mcp__roslyn-mcp__roslyn_go_to_definition, mcp__roslyn-mcp__roslyn_get_document_symbols, mcp__roslyn-mcp__roslyn_find_dead_code'
-        foreach ($effort in @('none', 'low', 'medium', 'high', 'xhigh', 'max')) {
-            foreach ($role in @('reviewer', 'builder')) {
-                $path = "${agentPrefix}${role}-${effort}.md"
-                $entry = $zipArchive.GetEntry($path)
-                if ($null -eq $entry) { throw "archive is missing $path" }
-                $reader = [IO.StreamReader]::new($entry.Open())
-                try { $text = $reader.ReadToEnd().Replace("`r`n", "`n") } finally { $reader.Dispose() }
-                if ($text -match '(?m)^model:') { throw "archive agent $path must omit model" }
-                if ($role -eq 'reviewer') {
-                    $toolsMatch = [Regex]::Match($text, '(?m)^tools: (.+)$')
-                    if (-not $toolsMatch.Success -or $toolsMatch.Groups[1].Value -cne $expectedTools) { throw "archive reviewer $path has the wrong least-privilege allowlist" }
-                    if ($toolsMatch.Groups[1].Value.Contains('*')) { throw "archive reviewer $path contains a wildcard tool" }
-                }
-                elseif ($text -match '(?m)^tools:') { throw "archive builder $path must inherit user tools" }
+        # Every vendor the registry can build needs its two role prompts, or that vendor fails at
+        # the first act rather than at install time.
+        foreach ($vendor in @('claude', 'codex', 'cursor')) {
+            foreach ($role in @('critic', 'builder')) {
+                $path = "plugins/plan-forge-flow/prompts/$vendor/$role.md"
+                if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
             }
+        }
+        # The 1.x bundle shipped hooks, twelve agent descriptors and a parallel cursor tree; none of
+        # that survives the move to an MCP server, and a stray copy would be silently loaded.
+        foreach ($prefix in @('plugins/plan-forge-flow/hooks/', 'plugins/plan-forge-flow/scripts/',
+                'plugins/plan-forge-flow/agents/', 'plugins/plan-forge-flow/cursor/')) {
+            $stale = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($prefix, [StringComparison]::Ordinal) })
+            if ($stale.Count -gt 0) { throw "archive still carries $prefix from the pre-MCP layout" }
         }
     }
     finally { $zipArchive.Dispose() }
@@ -182,16 +215,22 @@ New-Item -ItemType Directory -Force -Path $publish | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $rid" }
 
 $expectedExecutable = 'planforge.exe'
+$promptsFolder = 'prompts'
 $entries = @(Get-ChildItem -LiteralPath $publish -Force)
-if ($entries.Count -ne 1 -or $entries[0].PSIsContainer -or $entries[0].Name -ne $expectedExecutable) {
-    $names = ($entries | ForEach-Object Name) -join ', '
-    throw "publish output for $rid must contain only $expectedExecutable; found $names"
+$unexpected = @($entries | Where-Object {
+        ($_.PSIsContainer -and $_.Name -ne $promptsFolder) -or (-not $_.PSIsContainer -and $_.Name -ne $expectedExecutable)
+    })
+if ($unexpected.Count -gt 0) {
+    throw "publish output for $rid must contain only $expectedExecutable and $promptsFolder/; found $(($unexpected | ForEach-Object Name) -join ', ')"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $publish $expectedExecutable) -PathType Leaf)) {
+    throw "publish output for $rid is missing $expectedExecutable"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $publish "$promptsFolder/claude/critic.md") -PathType Leaf)) {
+    throw "publish output for $rid is missing the role prompts"
 }
 
-$verification = & (Join-Path $publish $expectedExecutable) run doctor --workspace $pluginRoot | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or -not $verification.data.git.ok) {
-    throw "published $rid executable failed the doctor contract"
-}
+Test-PublishedServer -Executable (Join-Path $publish $expectedExecutable)
 
 if ($InstallBinaries) {
     $installed = Join-Path $pluginRoot "bin/$rid"
@@ -204,14 +243,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'),
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.claude-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
-foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks', 'scripts')) {
+foreach ($directory in @('skills', 'assets', 'prompts')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
 }
-foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
+foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', '.mcp.json')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $bundlePlugin
-}
-foreach ($launcher in @('planforge-launcher.sh', 'planforge-launcher.ps1')) {
-    Copy-Item -LiteralPath (Join-Path $pluginRoot "bin/$launcher") -Destination (Join-Path $bundlePlugin "bin/$launcher")
 }
 $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
 New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
@@ -253,16 +289,16 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin '.codex-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.claude-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
-        (Join-Path $bundlePlugin 'cursor/commands/forge.md'),
-        (Join-Path $bundlePlugin 'cursor/skills/forge/SKILL.md'),
-        (Join-Path $bundlePlugin 'cursor/agents/forge-reviewer.md'),
-        (Join-Path $bundlePlugin 'cursor/agents/forge-builder.md'),
-        (Join-Path $bundlePlugin 'hooks/hooks.json'),
-        (Join-Path $bundlePlugin 'hooks/hooks.claude.json'),
-        (Join-Path $bundlePlugin 'scripts/claude-workflow-hook.mjs'),
-        (Join-Path $bundlePlugin 'scripts/capture-claude-agent-evidence.mjs'),
+        (Join-Path $bundlePlugin '.mcp.json'),
         (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
+        (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
+        (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/codex/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/codex/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/cursor/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/cursor/builder.md'),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
         (Join-Path $bundle '.claude-plugin/marketplace.json'),
         (Join-Path $bundle '.cursor-plugin/marketplace.json')

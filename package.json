@@ -4,8 +4,6 @@
   "type": "module",
   "scripts": {
     "validate:plugins": "node scripts/validate-plugins.mjs",
-    "test:plan-forge-claude": "node scripts/test-plan-forge-claude-assets.mjs",
-    "test:plan-forge-roslyn": "node scripts/test-plan-forge-roslyn-contract.mjs",
     "test:roslyn-hooks": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/roslyn-mcp/scripts/test-roslyn-hooks.ps1"
   },
   "devDependencies": {

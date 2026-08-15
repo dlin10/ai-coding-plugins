@@ -1,9 +1,146 @@
-# Plan Forge Flow release assets
+# Plan Forge Flow
 
-Any change to C# source under `src/` requires rebuilding the complete release asset set before handoff. From this plugin directory, run:
+Plan Forge Flow is an MCP stdio server — a .NET 10 executable named `planforge` — packaged as a
+plugin for Codex, Claude Code, and Cursor. It is not a CLI: nothing here is meant to be run by a
+human at a prompt, and the only supported entry point is the MCP handshake. The plugin lives inside
+the `CodexPlugins` monorepo at `plugins/plan-forge-flow`; all commands below are run from this
+directory unless stated otherwise.
+
+## Commands
+
+```bash
+dotnet test src/PlanForgeFlow.sln --filter "Category!=Integration"
+```
+
+That is the fast suite and the one to run by default. Tests traited `Category=Integration` launch
+the real vendor CLIs, take minutes, and cost money — run them deliberately, never as a reflex:
+
+```bash
+dotnet test src/PlanForgeFlow.sln --filter "FullyQualifiedName~CursorAgentTests.Only_the_critic_is_started_in_plan_mode"
+```
+
+Any change to C# under `src/` requires rebuilding the complete release asset set before handoff:
 
 ```powershell
 .\build\package.ps1 -InstallBinaries
 ```
 
-Release 0.7.x temporarily supports only Windows x64. The command must refresh the single self-contained `bin/win-x64/planforge.exe` and the single versioned `artifacts/plan-forge-flow-<version>-win-x64.zip`. Verify the published binary with `run doctor` after the rebuild; no other RID binary or archive may be produced.
+That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
+that `tools/list` names all six `forge.*` tools, refreshes the single self-contained
+`bin/win-x64/planforge.exe`, and writes the single versioned
+`artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
+the script's assertions. Release 0.7.x supports only Windows x64: packaging fails if a second RID
+binary, a second archive, or any sidecar file appears.
+
+From the monorepo root, `npm run validate:plugins` checks every plugin's manifests, skill
+frontmatter, cross-host catalog agreement, and version consistency. CI runs it on any push touching
+`plugins/**`, so a manifest edit here can turn the whole repository red.
+
+## Layout
+
+```text
+src/PlanForge/            the MCP server
+  Mcp/                    tool surface
+  Acts/                   PlanReview, Build, CodeReview
+  Vendors/                IVendor and the shared contracts
+    Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
+  Orchestration/          capability profile
+  Run/ Repo/ Prompts/ Review/ Infrastructure/
+src/PlanForge.Tests/      integration tests are traited "Category=Integration"
+prompts/<vendor>/         role prompts, editable without a rebuild
+skills/forge/SKILL.md     how the orchestrator drives the tools
+```
+
+## The three participants
+
+This is the design constraint that explains most of the code, and it is easy to violate by accident:
+
+- **Orchestrator** — the host LLM. Runs the interview and **revises the plan** between review
+  rounds. Never a C# class. It is the only participant holding the interview context, which is why
+  revision cannot be delegated to a worker process.
+- **Critic** — judges plans and diffs. A **fresh process every round**, fed the review log as input
+  data so it converges without inheriting its own anchoring. Stateless; never resumed.
+- **Builder** — implements against an already-hardened plan and fixes review findings. Never
+  revises the plan. Persistent session, cheap model.
+
+The direct consequence for the MCP surface in [ForgeTools.cs](src/PlanForge/Mcp/ForgeTools.cs):
+`forge.plan.review` is **one round per call**, because a turn by the orchestrator is mandatory in
+between, while `forge.review.code` runs the **entire critic-to-builder loop inside one call**,
+because nothing in that loop needs the orchestrator. Do not "simplify" either into the other shape.
+
+## The vendor seam
+
+`IVendor` / `IVendorSession` ([Vendors/](src/PlanForge/Vendors)) is the abstraction over model
+suppliers that run in a separate process. Three implementations live in per-vendor folders that
+mirror `prompts/`: `Claude/`, `Codex/`, `Cursor/`.
+
+Structured output is a hard requirement of the interface. Claude has it natively (`--json-schema`);
+Codex and Cursor do not, so both go through `SchemaInPrompt` — schema in the prompt, validation
+here, exactly one retry. Model catalogues are **advisory**: the vendor CLI decides, and an
+unrecognised model is a warning, not a refusal.
+
+Effort is kept separate from model in `Selection` because each vendor expresses it differently —
+a flag for Claude, a model property for Codex, a suffix inside the model id for Cursor. The join
+belongs in the vendor, never in the core.
+
+`VendorFactory` is a deliberate switch rather than DI: a vendor is constructed around
+`workspaceRoot`, which arrives as a per-call tool argument, so there is no container lifetime that
+fits. The reasoning is recorded in a `<remarks>` block on the class — read it before replacing it.
+
+Adding a vendor means a folder under `Vendors/`, a prompt pair under `prompts/`, an arm in
+`VendorFactory`, and a bundle assertion in `build/package.ps1`.
+
+**Each vendor keeps the critic read-only by a different mechanism**, and none of it is enforced by
+this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits`, Cursor
+relies on `--mode plan` alone. `CONTEXT.md` documents what was measured for each.
+
+## Prompts are data, not code
+
+Role prompts live under `prompts/<vendor>/<role>.md` and are copied beside the binary, so they can
+be edited and tuned per project **without a rebuild**. `PromptLibrary` walks up from the binary
+because the two shipped layouts differ (publish output vs. installed plugin). The shared
+`prompts/roslyn-contract.md` is appended to every critic prompt at load time — it lives once
+precisely because the 1.x copies drifted apart.
+
+## Run state, and the absence of locks
+
+Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
+`PLAN.md`, `review-log.md`, `critiques/`, `baseline.patch`. There are no locks and no Git refs —
+concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
+patch.
+
+That tolerance is bought by `Infrastructure/AtomicFile.cs`, not by coordination. Writes go
+temp-file → `File.Replace`, and readers open with `FileShare.Delete` so a replacement can land
+underneath them. On Windows `File.Move(overwrite: true)` can **never** replace a file another handle
+has open, whatever share mode it was given, and a blocked replacement surfaces as
+`UnauthorizedAccessException` rather than `IOException`. Both facts are load-bearing; the retry loop
+catches both exception types. All run-folder writes must go through `AtomicFile`.
+
+## What is checked, and what is not
+
+Only two things are prevented, both irreversible: secrets leaving for another model
+(`Review/SensitiveInput.cs` guards every prompt and refuses a diff touching a sensitive path), and
+writes escaping the run folder (one containment check in `RunDirectory`, which also refuses a
+non-absolute `workspaceRoot`). Note that the secret regex runs over diffs as well as file contents,
+so its leading character class must keep matching the `+` of an added line.
+
+Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
+run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
+time rather than blocked. This is deliberate — see
+[docs/adr/0002](docs/adr/0002-mcp-server-surface-without-enforcement.md).
+
+## Build constraints that bite
+
+`Directory.Build.props` sets `TreatWarningsAsErrors`, `PublishTrimmed`, `PublishSingleFile`, and —
+most consequentially — `JsonSerializerIsReflectionEnabledByDefault=false`. Every serialized type
+needs a source-generated `JsonSerializerContext`; adding a record to a tool result without adding it
+to `ForgeToolJson` compiles and then fails at runtime. `JsonObject.ToJsonString()` stays safe.
+
+Types are `internal` with `InternalsVisibleTo("PlanForge.Tests")`, so tests exercise the real
+classes rather than a public façade.
+
+## Where the reasoning lives
+
+`CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
+established by probing a live server, not by reading documentation. Read it before arguing with a
+decision. `docs/adr/` holds the two architecture decisions.

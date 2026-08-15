@@ -1,94 +1,73 @@
 ---
 name: forge
-description: Use only when the user explicitly invokes $forge or directly asks to run Plan Forge Flow. Hardens an implementation plan through grilling, independent reviews, native approval, a persistent builder, and final code review.
+description: Use only when the user explicitly invokes $forge or directly asks to run Plan Forge Flow. Hardens an implementation plan through independent review rounds, approval, a stepwise builder, and a final code review, using the plan-forge-flow MCP tools.
 ---
 
 # Plan Forge Flow
 
-This release supports only Windows x64. Use the bundled launcher at
-`../../bin/planforge-launcher.ps1`; it invokes the self-contained
-`bin/win-x64/planforge.exe`. The shell launcher is an unsupported-platform stub.
-Read [workflow.md](references/workflow.md),
-[native-plan-ux.md](references/native-plan-ux.md), and
-[model-selection.md](references/model-selection.md), and
-[roslyn-first-review.md](references/roslyn-first-review.md) before acting.
-On Claude Code, also read [claude-agents.md](references/claude-agents.md) and
-[claude-model-selection.md](references/claude-model-selection.md), and
-[claude-native-plan-ux.md](references/claude-native-plan-ux.md), and
-[claude-workflow.md](references/claude-workflow.md). The Claude workflow is
-authoritative where the common workflow describes Codex hooks, native agent
-names, proposed-plan handling, or plan-review sidecars.
-When using an OpenAI role through Codex App Server, also read
-[openai-app-server.md](references/openai-app-server.md).
+You are the **orchestrator**. You run the interview, you revise the plan between review rounds, and
+you call the tools. The workers behind the tools — a critic and a builder, each a separate model
+process — never revise the plan, because they do not have the interview context you have.
 
-## Hard rules
+Windows x64 only. The tools come from the `plan-forge-flow` MCP server; if they are not listed,
+the plugin is installed but the server did not start, and nothing here will work.
 
-- Start only when the user explicitly invokes `$forge` or directly asks to run
-  Plan Forge Flow. Plugin installation, availability, hook output, an ordinary
-  request to plan, review, or implement work, and a staged or pending plan are
-  not consent. Without explicit opt-in, do not run `planforge`, adopt this
-  workflow, or materialize any staged plan.
-- Before any Act 1 interaction, require the current turn's collaboration mode to
-  be Plan mode. If it is not Plan mode, stop and ask the user to toggle `/plan`
-  or Shift+Tab and resubmit the Forge prompt. A skill attachment does not waive
-  this check, and `<proposed_plan>` tags emitted outside Plan mode are not an
-  approval surface. Determine this only from the current collaboration mode;
-  never infer it from a hook `permission_mode`, which describes approvals.
-- Ask grill questions one at a time and keep the complete canonical plan and
-  review record in conversation until native approval.
-- On Claude, Forge supersedes the host's default planning workflow. Both skill
-  entry paths automatically arm a session-scoped run. Never call
-  `ExitPlanMode` until Act 2 is recorded, the builder hold exists, and `plan
-  finalize --host claude` returns `ready`; the exact reviewed plan is the only
-  plan the gate may pass to native approval.
-- On Claude, successful materialization begins the execution lease. Do not stop
-  until every locked Act 3 task, the complete Act 4 review/fix loop, and
-  terminal `run cleanup --host claude` have succeeded. Obey each blocking Stop
-  hook continuation; if it returns a same-state blocker, report that blocker to
-  the user instead of claiming completion.
-- Act 1 and Act 2 do not create repository artifacts before native approval.
-  Use `run doctor`, then perform the optional non-mutating Roslyn capability
-  probe described in the reviewer contract. Its result is a readiness warning
-  and never changes the doctor verdict. On Claude, `run doctor --host claude`
-  is the sole allowed Codex discovery boundary: it may launch App Server,
-  validate the account, and return its model catalog. Never invoke Codex or a
-  catalog command directly from the orchestrator.
-- After a Plan-mode `<proposed_plan>`, the hook stages or refreshes the pending
-  plan on the next prompt. Staging is not approval or materialization; the
-  pending plan is required only by `plan materialize` in Default mode.
-- Ask separately for the reviewer and builder model/effort as free text. Resolve
-  the answer against the currently available multi-agent runtime, accept only a
-  unique canonical pair, and never accept `ultra`. On Claude, follow the
-  provider-first doctor/catalog flow in `claude-model-selection.md` instead.
-- A selection parse failure or runtime rejection consumes one of three attempts
-  for that role. After the third failure, stop the workflow without a fallback,
-  approval, materialization, or dispatch.
-- Spawn a fresh `forge_reviewer` for every review round and keep one pinned
-  `forge_builder` for the implementation.
-- Show the complete canonical plan before selecting a builder. Validate the
-  builder by spawning it in a no-edit hold state, then emit exactly one native
-  `<proposed_plan>` block containing the plain canonical plan.
-- In the first Default-mode turn on Codex, use the latest plan staged by the
-  hook and run `planforge plan materialize --workspace <repo>` with review
-  metadata on stdin. On Claude, write the natively approved plan to a regular
-  file and run `planforge plan materialize --host claude --workspace <repo>
-  --run-id <id> --plan-file <file>`; the CLI requires an exact reviewed-snapshot
-  match before lock/begin or repository mutation.
-- Never stage or commit changes from agents. Never hand-edit `.forge/state.json`.
-- A plan revision invalidates the previous preview and builder hold. Close the
-  held builder, then repeat preview and free-text builder selection.
-- At every cap, ask the user whether to retry once, accept the named risk, or
-  stop. Do not extend caps autonomously.
-- Pre-existing findings require separate opt-in. Cleanup always removes the
-  current run's `.forge/` artifacts.
-- Codex code/fix reviewers write decisions in `<critique-file>.json`. Claude
-  plan reviews are recorded as complete text with one terminal `VERDICT:` line;
-  fresh dispatch identity is mandatory for every round.
+## When to start
 
-## Command boundary
+Only on an explicit `$forge` or a direct request to run Plan Forge Flow. Installation, availability,
+an ordinary request to plan something, or an existing draft are not consent.
 
-Interactive commands emit one JSON success/error envelope. Hook commands are
-protocol exceptions: `planforge hook capture-context` writes a native Codex
-hook object, while `planforge hook claude-workflow` writes a native Claude hook
-decision/context object or nothing. Neither wraps output in an interactive CLI
-envelope.
+## The tools, in order
+
+| Tool | When |
+|---|---|
+| `forge.begin` | Once, before anything else. Returns the `runId` and takes a baseline of the working tree. |
+| `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
+| `forge.plan.approve` | When the critique settles. Shows the user the plan and asks for approval. |
+| `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
+| `forge.review.code` | Once, after the last task. Runs the whole critic-to-builder loop internally. |
+| `forge.status` | Any time the user asks where things stand. |
+
+Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. The work tools also take
+`model`, an optional `effort`, and an optional `vendor` — `claude`, `codex`, or `cursor`,
+defaulting to `claude`.
+
+## Act 1: the interview
+
+Ask grilling questions **one at a time** and wait for each answer. You are looking for the decisions
+the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
+error paths, what existing behaviour must not change, how the result will be verified.
+
+Write the plan as markdown with a numbered task list — one task per numbered item under a heading.
+That numbering is what `forge.build.next` walks, so a task that is really three tasks will be built
+as one.
+
+## Rounds, revision, and caps
+
+`forge.plan.review` runs exactly one round and returns a verdict of `approve` or `revise` plus
+findings. On `revise`, address the findings in the plan yourself and call the tool again. The critic
+is a fresh process each round but is given the log of earlier rounds, so it converges rather than
+reopening settled points.
+
+Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
+Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
+
+## Choosing the vendor and model
+
+Ask the user for the critic and builder models as free text, and pass what they say. The catalogue
+is advisory: an unfamiliar model is worth mentioning, not refusing, because the vendor CLI decides.
+
+The roles are not interchangeable in strength. The builder works against an already-hardened plan
+and can be cheap; the critic is judging, so lean nearer the strong end.
+
+## What is not enforced
+
+Nothing stops you from abandoning a run halfway, or from editing code during Act 1. There are no
+hooks and no gates in this version — the trade is deliberate. Two consequences to hold yourself to:
+
+- Do not touch files before the plan is approved. `forge.plan.approve` compares the working tree
+  against the baseline and shows the user what drifted, but only after the fact.
+- Do not stop mid-run without telling the user where you stopped and what remains.
+
+Do not hand-edit anything under `.forge/`. Do not stage or commit the workers' changes; leave the
+diff for the user to inspect.

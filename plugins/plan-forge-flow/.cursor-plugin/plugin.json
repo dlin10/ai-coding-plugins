@@ -2,7 +2,7 @@
   "name": "plan-forge-flow",
   "displayName": "Plan Forge Flow",
   "version": "0.7.0",
-  "description": "Harden, review, and implement native Cursor plans on Windows x64 with explicit advisory approval and reviewer guarantees.",
+  "description": "Harden, review, and implement plans on Windows x64 with independent review rounds and explicit approval, delegating the work to separate Claude, Codex, or Cursor processes.",
   "minClientVersions": {
     "cursor": "3.15.6"
   },
@@ -15,9 +15,12 @@
     "planning",
     "review",
     "workflow",
-    "cursor"
+    "mcp"
   ],
-  "commands": "./cursor/commands/",
-  "agents": "./cursor/agents/",
-  "skills": "./cursor/skills/"
+  "skills": "./skills/",
+  "mcpServers": {
+    "plan-forge-flow": {
+      "command": "${CURSOR_PLUGIN_ROOT}/bin/win-x64/planforge.exe"
+    }
+  }
 }

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>planforge</AssemblyName>
+    <RootNamespace>PlanForge</RootNamespace>
+    <!-- MCPEXP003: MCP Apps are experimental. Referenced only to detect the canvas capability,
+         which no host negotiates yet — see docs/adr/0002. -->
+    <NoWarn>$(NoWarn);MCPEXP003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PlanForge.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Role prompts ship beside the binary and stay editable without a rebuild. -->
+    <Content Include="../../prompts/**/*.md" Link="prompts/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageReference Include="ModelContextProtocol.Extensions.Apps" Version="2.2.0" />
+  </ItemGroup>
+</Project>
