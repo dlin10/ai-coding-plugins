@@ -28,31 +28,38 @@ public sealed class ClaudeTransactionContractTests
         var data = TestPaths.Unique("planforge-flow-external-tests");
         var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         var previousCodex = Environment.GetEnvironmentVariable("CODEX_HOME");
+        var previousSession = Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         Environment.SetEnvironmentVariable("CODEX_HOME", Path.Combine(workspace, "missing-codex"));
         try
         {
             var repository = RepositoryPaths.Identify(workspace);
+            const string session = "provider-pairing-session";
+            var activation = ClaudeActivations.Begin(repository, session);
+            var runId = activation.RunId;
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", session);
             const string plan = "# Plan\n\n## Approach\n1. Exercise provider pairing.\n";
             var planFile = Path.Combine(workspace, "approved.md");
             File.WriteAllText(planFile, plan);
-            PendingRuns.StageClaude(repository, plan, "providers", Selection(reviewerProvider));
-            PendingRuns.RecordClaude(repository, "providers", "fresh-review", "ROSLYN: NOT_APPLICABLE\nVERDICT: APPROVED\n");
-            PendingRuns.FinalizeClaude(repository, "providers", Selection(builderProvider), "persistent-hold", SupportedClaude);
+            PendingRuns.StageClaude(repository, plan, runId, Selection(reviewerProvider));
+            PendingRuns.RecordClaude(repository, runId, "fresh-review", "ROSLYN: NOT_APPLICABLE\nVERDICT: APPROVED\n");
+            PendingRuns.FinalizeClaude(repository, runId, Selection(builderProvider), "persistent-hold", SupportedClaude);
             var context = new CommandContext("plan materialize", workspace,
-                ParsedArgs.Parse(["--run-id", "providers", "--plan-file", planFile]), null, HostKind.Claude);
+                ParsedArgs.Parse(["--run-id", runId, "--plan-file", planFile]), null, HostKind.Claude);
 
             var result = ForgeWorkflow.MaterializeClaudePlan(context);
 
             Assert.Equal(reviewerProvider, result.Reviewer.Provider);
             Assert.Equal(builderProvider, result.Builder.Provider);
-            Assert.Equal("persistent-hold", PendingRuns.Load(repository, "providers", HostKind.Claude).BuilderHoldId);
+            Assert.Equal("persistent-hold", PendingRuns.Load(repository, runId, HostKind.Claude).BuilderHoldId);
+            Assert.Equal(ClaudeActivationLifecycle.Executing, ClaudeActivations.LoadForSession(session).Lifecycle);
             Assert.True(PlanForgeFlow.Workflow.ForgeWorkflow.Doctor(workspace, HostKind.Claude, _ => null,
                                                                    () => new(true, "2.1.232", null), AbsentCodex).Git.Ok);
         }
         finally
         {
             Environment.SetEnvironmentVariable("CODEX_HOME", previousCodex);
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", previousSession);
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
             DeleteDirectory(workspace);
             if (Directory.Exists(data)) DeleteDirectory(data);
@@ -238,28 +245,37 @@ public sealed class ClaudeTransactionContractTests
         var data = TestPaths.Unique("planforge-flow-external-tests");
         var previousData = Environment.GetEnvironmentVariable("FORGE_PLUGIN_DATA");
         var previousFault = Environment.GetEnvironmentVariable("FORGE_FAULT_POINT");
+        var previousSession = Environment.GetEnvironmentVariable("CLAUDE_CODE_SESSION_ID");
         Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", data);
         try
         {
             var repository = RepositoryPaths.Identify(workspace);
+            const string session = "materialization-replay-session";
+            var activation = ClaudeActivations.Begin(repository, session);
+            var runId = activation.RunId;
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", session);
             const string plan = "# Plan\n\n## Approach\n1. Replay.\n";
             var planFile = Path.Combine(workspace, "approved.md");
             File.WriteAllText(planFile, plan);
             var reviewer = ProviderSelections.Validate(ProviderKind.Anthropic, "sonnet", "claude-sonnet-4-6", null, "high");
             var builder = ProviderSelections.Validate(ProviderKind.OpenAI, "gpt-5.6-sol", "gpt-5.6-sol", null, "high");
-            PendingRuns.StageClaude(repository, plan, "replay", reviewer);
-            PendingRuns.RecordClaude(repository, "replay", "review-one", "ROSLYN: NOT_APPLICABLE\nVERDICT: APPROVED\n");
-            PendingRuns.FinalizeClaude(repository, "replay", builder, "hold-one");
+            PendingRuns.StageClaude(repository, plan, runId, reviewer);
+            PendingRuns.RecordClaude(repository, runId, "review-one", "ROSLYN: NOT_APPLICABLE\nVERDICT: APPROVED\n");
+            PendingRuns.FinalizeClaude(repository, runId, builder, "hold-one");
             var context = new CommandContext("plan materialize", workspace,
-                ParsedArgs.Parse(["--run-id", "replay", "--plan-file", planFile]), null, HostKind.Claude);
+                ParsedArgs.Parse(["--run-id", runId, "--plan-file", planFile]), null, HostKind.Claude);
             Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", faultPoint);
             Assert.Throws<CliFailure>(() => ForgeWorkflow.MaterializeClaudePlan(context));
             Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", null);
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", "foreign-replay-session");
+            Assert.Throws<CliFailure>(() => ForgeWorkflow.MaterializeClaudePlan(context));
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", session);
 
             var result = ForgeWorkflow.MaterializeClaudePlan(context);
 
             Assert.Equal("build", result.Phase);
-            Assert.Equal(PendingRunPhase.Consumed, PendingRuns.Load(repository, "replay", HostKind.Claude).Phase);
+            Assert.Equal(PendingRunPhase.Consumed, PendingRuns.Load(repository, runId, HostKind.Claude).Phase);
+            Assert.Equal(ClaudeActivationLifecycle.Executing, ClaudeActivations.LoadForSession(session).Lifecycle);
             Assert.Equal(ProviderKind.Anthropic, result.Reviewer.Provider);
             Assert.Equal("sonnet", result.Reviewer.RequestedModel);
             Assert.Contains(StateStore.Load(workspace).Baselines.Untracked,
@@ -268,6 +284,7 @@ public sealed class ClaudeTransactionContractTests
         finally
         {
             Environment.SetEnvironmentVariable("FORGE_FAULT_POINT", previousFault);
+            Environment.SetEnvironmentVariable("CLAUDE_CODE_SESSION_ID", previousSession);
             Environment.SetEnvironmentVariable("FORGE_PLUGIN_DATA", previousData);
             DeleteDirectory(workspace);
             if (Directory.Exists(data)) DeleteDirectory(data);

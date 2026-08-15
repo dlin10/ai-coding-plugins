@@ -2054,15 +2054,21 @@ public sealed class CoreContractTests
     }
 
     [Fact]
-    public void ReleaseLayoutDeclaresRidAwareHookLauncher()
+    public void ReleaseLayoutContainsOnlyWinX64Binary()
     {
         var pluginRoot = FindPluginRoot();
         var package = File.ReadAllText(Path.Combine(pluginRoot, "build", "package.ps1"));
         var attributes = File.ReadAllText(Path.Combine(Directory.GetParent(pluginRoot)!.Parent!.FullName, ".gitattributes"));
         var hooks = File.ReadAllText(Path.Combine(pluginRoot, "hooks", "hooks.json"));
 
-        foreach (var rid in new[] { "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64" }) Assert.Contains(rid, package, StringComparison.Ordinal);
-        Assert.Contains("plugins/plan-forge-flow/bin/**/planforge", attributes, StringComparison.Ordinal);
+        Assert.Contains("$rid = 'win-x64'", package, StringComparison.Ordinal);
+        Assert.DoesNotContain("$Rids", package, StringComparison.Ordinal);
+        Assert.Equal(new[] { "win-x64" }, Directory.EnumerateDirectories(Path.Combine(pluginRoot, "bin"))
+                                                       .Select(path => Path.GetFileName(path)!)
+                                                       .Order()
+                                                       .ToArray());
+        Assert.Contains("plugins/plan-forge-flow/bin/win-x64/planforge.exe", attributes, StringComparison.Ordinal);
+        Assert.DoesNotContain("bin/**/planforge", attributes, StringComparison.Ordinal);
         Assert.Contains("hook capture-context", hooks, StringComparison.Ordinal);
         Assert.Contains("planforge-launcher.ps1", hooks, StringComparison.Ordinal);
     }
@@ -2093,8 +2099,8 @@ public sealed class CoreContractTests
         try
         {
             var binDirectory = Path.Combine(pluginRoot, "bin");
-            var rid = RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
-            var executableDirectory = Path.Combine(binDirectory, rid);
+            if (RuntimeInformation.OSArchitecture != Architecture.X64) return;
+            var executableDirectory = Path.Combine(binDirectory, "win-x64");
             Directory.CreateDirectory(executableDirectory);
             var launcher = Path.Combine(binDirectory, "planforge-launcher.ps1");
             File.Copy(Path.Combine(FindPluginRoot(), "bin", "planforge-launcher.ps1"), launcher);

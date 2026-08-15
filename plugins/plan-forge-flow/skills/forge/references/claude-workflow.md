@@ -9,7 +9,9 @@ host-qualified commands below. Forge supersedes Claude's default planning
 workflow. Synchronous entry
 hooks arm the run, and a synchronous `PreToolUse:ExitPlanMode` hook enforces
 review/finalize order plus exact reviewed-snapshot identity before native
-approval can be shown.
+approval can be shown. After approval, the schema-v2 lease remains active; a
+synchronous `Stop` hook enforces materialization, every build/review step, and
+terminal cleanup.
 
 Use the bundled launcher as `planforge` in the examples. Keep one safe run ID
 for the planning transaction and retain every JSON envelope needed by the next
@@ -28,8 +30,9 @@ planforge run begin --host claude --workspace <repo>
 The command is idempotent for the current `CLAUDE_CODE_SESSION_ID` and returns
 the random run ID injected by the hook. Use that exact ID for every planning
 command. The activation is external under `${CLAUDE_PLUGIN_DATA}`; it creates no
-repository artifact. An active run in another Claude session blocks a new Forge
-start for the same workspace and names its run, session, and phase.
+repository artifact. Its lifecycle is `planning`, `materializing`, `executing`,
+or `cleaning`. An active run in any lifecycle and another Claude session blocks
+a new Forge start for the same workspace and names its run, session, and phase.
 
 Never call `ExitPlanMode` before `plan finalize` returns `ready`. The gate denies
 missing staging, reviewing, revision-required, and review-approved phases. At
@@ -48,8 +51,9 @@ planforge run abandon --host claude --workspace <repo> --run-id <run>
 Taking over a run from another session additionally requires `--accept-risk`
 and a bounded `--authorization-note`. There is no TTL: `/clear` creates another
 session ID, and stale ownership must be resolved explicitly.
-Pre-0.6.2 unarmed pending state is unsupported and is not migrated or adopted;
-remove that legacy external state before starting a new run.
+Schema-v1 activations, unarmed pending state, and pre-0.7.0 materialized runs
+are unsupported and are not migrated or adopted. Clean them up explicitly and
+start a new run.
 
 ## 1. Read-only readiness
 
@@ -198,9 +202,12 @@ context, tool, permission, model, or unknown failure. Replacement is allowed
 only after confirmed terminal identity loss under the explicit replacement
 contract.
 
-Successful materialization removes the activation. An interrupted
-materializing transaction retains enough state for recovery; successful replay
-also removes the activation.
+Before the first repository mutation, materialization advances the activation
+from `planning` to `materializing`. Successful materialization or a verified
+same-session replay advances it to `executing`; it is deliberately retained
+through Acts 3–4. Replay without the matching run/session lease is forbidden.
+An interrupted materialization must be recovered with the same command or
+removed through explicitly authorized risk cleanup.
 
 ## 5. Dispatch every locked build task
 
@@ -318,5 +325,19 @@ After a full approval, close the persistent builder and run:
 planforge run cleanup --host claude --workspace <repo>
 ```
 
-Use `run cleanup --legacy` only as a separate, ownership-audited cleanup of
-recognized 0.5.x artifacts.
+Normal cleanup is legal only in terminal `done` or `done-with-findings`. It
+changes the lease to `cleaning`, removes owned state, and finally removes only
+that matching lease; repeating it recovers a partial cleanup, including a
+failure after `.forge` was removed. Nonterminal cleanup requires
+`--accept-risk --authorization-note`; cleanup from another session additionally
+requires `--run-id <run>`. `run abandon` remains planning-only, and
+`run cleanup --legacy` cannot bypass an active schema-v2 lease.
+
+At every attempted Claude Stop, an executing lease is checked against the
+verified pending/state snapshot. The first Stop for a state blocks and tells
+Claude the next dispatch, task, review, fix, or cleanup obligation. If Claude
+tries to stop again with `stop_hook_active=true` and the progress hash has not
+changed, the hook returns `continue:false` with a visible blocker instead of
+looping. A new user turn starts a fresh attempt. Missing or corrupt lease/state
+and unavailable enforcement fail closed for the active session; sessions
+without a lease remain unaffected.

@@ -7,7 +7,7 @@ argument-hint: <change or plan to forge>
 
 Request: `$ARGUMENTS`
 
-Read `${CURSOR_PLUGIN_ROOT}/cursor/skills/forge/SKILL.md` and every reference it requires, then follow that workflow exactly. Use `${CURSOR_PLUGIN_ROOT}/bin/planforge-launcher.ps1` on Windows or `${CURSOR_PLUGIN_ROOT}/bin/planforge-launcher.sh` on Unix. Always pass `--host cursor`.
+Read `${CURSOR_PLUGIN_ROOT}/cursor/skills/forge/SKILL.md` and every reference it requires, then follow that workflow exactly. This release supports only Windows x64; use `${CURSOR_PLUGIN_ROOT}/bin/planforge-launcher.ps1`. Always pass `--host cursor`.
 
 If `$ARGUMENTS` is exactly `resume`, follow the `/forge resume` recovery branch. Otherwise follow the normal chat-first Plan flow. Creating the native plan is the terminal action, after staging, review, builder selection, and finalization have already succeeded.
 

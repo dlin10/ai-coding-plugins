@@ -9,6 +9,12 @@ namespace PlanForgeFlow.Claude;
 
 internal static class ClaudeCommandHandlers
 {
+    private static readonly HashSet<string> ExecutionCommands = new(StringComparer.Ordinal)
+    {
+        "build dispatch", "build complete", "build resolve", "review prepare", "review authorize-preexisting", "review verdict",
+        "session builder", "session reviewer", "run set",
+    };
+
     public static PendingRun Stage(CommandContext context, TextReader input)
     {
         var repository = RequireActive(context);
@@ -68,9 +74,37 @@ internal static class ClaudeCommandHandlers
         var repository = RequireRepository(context);
         var runId = context.Args.GetRequired("run-id");
         var pending = PendingRuns.Load(repository, runId, HostKind.Claude);
-        if (pending.Phase is PendingRunPhase.Ready or PendingRunPhase.Materializing)
-            ClaudeActivations.Require(repository, runId, ClaudeActivations.CurrentSessionId());
+        if (pending.Phase is not (PendingRunPhase.Ready or PendingRunPhase.Materializing or PendingRunPhase.Consumed))
+            throw new CliFailure("state", $"Claude materialization requires ready, materializing, or consumed pending state (current: {PendingRuns.PhaseName(pending.Phase)})", 3);
+        ClaudeActivations.RequireMaterialization(repository, runId, ClaudeActivations.CurrentSessionId());
         return Workflow.Planning.ForgeWorkflow.MaterializeClaudePlan(context);
+    }
+
+    public static void RequireExecutionForCommand(CommandContext context)
+    {
+        if (context.Host != HostKind.Claude || !ExecutionCommands.Contains(context.Command)) return;
+        ClaudeActivations.RequireExecution(RequireRepository(context), context.RequireState(), ClaudeActivations.CurrentSessionId());
+    }
+
+    public static CleanupData Cleanup(CommandContext context)
+    {
+        var repository = RequireRepository(context);
+        var purgeAgents = context.Args.Has("purge-generated-agents");
+        if (context.Args.Has("legacy"))
+        {
+            ClaudeActivations.RequireNoActivation(repository);
+            Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, purgeAgents, HostKind.Claude);
+            return new CleanupData(true, purgeAgents);
+        }
+
+        var activation = ClaudeActivations.BeginCleanup(repository,
+                                                        ClaudeActivations.CurrentSessionId(),
+                                                        context.Args.Get("run-id"),
+                                                        context.Args.Has("accept-risk"),
+                                                        context.Args.Get("authorization-note"));
+        Workflow.ForgeWorkflow.Cleanup(context.Workspace, purgeAgents, HostKind.Claude);
+        ClaudeActivations.CompleteCleanup(activation);
+        return new CleanupData(true, purgeAgents);
     }
 
     private static ProviderSelection Selection(CommandContext context)
@@ -89,7 +123,7 @@ internal static class ClaudeCommandHandlers
     private static RepositoryIdentity RequireActive(CommandContext context)
     {
         var repository = RequireRepository(context);
-        ClaudeActivations.Require(repository, context.Args.GetRequired("run-id"), ClaudeActivations.CurrentSessionId());
+        ClaudeActivations.RequirePlanning(repository, context.Args.GetRequired("run-id"), ClaudeActivations.CurrentSessionId());
         return repository;
     }
 }

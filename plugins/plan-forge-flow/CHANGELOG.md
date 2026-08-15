@@ -1,5 +1,21 @@
 # Plan Forge Flow releases
 
+## 0.7.0
+
+- Extends Claude's external activation to schema v2 and a full-run lifecycle:
+  `planning`, `materializing`, `executing`, and recoverable `cleaning`.
+- Adds a synchronous session-scoped `Stop` gate that prevents Claude from
+  skipping materialization, locked implementation tasks, full code review/fix
+  rounds, or terminal cleanup, with progress hashes and bounded same-state
+  loop behavior.
+- Requires matching execution lease, session, workspace, and source run for
+  Claude build/review mutations; strengthens terminal, risk, takeover, legacy,
+  and recovery cleanup rules.
+- Drops migration for schema-v1 activations and older materialized Claude runs.
+- Temporarily narrows release and CI support to Windows x64. Distribution now
+  contains one LFS executable and one `plan-forge-flow-0.7.0-win-x64.zip` asset;
+  the Unix launcher is a deterministic unsupported-platform stub.
+
 ## 0.6.2
 
 - Automatically arms a schema-v1 external Claude activation for both direct

@@ -69,12 +69,18 @@ internal static class ForgeWorkflow
         var pending = PendingRuns.Load(repository, runId, host);
         if (pending.Phase == PendingRunPhase.Consumed)
         {
+            if (host == HostKind.Claude)
+                PlanForgeFlow.Claude.ClaudeActivations.BeginMaterialization(
+                    repository, runId, PlanForgeFlow.Claude.ClaudeActivations.CurrentSessionId());
             PendingRuns.VerifyMaterialization(repository, pending, host);
             var existing = StateStore.Load(context.Workspace);
-            if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.Complete(repository, runId);
+            if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.CompleteMaterialization(repository, runId);
             return new MaterializeData("forge-materialized", existing.Workflow.Phase.ToWireName(), existing.Models.Reviewer!, existing.Models.Builder!);
         }
         var suppliedPlan = sourcePlan(repository, pending);
+        if (host == HostKind.Claude)
+            PlanForgeFlow.Claude.ClaudeActivations.BeginMaterialization(
+                repository, runId, PlanForgeFlow.Claude.ClaudeActivations.CurrentSessionId());
 
         using var repositoryLock = RepositoryRunLock.Acquire(repository, host);
         var run = host == HostKind.Claude
@@ -127,7 +133,7 @@ internal static class ForgeWorkflow
             }
         }
         if (run.Phase != PendingRunPhase.Consumed) PendingRuns.Consume(repository, run.RunId, repositoryLock, host);
-        if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.Complete(repository, run.RunId);
+        if (host == HostKind.Claude) PlanForgeFlow.Claude.ClaudeActivations.CompleteMaterialization(repository, run.RunId);
         return new MaterializeData("forge-materialized", completed.Workflow.Phase.ToWireName(), completed.Models.Reviewer!, completed.Models.Builder!);
     }
 

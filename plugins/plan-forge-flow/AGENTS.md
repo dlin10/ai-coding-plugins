@@ -6,4 +6,4 @@ Any change to C# source under `src/` requires rebuilding the complete release as
 .\build\package.ps1 -InstallBinaries
 ```
 
-Do not publish only a selected RID for a C# change. The command must refresh all six self-contained binaries in `bin/<rid>` and all six versioned archives in `artifacts/` (`win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`). Verify the current-platform published binary with `run doctor` after the rebuild.
+Release 0.7.x temporarily supports only Windows x64. The command must refresh the single self-contained `bin/win-x64/planforge.exe` and the single versioned `artifacts/plan-forge-flow-<version>-win-x64.zip`. Verify the published binary with `run doctor` after the rebuild; no other RID binary or archive may be produced.

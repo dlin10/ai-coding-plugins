@@ -23,6 +23,9 @@ function hookFailure(input, reason) {
       },
     };
   }
+  if (input?.hook_event_name === 'Stop') {
+    return { continue: false, stopReason: reason };
+  }
   return null;
 }
 
@@ -35,8 +38,12 @@ function isExit(input) {
   return input?.hook_event_name === 'PreToolUse' && input.tool_name === 'ExitPlanMode';
 }
 
+function isStop(input) {
+  return input?.hook_event_name === 'Stop';
+}
+
 function activationExists(input) {
-  if (typeof input?.session_id !== 'string' || input.session_id.length === 0) return true;
+  if (typeof input?.session_id !== 'string' || input.session_id.length === 0) return false;
   const dataRoot = process.env.FORGE_PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA ||
                    join(homedir(), '.claude', 'plugin-data', 'plan-forge-flow');
   const key = createHash('sha256').update(input.session_id).digest('hex');
@@ -50,18 +57,16 @@ function activationExists(input) {
 }
 
 function executablePath() {
-  const platforms = { win32: 'win', linux: 'linux', darwin: 'osx' };
-  const architectures = { x64: 'x64', arm64: 'arm64' };
-  const platform = platforms[process.platform];
-  const architecture = architectures[process.arch];
-  if (!platform || !architecture) throw new Error(`unsupported host ${process.platform}-${process.arch}`);
+  if (process.platform !== 'win32' || process.arch !== 'x64') {
+    throw new Error(`unsupported host ${process.platform}-${process.arch}; Plan Forge 0.7.0 supports only Windows x64`);
+  }
   const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-  return join(pluginRoot, 'bin', `${platform}-${architecture}`, process.platform === 'win32' ? 'planforge.exe' : 'planforge');
+  return join(pluginRoot, 'bin', 'win-x64', 'planforge.exe');
 }
 
 function fallback(input, error) {
   const message = `Plan Forge enforcement is unavailable: ${error instanceof Error ? error.message : 'unknown dispatcher failure'}`;
-  if (isEntry(input) || isExit(input) && activationExists(input)) return hookFailure(input, message);
+  if (isEntry(input) || (isExit(input) || isStop(input)) && activationExists(input)) return hookFailure(input, message);
   return null;
 }
 
@@ -77,10 +82,10 @@ try {
   }
   raw = Buffer.concat(chunks).toString('utf8');
   input = JSON.parse(raw);
-  if (!isEntry(input) && !isExit(input)) process.exit(0);
+  if (!isEntry(input) && !isExit(input) && !isStop(input)) process.exit(0);
 
   const executable = executablePath();
-  if (!existsSync(executable)) throw new Error('RID-specific planforge executable is missing');
+  if (!existsSync(executable)) throw new Error('win-x64 planforge executable is missing');
   const result = spawnSync(executable, ['hook', 'claude-workflow'], {
     input: raw,
     env: { ...process.env, CLAUDE_CODE_SESSION_ID: input.session_id ?? '' },

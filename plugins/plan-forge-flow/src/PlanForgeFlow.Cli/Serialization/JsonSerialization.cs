@@ -190,11 +190,16 @@ internal sealed record ClaudeHookInput([property: JsonPropertyName("session_id")
                                        [property: JsonPropertyName("hook_event_name")] string? HookEventName,
                                        [property: JsonPropertyName("tool_name")] string? ToolName,
                                        [property: JsonPropertyName("command_name")] string? CommandName,
-                                       [property: JsonPropertyName("tool_input")] JsonElement? ToolInput);
+                                       [property: JsonPropertyName("tool_input")] JsonElement? ToolInput,
+                                       [property: JsonPropertyName("stop_hook_active")] bool StopHookActive = false);
 
 internal sealed record ClaudeHookSpecificOutput(string HookEventName,
                                                 string? PermissionDecision,
                                                 string? PermissionDecisionReason,
                                                 string? AdditionalContext);
 
-internal sealed record ClaudeHookOutput(string? Decision, string? Reason, ClaudeHookSpecificOutput? HookSpecificOutput);
+internal sealed record ClaudeHookOutput(string? Decision,
+                                        string? Reason,
+                                        ClaudeHookSpecificOutput? HookSpecificOutput,
+                                        bool? Continue = null,
+                                        string? StopReason = null);

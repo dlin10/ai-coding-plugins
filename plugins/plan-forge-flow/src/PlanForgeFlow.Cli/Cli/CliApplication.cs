@@ -79,6 +79,7 @@ internal sealed class CliApplication
             var parsed = ParsedArgs.Parse(args.Skip(optionOffset));
             ValidateOptions(definition, parsed);
             var context = CommandContext.Create(definition, parsed);
+            ClaudeCommandHandlers.RequireExecutionForCommand(context);
             switch (command)
             {
                 case "plan lock":
@@ -221,15 +222,18 @@ internal sealed class CliApplication
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "run cleanup":
-                    var cleanupRepository = context.Host == HostKind.Claude ? RepositoryPaths.Identify(context.Workspace) : null;
-                    if (context.Args.Has("legacy"))
-                        Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                    if (context.Host == HostKind.Claude)
+                        JsonOutput.Success(command, ClaudeCommandHandlers.Cleanup(context), ForgeJsonContext.Default.JsonSuccessCleanupData);
                     else
-                        Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
-                    if (cleanupRepository is not null) ClaudeActivations.Cleanup(cleanupRepository);
-                    JsonOutput.Success(command,
-                                       new CleanupData(true, context.Args.Has("purge-generated-agents")),
-                                       ForgeJsonContext.Default.JsonSuccessCleanupData);
+                    {
+                        if (context.Args.Has("legacy"))
+                            Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                        else
+                            Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                        JsonOutput.Success(command,
+                                           new CleanupData(true, context.Args.Has("purge-generated-agents")),
+                                           ForgeJsonContext.Default.JsonSuccessCleanupData);
+                    }
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");

@@ -5,9 +5,10 @@ description: Use only when the user explicitly invokes $forge or directly asks t
 
 # Plan Forge Flow
 
-Use the bundled RID-aware launcher at `../../bin/planforge-launcher.sh` on Unix or
-`../../bin/planforge-launcher.ps1` on Windows. It selects the matching
-self-contained .NET executable from `bin/<rid>/`. Read [workflow.md](references/workflow.md),
+This release supports only Windows x64. Use the bundled launcher at
+`../../bin/planforge-launcher.ps1`; it invokes the self-contained
+`bin/win-x64/planforge.exe`. The shell launcher is an unsupported-platform stub.
+Read [workflow.md](references/workflow.md),
 [native-plan-ux.md](references/native-plan-ux.md), and
 [model-selection.md](references/model-selection.md), and
 [roslyn-first-review.md](references/roslyn-first-review.md) before acting.
@@ -40,6 +41,11 @@ When using an OpenAI role through Codex App Server, also read
   `ExitPlanMode` until Act 2 is recorded, the builder hold exists, and `plan
   finalize --host claude` returns `ready`; the exact reviewed plan is the only
   plan the gate may pass to native approval.
+- On Claude, successful materialization begins the execution lease. Do not stop
+  until every locked Act 3 task, the complete Act 4 review/fix loop, and
+  terminal `run cleanup --host claude` have succeeded. Obey each blocking Stop
+  hook continuation; if it returns a same-state blocker, report that blocker to
+  the user instead of claiming completion.
 - Act 1 and Act 2 do not create repository artifacts before native approval.
   Use `run doctor`, then perform the optional non-mutating Roslyn capability
   probe described in the reviewer contract. Its result is a readiness warning

@@ -6,6 +6,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const repoRoot = resolve(import.meta.dirname, '..');
 const pluginRoot = join(repoRoot, 'plugins', 'plan-forge-flow');
@@ -45,7 +46,7 @@ function frontmatter(path) {
 
 const manifests = ['.codex-plugin', '.claude-plugin', '.cursor-plugin']
   .map((directory) => json(join(pluginRoot, directory, 'plugin.json')));
-assert.deepEqual(new Set(manifests.map(({ version }) => version)), new Set(['0.6.2']));
+assert.deepEqual(new Set(manifests.map(({ version }) => version)), new Set(['0.7.0']));
 assert.equal(manifests[1].agents, undefined, 'Claude discovers the conventional agents/ directory');
 assert.equal(manifests[1].hooks, './hooks/hooks.claude.json');
 
@@ -77,7 +78,8 @@ assert.equal(hooks.UserPromptExpansion[0].matcher, '^plan-forge-flow:forge$');
 assert.equal(hooks.PreToolUse[0].matcher, 'Skill');
 assert.equal(hooks.PreToolUse[0].hooks[0].if, 'Skill(plan-forge-flow:forge)');
 assert.equal(hooks.PreToolUse[1].matcher, 'ExitPlanMode');
-for (const hook of [hooks.UserPromptExpansion[0].hooks[0], ...hooks.PreToolUse.flatMap(({ hooks: handlers }) => handlers)]) {
+assert.equal(hooks.Stop.length, 1);
+for (const hook of [hooks.UserPromptExpansion[0].hooks[0], ...hooks.PreToolUse.flatMap(({ hooks: handlers }) => handlers), hooks.Stop[0].hooks[0]]) {
   assert.equal(hook.command, 'node');
   assert.equal(hook.async, undefined, 'workflow gate hooks are synchronous');
   assert.equal(hook.timeout, 10);
@@ -101,6 +103,15 @@ const workflowHookSource = readFileSync(workflowHookScript, 'utf8');
 assert.match(workflowHookSource, /claude-activations/);
 assert.match(workflowHookSource, /hook', 'claude-workflow/);
 assert.match(workflowHookSource, /ExitPlanMode/);
+assert.match(workflowHookSource, /Stop/);
+assert.match(workflowHookSource, /process\.platform !== 'win32'/);
+assert.match(workflowHookSource, /process\.arch !== 'x64'/);
+assert.match(workflowHookSource, /bin', 'win-x64', 'planforge\.exe'/);
+
+const binEntries = readdirSync(join(pluginRoot, 'bin'), { withFileTypes: true });
+assert.deepEqual(binEntries.filter((entry) => entry.isDirectory()).map(({ name }) => name).sort(), ['win-x64']);
+assert.match(readFileSync(join(pluginRoot, 'bin', 'planforge-launcher.sh'), 'utf8'), /supports only Windows x64/);
+assert.match(readFileSync(join(pluginRoot, 'bin', 'planforge-launcher.ps1'), 'utf8'), /Architecture\]::X64/);
 
 const packageSource = readFileSync(join(pluginRoot, 'build', 'package.ps1'), 'utf8');
 assert.match(packageSource, /\.claude-plugin\/plugin\.json/);
@@ -110,6 +121,9 @@ assert.match(packageSource, /foreach \(\$directory in @\('skills', 'agents', 'cu
 assert.match(packageSource, /scripts\/capture-claude-agent-evidence\.mjs/);
 assert.match(packageSource, /scripts\/claude-workflow-hook\.mjs/);
 assert.match(packageSource, /must contain exactly 12 Claude agent descriptors/);
+assert.doesNotMatch(packageSource, /\$Rids/);
+assert.match(packageSource, /\$rid = 'win-x64'/);
+assert.match(packageSource, /archive must contain only the win-x64 executable/);
 
 const skillSource = readFileSync(join(pluginRoot, 'skills', 'forge', 'SKILL.md'), 'utf8');
 const claudeWorkflowPath = join(pluginRoot, 'skills', 'forge', 'references', 'claude-workflow.md');
@@ -284,6 +298,20 @@ try {
   assert.equal(entryResult.status, 0, entryResult.stderr);
   assert.equal(JSON.parse(entryResult.stdout).decision, 'block', 'entry fails closed when the RID binary is unavailable');
 
+  const dispatcherUrl = pathToFileURL(join(scripts, 'claude-workflow-hook.mjs')).href;
+  for (const [platform, architecture] of [['win32', 'arm64'], ['linux', 'x64'], ['linux', 'arm64'], ['darwin', 'x64'], ['darwin', 'arm64']]) {
+    const program = `Object.defineProperty(process, 'platform', { value: '${platform}' });` +
+                    `Object.defineProperty(process, 'arch', { value: '${architecture}' });` +
+                    `await import(${JSON.stringify(dispatcherUrl)});`;
+    const unsupported = spawnSync(process.execPath, ['--input-type=module', '--eval', program], {
+      input: JSON.stringify(entry), env, encoding: 'utf8',
+    });
+    assert.equal(unsupported.status, 0, unsupported.stderr);
+    const decision = JSON.parse(unsupported.stdout);
+    assert.equal(decision.decision, 'block');
+    assert.match(decision.reason, /supports only Windows x64/, `${platform}/${architecture} is rejected`);
+  }
+
   const exit = {
     session_id: 'missing-binary-exit',
     cwd: pluginRoot,
@@ -307,6 +335,27 @@ try {
   assert.equal(activeExit.status, 0, activeExit.stderr);
   assert.equal(JSON.parse(activeExit.stdout).hookSpecificOutput.permissionDecision, 'deny',
                'active Forge Plan Mode fails closed when the RID binary is unavailable');
+
+  const stop = {
+    session_id: 'missing-binary-stop',
+    cwd: pluginRoot,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+  };
+  const ordinaryStop = spawnSync(process.execPath, [join(scripts, 'claude-workflow-hook.mjs')], {
+    input: JSON.stringify(stop), env, encoding: 'utf8',
+  });
+  assert.equal(ordinaryStop.status, 0, ordinaryStop.stderr);
+  assert.equal(ordinaryStop.stdout, '', 'ordinary Stop stays available without an activation');
+
+  const stopKey = createHash('sha256').update(stop.session_id).digest('hex');
+  writeFileSync(join(activations, `${stopKey}.json`), '{');
+  const activeStop = spawnSync(process.execPath, [join(scripts, 'claude-workflow-hook.mjs')], {
+    input: JSON.stringify(stop), env, encoding: 'utf8',
+  });
+  assert.equal(activeStop.status, 0, activeStop.stderr);
+  assert.equal(JSON.parse(activeStop.stdout).continue, false,
+               'active Forge Stop fails visibly when the win-x64 binary is unavailable');
 } finally {
   rmSync(dispatcherRoot, { recursive: true, force: true });
 }
