@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.7.0
+# Plan Forge Flow 0.8.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes six tools. Release 0.7.0 supports only
+typed .NET 10 executable named `planforge` that exposes six tools. Release 0.8.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -17,13 +17,23 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run and takes a baseline of the working tree |
 | `forge.plan.review` | One review round: a fresh critic judges the current draft |
-| `forge.plan.approve` | Presents the plan for approval and shows any working-tree drift beside it |
+| `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
 | `forge.review.code` | Reviews the diff, has the builder fix findings, repeats until the verdict settles |
-| `forge.status` | Reports where the run stands |
+| `forge.status` | Reports where the run stands, with any working-tree drift since the baseline |
 
 Plan review is one round per call because the orchestrator has to take a turn in between. Code review
 is the whole loop inside one call, because nothing in it needs the orchestrator.
+
+Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
+user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
+that drift however its own host shows things best — an artifact, a widget, plain chat — and passes
+back what they answered. `forge.plan.confirm` records it. See
+[docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md) for why elicitation was removed
+rather than repaired.
+
+The tool is for a decision the user actually made. Deciding on their behalf is the one thing it must
+not be used for, and nothing in this codebase can tell the difference.
 
 ## Vendors
 
@@ -111,10 +121,11 @@ Two checks survive, both against irreversible harm:
 - **Writes staying inside the run.** One containment test on the run id, instead of six guards.
 
 Everything else is observable rather than prevented. There are no hooks and no gates, so an
-orchestrator can abandon a run midway or start editing during the interview. Drift between
-`forge.begin` and `forge.plan.approve` is shown to the user beside the plan, but after the fact.
-This is a deliberate trade, recorded in
-[`docs/adr/0002-mcp-server-surface-without-enforcement.md`](docs/adr/0002-mcp-server-surface-without-enforcement.md).
+orchestrator can abandon a run midway or start editing during the interview. Drift since
+`forge.begin` is reported by `forge.status`, so it is visible to whoever looks — and approval itself
+is an assertion by the orchestrator that it asked. Both are deliberate trades, recorded in
+[`docs/adr/0002`](docs/adr/0002-mcp-server-surface-without-enforcement.md) and
+[`docs/adr/0003`](docs/adr/0003-approval-through-the-orchestrator.md).
 
 ## Development
 

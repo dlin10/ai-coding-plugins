@@ -23,10 +23,10 @@ an ordinary request to plan something, or an existing draft are not consent.
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId` and takes a baseline of the working tree. |
 | `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
-| `forge.plan.approve` | When the critique settles. Shows the user the plan and asks for approval. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
 | `forge.review.code` | Once, after the last task. Runs the whole critic-to-builder loop internally. |
-| `forge.status` | Any time the user asks where things stand. |
+| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. The work tools also take
 `model`, an optional `effort`, and an optional `vendor` — `claude`, `codex`, or `cursor`,
@@ -52,6 +52,27 @@ reopening settled points.
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
 
+Keep the drafts to yourself. The rounds are working material, and showing the user every revision
+buries the one version that matters. The plan reaches them exactly once, when the critic returns
+`approve`.
+
+## Approval
+
+Nothing in the server asks the user anything. Showing them the plan and getting an answer is your
+job, in four steps:
+
+1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
+2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it. Use
+   whatever your host displays best: an artifact, a canvas, a widget, or plain markdown in the chat.
+   If anything drifted, say so out loud rather than leaving it in a list they may not read.
+3. Ask them to approve it or say what to change. On a change, revise the plan and go back to
+   `forge.plan.review` — a plan amended after the last verdict has not been reviewed.
+4. Pass what they answered to `forge.plan.confirm`.
+
+Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
+of what approval means here: it writes `PLAN.md`, flips `approved` in the run state, and unlocks the
+builder. No code anywhere checks whether anyone was actually asked.
+
 ## Choosing the vendor and model
 
 Ask the user for the critic and builder models as free text, and pass what they say. The catalogue
@@ -65,8 +86,8 @@ and can be cheap; the critic is judging, so lean nearer the strong end.
 Nothing stops you from abandoning a run halfway, or from editing code during Act 1. There are no
 hooks and no gates in this version — the trade is deliberate. Two consequences to hold yourself to:
 
-- Do not touch files before the plan is approved. `forge.plan.approve` compares the working tree
-  against the baseline and shows the user what drifted, but only after the fact.
+- Do not touch files before the plan is approved. `forge.status` compares the working tree against
+  the baseline, so what you touched is visible — but only because you went and looked.
 - Do not stop mid-run without telling the user where you stopped and what remains.
 
 Do not hand-edit anything under `.forge/`. Do not stage or commit the workers' changes; leave the

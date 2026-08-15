@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
 using PlanForge.Orchestration;
@@ -19,7 +18,6 @@ internal sealed class ForgeTools
 {
     private const int DefaultReviewRoundCap = 5;
     private const int DefaultCodeReviewCap = 3;
-    private const string ApprovalKey = "approve";
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline, and returns the run id and capability profile.")]
     public static async Task<string> Begin(McpServer server,
@@ -61,58 +59,32 @@ internal sealed class ForgeTools
     }
 
     /// <summary>
-    /// Asks the user to approve, and shows any working-tree drift beside the plan. The client
-    /// re-sends this call carrying the answer, so the elicitation branch runs exactly twice.
+    /// The only approval route. It records a decision the orchestrator collected through the host's
+    /// own UI, rather than asking through MCP elicitation, because elicitation could not tell a user
+    /// saying no from a host that answered on their behalf without rendering anything. Nothing here
+    /// is enforced — see docs/adr/0003.
     /// </summary>
-    [McpServerTool(Name = "forge.plan.approve"), Description("Presents the plan for approval and records the approved tasks.")]
-    public static async Task<string> ApprovePlan(
-        RequestContext<CallToolRequestParams> context,
-        McpServer server,
+    [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes.")]
+    public static async Task<string> ConfirmPlan(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The plan to approve, as markdown.")] string plan,
+        [Description("What the user answered. Show them the plan and the drift, ask, and pass what they say; never decide this yourself.")] bool approved,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         var state = run.ReadState();
         var tasks = PlanTasks.Parse(plan);
 
-        if (context.Params?.InputResponses?.TryGetValue(ApprovalKey, out var answer) is true)
-        {
-            if (!WasApproved(answer))
-                return JsonSerializer.Serialize(new ApproveResult(false, 0, []), ForgeToolJson.Default.ApproveResult);
-
-            run.WritePlan(plan);
-            run.WriteState(state with { Approved = true });
-            return JsonSerializer.Serialize(new ApproveResult(true, tasks.Count, []), ForgeToolJson.Default.ApproveResult);
-        }
-
         var drifted = await run.ReadBaseline(state.BaselineHead)
                                .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
 
-        var orchestrator = new NegotiatedOrchestrator(server.ClientCapabilities);
-        if (!orchestrator.CanElicitApproval)
-            throw new VendorException("this host cannot be asked for approval in-band");
+        if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
 
-        throw new InputRequiredException(
-            new Dictionary<string, InputRequest>
-            {
-                [ApprovalKey] = InputRequest.ForElicitation(new ElicitRequestParams
-                {
-                    Message = orchestrator.Present(plan, tasks.Count, drifted).Body,
-                    RequestedSchema = new ElicitRequestParams.RequestSchema
-                    {
-                        Properties = new Dictionary<string, ElicitRequestParams.PrimitiveSchemaDefinition>
-                        {
-                            [ApprovalKey] = new ElicitRequestParams.BooleanSchema
-                            {
-                                Description = "Approve this plan and start building?"
-                            }
-                        }
-                    }
-                })
-            },
-            requestState: runId);
+        run.WritePlan(plan);
+        run.WriteState(state with { Approved = true });
+
+        return Serialized(new ApproveResult(true, tasks.Count, drifted));
     }
 
     [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan.")]
@@ -154,24 +126,22 @@ internal sealed class ForgeTools
         return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.CodeReviewOutcome);
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands.")]
-    public static string Status(
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline.")]
+    public static async Task<string> Status(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId)
+        [Description("Run id from forge.begin.")] string runId,
+        CancellationToken ct)
     {
-        var state = RunDirectory.Open(workspaceRoot, runId).ReadState();
-        return JsonSerializer.Serialize(state, ForgeJson.Default.RunState);
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        var state = run.ReadState();
+        var drifted = await run.ReadBaseline(state.BaselineHead)
+                               .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
+
+        return JsonSerializer.Serialize(new StatusResult(state, drifted), ForgeToolJson.Default.StatusResult);
     }
 
-    private static bool WasApproved(InputResponse answer)
-    {
-        var raw = answer.RawValue;
-        if (raw.ValueKind is not JsonValueKind.Object) return false;
-        if (!raw.TryGetProperty("content", out var content)) return false;
-
-        return content.TryGetProperty(ApprovalKey, out var flag)
-            && flag.ValueKind is JsonValueKind.True;
-    }
+    private static string Serialized(ApproveResult result) =>
+        JsonSerializer.Serialize(result, ForgeToolJson.Default.ApproveResult);
 
     // Sortable and collision-free enough for a per-workspace run folder.
     private static string NewRunId() =>
@@ -182,9 +152,17 @@ internal sealed record BeginResult(string RunId, string RunPath, string Profile,
 
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 
+/// <summary>
+/// Drift travels with the status rather than only with the decision, because the orchestrator has
+/// to show it to the user <em>before</em> asking, and the decision call is where it would arrive
+/// too late to matter.
+/// </summary>
+internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles);
+
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
+[JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(BuildOutcome))]
 [JsonSerializable(typeof(CodeReviewOutcome))]
 internal sealed partial class ForgeToolJson : JsonSerializerContext;

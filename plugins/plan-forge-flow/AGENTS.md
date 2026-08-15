@@ -129,6 +129,15 @@ run midway or edit during the interview, and working-tree drift is shown beside 
 time rather than blocked. This is deliberate — see
 [docs/adr/0002](docs/adr/0002-mcp-server-surface-without-enforcement.md).
 
+Approval is not asked for by this server. `forge.plan.confirm` records a decision the orchestrator
+collected through its own host, because the elicitation it replaced could not tell a user refusing
+from a host that answered for them and rendered nothing — see
+[docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md). The consequence to hold on to:
+`Approved` in the run state is an assertion by the orchestrator, and no code here can check it.
+
+Drift is reported by `forge.status`, not only by the decision call, because the orchestrator has to
+show it to the user before asking rather than after.
+
 ## Build constraints that bite
 
 `Directory.Build.props` sets `TreatWarningsAsErrors`, `PublishTrimmed`, `PublishSingleFile`, and —
@@ -143,4 +152,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the two architecture decisions.
+decision. `docs/adr/` holds the three architecture decisions.
