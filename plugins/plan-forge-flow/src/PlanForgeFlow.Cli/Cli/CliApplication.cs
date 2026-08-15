@@ -7,6 +7,7 @@ using PlanForgeFlow.Pending;
 using PlanForgeFlow.Infrastructure.Workspace;
 using PlanForgeFlow.OpenAI;
 using PlanForgeFlow.Claude;
+using PlanForgeFlow.Codex;
 using ForgeWorkflow = PlanForgeFlow.Workflow.Planning.ForgeWorkflow;
 
 namespace PlanForgeFlow.Cli;
@@ -35,6 +36,18 @@ internal sealed class CliApplication
 
     public int Run(string[] args)
     {
+        if (args.Length >= 2 && string.Equals(args[0], "hook", StringComparison.Ordinal) &&
+            string.Equals(args[1], "capture-context", StringComparison.Ordinal))
+        {
+            return HookService.Run(JsonInput.Read(Console.In));
+        }
+
+        if (args.Length >= 2 && string.Equals(args[0], "hook", StringComparison.Ordinal) &&
+            string.Equals(args[1], "claude-workflow", StringComparison.Ordinal))
+        {
+            return ClaudeWorkflowHooks.Run(JsonInput.Read(Console.In));
+        }
+
 #if DEBUG
         if (Environment.GetEnvironmentVariable("FORGE_TEST_HOLD_LOCK") is { Length: > 0 } marker)
         {
@@ -66,6 +79,7 @@ internal sealed class CliApplication
             var parsed = ParsedArgs.Parse(args.Skip(optionOffset));
             ValidateOptions(definition, parsed);
             var context = CommandContext.Create(definition, parsed);
+            ClaudeCommandHandlers.RequireExecutionForCommand(context);
             switch (command)
             {
                 case "plan lock":
@@ -76,7 +90,7 @@ internal sealed class CliApplication
                                        context.Host switch
                                        {
                                            HostKind.Cursor => ForgeWorkflow.MaterializeCursorPlan(context),
-                                           HostKind.Claude => ForgeWorkflow.MaterializeClaudePlan(context),
+                                           HostKind.Claude => ClaudeCommandHandlers.Materialize(context),
                                            _ => ForgeWorkflow.MaterializePlan(context),
                                        },
                                        ForgeJsonContext.Default.JsonSuccessMaterializeData);
@@ -159,6 +173,12 @@ internal sealed class CliApplication
                 case "run doctor":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Doctor(context.Workspace, context.Host), ForgeJsonContext.Default.JsonSuccessDoctorData);
                     break;
+                case "run begin":
+                    JsonOutput.Success(command, ClaudeCommandHandlers.Begin(context), ForgeJsonContext.Default.JsonSuccessClaudeActivation);
+                    break;
+                case "run abandon":
+                    JsonOutput.Success(command, ClaudeCommandHandlers.AbandonRun(context), ForgeJsonContext.Default.JsonSuccessClaudeActivation);
+                    break;
                 case "run status":
                     RepositoryIdentity? statusRepository = null;
                     StatusPresentData? statusState = null;
@@ -192,19 +212,28 @@ internal sealed class CliApplication
                     var pendingRun = context.Host is HostKind.Cursor or HostKind.Claude
                                          ? PendingRuns.Status(statusRepository ?? RepositoryPaths.Identify(context.Workspace), context.Host)
                                          : null;
-                    JsonOutput.Success(command, new RunStatusData(statusState, pendingRun), ForgeJsonContext.Default.JsonSuccessRunStatusData);
+                    var statusIdentity = statusRepository ?? RepositoryPaths.Identify(context.Workspace);
+                    var activation = context.Host == HostKind.Claude
+                                         ? ClaudeActivations.Status(statusIdentity, ClaudeActivations.TryCurrentSessionId())
+                                         : null;
+                    JsonOutput.Success(command, new RunStatusData(statusState, pendingRun, activation), ForgeJsonContext.Default.JsonSuccessRunStatusData);
                     break;
                 case "run set":
                     JsonOutput.Success(command, Workflow.ForgeWorkflow.Set(context), ForgeJsonContext.Default.JsonSuccessForgeState);
                     break;
                 case "run cleanup":
-                    if (context.Args.Has("legacy"))
-                        Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                    if (context.Host == HostKind.Claude)
+                        JsonOutput.Success(command, ClaudeCommandHandlers.Cleanup(context), ForgeJsonContext.Default.JsonSuccessCleanupData);
                     else
-                        Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
-                    JsonOutput.Success(command,
-                                       new CleanupData(true, context.Args.Has("purge-generated-agents")),
-                                       ForgeJsonContext.Default.JsonSuccessCleanupData);
+                    {
+                        if (context.Args.Has("legacy"))
+                            Workflow.Planning.Materializer.CleanupLegacy(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                        else
+                            Workflow.ForgeWorkflow.Cleanup(context.Workspace, context.Args.Has("purge-generated-agents"), context.Host);
+                        JsonOutput.Success(command,
+                                           new CleanupData(true, context.Args.Has("purge-generated-agents")),
+                                           ForgeJsonContext.Default.JsonSuccessCleanupData);
+                    }
                     break;
                 default:
                     throw new CliFailure("usage", $"unknown command '{command}'");
@@ -262,7 +291,7 @@ internal sealed class CliApplication
     private static void PrintHelp(string command)
     {
         JsonOutput.Success(command,
-                           new HelpData($"planforge {command} [options]", CliCommands.Names.Append("hook capture-context").ToList()),
+                           new HelpData($"planforge {command} [options]", CliCommands.Names.Append("hook capture-context").Append("hook claude-workflow").ToList()),
                            ForgeJsonContext.Default.JsonSuccessHelpData);
     }
 }

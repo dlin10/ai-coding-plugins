@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Build six local-marketplace bundles
+      - name: Build win-x64 local-marketplace bundle
         shell: pwsh
         run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/release-artifacts"
       - name: Publish GitHub Release assets
@@ -31,5 +31,7 @@ jobs:
         run: |
           $tag = '${{ github.ref_name }}'
           $assets = Get-ChildItem "$env:GITHUB_WORKSPACE/release-artifacts" -Filter '*.zip' -File
-          if ($assets.Count -ne 6) { throw "Expected six release archives, found $($assets.Count)" }
+          if ($assets.Count -ne 1 -or $assets[0].Name -ne 'plan-forge-flow-0.7.0-win-x64.zip') {
+            throw "Expected only plan-forge-flow-0.7.0-win-x64.zip"
+          }
           gh release create $tag $assets.FullName --title "Plan Forge Flow $tag" --generate-notes

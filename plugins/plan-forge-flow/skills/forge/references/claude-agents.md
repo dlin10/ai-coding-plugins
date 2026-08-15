@@ -1,6 +1,6 @@
 # Claude agent contract
 
-Claude Code 2.1.226 and newer uses one of six reviewer definitions and one of
+Claude Code 2.1.232 and newer uses one of six reviewer definitions and one of
 six builder definitions from the plugin `agents/` directory. The suffix is the
 requested effort: `none`, `low`, `medium`, `high`, `xhigh`, or `max`. `none`
 omits the `effort` frontmatter field so Claude inherits its normal runtime

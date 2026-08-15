@@ -35,9 +35,11 @@ internal static class CliCommands
             ["session cancel"] = Define("session cancel", false, "workspace", "session-id"),
             ["session worker"] = Define("session worker", false, "workspace", "session-id"),
             ["run doctor"] = Define("run doctor", false, "workspace"),
+            ["run begin"] = Define("run begin", false, "workspace"),
+            ["run abandon"] = Define("run abandon", false, "workspace", "run-id", "accept-risk", "authorization-note"),
             ["run status"] = Define("run status", false, "workspace"),
             ["run set"] = Define("run set", true, "workspace", "key", "value", "amendment", "accept-risk", "authorization-note"),
-            ["run cleanup"] = Define("run cleanup", false, "workspace", "purge-generated-agents", "legacy"),
+            ["run cleanup"] = Define("run cleanup", false, "workspace", "purge-generated-agents", "legacy", "run-id", "accept-risk", "authorization-note"),
         };
 
     public static IReadOnlyCollection<string> Names => Definitions.Keys.ToArray();

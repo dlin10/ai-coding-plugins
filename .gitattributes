@@ -1,3 +1,2 @@
-plugins/plan-forge-flow/bin/**/planforge filter=lfs diff=lfs merge=lfs -text
-plugins/plan-forge-flow/bin/**/planforge.exe filter=lfs diff=lfs merge=lfs -text
+plugins/plan-forge-flow/bin/win-x64/planforge.exe filter=lfs diff=lfs merge=lfs -text
 plugins/plan-forge-flow/bin/planforge-launcher.sh text eol=lf

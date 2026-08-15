@@ -1,10 +1,9 @@
-# Plan Forge Flow 0.6.1
+# Plan Forge Flow 0.7.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete
 planning, fresh adversarial review, controlled implementation, and final code
-review. The runtime is a typed .NET 10 executable named `planforge`; the
-supported install surface is a repository marketplace containing all supported
-RID-specific executables.
+review. The runtime is a typed .NET 10 executable named `planforge`; release
+0.7.0 temporarily supports only Windows x64.
 
 Codex retains its enforced clean-run workflow. Cursor 3.15.6 and newer uses an
 editable native `.plan.md` and local Build in the current or a new Agent. Cursor
@@ -18,17 +17,19 @@ ignore `readonly: true` or the preamble, so status reports both
 
 ## Requirements
 
-- Codex 0.145 or newer with `multi_agent` enabled, Claude Code 2.1.226 or newer,
+- Codex 0.145 or newer with `multi_agent` enabled, Claude Code 2.1.232 or newer,
   or Cursor 3.15.6 or newer
+- Windows x64
 - Git
 - .NET 10 SDK only when building from source
 - Git LFS when checking out the repository or publishing bundles
-- Node.js 18 or newer for Claude's asynchronous agent-evidence hooks
+- Node.js 18 or newer for Claude's synchronous workflow gate and asynchronous
+  agent-evidence hooks
 - A Git repository for the target change
 
 The distributed executable is self-contained, trimmed, single-file, and does
-not require a preinstalled .NET runtime. Node.js is used only by Claude's
-fail-open evidence hook; Codex and Cursor operation does not require Node.js.
+not require a preinstalled .NET runtime. Node.js dispatches Claude's blocking
+workflow hooks and fail-open evidence hooks; Codex and Cursor do not require it.
 
 ## Installation
 
@@ -48,8 +49,9 @@ plugin:
 /plugin install plan-forge-flow@dlin10-ai-coding-plugins
 ```
 
-The plugin contains every supported RID and a launcher selects the current
-host automatically:
+The plugin contains one supported executable and a Windows x64 launcher. The
+shell launcher remains only as a deterministic unsupported-platform stub for
+generic hook metadata:
 
 ```text
 .agents/plugins/marketplace.json
@@ -60,11 +62,6 @@ plugins/plan-forge-flow/
   bin/planforge-launcher.sh
   bin/planforge-launcher.ps1
   bin/win-x64/planforge.exe
-  bin/win-arm64/planforge.exe
-  bin/linux-x64/planforge
-  bin/linux-arm64/planforge
-  bin/osx-x64/planforge
-  bin/osx-arm64/planforge
   skills/
   agents/
   cursor/commands/
@@ -108,6 +105,17 @@ model, effort, agent, and result evidence under
 `${CLAUDE_PLUGIN_DATA}/agent-evidence/`. They fail open and never write evidence
 inside the repository or installed plugin directory.
 
+Synchronous `UserPromptExpansion` and `PreToolUse:Skill` hooks automatically
+arm an external session-scoped run for both `/plan-forge-flow:forge` entry
+paths. A synchronous `PreToolUse:ExitPlanMode` hook blocks native approval until
+the run is `ready` and Claude's injected plan normalizes to the exact reviewed
+snapshot. After materialization, a synchronous `Stop` hook keeps Acts 3–4 and
+terminal cleanup from being skipped. Its first decision after each verified
+state change continues Claude with the next obligation; a repeated Stop at the
+same state returns a visible blocker instead of looping. Runs without a
+current-session activation retain ordinary Claude behavior. The Node dispatcher
+accepts only `win32/x64` and invokes the bundled `win-x64` binary directly.
+
 All host reviewer prompts use a Roslyn-first contract for C#/.NET semantic
 claims. A reviewer first verifies the intended solution from an absolute path
 and returned compilation identity. Missing, unreachable, wrong-solution, and
@@ -126,11 +134,11 @@ The root `.cursor-plugin/marketplace.json` exposes the Cursor package. Install
 it from the local marketplace, enter native Plan Mode with Shift+Tab, and invoke
 `/forge`. Cloud Build, Canvas, and Cursor 3.14.x are not supported.
 
-The six RID archives produced by `build/package.ps1` remain optional release
-assets for offline or local-marketplace installation. They are not the source
-of the repository marketplace. For the direct repository marketplace, commit
-the two launchers and all six `bin/<rid>/` executables through Git LFS; keep
-`artifacts/` ignored.
+The single `plan-forge-flow-0.7.0-win-x64.zip` archive produced by
+`build/package.ps1` is an optional release asset for offline or local-marketplace
+installation. It is not the source of the repository marketplace. For the
+direct repository marketplace, commit both launchers and only
+`bin/win-x64/planforge.exe` through Git LFS; keep `artifacts/` ignored.
 
 ## Grouped CLI
 
@@ -146,8 +154,8 @@ agents install
 build dispatch|complete|resolve|begin
 review prepare|record-response|authorize-preexisting|verdict
 session builder|reviewer|start|status|result|cancel
-run doctor|status|set|cleanup
-hook capture-context
+run doctor|begin|abandon|status|set|cleanup
+hook capture-context|claude-workflow
 ```
 
 OpenAI roles optionally use a typed `codex app-server` JSONL client. It accepts
@@ -180,18 +188,21 @@ review authorize-preexisting --authorized-paths --authorization-note --accept-ri
 review verdict             --stage --critique-file --accept-risk --authorization-note
 session builder|reviewer  --id --dispatch-id --model --effort --authorization-note
 run status                 (no additional options)
+run begin                  --host claude
+run abandon                --host claude --run-id --accept-risk --authorization-note
 run set                    --key --value --amendment --accept-risk --authorization-note
-run cleanup                --purge-generated-agents --legacy
+run cleanup                --purge-generated-agents --legacy --run-id --accept-risk --authorization-note
 ```
 
 `run status` always returns one data shape: `{ "state": <status-or-null>,
-"pendingRun": <host-run-or-null> }`. Cursor and Claude status report both values when a
-materialized state and its external pending run coexist; Codex always reports a
-null `pendingRun`.
+"pendingRun": <host-run-or-null>, "activation": <claude-activation-or-null> }`.
+Cursor and Claude status report both state and pending run when they coexist;
+Claude also reports the activation belonging to the current session. Codex
+always reports null pending run and activation.
 
 `--workspace` and `--host` are available on stateful commands; omitted `--host`
 means `codex` for clean-install Codex command compatibility. Cursor always passes
-`--host cursor`. `hook capture-context` reads its JSON input from stdin.
+`--host cursor`. Hook commands read their native host JSON input from stdin.
 `--authorized-paths` is a bounded JSON array, and `--authorization-note` is
 bounded text.
 
@@ -222,6 +233,18 @@ current text plus a technical hash only inside the replayable transaction.
 gate succeeds. Conflicting or unowned artifacts fail without reset. Cleanup
 never edits or deletes the Cursor-owned plan file.
 
+Claude skill entry additionally creates schema-v2 `ClaudeActivation` state at
+`${CLAUDE_PLUGIN_DATA}/claude-activations/<session-sha256>.json`, binding the
+canonical workspace, scope, random run ID, `CLAUDE_CODE_SESSION_ID`, lifecycle,
+and Stop progress without touching the repository before approval. Lifecycle is
+`planning → materializing → executing → cleaning`; materialization retains the
+activation through Acts 3–4, and only terminal cleanup removes it. Mutating
+Claude build/review commands require the matching executing session lease and
+`state.sourceRun`. Nonterminal cleanup requires explicit risk authorization;
+foreign cleanup additionally requires the exact run ID. `run abandon` is
+planning-only, and no TTL silently expires ownership. Schema-v1 activations and
+pre-0.7.0 materialized runs are unsupported and are not migrated.
+
 Claude retains the exact canonical reviewed plan through Ready. After native
 approval, `plan materialize --host claude --run-id … --plan-file …` accepts only
 a regular, non-symlink UTF-8 file whose bytes exactly match that snapshot. This
@@ -233,8 +256,10 @@ builder hold after the transaction is committed.
 Claude's first post-approval Default-mode action is this manual materialize
 command. Its successful result establishes the transaction, acquires the
 repository lock, performs plan lock/build begin, and only then permits the held
-builder to resume. The conversational instruction ordering remains advisory;
-the CLI's exact-snapshot and ownership checks are the enforced boundary.
+builder to resume. Before approval, the armed-session hook enforces Act 2,
+finalization, and exact plan identity while leaving the native approval dialog
+unchanged. The CLI's transaction and ownership checks remain the post-approval
+boundary.
 Reviewer and builder providers are selected independently, so all four
 Anthropic/OpenAI pairings are supported. OpenAI through Codex App Server is
 optional. Claude doctor distinguishes absence from a broken installation and
@@ -284,10 +309,10 @@ claim that those bytes are identical to the reviewed chat draft. See
 
 ## Codex hook behavior
 
-The `UserPromptSubmit` hook invokes the RID-aware launcher at
-`sh bin/planforge-launcher.sh hook capture-context` (or
-`bin/planforge-launcher.ps1` on Windows) with a five-second timeout. The
-launcher selects the matching bundled executable from `bin/<rid>/`. On the
+The `UserPromptSubmit` hook invokes `bin/planforge-launcher.ps1` on Windows with
+a five-second timeout. Generic Unix hook metadata points at
+`bin/planforge-launcher.sh`, which fails immediately with the Windows x64-only
+support message. On the
 first prompt after a Plan-mode `<proposed_plan>`, the hook stages the latest plan
 as a temporary per-workspace pending plan outside the repository and refreshes
 it after later proposed plans. Staging is not approval, materialization, or
@@ -324,14 +349,15 @@ dotnet restore src/PlanForgeFlow.sln
 dotnet test src/PlanForgeFlow.sln
 ```
 
-Use `build/package.ps1` to publish the six RIDs, refresh `bin/<rid>/` with
-`-InstallBinaries`, and create optional per-RID marketplace archives. The
+Use `build/package.ps1` to publish `win-x64`, refresh
+`bin/win-x64/planforge.exe` with `-InstallBinaries`, and create the single
+optional marketplace archive. The
 package step fails if a publish directory contains a runtime,
 dependency, debug, or other sidecar file.
 
 Operational overrides are `CODEX_HOME`, `CURSOR_HOME`, `FORGE_PLUGIN_DATA`, and
-`FORGE_AGENTS_DIR`. Claude Code supplies `CLAUDE_PLUGIN_DATA` for its external,
-persistent plugin evidence.
+`FORGE_AGENTS_DIR`. Claude Code supplies `CLAUDE_PLUGIN_DATA` for external
+activation/evidence and `CLAUDE_CODE_SESSION_ID` for direct planning commands.
 Each critique is accompanied by a small JSON decision file at
 `<critique-file>.json` with `verdict` and, for code/fix reviews, `coverage`.
 

@@ -1,19 +1,16 @@
 $ErrorActionPreference = 'Stop'
 
 $pluginRoot = Split-Path -Parent $PSScriptRoot
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
-    throw 'The PowerShell Plan Forge launcher is only for Windows hosts.'
+    throw 'Unsupported Plan Forge platform. Plan Forge 0.7.0 supports only Windows x64.'
 }
 
-$rid = switch ($architecture) {
-    'x64' { 'win-x64' }
-    'arm64' { 'win-arm64' }
-    default { throw "Unsupported Plan Forge Windows architecture: $architecture" }
+$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+if ($architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
+    throw "Unsupported Plan Forge architecture: $architecture. Plan Forge 0.7.0 supports only Windows x64."
 }
 
-$executable = Join-Path $pluginRoot "bin/$rid/planforge.exe"
+$executable = Join-Path $pluginRoot 'bin/win-x64/planforge.exe'
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Plan Forge executable is missing: $executable"
 }

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using PlanForgeFlow.Workflow.State;
 using PlanForgeFlow.Pending;
 using PlanForgeFlow.OpenAI;
+using PlanForgeFlow.Claude;
 
 namespace PlanForgeFlow.Serialization;
 
@@ -19,6 +20,7 @@ namespace PlanForgeFlow.Serialization;
     WriteIndented = false)]
 [JsonSerializable(typeof(ForgeState))]
 [JsonSerializable(typeof(PendingRun))]
+[JsonSerializable(typeof(ClaudeActivation))]
 [JsonSerializable(typeof(CursorCapAudit))]
 [JsonSerializable(typeof(MaterializationTransaction))]
 [JsonSerializable(typeof(PendingPlanDocument))]
@@ -29,6 +31,7 @@ namespace PlanForgeFlow.Serialization;
 [JsonSerializable(typeof(ReviewManifest))]
 [JsonSerializable(typeof(JsonSuccess<ForgeState>))]
 [JsonSerializable(typeof(JsonSuccess<PendingRun>))]
+[JsonSerializable(typeof(JsonSuccess<ClaudeActivation>))]
 [JsonSerializable(typeof(JsonSuccess<MaterializeData>))]
 [JsonSerializable(typeof(JsonSuccess<InstallAgentsData>))]
 [JsonSerializable(typeof(JsonSuccess<DispatchState>))]
@@ -64,6 +67,15 @@ internal sealed partial class ForgeJsonContext : JsonSerializerContext;
 [JsonSerializable(typeof(HookCaptureOutput))]
 [JsonSerializable(typeof(TranscriptEnvelope))]
 internal sealed partial class CodexJsonContext : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+[JsonSerializable(typeof(ClaudeHookInput))]
+[JsonSerializable(typeof(ClaudeHookOutput))]
+internal sealed partial class ClaudeJsonContext : JsonSerializerContext;
 
 internal sealed record PendingPlanDocument(int SchemaVersion, HostKind Host, string Workspace, string Plan);
 
@@ -157,7 +169,7 @@ internal sealed record StatusPresentData(int Version,
                                          ApprovalGuarantee? ApprovalGuarantee = null,
                                          string? RepositoryScopeId = null);
 
-internal sealed record RunStatusData(StatusPresentData? State, PendingRun? PendingRun);
+internal sealed record RunStatusData(StatusPresentData? State, PendingRun? PendingRun, ClaudeActivation? Activation = null);
 
 internal sealed record CleanupData(bool Cleaned, bool PurgedAgents);
 
@@ -172,3 +184,22 @@ internal sealed record HookSpecificOutput(string HookEventName, string Additiona
 internal sealed record HookCaptureOutput(HookSpecificOutput HookSpecificOutput);
 
 internal sealed record TranscriptEnvelope(string? Type, JsonElement Payload);
+
+internal sealed record ClaudeHookInput([property: JsonPropertyName("session_id")] string? SessionId,
+                                       string? Cwd,
+                                       [property: JsonPropertyName("hook_event_name")] string? HookEventName,
+                                       [property: JsonPropertyName("tool_name")] string? ToolName,
+                                       [property: JsonPropertyName("command_name")] string? CommandName,
+                                       [property: JsonPropertyName("tool_input")] JsonElement? ToolInput,
+                                       [property: JsonPropertyName("stop_hook_active")] bool StopHookActive = false);
+
+internal sealed record ClaudeHookSpecificOutput(string HookEventName,
+                                                string? PermissionDecision,
+                                                string? PermissionDecisionReason,
+                                                string? AdditionalContext);
+
+internal sealed record ClaudeHookOutput(string? Decision,
+                                        string? Reason,
+                                        ClaudeHookSpecificOutput? HookSpecificOutput,
+                                        bool? Continue = null,
+                                        string? StopReason = null);

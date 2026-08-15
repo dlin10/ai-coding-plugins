@@ -7,7 +7,7 @@ namespace PlanForgeFlow.Claude;
 
 internal static class ClaudeCapabilities
 {
-    internal const string MinimumVersion = "2.1.226";
+    internal const string MinimumVersion = "2.1.232";
     private static readonly Version Minimum = Version.Parse(MinimumVersion);
     private static readonly Regex VersionPattern = new("(?:^|\\s)([0-9]+\\.[0-9]+\\.[0-9]+)(?:[-+][^\\s]+)?(?:\\s|$)",
                                                        RegexOptions.CultureInvariant);

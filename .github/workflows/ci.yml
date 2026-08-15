@@ -6,11 +6,7 @@ on:
 
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
@@ -34,11 +30,7 @@ jobs:
 
   publish:
     needs: test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, osx-arm64]
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
@@ -49,31 +41,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - name: Publish and package one RID
+      - name: Publish and package win-x64
         shell: pwsh
-        run: ./build/package.ps1 -Rids '${{ matrix.rid }}' -OutputRoot "$env:GITHUB_WORKSPACE/artifacts/${{ matrix.rid }}"
+        run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/artifacts/win-x64"
       - name: Check archive exists
         shell: pwsh
         run: |
-          $archive = Get-ChildItem "$env:GITHUB_WORKSPACE/artifacts/${{ matrix.rid }}" -Filter '*.zip' -File
-          if ($archive.Count -ne 1) { throw 'Expected exactly one RID archive' }
+          $archive = @(Get-ChildItem "$env:GITHUB_WORKSPACE/artifacts/win-x64" -Filter '*.zip' -File)
+          if ($archive.Count -ne 1 -or $archive[0].Name -ne 'plan-forge-flow-0.7.0-win-x64.zip') { throw 'Expected exactly the win-x64 archive' }
 
   native-smoke:
     needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            rid: win-x64
-            executable: planforge.exe
-          - os: ubuntu-latest
-            rid: linux-x64
-            executable: planforge
-          - os: macos-latest
-            rid: osx-x64
-            executable: planforge
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
@@ -86,15 +65,14 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build host bundle
         shell: pwsh
-        run: ./build/package.ps1 -Rids '${{ matrix.rid }}' -OutputRoot "$env:GITHUB_WORKSPACE/smoke-artifacts"
+        run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/smoke-artifacts"
       - name: Run cold direct executable smoke
         shell: pwsh
         run: |
           $zip = Get-ChildItem "$env:GITHUB_WORKSPACE/smoke-artifacts" -Filter '*.zip' -File | Select-Object -First 1
           $extract = Join-Path $env:RUNNER_TEMP 'planforge-smoke'
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract -Force
-          $exe = Join-Path $extract "plugins/plan-forge-flow/bin/${{ matrix.rid }}/${{ matrix.executable }}"
-          if ('${{ matrix.rid }}' -notlike 'win-*') { & chmod +x $exe }
+          $exe = Join-Path $extract 'plugins/plan-forge-flow/bin/win-x64/planforge.exe'
           $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = Join-Path $env:RUNNER_TEMP 'planforge-bundle-extract'
           $timer = [Diagnostics.Stopwatch]::StartNew()
           & $exe --help | Out-Null

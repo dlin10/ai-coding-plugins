@@ -5,7 +5,7 @@ description: Harden and implement changes through Cursor native Plan Mode, fresh
 
 # Plan Forge Flow for Cursor
 
-Use the bundled launcher at `../../../bin/planforge-launcher.ps1` on Windows or `../../../bin/planforge-launcher.sh` on Unix. Always pass `--host cursor`. Read [workflow.md](references/workflow.md), [native-plan-contract.md](references/native-plan-contract.md), [model-waiver.md](references/model-waiver.md), and [roslyn-first-review.md](references/roslyn-first-review.md) completely before acting.
+This release supports only Windows x64. Use the bundled launcher at `../../../bin/planforge-launcher.ps1` and always pass `--host cursor`. Read [workflow.md](references/workflow.md), [native-plan-contract.md](references/native-plan-contract.md), [model-waiver.md](references/model-waiver.md), and [roslyn-first-review.md](references/roslyn-first-review.md) completely before acting.
 
 ## Hard rules
 

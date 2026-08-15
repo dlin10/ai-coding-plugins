@@ -94,6 +94,9 @@ internal static partial class PendingRuns
 
     internal static void Save(RepositoryIdentity repository, PendingRun run) => Write(repository, run);
 
+    internal static PendingRun? TryLoadForRun(RepositoryIdentity repository, string runId, HostKind host = HostKind.Cursor)
+        => TryLoad(repository, runId, host);
+
     internal static void ValidateIdentity(string value, string option)
     {
         if (!SafeIdentity.IsMatch(value)) throw new CliFailure("usage", $"{option} is malformed");
@@ -137,6 +140,18 @@ internal static partial class PendingRuns
         HostKind.Claude => "Claude",
         HostKind.Codex => "Codex",
         _ => host.ToString(),
+    };
+
+    internal static string PhaseName(PendingRunPhase phase) => phase switch
+    {
+        PendingRunPhase.Reviewing => "reviewing",
+        PendingRunPhase.RevisionRequired => "revision-required",
+        PendingRunPhase.ReviewApproved => "review-approved",
+        PendingRunPhase.Ready => "ready",
+        PendingRunPhase.Materializing => "materializing",
+        PendingRunPhase.Consumed => "consumed",
+        PendingRunPhase.Abandoned => "abandoned",
+        _ => throw new ArgumentOutOfRangeException(nameof(phase)),
     };
 
     private static IReadOnlyList<PendingRun> LoadAll(RepositoryIdentity repository, HostKind host = HostKind.Cursor)
