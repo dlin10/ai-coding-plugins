@@ -2,19 +2,31 @@
 
 ## 0.7.0
 
-- Extends Claude's external activation to schema v2 and a full-run lifecycle:
-  `planning`, `materializing`, `executing`, and recoverable `cleaning`.
-- Adds a synchronous session-scoped `Stop` gate that prevents Claude from
-  skipping materialization, locked implementation tasks, full code review/fix
-  rounds, or terminal cleanup, with progress hashes and bounded same-state
-  loop behavior.
-- Requires matching execution lease, session, workspace, and source run for
-  Claude build/review mutations; strengthens terminal, risk, takeover, legacy,
-  and recovery cleanup rules.
-- Drops migration for schema-v1 activations and older materialized Claude runs.
-- Temporarily narrows release and CI support to Windows x64. Distribution now
-  contains one LFS executable and one `plan-forge-flow-0.7.0-win-x64.zip` asset;
-  the Unix launcher is a deterministic unsupported-platform stub.
+Rewritten as an MCP server. The plugin is now `planforge` exposing six tools —
+`forge.begin`, `forge.plan.review`, `forge.plan.approve`, `forge.build.next`,
+`forge.review.code`, `forge.status` — instead of a CLI driven by host hooks.
+
+- Adds `IVendor`: the critic and builder roles can be filled by Claude Code,
+  the Codex App Server, or `cursor-agent`, chosen per call. Structured output
+  is a hard interface requirement; the two vendors without a native schema get
+  it through the prompt with validation and one retry on our side.
+- Makes the host agent the orchestrator: it runs the interview and revises the
+  plan between review rounds. Plan review is one round per call; code review
+  runs its whole critic-to-builder loop inside one call.
+- Removes all enforcement. The hooks, the twelve Claude agent descriptors, the
+  Codex agent TOMLs, the parallel Cursor tree, the plan-mode gates, the
+  execution lease, the run locks, and the `refs/plan-forge/*` refs are gone.
+  Working-tree drift between `forge.begin` and `forge.plan.approve` is shown to
+  the user rather than prevented. See
+  `docs/adr/0002-mcp-server-surface-without-enforcement.md`.
+- Keeps two checks: no prompt carrying secrets is handed to a vendor, and
+  nothing is written outside `.forge/<runId>/`.
+- Moves role prompts to `prompts/<vendor>/{critic,builder}.md`, editable
+  without rebuilding, with one shared Roslyn contract instead of two copies.
+- Drops the Node.js requirement along with the hooks that needed it, and the
+  launcher scripts along with the hooks that invoked them.
+- Narrows release and CI support to Windows x64. Distribution contains one LFS
+  executable and one `plan-forge-flow-0.7.0-win-x64.zip` asset.
 
 ## 0.6.2
 

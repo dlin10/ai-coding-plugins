@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "plan-forge-flow": {
+      "command": "./bin/win-x64/planforge.exe",
+      "cwd": ".",
+      "tool_timeout_sec": 3600
+    }
+  }
+}

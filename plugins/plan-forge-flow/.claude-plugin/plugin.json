@@ -1,11 +1,16 @@
 {
   "name": "plan-forge-flow",
   "version": "0.7.0",
-  "description": "Harden, independently review, approve, and implement plans on Windows x64 in Claude Code with pinned native subagents.",
+  "description": "Harden, independently review, approve, and implement plans on Windows x64 in Claude Code, with the review and build work delegated to separate Claude, Codex, or Cursor processes.",
   "author": {
     "name": "Dmitry Linetsky"
   },
   "license": "MIT",
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.claude.json"
+  "mcpServers": {
+    "plan-forge-flow": {
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/win-x64/planforge.exe"
+    }
+  }
 }

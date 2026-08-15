@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="760"
-     height="1240"
-     viewBox="0 0 760 1240"
+     height="950"
+     viewBox="0 0 760 950"
      role="img"
      aria-labelledby="title description">
   <title id="title">Plan Forge Flow workflow</title>
   <desc id="description">
-    A top-to-bottom workflow from Plan-mode readiness through planning,
-    adversarial plan review, native plan approval, Default-mode materialization,
-    implementation, full code review, and completion. Plan review, material
-    amendments, and accepted fixes form loops.
+    A top-to-bottom workflow from opening a run through the interview, round-by-round
+    plan review, approval, task-by-task building, and final code review. Plan review
+    loops back to the orchestrator, which revises the plan; building repeats once per
+    task; code review loops internally between critic and builder.
   </desc>
 
   <defs>
@@ -36,122 +36,61 @@
     .gate { fill: #fff8c5; stroke: #9a6700; }
     .build { fill: #dafbe1; stroke: #1a7f37; }
     .code-review { fill: #ffeff7; stroke: #bf3989; }
-    .amendment { fill: #f6f8fa; stroke: #57606a; }
     .done { fill: #dafbe1; stroke: #1a7f37; }
     .risk { fill: #ffebe9; stroke: #cf222e; }
     .edge { fill: none; stroke: #57606a; stroke-width: 2.5; marker-end: url(#arrow); }
     .loop { fill: none; stroke: #8c959f; stroke-width: 2.25; stroke-dasharray: 7 5; marker-end: url(#arrow); }
     .arrowhead { fill: #57606a; }
-
-    @media (prefers-color-scheme: dark) {
-      .canvas { fill: #0d1117; }
-      .title, .node-title { fill: #f0f6fc; }
-      .node-detail, .edge-label { fill: #b1bac4; }
-      .phase { fill: #0c2d4a; stroke: #58a6ff; }
-      .plan { fill: #2e2459; stroke: #a371f7; }
-      .review { fill: #3d2b1f; stroke: #f0883e; }
-      .gate { fill: #3b3418; stroke: #d29922; }
-      .build, .done { fill: #1a3525; stroke: #3fb950; }
-      .code-review { fill: #3c1f31; stroke: #db61a2; }
-      .amendment { fill: #21262d; stroke: #8b949e; }
-      .risk { fill: #3d1f24; stroke: #f85149; }
-      .edge { stroke: #b1bac4; }
-      .loop { stroke: #8b949e; }
-      .arrowhead { fill: #b1bac4; }
-    }
   </style>
 
-  <rect class="canvas" x="1" y="1" width="758" height="1238" rx="18"/>
-  <text class="title" x="380" y="42" text-anchor="middle">Plan Forge Flow</text>
+  <rect class="canvas" width="760" height="950"/>
+  <text class="title" x="380" y="46" text-anchor="middle">Plan Forge Flow</text>
 
-  <!-- Main workflow spine -->
-  <path class="edge" d="M 380 150 L 380 190"/>
-  <path class="edge" d="M 380 270 L 380 310"/>
-  <path class="edge" d="M 380 390 L 380 450"/>
-  <path class="edge" d="M 380 530 L 380 590"/>
-  <path class="edge" d="M 380 670 L 380 740"/>
-  <path class="edge" d="M 380 820 L 380 920"/>
-  <path class="edge" d="M 380 1000 L 380 1080"/>
+  <rect class="node phase" x="170" y="80" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="114" text-anchor="middle">forge.begin</text>
+  <text class="node-detail" x="380" y="140" text-anchor="middle">Run id, capability profile, working-tree baseline</text>
 
-  <!-- Act 2 revise loop -->
-  <path class="loop" d="M 560 330 C 655 330, 655 370, 560 370"/>
-  <text class="edge-label" x="625" y="315" text-anchor="middle">REVISE</text>
+  <rect class="node plan" x="170" y="200" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="234" text-anchor="middle">Act 1 — the interview</text>
+  <text class="node-detail" x="380" y="260" text-anchor="middle">The orchestrator grills, then writes the plan draft</text>
 
-  <!-- Act 3 material-amendment loop -->
-  <path class="loop" d="M 200 780 L 160 780"/>
-  <path class="loop" d="M 90 738 C 90 610, 90 350, 200 350"/>
-  <text class="edge-label" x="78" y="570" text-anchor="middle"
-        transform="rotate(-90 78 570)">REPLAN AND REVIEW</text>
+  <rect class="node review" x="170" y="320" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="354" text-anchor="middle">Act 2 — forge.plan.review</text>
+  <text class="node-detail" x="380" y="380" text-anchor="middle">One round: a fresh critic judges the draft</text>
 
-  <!-- Act 4 accepted-fixes loop -->
-  <path class="loop" d="M 560 940 C 655 940, 655 980, 560 980"/>
-  <text class="edge-label" x="625" y="925" text-anchor="middle">FIX AND RE-REVIEW</text>
+  <rect class="node gate" x="170" y="440" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="474" text-anchor="middle">forge.plan.approve</text>
+  <text class="node-detail" x="380" y="500" text-anchor="middle">The plan, and any drift since the baseline, shown to the user</text>
 
-  <!-- Completion branches -->
-  <path class="edge" d="M 380 1080 C 380 1110, 185 1095, 185 1135"/>
-  <path class="edge" d="M 380 1080 C 380 1110, 575 1095, 575 1135"/>
-  <text class="edge-label" x="235" y="1097" text-anchor="middle">FULL APPROVAL</text>
-  <text class="edge-label" x="525" y="1097" text-anchor="middle">RISK ACCEPTED</text>
+  <rect class="node build" x="170" y="560" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="594" text-anchor="middle">Act 3 — forge.build.next</text>
+  <text class="node-detail" x="380" y="620" text-anchor="middle">One task per call, by a builder that keeps its session</text>
 
-  <!-- Nodes -->
-  <g>
-    <rect class="node phase" x="200" y="70" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="104" text-anchor="middle">Phase 0</text>
-    <text class="node-detail" x="380" y="130" text-anchor="middle">Plan-mode doctor and agent readiness</text>
-  </g>
+  <rect class="node code-review" x="170" y="680" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="714" text-anchor="middle">Act 4 — forge.review.code</text>
+  <text class="node-detail" x="380" y="740" text-anchor="middle">Critic to builder and back, the whole loop inside one call</text>
 
-  <g>
-    <rect class="node plan" x="200" y="190" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="224" text-anchor="middle">Act 1</text>
-    <text class="node-detail" x="380" y="250" text-anchor="middle">Grill and canonical plan</text>
-  </g>
+  <rect class="node done" x="100" y="820" width="250" height="84" rx="14"/>
+  <text class="node-title" x="225" y="854" text-anchor="middle">Done</text>
+  <text class="node-detail" x="225" y="880" text-anchor="middle">Verdict: approve</text>
 
-  <g>
-    <rect class="node review" x="200" y="310" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="344" text-anchor="middle">Act 2</text>
-    <text class="node-detail" x="380" y="370" text-anchor="middle">Fresh adversarial plan review</text>
-  </g>
+  <rect class="node risk" x="410" y="820" width="250" height="84" rx="14"/>
+  <text class="node-title" x="535" y="854" text-anchor="middle">Cap reached</text>
+  <text class="node-detail" x="535" y="880" text-anchor="middle">The user accepts or stops</text>
 
-  <g>
-    <rect class="node gate" x="200" y="450" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="484" text-anchor="middle">Native plan approval</text>
-    <text class="node-detail" x="380" y="510" text-anchor="middle">Preview and validated builder hold</text>
-  </g>
+  <path class="edge" d="M 380 164 L 380 198"/>
+  <path class="edge" d="M 380 284 L 380 318"/>
+  <path class="edge" d="M 380 404 L 380 438"/>
+  <path class="edge" d="M 380 524 L 380 558"/>
+  <path class="edge" d="M 380 644 L 380 678"/>
+  <path class="edge" d="M 380 764 L 380 792 L 225 792 L 225 818"/>
+  <path class="edge" d="M 380 764 L 380 792 L 535 792 L 535 818"/>
 
-  <g>
-    <rect class="node phase" x="200" y="590" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="624" text-anchor="middle">Default-mode materialization</text>
-    <text class="node-detail" x="380" y="650" text-anchor="middle">Materialize pending plan, lock, and begin</text>
-  </g>
+  <path class="loop" d="M 590 362 L 650 362 L 650 242 L 592 242"/>
+  <text class="edge-label" x="658" y="306">REVISE</text>
 
-  <g>
-    <rect class="node amendment" x="20" y="738" width="140" height="84" rx="14"/>
-    <text class="node-title" x="90" y="769" text-anchor="middle">Material</text>
-    <text class="node-detail" x="90" y="794" text-anchor="middle">plan</text>
-    <text class="node-detail" x="90" y="813" text-anchor="middle">amendment</text>
-  </g>
+  <path class="loop" d="M 170 628 L 104 628 L 104 578 L 168 578"/>
+  <text class="edge-label" x="96" y="607" text-anchor="end">NEXT TASK</text>
 
-  <g>
-    <rect class="node build" x="200" y="740" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="774" text-anchor="middle">Act 3</text>
-    <text class="node-detail" x="380" y="800" text-anchor="middle">Pinned persistent builder</text>
-  </g>
-
-  <g>
-    <rect class="node code-review" x="200" y="920" width="360" height="80" rx="14"/>
-    <text class="node-title" x="380" y="954" text-anchor="middle">Act 4</text>
-    <text class="node-detail" x="380" y="980" text-anchor="middle">Fresh code reviews and builder fixes</text>
-  </g>
-
-  <g>
-    <rect class="node done" x="70" y="1135" width="230" height="76" rx="14"/>
-    <text class="node-title" x="185" y="1170" text-anchor="middle">Done</text>
-    <text class="node-detail" x="185" y="1195" text-anchor="middle">Full-coverage approval</text>
-  </g>
-
-  <g>
-    <rect class="node risk" x="460" y="1135" width="230" height="76" rx="14"/>
-    <text class="node-title" x="575" y="1170" text-anchor="middle">Done with findings</text>
-    <text class="node-detail" x="575" y="1195" text-anchor="middle">Explicit risk acceptance</text>
-  </g>
+  <text class="edge-label" x="392" y="546">APPROVED</text>
 </svg>

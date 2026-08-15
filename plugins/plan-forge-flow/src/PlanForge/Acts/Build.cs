@@ -1,5 +1,6 @@
 using System.Text;
 using PlanForge.Prompts;
+using PlanForge.Review;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
@@ -30,12 +31,14 @@ internal sealed class Build
         if (state.TasksCompleted >= tasks.Count) return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
         var task = tasks[state.TasksCompleted];
+        var prompt = Compose(task, tasks.Count);
+        SensitiveInput.Guard(prompt, $"task {task.Number}");
 
         await using var session = await _vendor.StartAsync(
             new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder)),
             selection, state.BuilderSessionId is { Length: > 0 } token ? token : null, ct);
 
-        var result = await session.RunAsync(Compose(task, tasks.Count), Schemas.BuildResult, ct);
+        var result = await session.RunAsync(prompt, Schemas.BuildResult, ct);
 
         run.WriteState(state with
         {

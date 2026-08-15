@@ -1,16 +1,16 @@
 {
   "name": "plan-forge-flow",
   "version": "0.7.0",
-  "description": "A Windows x64-only typed .NET 10 four-act plan hardening, implementation, and independent review workflow for Codex.",
+  "description": "A Windows x64-only typed .NET 10 plan hardening, implementation, and independent review workflow for Codex, exposed as an MCP server.",
   "author": {
     "name": "Dmitry Linetsky"
   },
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Plan Forge Flow",
     "shortDescription": "Grill, review, build, and verify a plan",
-    "longDescription": "Turns an idea into a session-scoped plan, reviews it with fresh native Codex sub-agents, implements it step by step with a persistent builder, and performs a complete final review.",
+    "longDescription": "Turns an idea into a session-scoped plan, reviews it round by round with a fresh critic, implements it task by task with a persistent builder, and finishes with a complete code review. The critic and builder run as separate Claude, Codex, or Cursor processes, so the model doing the judging need not be the model doing the work.",
     "developerName": "Dmitry Linetsky",
     "category": "Productivity",
     "capabilities": [

@@ -1,5 +1,6 @@
 using System.Text;
 using PlanForge.Prompts;
+using PlanForge.Review;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
@@ -32,7 +33,10 @@ internal sealed class PlanReview
         await using var session = await _vendor.StartAsync(
             new RoleSpec(VendorRole.Critic, systemPrompt), selection, resumeToken: null, ct);
 
-        var critique = await session.RunAsync(Compose(planDraft, run.ReadReviewLog()), Schemas.Critique, ct);
+        var prompt = Compose(planDraft, run.ReadReviewLog());
+        SensitiveInput.Guard(prompt, "the plan under review");
+
+        var critique = await session.RunAsync(prompt, Schemas.Critique, ct);
 
         run.AppendReviewRound(round, critique);
         run.WriteState(state with { ReviewRounds = round });

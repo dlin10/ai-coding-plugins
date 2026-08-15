@@ -35,11 +35,9 @@ internal sealed class RunDirectory
 
     public static RunDirectory Create(string workspaceRoot, string runId)
     {
-        var forgeRoot = System.IO.Path.Combine(workspaceRoot, ForgeFolder);
-        Directory.CreateDirectory(forgeRoot);
-        File.WriteAllText(System.IO.Path.Combine(forgeRoot, ".gitignore"), SelfIgnore);
-
-        var runPath = System.IO.Path.Combine(forgeRoot, runId);
+        var runPath = Confine(workspaceRoot, runId);
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(runPath)!);
+        File.WriteAllText(System.IO.Path.Combine(workspaceRoot, ForgeFolder, ".gitignore"), SelfIgnore);
         Directory.CreateDirectory(runPath);
 
         return new RunDirectory(runId, runPath);
@@ -47,9 +45,26 @@ internal sealed class RunDirectory
 
     public static RunDirectory Open(string workspaceRoot, string runId)
     {
-        var runPath = System.IO.Path.Combine(workspaceRoot, ForgeFolder, runId);
+        var runPath = Confine(workspaceRoot, runId);
         if (!Directory.Exists(runPath)) throw new RunNotFoundException(runId);
         return new RunDirectory(runId, runPath);
+    }
+
+    /// <summary>
+    /// The second of the two surviving checks: everything this class writes is under the run folder,
+    /// so one containment test on the run id replaces the six symlink and reparse-point guards. The
+    /// run id reaches us from a tool call, which makes it caller-controlled input.
+    /// </summary>
+    private static string Confine(string workspaceRoot, string runId)
+    {
+        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(workspaceRoot, ForgeFolder));
+        var runPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(forgeRoot, runId));
+
+        var prefix = forgeRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        if (!runPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new RunEscapedException(runId);
+
+        return runPath;
     }
 
     public RunState ReadState()
@@ -120,6 +135,9 @@ internal sealed record RunState(string RunId,
                                 string BuilderSessionId = "");
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
+
+internal sealed class RunEscapedException(string runId)
+    : Exception($"run id {runId} resolves outside .forge/");
 
 // Reflection-based serialization is off repo-wide (Directory.Build.props), so every persisted
 // shape needs a source-generated contract.

@@ -1,6 +1,7 @@
 using System.Text;
 using PlanForge.Prompts;
 using PlanForge.Repo;
+using PlanForge.Review;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
@@ -38,11 +39,15 @@ internal sealed class CodeReview
             var diff = await _git.OutputAsync(["diff"], ct);
             if (diff.Length == 0) return new CodeReviewOutcome(new Critique("approve", [], "nothing to review"), round - 1);
 
+            await GuardChangedPathsAsync(ct);
+            var review = ComposeReview(diff, run.ReadReviewLog());
+            SensitiveInput.Guard(review, "the diff under review");
+
             // Fresh critic each round, but handed the log so it converges instead of oscillating.
             await using (var critic = await _vendor.StartAsync(
                 new RoleSpec(VendorRole.Critic, criticPrompt), criticSelection, null, ct))
             {
-                critique = await critic.RunAsync(ComposeReview(diff, run.ReadReviewLog()), Schemas.Critique, ct);
+                critique = await critic.RunAsync(review, Schemas.Critique, ct);
             }
 
             run.AppendReviewRound(run.ReadState().ReviewRounds + round, critique);
@@ -58,6 +63,18 @@ internal sealed class CodeReview
         }
 
         return new CodeReviewOutcome(critique, cap);
+    }
+
+    /// <summary>
+    /// A sensitive path in the diff means that file's contents are in the diff. Naming the file is
+    /// a better error than "the diff contains a secret".
+    /// </summary>
+    private async Task GuardChangedPathsAsync(CancellationToken ct)
+    {
+        var changed = await _git.OutputAsync(["diff", "--name-only"], ct);
+        foreach (var path in changed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (SensitiveInput.IsSensitivePath(path))
+                throw new SensitiveContentException($"the diff touches {path}, which");
     }
 
     private static string ComposeReview(string diff, string reviewLog)
