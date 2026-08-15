@@ -1,5 +1,35 @@
 # Plan Forge Flow releases
 
+## 0.8.0
+
+Approval no longer runs through MCP elicitation. A host can declare the
+capability, answer on the user's behalf and render nothing, and the server cannot
+tell that from the user refusing — so 0.7.0 stalled runs with no dialog on screen
+and no explanation anywhere. See
+`docs/adr/0003-approval-through-the-orchestrator.md`.
+
+- **Breaking.** `forge.plan.approve` is removed. `forge.plan.confirm` replaces
+  it: the orchestrator shows the plan, asks, and passes back the answer. The
+  surface stays at six tools.
+- **Breaking.** `forge.status` returns `{ run, driftedFiles }` rather than the
+  run state alone. Drift belongs there because the orchestrator has to show it
+  before asking, and the decision call is where it would arrive too late.
+- Deletes `IOrchestrator`, `NegotiatedOrchestrator`, `PlanPresentation` and
+  `CanElicitApproval`, which existed only to compose and gate the elicitation
+  message. `CapabilityProfile` stays: `forge.begin` still reports it.
+- Fixes `ApproveResult.driftedFiles`, which every approval path returned empty
+  whatever the working tree looked like. Drift was computed only for the text of
+  the elicitation and never left the server.
+- The server advertises its real version. `serverInfo.version` was the literal
+  `"2.0.0"` from the first commit of the MCP server onwards — a version no
+  release ever had, and one that could not distinguish 0.7.0 from 0.8.0 in a bug
+  report. It is now read from the assembly, which packaging stamps from the
+  manifest.
+- `skills/forge/SKILL.md` keeps the drafts out of the conversation: the plan is
+  shown to the user once, when the critic returns `approve`, rather than round by
+  round. It also spells out the four steps of asking, and that an amended plan
+  goes back through review.
+
 ## 0.7.0
 
 Rewritten as an MCP server. The plugin is now `planforge` exposing six tools —

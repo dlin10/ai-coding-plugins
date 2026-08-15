@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows) -or
     [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    throw 'Plan Forge 0.7.0 packaging supports only Windows x64.'
+    throw 'Plan Forge 0.8.0 packaging supports only Windows x64.'
 }
 $rid = 'win-x64'
 $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -154,7 +154,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.approve', 'forge.build.next', 'forge.review.code', 'forge.status')) {
+        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.status')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
     }

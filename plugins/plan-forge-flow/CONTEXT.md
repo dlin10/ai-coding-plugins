@@ -83,8 +83,29 @@ Cursor 1.0.0 both negotiate protocol `2025-11-25` and report `extensions: null` 
 capability. Neither the MCP Apps extension (the `canvas` profile) nor the Tasks extension (streamed
 progress) is negotiated by any available host.
 
-So the plan is delivered as markdown in the tool result, approval runs through elicitation — which
-does work, including the full multi-round tool response cycle — and progress is observable only at
-the granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas`
-branch is not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from
-the SDK is the check that would enable it.
+So the plan is delivered as markdown in the tool result, and progress is observable only at the
+granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas` branch is
+not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from the SDK is
+the check that would enable it.
+
+## A declared elicitation capability is not a rendered one
+
+Measured on 2026-08-15 against the Claude Code desktop surface, running the 0.7.0 server. Three
+things are established by which code path executed, rather than by inspecting the wire:
+
+- The client **declared** `elicitation`. The capability guard passed instead of refusing, and a
+  refusal would have surfaced as an error rather than a result.
+- The client **answered**. The answer-carrying branch is reachable only when `InputResponses`
+  already holds the approval key, and that branch is what returned.
+- The answer carried no accepted content, so it read as a refusal.
+- The user was shown nothing at all.
+
+What the host put in `action` is *not* known: the 0.7.0 code never read that field, and the version
+that does was never run on that surface. It would not have helped — a host answering for the user
+can send `decline` as easily as anything else.
+
+The earlier measurement, that elicitation works including the full multi-round tool response cycle,
+was taken on Claude Code 2.1.233, the terminal CLI. Both findings are true of the surface each was
+measured on, and that is the whole problem: the guarantee is per-surface, it degrades silently, and
+a server cannot tell which surface it is talking to. Approval by elicitation was removed in 0.8.0 —
+see [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md).
