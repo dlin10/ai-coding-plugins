@@ -3,6 +3,7 @@ using PlanForge.Prompts;
 using PlanForge.Repo;
 using PlanForge.Run;
 using PlanForge.Vendors;
+using PlanForge.Vendors.Claude;
 using Xunit;
 using Xunit.Abstractions;
 

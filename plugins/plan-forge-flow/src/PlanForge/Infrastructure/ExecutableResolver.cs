@@ -24,7 +24,7 @@ internal static class ExecutableResolver
         return Resolve(command, extras, OperatingSystem.IsWindows());
     }
 
-    internal static string? Resolve(string command, string? pathValue, bool windows)
+    private static string? Resolve(string command, string? pathValue, bool windows)
     {
         foreach (var raw in (pathValue ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {

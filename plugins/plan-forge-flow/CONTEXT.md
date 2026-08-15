@@ -61,6 +61,21 @@ have a recorded rollout, which only exists after a turn has completed; a thread 
 never used cannot be resumed. That is why a Builder's resume token is only worth storing once its
 first task is done.
 
+## Each vendor keeps the critic read-only by a different mechanism
+
+The critic judges and must not edit what it is judging — including through any subagent it spawns.
+Nothing in this codebase enforces that; all three guarantees are the vendor's, and they are not the
+same guarantee:
+
+- **Codex** — the thread opens with `sandbox: read-only` and each turn repeats it as
+  `sandboxPolicy: readOnly`. A real sandbox.
+- **Claude** — `--permission-mode acceptEdits` is passed only for a Builder, so a critic's edit
+  tools are simply never pre-approved.
+- **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the
+  help text: the same prompt asking for a file writes it without the flag and writes nothing with
+  it, at the same latency. Before that flag was added, `--force` went to every role and a Cursor
+  critic could edit freely.
+
 ## Only the `text` profile exists
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and

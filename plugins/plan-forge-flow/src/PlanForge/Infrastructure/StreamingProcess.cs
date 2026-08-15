@@ -25,7 +25,8 @@ internal static class StreamingProcess
         deadline.CancelAfter(timeout);
         var token = deadline.Token;
 
-        using var process = new Process { StartInfo = Build(spec) };
+        using var process = new Process();
+        process.StartInfo = Build(spec);
         if (!process.Start()) throw new VendorException($"could not start {spec.FileName}");
 
         var stderr = process.StandardError.ReadToEndAsync(token);

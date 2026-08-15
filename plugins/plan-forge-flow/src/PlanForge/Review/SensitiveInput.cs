@@ -17,7 +17,7 @@ internal static partial class SensitiveInput
                || KeyMaterialExtension().IsMatch(path);
     }
 
-    public static bool IsSensitiveContent(string content)
+    private static bool IsSensitiveContent(string content)
     {
         if (PrivateKey().IsMatch(content) || AwsAccessKey().IsMatch(content)) return true;
 

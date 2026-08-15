@@ -1,6 +1,6 @@
 using PlanForge.Infrastructure;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Cursor;
 
 /// <summary>
 /// The one vendor with no native schema support: structure is achieved by putting the schema in the

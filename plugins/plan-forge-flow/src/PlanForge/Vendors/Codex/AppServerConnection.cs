@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlanForge.Infrastructure;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Codex;
 
 /// <summary>
 /// The Codex App Server speaks a JSON-RPC-shaped line protocol over stdio — no "jsonrpc" member,
@@ -26,7 +26,7 @@ internal sealed class AppServerConnection : IAsyncDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Queue<string> _stderrLines = new();
-    private readonly object _stderrGate = new();
+    private readonly Lock _stderrGate = new();
     private readonly Task _readerTask;
     private readonly Task _stderrTask;
 
@@ -159,7 +159,14 @@ internal sealed class AppServerConnection : IAsyncDisposable
         finally
         {
             await _lifetime.CancelAsync();
-            try { await Task.WhenAll(_readerTask, _stderrTask); } catch (Exception) { }
+            try
+            {
+                await Task.WhenAll(_readerTask, _stderrTask);
+            }
+            catch (Exception)
+            {
+                // ignored
+            }
 
             _process.Dispose();
             _lifetime.Dispose();

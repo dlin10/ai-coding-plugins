@@ -12,10 +12,13 @@ internal interface IVendor
 
     Task<VendorReadiness> ProbeAsync(CancellationToken ct);
 
+    /// <param name="selection"></param>
     /// <param name="resumeToken">
     /// A token from an earlier session of the same role. The MCP surface is stateless, so a
     /// Builder's continuity across separate tool calls has to be carried in the run state.
     /// </param>
+    /// <param name="role"></param>
+    /// <param name="ct"></param>
     Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct);
 }
 

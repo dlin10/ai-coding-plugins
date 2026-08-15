@@ -1,4 +1,5 @@
 using PlanForge.Vendors;
+using PlanForge.Vendors.Claude;
 using Xunit;
 
 namespace PlanForge.Tests;

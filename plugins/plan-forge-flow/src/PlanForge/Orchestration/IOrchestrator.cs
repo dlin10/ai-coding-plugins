@@ -40,17 +40,15 @@ internal sealed record PlanPresentation(PlanPresentationKind Kind, string Body);
 /// </summary>
 internal sealed class NegotiatedOrchestrator : IOrchestrator
 {
-    private readonly bool _canElicit;
-
     public NegotiatedOrchestrator(ClientCapabilities? capabilities)
     {
         Profile = CapabilityProfileDetector.Detect(capabilities);
-        _canElicit = capabilities?.Elicitation is not null;
+        CanElicitApproval = capabilities?.Elicitation is not null;
     }
 
     public CapabilityProfile Profile { get; }
 
-    public bool CanElicitApproval => _canElicit;
+    public bool CanElicitApproval { get; }
 
     public PlanPresentation Present(string plan, int taskCount, IReadOnlyList<string> driftedFiles)
     {

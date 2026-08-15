@@ -54,6 +54,20 @@ public sealed class SafetyTests
         Assert.Throws<RunEscapedException>(() => RunDirectory.Open(workspace, runId));
     }
 
+    /// <summary>
+    /// A relative root would resolve against the server process, not the repository — and two
+    /// sessions passing one would meet in the same folder.
+    /// </summary>
+    [Theory]
+    [InlineData(".")]
+    [InlineData("../other-repo")]
+    [InlineData("relative/path")]
+    public void Refuses_a_workspace_root_that_is_not_absolute(string workspaceRoot)
+    {
+        Assert.Throws<WorkspaceNotRootedException>(() => RunDirectory.Open(workspaceRoot, "any-run"));
+        Assert.Throws<WorkspaceNotRootedException>(() => RunDirectory.Create(workspaceRoot, "any-run"));
+    }
+
     [Fact]
     public void Appends_the_shared_roslyn_contract_to_a_critic_only()
     {

@@ -1,4 +1,5 @@
 using PlanForge.Vendors;
+using PlanForge.Vendors.Cursor;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -34,6 +35,27 @@ public sealed class CursorAgentTests
         ]);
 
         Assert.Equal(["auto", "gpt-5.3-codex-high"], models.Select(m => m.Id));
+    }
+
+    /// <summary>
+    /// The critic must not be able to touch the code it is judging. Codex gets that from its
+    /// sandbox; here it rests entirely on plan mode, which was measured against cursor-agent on
+    /// 2026-08-15: the same prompt writes the file without the flag and writes nothing with it.
+    /// What is worth guarding in the suite is that the flag keeps reaching the right role.
+    /// </summary>
+    [Fact]
+    public void Only_the_critic_is_started_in_plan_mode()
+    {
+        var selection = new Selection("auto", null);
+
+        var critic = new CursorAgentSession(new RoleSpec(VendorRole.Critic, CriticPrompt), selection, null)
+                     .BuildArguments();
+        var builder = new CursorAgentSession(new RoleSpec(VendorRole.Builder, "implement"), selection, null)
+                      .BuildArguments();
+
+        Assert.Equal(["--mode", "plan"], critic.SkipWhile(a => a != "--mode").Take(2));
+        Assert.DoesNotContain("--mode", builder);
+        Assert.Contains("--force", builder);
     }
 
     /// <summary>

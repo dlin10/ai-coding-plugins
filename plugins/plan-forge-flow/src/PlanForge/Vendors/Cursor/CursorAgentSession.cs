@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using PlanForge.Infrastructure;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Cursor;
 
 /// <summary>
 /// Has no structured output tool, so it reaches structure through <see cref="SchemaInPrompt"/>:
@@ -84,7 +84,7 @@ internal sealed class CursorAgentSession : IVendorSession
         return result;
     }
 
-    private List<string> BuildArguments()
+    internal List<string> BuildArguments()
     {
         var arguments = new List<string>
         {
@@ -94,6 +94,15 @@ internal sealed class CursorAgentSession : IVendorSession
             "--trust",
             "--model", ModelWithEffort()
         };
+
+        // A critic judges; it does not edit. Plan mode is this vendor's own read-only profile, and
+        // it is the only thing standing between --force and a reviewer — or a subagent it spawned —
+        // deciding to fix what it just found. Codex gets this from its sandbox instead.
+        if (_role.Role is VendorRole.Critic)
+        {
+            arguments.Add("--mode");
+            arguments.Add("plan");
+        }
 
         if (CanResume && _chatId is not null)
         {

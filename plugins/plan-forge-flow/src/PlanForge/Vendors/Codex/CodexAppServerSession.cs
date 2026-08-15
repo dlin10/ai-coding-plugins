@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Codex;
 
 /// <summary>
 /// One Codex thread. The App Server has no schema field, so structure is reached the same way as
@@ -190,7 +190,7 @@ internal sealed class CodexAppServerSession : IVendorSession
     private sealed class Turn(string threadId)
     {
         private readonly List<string> _messages = [];
-        private readonly object _gate = new();
+        private readonly Lock _gate = new();
         private string? _failure;
 
         public TaskCompletionSource<string> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -2,6 +2,7 @@ using PlanForge.Acts;
 using PlanForge.Prompts;
 using PlanForge.Run;
 using PlanForge.Vendors;
+using PlanForge.Vendors.Claude;
 using Xunit;
 
 namespace PlanForge.Tests;

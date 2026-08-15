@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using System.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Protocol;
@@ -14,6 +14,7 @@ using PlanForge.Vendors;
 namespace PlanForge.Mcp;
 
 [McpServerToolType]
+[SuppressMessage("ReSharper", "UnusedMember.Global")]
 internal sealed class ForgeTools
 {
     private const int DefaultReviewRoundCap = 5;
@@ -53,7 +54,7 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new PlanReview(VendorRegistry.Create(vendor, workspaceRoot), new PromptLibrary());
+        var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
         var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort), ct);
 
         return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
@@ -124,7 +125,7 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new Build(VendorRegistry.Create(vendor, workspaceRoot), new PromptLibrary());
+        var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
         var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
 
         return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.BuildOutcome);
@@ -144,7 +145,7 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new CodeReview(VendorRegistry.Create(vendor, workspaceRoot), new PromptLibrary(),
+        var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
             new GitClient(workspaceRoot));
 
         var outcome = await act.RunAsync(run, new Selection(criticModel, criticEffort),

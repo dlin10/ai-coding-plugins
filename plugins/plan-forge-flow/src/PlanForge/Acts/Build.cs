@@ -27,7 +27,7 @@ internal sealed class Build
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
-        var tasks = PlanTasks.Parse(await File.ReadAllTextAsync(run.PlanPath, ct));
+        var tasks = PlanTasks.Parse(run.ReadPlan());
         if (state.TasksCompleted >= tasks.Count) return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
         var task = tasks[state.TasksCompleted];

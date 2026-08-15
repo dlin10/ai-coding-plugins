@@ -1,6 +1,6 @@
 using PlanForge.Infrastructure;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Claude;
 
 internal sealed class ClaudeCliVendor : IVendor
 {

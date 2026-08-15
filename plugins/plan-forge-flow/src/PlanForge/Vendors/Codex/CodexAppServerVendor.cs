@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Codex;
 
 /// <summary>
 /// Codex reached through its App Server rather than its CLI: a persistent connection, one thread per

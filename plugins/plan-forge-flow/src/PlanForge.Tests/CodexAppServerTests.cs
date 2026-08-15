@@ -1,5 +1,7 @@
 using System.Text.Json;
 using PlanForge.Vendors;
+using PlanForge.Vendors.Claude;
+using PlanForge.Vendors.Codex;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -53,9 +55,9 @@ public sealed class CodexAppServerTests
     [Fact]
     public void Refuses_an_unknown_vendor_id()
     {
-        Assert.IsType<ClaudeCliVendor>(VendorRegistry.Create(null, "."));
-        Assert.IsType<CodexAppServerVendor>(VendorRegistry.Create("codex", "."));
-        Assert.Throws<VendorException>(() => VendorRegistry.Create("grok", "."));
+        Assert.IsType<ClaudeCliVendor>(VendorFactory.Create(null, "."));
+        Assert.IsType<CodexAppServerVendor>(VendorFactory.Create("codex", "."));
+        Assert.Throws<VendorException>(() => VendorFactory.Create("grok", "."));
     }
 
     /// <summary>

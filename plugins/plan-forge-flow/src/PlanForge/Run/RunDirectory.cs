@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlanForge.Infrastructure;
 using PlanForge.Repo;
 using PlanForge.Vendors;
 
@@ -31,13 +32,13 @@ internal sealed class RunDirectory
 
     public string ReviewLogPath => System.IO.Path.Combine(Path, ReviewLogFileName);
 
-    public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
+    private string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 
     public static RunDirectory Create(string workspaceRoot, string runId)
     {
         var runPath = Confine(workspaceRoot, runId);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(runPath)!);
-        File.WriteAllText(System.IO.Path.Combine(workspaceRoot, ForgeFolder, ".gitignore"), SelfIgnore);
+        AtomicFile.Write(System.IO.Path.Combine(workspaceRoot, ForgeFolder, ".gitignore"), SelfIgnore);
         Directory.CreateDirectory(runPath);
 
         return new RunDirectory(runId, runPath);
@@ -52,11 +53,20 @@ internal sealed class RunDirectory
 
     /// <summary>
     /// The second of the two surviving checks: everything this class writes is under the run folder,
-    /// so one containment test on the run id replaces the six symlink and reparse-point guards. The
-    /// run id reaches us from a tool call, which makes it caller-controlled input.
+    /// so one containment test on the run id replaces the six symlink and reparse-point guards. Both
+    /// the workspace root and the run id reach us from a tool call, which makes them caller input.
     /// </summary>
+    /// <remarks>
+    /// The root has to be absolute, and that is worth refusing rather than resolving. A relative one
+    /// would be resolved against the server process's working directory, which is not the repository
+    /// and differs by host — the plugin folder under Codex, whatever the host started in elsewhere.
+    /// Two sessions passing a relative root would then land in the same folder, and their runs would
+    /// silently share it.
+    /// </remarks>
     private static string Confine(string workspaceRoot, string runId)
     {
+        if (!System.IO.Path.IsPathRooted(workspaceRoot)) throw new WorkspaceNotRootedException(workspaceRoot);
+
         var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(workspaceRoot, ForgeFolder));
         var runPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(forgeRoot, runId));
 
@@ -69,8 +79,7 @@ internal sealed class RunDirectory
 
     public RunState ReadState()
     {
-        var path = System.IO.Path.Combine(Path, StateFileName);
-        var json = File.ReadAllText(path);
+        var json = AtomicFile.Read(System.IO.Path.Combine(Path, StateFileName));
         return JsonSerializer.Deserialize(json, ForgeJson.Default.RunState)
             ?? throw new RunNotFoundException(RunId);
     }
@@ -78,26 +87,28 @@ internal sealed class RunDirectory
     public void WriteState(RunState state)
     {
         var json = JsonSerializer.Serialize(state, ForgeJson.Default.RunState);
-        File.WriteAllText(System.IO.Path.Combine(Path, StateFileName), json);
+        AtomicFile.Write(System.IO.Path.Combine(Path, StateFileName), json);
     }
 
     public void WriteBaseline(Baseline baseline) =>
-        File.WriteAllText(System.IO.Path.Combine(Path, BaselineFileName), baseline.Diff);
+        AtomicFile.Write(System.IO.Path.Combine(Path, BaselineFileName), baseline.Diff);
 
     public Baseline ReadBaseline(string head)
     {
         var path = System.IO.Path.Combine(Path, BaselineFileName);
-        return new Baseline(head, File.Exists(path) ? File.ReadAllText(path) : string.Empty);
+        return new Baseline(head, File.Exists(path) ? AtomicFile.Read(path) : string.Empty);
     }
 
-    public void WritePlan(string plan) => File.WriteAllText(PlanPath, plan);
+    public void WritePlan(string plan) => AtomicFile.Write(PlanPath, plan);
+
+    public string ReadPlan() => AtomicFile.Read(PlanPath);
 
     /// <summary>
     /// The log the next round's critic reads. A fresh critic without it oscillates; with it, it
     /// converges without inheriting the previous round's anchoring.
     /// </summary>
     public string ReadReviewLog() =>
-        File.Exists(ReviewLogPath) ? File.ReadAllText(ReviewLogPath) : string.Empty;
+        File.Exists(ReviewLogPath) ? AtomicFile.Read(ReviewLogPath) : string.Empty;
 
     public void AppendReviewRound(int round, Critique critique)
     {
@@ -114,11 +125,10 @@ internal sealed class RunDirectory
                  .Append(finding.Where).Append(" — ").AppendLine(finding.What);
 
         entry.AppendLine();
-        File.AppendAllText(ReviewLogPath, entry.ToString());
+        AtomicFile.Append(ReviewLogPath, entry.ToString());
 
         var critiques = System.IO.Path.Combine(Path, CritiquesFolder);
-        Directory.CreateDirectory(critiques);
-        File.WriteAllText(System.IO.Path.Combine(critiques, $"round-{round:00}.json"),
+        AtomicFile.Write(System.IO.Path.Combine(critiques, $"round-{round:00}.json"),
             JsonSerializer.Serialize(critique, ContractJson.Default.Critique));
     }
 }
@@ -138,6 +148,9 @@ internal sealed class RunNotFoundException(string runId) : Exception($"run {runI
 
 internal sealed class RunEscapedException(string runId)
     : Exception($"run id {runId} resolves outside .forge/");
+
+internal sealed class WorkspaceNotRootedException(string workspaceRoot)
+    : Exception($"workspaceRoot must be an absolute path, and '{workspaceRoot}' is not");
 
 // Reflection-based serialization is off repo-wide (Directory.Build.props), so every persisted
 // shape needs a source-generated contract.

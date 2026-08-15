@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using PlanForge.Infrastructure;
 
-namespace PlanForge.Vendors;
+namespace PlanForge.Vendors.Claude;
 
 internal sealed class ClaudeCliSession : IVendorSession
 {
