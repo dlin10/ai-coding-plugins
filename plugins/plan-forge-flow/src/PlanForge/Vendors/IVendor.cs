@@ -1,0 +1,60 @@
+using System.Text.Json.Serialization.Metadata;
+
+namespace PlanForge.Vendors;
+
+/// <summary>A model supplier that can do work in a separate process.</summary>
+internal interface IVendor
+{
+    string Id { get; }
+
+    /// <summary>Models and effort levels this vendor advertises. Advisory: the vendor CLI decides.</summary>
+    VendorCatalog Catalog { get; }
+
+    Task<VendorReadiness> ProbeAsync(CancellationToken ct);
+
+    /// <param name="resumeToken">
+    /// A token from an earlier session of the same role. The MCP surface is stateless, so a
+    /// Builder's continuity across separate tool calls has to be carried in the run state.
+    /// </param>
+    Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct);
+}
+
+internal enum VendorRole
+{
+    Critic,
+    Builder
+}
+
+/// <param name="SystemPrompt">Role instructions, loaded from prompts/&lt;vendor&gt;/&lt;role&gt;.md.</param>
+internal sealed record RoleSpec(VendorRole Role, string SystemPrompt);
+
+/// <summary>
+/// Model and effort are kept apart because vendors express effort differently — a flag for Claude,
+/// a model property for Codex, part of the model string for Cursor. The vendor joins them.
+/// </summary>
+internal sealed record Selection(string Model, string? Effort);
+
+internal sealed record VendorReadiness(bool Available, string Detail);
+
+internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models);
+
+internal sealed record VendorModel(string Id, IReadOnlyList<string> Efforts);
+
+internal enum VendorEventKind
+{
+    Started,
+    Text,
+    ToolUse,
+    Finished,
+    Failed
+}
+
+internal sealed record VendorEvent(VendorEventKind Kind, string Text);
+
+/// <summary>
+/// The wire schema plus its deserialization contract. Reflection-based serialization is disabled
+/// repo-wide, so the contract must be source-generated rather than derived at runtime.
+/// </summary>
+internal sealed record VendorSchema<T>(string Json, JsonTypeInfo<T> TypeInfo);
+
+internal sealed class VendorException(string message) : Exception(message);

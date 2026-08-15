@@ -13,7 +13,7 @@ if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Syst
 $rid = 'win-x64'
 $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
-$project = Join-Path $pluginRoot 'src/PlanForgeFlow.Cli/PlanForgeFlow.Cli.csproj'
+$project = Join-Path $pluginRoot 'src/PlanForge/PlanForge.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
 $claudeMetadata = Get-Content (Join-Path $pluginRoot '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json
 $cursorMetadata = Get-Content (Join-Path $pluginRoot '.cursor-plugin/plugin.json') -Raw | ConvertFrom-Json
@@ -125,6 +125,45 @@ function Copy-InstalledBinary([string]$Source, [string]$Destination) {
     }
 }
 
+function Test-PublishedServer([string]$Executable) {
+    # The published binary is an MCP stdio server, so the smoke test is a protocol handshake:
+    # initialize, then tools/list must name every tool the workflow calls.
+    $startInfo = [Diagnostics.ProcessStartInfo]::new($Executable)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"package-verify","version":"1.0.0"}}}')
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+        $process.StandardInput.Flush()
+
+        $tools = $null
+        while ($null -eq $tools) {
+            $read = $process.StandardOutput.ReadLineAsync()
+            if (-not $read.Wait(60000)) { throw 'published executable did not answer the MCP handshake within 60s' }
+            $line = $read.Result
+            if ($null -eq $line) { throw 'published executable closed stdout during the MCP handshake' }
+            $message = $line | ConvertFrom-Json
+            if ($message.id -eq 2) {
+                if ($message.error) { throw "published executable failed tools/list: $($message.error.message)" }
+                $tools = @($message.result.tools)
+            }
+        }
+
+        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.approve', 'forge.build.next', 'forge.review.code', 'forge.status')) {
+            if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
+        }
+    }
+    finally {
+        if (-not $process.HasExited) { $process.Kill($true) }
+        $process.Dispose()
+    }
+}
+
 function Test-PluginArchive([string]$Archive) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zipArchive = [IO.Compression.ZipFile]::OpenRead($Archive)
@@ -182,16 +221,22 @@ New-Item -ItemType Directory -Force -Path $publish | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $rid" }
 
 $expectedExecutable = 'planforge.exe'
+$promptsFolder = 'prompts'
 $entries = @(Get-ChildItem -LiteralPath $publish -Force)
-if ($entries.Count -ne 1 -or $entries[0].PSIsContainer -or $entries[0].Name -ne $expectedExecutable) {
-    $names = ($entries | ForEach-Object Name) -join ', '
-    throw "publish output for $rid must contain only $expectedExecutable; found $names"
+$unexpected = @($entries | Where-Object {
+        ($_.PSIsContainer -and $_.Name -ne $promptsFolder) -or (-not $_.PSIsContainer -and $_.Name -ne $expectedExecutable)
+    })
+if ($unexpected.Count -gt 0) {
+    throw "publish output for $rid must contain only $expectedExecutable and $promptsFolder/; found $(($unexpected | ForEach-Object Name) -join ', ')"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $publish $expectedExecutable) -PathType Leaf)) {
+    throw "publish output for $rid is missing $expectedExecutable"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $publish "$promptsFolder/claude/critic.md") -PathType Leaf)) {
+    throw "publish output for $rid is missing the role prompts"
 }
 
-$verification = & (Join-Path $publish $expectedExecutable) run doctor --workspace $pluginRoot | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $verification.ok -or -not $verification.data.git.ok) {
-    throw "published $rid executable failed the doctor contract"
-}
+Test-PublishedServer -Executable (Join-Path $publish $expectedExecutable)
 
 if ($InstallBinaries) {
     $installed = Join-Path $pluginRoot "bin/$rid"
@@ -204,7 +249,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'),
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.claude-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
-foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks', 'scripts')) {
+foreach ($directory in @('skills', 'agents', 'cursor', 'assets', 'hooks', 'scripts', 'prompts')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
 }
 foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md')) {
@@ -263,6 +308,12 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'scripts/capture-claude-agent-evidence.mjs'),
         (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
+        (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/codex/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/codex/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/cursor/critic.md'),
+        (Join-Path $bundlePlugin 'prompts/cursor/builder.md'),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
         (Join-Path $bundle '.claude-plugin/marketplace.json'),
         (Join-Path $bundle '.cursor-plugin/marketplace.json')
