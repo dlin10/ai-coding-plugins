@@ -1,5 +1,64 @@
 # Plan Forge Flow releases
 
+## 0.11.0
+
+The workers' output now has a user-facing home. Tool results land only in the orchestrator's
+context, so unless it narrated every round, the user watched the run blind.
+
+- Adds `flow_log.md` to the run folder: every critique (verdict, summary, findings), every build
+  result (status, summary, files changed) and every fix round (kept findings, deferrals with
+  reasons, builder outcome) is appended as it happens. Nothing feeds it back to a worker —
+  `review-log.md` remains the critic's input and is unchanged.
+- The skill now tells the orchestrator to surface the flow log with whatever the host has — the
+  Claude Code desktop panel, `cursor <path>` into the Cursor Agents window, an editor tab — and
+  to refresh it after each worker call, with a one-line narration per call in chat. Measured on
+  Cursor 3.15.19: the Agents window renders `.forge/` markdown as Preview, as a snapshot that a
+  repeated `cursor <path>` refreshes.
+
+## 0.10.0
+
+The critic-to-builder loop no longer runs sealed inside one call. Running the flow on this
+repository showed why it cannot: when the critic demands work the approved plan excluded, only the
+orchestrator can arbitrate, and the sealed loop had locked it out — the diff grew every round
+instead of converging. See `docs/adr/0005-code-review-through-the-orchestrator.md`.
+
+- **Breaking.** `forge.review.code` runs one critic round per call and returns the critique, like
+  `forge.plan.review`. It takes `model`, `effort`, and `vendor` for the critic; the six
+  role-qualified parameters are removed.
+- Adds `forge.review.fix`: the orchestrator passes the findings it kept to the builder, and records
+  the ones it deferred — each with a reason — in the review log, where the next round's critic
+  reads them as settled and the user sees them when the review ends.
+- The code-review critic now receives the approved plan alongside the diff, plus a shared
+  `prompts/scope-contract.md` appended at load time: out-of-plan demands are `minor` notes, never
+  grounds for `revise` on their own.
+- Code-review rounds are counted in the run state against their own cap, and continue the plan
+  review numbering, so a second review run no longer overwrites earlier `critiques/round-NN.json`
+  files.
+- Code review and the fix step now require an approved plan, since both judge or repair the diff
+  against it.
+
+## 0.9.0
+
+- **Breaking.** `forge.review.code` now takes separate critic and builder model, vendor, and
+  effort parameters; the legacy `vendor` parameter is removed.
+- **Breaking.** Working-tree drift, the code-review diff and the sensitive-path guard share one
+  pathspec that excludes `CONTEXT.md` and `docs/adr/**` at any depth, so documentation written
+  during the interview is neither reported as drift nor sent to a vendor. The guard now runs before
+  the empty-diff return, and covers exactly what is sent: a sensitive *name* under an excluded path
+  no longer aborts the run, which is what stops an ADR called `0005-token-rotation.md` from killing
+  every review. A third party's edit to those paths is invisible too — see
+  `docs/adr/0004-documentation-written-during-the-interview.md`.
+- Adds two interview modes: without documentation, and with a maintained domain model. The skill
+  availability chain now makes the `grilling`, `domain-modeling`, `grill-me`, and
+  `grill-with-docs` requirements explicit, including the built-in fallback when the host publishes
+  no catalogue or a composite step is only partly available.
+- Adds the documented-mode write boundary: before approval, the orchestrator may write only
+  `CONTEXT.md` and files under `docs/adr/`.
+- Makes the builder resume token vendor-aware and clears it on a fresh session that returns no
+  token, so a token cannot outlive the vendor session that created it.
+- Adds per-role vendor, model, and effort selection, allowing the critic and builder to use
+  different vendors and model tiers.
+
 ## 0.8.0
 
 Approval no longer runs through MCP elicitation. A host can declare the

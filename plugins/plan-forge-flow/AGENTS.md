@@ -26,11 +26,11 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all six `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all seven `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
-the script's assertions. Release 0.7.x supports only Windows x64: packaging fails if a second RID
-binary, a second archive, or any sidecar file appears.
+the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
+second archive, or any sidecar file appears.
 
 From the monorepo root, `npm run validate:plugins` checks every plugin's manifests, skill
 frontmatter, cross-host catalog agreement, and version consistency. CI runs it on any push touching
@@ -41,7 +41,7 @@ frontmatter, cross-host catalog agreement, and version consistency. CI runs it o
 ```text
 src/PlanForge/            the MCP server
   Mcp/                    tool surface
-  Acts/                   PlanReview, Build, CodeReview
+  Acts/                   PlanReview, Build, CodeReview, ReviewFix
   Vendors/                IVendor and the shared contracts
     Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
   Orchestration/          capability profile
@@ -64,9 +64,14 @@ This is the design constraint that explains most of the code, and it is easy to 
   revises the plan. Persistent session, cheap model.
 
 The direct consequence for the MCP surface in [ForgeTools.cs](src/PlanForge/Mcp/ForgeTools.cs):
-`forge.plan.review` is **one round per call**, because a turn by the orchestrator is mandatory in
-between, while `forge.review.code` runs the **entire critic-to-builder loop inside one call**,
-because nothing in that loop needs the orchestrator. Do not "simplify" either into the other shape.
+every review tool is **one round per call**, because a turn by the orchestrator is mandatory in
+between. For plan review the orchestrator revises the draft; for code review it filters the
+findings against the approved plan before `forge.review.fix` hands the kept ones to the builder,
+and the deferred ones are logged with reasons so the next critic treats them as settled. The loop
+used to live inside `forge.review.code` on the premise that nothing in it needed the interview
+context; a critic demanding work the plan excluded disproved that — see
+[docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md). Do not put the loop back
+inside the call.
 
 ## The vendor seam
 
@@ -100,12 +105,17 @@ Role prompts live under `prompts/<vendor>/<role>.md` and are copied beside the b
 be edited and tuned per project **without a rebuild**. `PromptLibrary` walks up from the binary
 because the two shipped layouts differ (publish output vs. installed plugin). The shared
 `prompts/roslyn-contract.md` is appended to every critic prompt at load time — it lives once
-precisely because the 1.x copies drifted apart.
+precisely because the 1.x copies drifted apart. `prompts/scope-contract.md` is appended the same
+way, but only for code review, where "judge the diff against the approved plan" has something to
+attach to.
 
 ## Run state, and the absence of locks
 
 Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
-`PLAN.md`, `review-log.md`, `critiques/`, `baseline.patch`. There are no locks and no Git refs —
+`PLAN.md`, `review-log.md`, `flow_log.md`, `critiques/`, `baseline.patch`. The flow log is the
+user-facing timeline — every critique, build result and fix round — and nothing ever feeds it
+back to a worker, which is what lets builder entries live there without shifting what the next
+critic judges; `review-log.md` is critic input and stays free of them. There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
 patch.
 
@@ -123,6 +133,14 @@ Only two things are prevented, both irreversible: secrets leaving for another mo
 writes escaping the run folder (one containment check in `RunDirectory`, which also refuses a
 non-absolute `workspaceRoot`). Note that the secret regex runs over diffs as well as file contents,
 so its leading character class must keep matching the `+` of an added line.
+
+Baseline capture, drift reporting, the code-review diff, and the sensitive-path check share one
+pathspec: `CONTEXT.md` and `docs/adr/**` are excluded at any depth. The check deliberately takes the
+same pathspec, so it covers exactly what is sent — a sensitive *name* under an excluded path is not a
+leak, and refusing it would only break ADRs that legitimately mention tokens or secrets. It runs
+before the empty-diff return, so a documentation-only tree is still inspected. What none of this
+does is stop a worker reading an excluded file off disk; see
+[docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
 Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
 run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
@@ -152,4 +170,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the three architecture decisions.
+decision. `docs/adr/` holds the five architecture decisions.

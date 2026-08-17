@@ -1,11 +1,14 @@
 # Third-party notices
 
-## grill-me (Matt Pocock) — MIT
+## grill-me, grill-with-docs, and domain-modeling (Matt Pocock) — MIT
 
 Act 1 of this plugin (the "grill" interview: one question at a time, a recommended
 answer per question, exploring the codebase instead of asking when possible) derives
 from Matt Pocock's `grill-me` prompt, used under the MIT license, as carried forward by
 the `grill-me-codex` skill and the Cursor Plan Forge Flow ported here to Codex.
+
+The documented-mode interview and its format references also derive from Matt Pocock's
+`grill-with-docs` and `domain-modeling` skills, used under the same MIT license.
 
 MIT License
 

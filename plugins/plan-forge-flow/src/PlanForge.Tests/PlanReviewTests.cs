@@ -93,6 +93,23 @@ public sealed class PlanReviewTests : IDisposable
             $"findings {first.Findings.Count} -> {second.Findings.Count}");
     }
 
+    [Fact]
+    public async Task The_critique_lands_in_the_flow_log()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 3", "no verification step named")],
+            "one hole"));
+        var run = NewRun(rounds: 0, cap: 5);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), CancellationToken.None);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan review — round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("Verdict: revise", flow, StringComparison.Ordinal);
+        Assert.Contains("no verification step named", flow, StringComparison.Ordinal);
+    }
+
     private RunDirectory NewRun(int rounds, int cap)
     {
         const string runId = "test-run";

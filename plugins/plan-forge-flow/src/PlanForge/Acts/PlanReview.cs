@@ -39,6 +39,7 @@ internal sealed class PlanReview
         var critique = await session.RunAsync(prompt, Schemas.Critique, ct);
 
         run.AppendReviewRound(round, critique);
+        run.AppendFlowCritique("Plan review", round, critique);
         run.WriteState(state with { ReviewRounds = round });
         return critique;
     }
