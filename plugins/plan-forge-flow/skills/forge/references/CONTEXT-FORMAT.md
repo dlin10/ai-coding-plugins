@@ -1,13 +1,13 @@
 # CONTEXT format
 
-Use this document as the durable domain model for the plugin. Record the vocabulary and measured
-facts that the implementation, prompts, and future interviews must share; leave transient interview
-discussion and task-specific plans out.
+Use this document as the durable domain model for the project. Record the vocabulary and measured
+facts that the system, its documentation, and future work must share; leave transient discussion
+and task-specific plans out.
 
 ## Content
 
-- Give each important concept one canonical term. Name the term as it should appear in code and
-  prompts, and call out a misleading synonym when it is likely to return.
+- Give each important concept one canonical term. Name the term as it should appear in the
+  implementation and documentation, and call out a misleading synonym when it is likely to return.
 - Define terms in observable, operational language. Include the role, boundary, or invariant that
   makes the term different from nearby concepts.
 - Record design constraints and measured protocol or vendor behaviour when they explain a decision.

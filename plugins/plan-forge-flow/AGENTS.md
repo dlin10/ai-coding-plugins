@@ -167,4 +167,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the four architecture decisions.
+decision. `docs/adr/` holds the five architecture decisions.

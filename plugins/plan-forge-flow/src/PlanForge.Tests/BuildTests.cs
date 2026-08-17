@@ -33,8 +33,9 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "new-token");
         var run = NewRun("claude", "foreign-token");
 
-        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(
-            run, new Selection("builder-model", "low"), CancellationToken.None);
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                  new Selection("builder-model", "low"),
+                                                                                  CancellationToken.None);
 
         var session = Assert.Single(vendor.Sessions);
         Assert.Null(session.StartedWithResumeToken);
@@ -67,8 +68,9 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "next-token");
         var run = NewRun("codex", "existing-token");
 
-        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(
-            run, new Selection("builder-model", "low"), CancellationToken.None);
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                  new Selection("builder-model", "low"),
+                                                                                  CancellationToken.None);
 
         Assert.Equal("existing-token", Assert.Single(vendor.Sessions).StartedWithResumeToken);
         Assert.Equal("next-token", run.ReadState().BuilderSessionId);
@@ -80,7 +82,7 @@ public sealed class BuildTests : IDisposable
         var run = RunDirectory.Create(_workspace, "build");
         run.WritePlan(Plan);
         run.WriteState(new RunState("build", _workspace, "Text", DateTimeOffset.Now, 0, 5,
-            Approved: true, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor));
+                                    Approved: true, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor));
         return run;
     }
 

@@ -29,5 +29,6 @@ links for references, fenced blocks only for exact data or commands, and keep th
 one decision.
 
 Security note: a file name containing `secret`, `token`, `password`, or `credential` is matched by
-the sensitive-path regex. Excluding that path from the prompt is not sufficient because workers can
-read the workspace; the complete changed-path guard therefore still refuses it.
+the sensitive-path regex. The changed-path guard covers exactly the filtered set sent to a vendor, so
+a sensitive name under an excluded documentation path is not refused because its contents never reach
+a vendor. Workers reading the workspace remain the residual risk recorded in ADR 0004.

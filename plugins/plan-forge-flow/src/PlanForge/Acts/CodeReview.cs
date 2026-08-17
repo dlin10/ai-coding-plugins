@@ -13,7 +13,7 @@ namespace PlanForge.Acts;
 /// it alone holds the interview context that settled the scope. Handing findings to the builder
 /// is <see cref="ReviewFix"/>, called by the orchestrator after it has filtered them.
 /// </summary>
-internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, GitClient git)
+internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewGit git)
 {
     public async Task<Critique> ReviewAsync(RunDirectory run, Selection selection, CancellationToken ct)
     {

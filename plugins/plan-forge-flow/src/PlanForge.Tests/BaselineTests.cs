@@ -137,11 +137,4 @@ public sealed class BaselineTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, contents, ct);
     }
-
-    private async Task WriteBytesAsync(string relativePath, byte[] contents, CancellationToken ct)
-    {
-        var path = Path.Combine(_repo, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllBytesAsync(path, contents, ct);
-    }
 }

@@ -2,7 +2,14 @@ using PlanForge.Infrastructure;
 
 namespace PlanForge.Repo;
 
-internal sealed class GitClient
+internal interface IReviewGit
+{
+    Task<string> DiffAsync(IReadOnlyList<string> pathspec, CancellationToken ct);
+
+    Task<IReadOnlyList<string>> ChangedPathsAsync(IReadOnlyList<string> pathspec, CancellationToken ct);
+}
+
+internal sealed class GitClient : IReviewGit
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 

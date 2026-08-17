@@ -59,6 +59,24 @@ public sealed class ReviewFixTests : IDisposable
     }
 
     [Fact]
+    public async Task Deferred_only_findings_are_logged_without_starting_a_builder()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        var run = NewRun(reviewRounds: 5, codeReviewRounds: 1);
+
+        var result = await NewFix(builder).FixAsync(run, new Selection("builder-model", null),
+                                                    " \n",
+                                                    "- staged coverage — the approved plan excludes it", ct);
+
+        Assert.Equal("done", result.Status);
+        Assert.Empty(builder.Sessions);
+        var log = run.ReadReviewLog();
+        Assert.Contains("## Round 6 fixes", log, StringComparison.Ordinal);
+        Assert.Contains("the approved plan excludes it", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Fix_requires_an_approved_plan()
     {
         var ct = CancellationToken.None;

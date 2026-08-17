@@ -27,6 +27,12 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         SensitiveInput.Guard(prompt, "the code-review fixes");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
 
+        if (string.IsNullOrWhiteSpace(findings))
+        {
+            run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
+            return new BuildResult("done", [], "no findings passed through to the builder");
+        }
+
         var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
         await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder)),

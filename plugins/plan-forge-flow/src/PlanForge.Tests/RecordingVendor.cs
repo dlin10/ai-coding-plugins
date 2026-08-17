@@ -27,7 +27,7 @@ internal sealed class RecordingVendor(string id) : IVendor
 
         var script = _scripts.Dequeue();
         var session = new RecordingVendorSession(role, selection, resumeToken, script.Response,
-            script.ResumeToken);
+                                                 script.ResumeToken);
         Sessions.Add(session);
         return Task.FromResult<IVendorSession>(session);
     }

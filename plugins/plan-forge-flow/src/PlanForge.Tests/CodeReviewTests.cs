@@ -173,14 +173,26 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Empty(critic.Sessions);
     }
 
-    private CodeReview NewReview(RecordingVendor critic) =>
-        new(critic, new PromptLibrary(RepositoryPrompts()), _git);
+    [Fact]
+    public async Task Sensitive_paths_are_guarded_before_an_empty_diff_is_accepted()
+    {
+        var critic = new RecordingVendor("claude");
+        var git = new ReviewGit(["config/password.txt"], string.Empty);
+
+        await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), CancellationToken.None));
+
+        Assert.Empty(critic.Sessions);
+    }
+
+    private CodeReview NewReview(RecordingVendor critic, IReviewGit? reviewGit = null) =>
+        new(critic, new PromptLibrary(RepositoryPrompts()), reviewGit ?? _git);
 
     private RunDirectory NewRun(bool approved = true, int reviewRounds = 0, int codeReviewRounds = 0)
     {
         var run = RunDirectory.Create(_repo, "review");
         run.WriteState(new RunState("review", _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
-            Approved: approved, CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
+                                    Approved: approved, CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
         run.WritePlan(Plan);
         return run;
     }
@@ -203,6 +215,16 @@ public sealed class CodeReviewTests : IDisposable
         var path = Path.Combine(_repo, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, contents, ct);
+    }
+
+    private sealed class ReviewGit(IReadOnlyList<string> changedPaths, string diff) : IReviewGit
+    {
+        public Task<string> DiffAsync(IReadOnlyList<string> pathspec, CancellationToken ct) =>
+            Task.FromResult(diff);
+
+        public Task<IReadOnlyList<string>> ChangedPathsAsync(IReadOnlyList<string> pathspec,
+                                                             CancellationToken ct) =>
+            Task.FromResult(changedPaths);
     }
 
     private static string RepositoryPrompts()
