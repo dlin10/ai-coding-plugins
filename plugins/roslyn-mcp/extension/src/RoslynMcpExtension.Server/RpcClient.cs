@@ -30,8 +30,10 @@ public sealed class RpcClient(CancellationTokenSource shutdownCts) : IRoslynAnal
             PipeOptions.Asynchronous);
 
         await _pipeClient.ConnectAsync(timeoutMs);
-        _jsonRpc = JsonRpc.Attach(_pipeClient, this);
+        _jsonRpc = new JsonRpc(_pipeClient, _pipeClient, this);
+        _jsonRpc.Disconnected += (_, _) => shutdownCts.Cancel();
         _proxy = _jsonRpc.Attach<IRoslynAnalysisRpc>();
+        _jsonRpc.StartListening();
     }
 
     public void Dispose()

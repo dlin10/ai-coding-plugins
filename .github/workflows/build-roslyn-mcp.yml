@@ -25,6 +25,8 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build Release VSIX
         run: msbuild plugins/roslyn-mcp/extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
+      - name: Test standalone server
+        run: dotnet test plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server.Tests/RoslynMcpExtension.Server.Tests.csproj --configuration Release --no-build --no-restore
       - name: Audit standalone server packages
         shell: pwsh
         run: |
