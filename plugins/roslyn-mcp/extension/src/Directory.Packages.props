@@ -6,6 +6,7 @@
   <ItemGroup>
     <PackageVersion Include="Community.VisualStudio.Toolkit.17" Version="17.0.551" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageVersion Include="Microsoft.VisualStudio.LanguageServices" Version="4.14.0" />
     <PackageVersion Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" />
     <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="18.5.40034" />
@@ -14,5 +15,7 @@
     <!-- The VSIX must bind to the StreamJsonRpc that VS loads (2.22-2.23); the standalone net10 server overrides to 2.25.29. -->
     <PackageVersion Include="StreamJsonRpc" Version="[2.22.23]" />
     <PackageVersion Include="System.CommandLine" Version="2.0.9" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
 </Project>
