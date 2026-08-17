@@ -112,6 +112,22 @@ Keep the drafts to yourself. The rounds are working material, and showing the us
 buries the one version that matters. The plan reaches them exactly once, when the critic returns
 `approve`.
 
+## Show the workers' output as you go
+
+Every tool result lands in your context and nowhere else — the user sees none of it unless you
+relay it. Do so after every worker call, in a few lines:
+
+- `forge.plan.review` — the verdict, and each finding on one line: severity, where, what. The
+  draft itself stays with you, as above; the findings are the user's only window into why the
+  rounds continue.
+- `forge.build.next` — which task was built, its status, and the files changed.
+- `forge.review.code` — the verdict and the findings, each marked as kept or deferred once you
+  have sorted them, with the reason on every deferral.
+- `forge.review.fix` — the builder's status and the files changed.
+
+This is narration, not a report: keep it short, never paste raw JSON, and never let it grow into
+showing the plan drafts that the paragraph above keeps out of the chat.
+
 ## Approval
 
 Nothing in the server asks the user anything. Showing them the plan and getting an answer is your
