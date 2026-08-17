@@ -79,9 +79,23 @@ Ask grilling questions **one at a time** and wait for each answer. You are looki
 the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
-Write the plan as markdown with a numbered task list — one task per numbered item under a heading.
-That numbering is what `forge.build.next` walks, so a task that is really three tasks will be built
-as one.
+Write the plan as markdown, with the tasks under a heading spelled exactly `## Approach`. That
+heading is not a suggestion: `PlanTasks` refuses a plan without exactly one of it, and
+`forge.plan.confirm` parses before it writes anything, so the wrong heading fails at approval rather
+than later. Anything above `## Approach` is context for the reader and is not walked; the section
+ends at the next `##` heading, so put the tasks last or expect everything after that heading to be
+dropped.
+
+Inside it, number the tasks `1.` to `N.` in order, one task per numbered item — a gap or a repeat is
+refused outright. That numbering is what `forge.build.next` walks, so a task that is really three
+tasks will be built as one.
+
+```markdown
+## Approach
+
+1. **First task.** What to change, and how it is verified.
+2. **Second task.** …
+```
 
 ## Rounds, revision, and caps
 
