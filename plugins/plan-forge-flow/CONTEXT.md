@@ -7,7 +7,7 @@ these terms replace it.
 |---|---|
 | **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex App Server, Cursor Agent, later Grok. Not "provider" — that word was overloaded. |
 | **Orchestrator** | The host agent: runs the interview, **revises the plan in response to critique**, calls the tools. Always an LLM, never a C# class. Strong model. |
-| **Act** | A major stage of a run. The three delegated acts are classes: `PlanReview`, `Build`, `CodeReview`. The interview is not an act class; it lives in the orchestrator. |
+| **Act** | A major stage of a run. The four delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`. The interview is not an act class; it lives in the orchestrator. |
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
@@ -26,9 +26,13 @@ role's definition:
 - **Builder (cheap)** works against an already-hardened plan, where the decisions were made for it.
 - **Critic** judges; the user picks the tier, defaulting nearer the strong end.
 
-The direct consequence for the tool surface: **the plan-review loop cannot live inside a single
-call**, because a turn by the host LLM is mandatory between rounds. The code-review loop can, because
-the orchestrator is not needed there.
+The direct consequence for the tool surface: **neither review loop can live inside a single call**,
+because a turn by the host LLM is mandatory between rounds. For plan review the orchestrator revises
+the draft; for code review it filters the critique against the approved plan before the builder sees
+it, because only it knows what the plan deliberately left out. The code-review loop used to be
+sealed inside one call on the belief that the orchestrator was not needed there; running the flow on
+this repository disproved it — see `docs/adr/0005`. A finding the orchestrator defers is recorded in
+the review log with its reason, so the next round's fresh critic reads it as settled.
 
 ## The critic is fresh each round, but reads the review log
 

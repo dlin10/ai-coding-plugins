@@ -154,19 +154,21 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.status')) {
+        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
-        if ($null -eq $codeReview) { throw 'published executable does not expose forge.review.code schema' }
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
-        $codeReviewRequired = @($codeReview.inputSchema.required)
-        foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
+        foreach ($parameter in @('model', 'effort', 'vendor')) {
             if ($codeReviewProperties -notcontains $parameter) { throw "forge.review.code schema is missing $parameter" }
-            if ($codeReviewRequired -notcontains $parameter) { throw "forge.review.code schema does not require $parameter" }
         }
-        if ($codeReviewProperties -contains 'vendor' -or $codeReviewRequired -contains 'vendor') {
-            throw 'forge.review.code schema still exposes the legacy vendor parameter'
+        foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
+            if ($codeReviewProperties -contains $parameter) { throw "forge.review.code schema still exposes the pre-0.10 $parameter" }
+        }
+        $reviewFix = $tools | Where-Object { $_.name -eq 'forge.review.fix' } | Select-Object -First 1
+        $reviewFixProperties = @($reviewFix.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('findings', 'deferred', 'model', 'effort', 'vendor')) {
+            if ($reviewFixProperties -notcontains $parameter) { throw "forge.review.fix schema is missing $parameter" }
         }
     }
     finally {
@@ -192,7 +194,8 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
                 'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
-                'plugins/plan-forge-flow/prompts/roslyn-contract.md'
+                'plugins/plan-forge-flow/prompts/roslyn-contract.md',
+                'plugins/plan-forge-flow/prompts/scope-contract.md'
             )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive is missing $required" }
         }
@@ -318,6 +321,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'skills/forge/references/CONTEXT-FORMAT.md'),
         (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
         (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
+        (Join-Path $bundlePlugin 'prompts/scope-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),

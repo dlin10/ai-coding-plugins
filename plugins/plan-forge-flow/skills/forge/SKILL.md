@@ -25,14 +25,15 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
-| `forge.review.code` | Once, after the last task. Runs the whole critic-to-builder loop internally. |
+| `forge.review.code` | Once per round, after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
+| `forge.review.fix` | After each `revise` verdict, with the findings you kept and the ones you deferred. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
 
-Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. `forge.plan.review` and
-`forge.build.next` take `model`, an optional `effort`, and an optional `vendor` — `claude`,
-`codex`, or `cursor`, defaulting to `claude`. `forge.review.code` instead takes the six
-role-qualified arguments `criticModel`, `criticVendor`, `criticEffort`, `builderModel`,
-`builderVendor`, and `builderEffort`.
+Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. The four worker tools —
+`forge.plan.review`, `forge.build.next`, `forge.review.code`, `forge.review.fix` — take `model`,
+an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to
+`claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
+and `forge.review.fix`.
 
 ## Act 1: the interview
 
@@ -127,6 +128,30 @@ job, in four steps:
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it writes `PLAN.md`, flips `approved` in the run state, and unlocks the
 builder. No code anywhere checks whether anyone was actually asked.
+
+## The code-review loop
+
+After the last task, the loop is yours to run, exactly as with plan review: `forge.review.code`
+runs one critic round against the approved plan and returns a critique, you decide what the builder
+sees, and `forge.review.fix` hands it over. Repeat until the verdict is `approve` or the cap
+refuses. The critic and the builder never talk directly — you are between them because you are the
+only participant who knows what the plan deliberately left out.
+
+Between the two calls, sort every finding into exactly two piles:
+
+- **Pass through** whatever the diff gets wrong: correctness, security, a plan task done badly or
+  not at all. Pass these verbatim — do not soften them, and do not add work the critic never asked
+  for.
+- **Defer** what the approved plan excludes or the user already decided differently. A deferral is
+  a decision, not a deletion: give every one a reason in `deferred`. It lands in the review log, so
+  the next round's critic treats it as settled instead of re-raising it each round.
+
+The bias to hold: when unsure which pile a finding belongs in, pass it through. Deferral is for
+findings the plan settles, never for findings that are inconvenient.
+
+When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
+findings go to the user with the outcome. They are real findings about real gaps; the plan is the
+only reason they were not fixed here, and they are candidates for the next run.
 
 ## Choosing the vendor and model
 

@@ -10,6 +10,8 @@ namespace PlanForge.Tests;
 
 public sealed class CodeReviewTests : IDisposable
 {
+    private const string Plan = "## Approach\n\n1. **Change tracked.txt.** Verified by inspection.\n";
+
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
     private readonly GitClient _git;
 
@@ -26,7 +28,7 @@ public sealed class CodeReviewTests : IDisposable
     }
 
     [Fact]
-    public async Task Mixed_diff_reaches_the_critic_without_documentation()
+    public async Task The_plan_and_the_diff_reach_the_critic_without_documentation()
     {
         var ct = CancellationToken.None;
         await InitialCommitAsync(ct, "CONTEXT.md", "docs/adr/0001.md");
@@ -36,18 +38,35 @@ public sealed class CodeReviewTests : IDisposable
 
         var critic = new RecordingVendor("claude");
         critic.Enqueue(new Critique("approve", [], "looks good"));
-        var builder = new RecordingVendor("codex");
+        var run = NewRun();
 
-        var outcome = await NewReview(critic, builder).RunAsync(
-            NewRun(), new Selection("critic-model", "high"), new Selection("builder-model", "low"), 3, ct);
+        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", "high"), ct);
 
         var session = Assert.Single(critic.Sessions);
-        Assert.Equal("approve", outcome.Verdict?.Verdict);
-        Assert.Contains("tracked.txt", session.PromptText, StringComparison.Ordinal);
+        Assert.Equal("approve", critique.Verdict);
+        Assert.Contains("# Approved plan", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Change tracked.txt.", session.PromptText, StringComparison.Ordinal);
         Assert.Contains("ordinary change", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("CONTEXT.md", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("adr change", session.PromptText, StringComparison.Ordinal);
-        Assert.Empty(builder.Sessions);
+        Assert.Equal(1, run.ReadState().CodeReviewRounds);
+    }
+
+    [Fact]
+    public async Task The_scope_contract_is_part_of_the_critic_system_prompt()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+
+        await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct);
+
+        var session = Assert.Single(critic.Sessions);
+        Assert.Contains("judging a diff against the approved plan", session.Role.SystemPrompt,
+                        StringComparison.Ordinal);
     }
 
     [Fact]
@@ -59,16 +78,63 @@ public sealed class CodeReviewTests : IDisposable
         await WriteFileAsync("docs/adr/0001.md", "adr change\n", ct);
 
         var critic = new RecordingVendor("claude");
-        var builder = new RecordingVendor("codex");
+        var run = NewRun();
 
-        var outcome = await NewReview(critic, builder).RunAsync(
-            NewRun(), new Selection("critic-model", null), new Selection("builder-model", null), 3, ct);
+        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
 
-        Assert.Equal("approve", outcome.Verdict?.Verdict);
-        Assert.Equal("nothing to review", outcome.Verdict?.Summary);
-        Assert.Equal(0, outcome.Rounds);
+        Assert.Equal("approve", critique.Verdict);
+        Assert.Equal("nothing to review", critique.Summary);
         Assert.Empty(critic.Sessions);
-        Assert.Empty(builder.Sessions);
+        Assert.Equal(0, run.ReadState().CodeReviewRounds);
+    }
+
+    [Fact]
+    public async Task Review_rounds_continue_the_plan_review_numbering()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [], "fix it"));
+        var run = NewRun(reviewRounds: 5);
+
+        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
+
+        // Plan review used rounds 1-5, so the first code-review round is 6 — never a collision.
+        Assert.True(File.Exists(Path.Combine(run.Path, "critiques", "round-06.json")));
+    }
+
+    [Fact]
+    public async Task Review_refuses_beyond_the_cap()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(codeReviewRounds: 3);
+
+        await Assert.ThrowsAsync<CodeReviewCapReachedException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct));
+
+        Assert.Empty(critic.Sessions);
+    }
+
+    [Fact]
+    public async Task Review_requires_an_approved_plan()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(approved: false);
+
+        await Assert.ThrowsAsync<NotApprovedException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct));
+
+        Assert.Empty(critic.Sessions);
     }
 
     [Fact]
@@ -81,34 +147,15 @@ public sealed class CodeReviewTests : IDisposable
 
         var critic = new RecordingVendor("claude");
         critic.Enqueue(new Critique("approve", [], "looks good"));
-        var builder = new RecordingVendor("codex");
 
-        var outcome = await NewReview(critic, builder).RunAsync(
-            NewRun(), new Selection("critic-model", null), new Selection("builder-model", null), 3, ct);
+        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct);
 
         // The name is sensitive, but the pathspec keeps the file's contents out of everything sent
         // to a vendor, so there is nothing to leak and nothing to refuse.
-        Assert.Equal("approve", outcome.Verdict?.Verdict);
+        Assert.Equal("approve", critique.Verdict);
         var session = Assert.Single(critic.Sessions);
         Assert.Contains("tracked.txt", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("appsettings.Production.json", session.PromptText, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Sensitive_critic_findings_are_guarded_before_the_builder_starts()
-    {
-        var ct = CancellationToken.None;
-        await InitialCommitAsync(ct);
-        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
-
-        var critic = new RecordingVendor("claude");
-        critic.Enqueue(new Critique("revise", [], "api_key: Abcdefghijklmnop1234+"));
-        var builder = new RecordingVendor("codex");
-
-        await Assert.ThrowsAsync<SensitiveContentException>(() => NewReview(critic, builder).RunAsync(
-            NewRun(), new Selection("critic-model", null), new Selection("builder-model", null), 3, ct));
-
-        Assert.Empty(builder.Sessions);
     }
 
     [Fact]
@@ -119,129 +166,22 @@ public sealed class CodeReviewTests : IDisposable
         await WriteFileAsync("config/appsettings.Production.json", "secret-looking change\n", ct);
 
         var critic = new RecordingVendor("claude");
-        var builder = new RecordingVendor("codex");
 
-        await Assert.ThrowsAsync<SensitiveContentException>(() => NewReview(critic, builder).RunAsync(
-            NewRun(), new Selection("critic-model", null), new Selection("builder-model", null), 3, ct));
+        await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct));
 
         Assert.Empty(critic.Sessions);
     }
 
-    [Fact]
-    public async Task A_fresh_code_review_builder_does_not_receive_a_foreign_token_and_records_its_vendor()
-    {
-        var ct = CancellationToken.None;
-        await InitialCommitAsync(ct);
-        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+    private CodeReview NewReview(RecordingVendor critic) =>
+        new(critic, new PromptLibrary(RepositoryPrompts()), _git);
 
-        var critic = new RecordingVendor("claude");
-        critic.Enqueue(new Critique("revise", [], "fix it"));
-        var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "new-token");
-        var run = NewRun("claude", "foreign-token");
-
-        await NewReview(critic, builder).RunAsync(
-            run, new Selection("critic-model", null), new Selection("builder-model", "low"), 1, ct);
-
-        Assert.Null(Assert.Single(builder.Sessions).StartedWithResumeToken);
-        Assert.Equal("new-token", run.ReadState().BuilderSessionId);
-        Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
-    }
-
-    [Fact]
-    public async Task A_fresh_null_code_review_token_clears_the_foreign_token_and_stays_fresh()
-    {
-        var ct = CancellationToken.None;
-        await InitialCommitAsync(ct);
-        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
-
-        var critic = new RecordingVendor("claude");
-        critic.Enqueue(new Critique("revise", [], "first fix"));
-        critic.Enqueue(new Critique("revise", [], "second fix"));
-        var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"));
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"));
-        var run = NewRun("claude", "foreign-token");
-
-        await NewReview(critic, builder).RunAsync(
-            run, new Selection("critic-model", null), new Selection("builder-model", "low"), 2, ct);
-
-        Assert.Equal(2, builder.Sessions.Count);
-        Assert.All(builder.Sessions, session => Assert.Null(session.StartedWithResumeToken));
-        Assert.Equal(string.Empty, run.ReadState().BuilderSessionId);
-        Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
-    }
-
-    [Fact]
-    public async Task A_code_review_reuses_the_builder_token_on_a_second_revise_round()
-    {
-        var ct = CancellationToken.None;
-        await InitialCommitAsync(ct);
-        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
-
-        var critic = new RecordingVendor("claude");
-        critic.Enqueue(new Critique("revise", [], "first fix"));
-        critic.Enqueue(new Critique("revise", [], "second fix"));
-        var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "next-token");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "final-token");
-        var run = NewRun("codex", "existing-token");
-
-        await NewReview(critic, builder).RunAsync(
-            run, new Selection("critic-model", "high"), new Selection("builder-model", "low"), 2, ct);
-
-        Assert.Equal(2, builder.Sessions.Count);
-        Assert.Equal("existing-token", builder.Sessions[0].StartedWithResumeToken);
-        Assert.Equal("next-token", builder.Sessions[1].StartedWithResumeToken);
-        Assert.Equal("final-token", run.ReadState().BuilderSessionId);
-        Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
-    }
-
-    [Fact]
-    public async Task A_revise_round_uses_each_vendor_and_its_own_selection()
-    {
-        var ct = CancellationToken.None;
-        await InitialCommitAsync(ct);
-        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
-
-        var critic = new RecordingVendor("claude");
-        critic.Enqueue(new Critique("revise", [new Finding("major", "tracked.txt", "fix it")], "fix it"));
-        critic.Enqueue(new Critique("approve", [], "fixed"));
-        var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "fixed"), null);
-        var criticSelection = new Selection("critic-model", "high");
-        var builderSelection = new Selection("builder-model", "low");
-
-        var run = NewRun();
-        var outcome = await NewReview(critic, builder).RunAsync(
-            run, criticSelection, builderSelection, 3, ct);
-
-        Assert.Equal("approve", outcome.Verdict?.Verdict);
-        Assert.Equal(2, critic.Sessions.Count);
-        Assert.All(critic.Sessions, session =>
-        {
-            Assert.Equal(VendorRole.Critic, session.Role.Role);
-            Assert.Equal(criticSelection, session.Selection);
-            Assert.Null(session.StartedWithResumeToken);
-        });
-
-        var builderSession = Assert.Single(builder.Sessions);
-        Assert.Equal(VendorRole.Builder, builderSession.Role.Role);
-        Assert.Equal(builderSelection, builderSession.Selection);
-        Assert.Null(builderSession.StartedWithResumeToken);
-        Assert.Null(builderSession.ResumeToken);
-        Assert.Equal(string.Empty, run.ReadState().BuilderSessionId);
-        Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
-    }
-
-    private CodeReview NewReview(RecordingVendor critic, RecordingVendor builder) =>
-        new(critic, builder, new PromptLibrary(RepositoryPrompts()), _git);
-
-    private RunDirectory NewRun(string builderVendor = "", string builderSessionId = "")
+    private RunDirectory NewRun(bool approved = true, int reviewRounds = 0, int codeReviewRounds = 0)
     {
         var run = RunDirectory.Create(_repo, "review");
-        run.WriteState(new RunState("review", _repo, "Text", DateTimeOffset.Now, 0, 5,
-            BuilderSessionId: builderSessionId, BuilderVendor: builderVendor));
+        run.WriteState(new RunState("review", _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
+            Approved: approved, CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
+        run.WritePlan(Plan);
         return run;
     }
 

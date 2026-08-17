@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.9.0
+# Plan Forge Flow 0.10.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes six tools. Release 0.9.0 supports only
+typed .NET 10 executable named `planforge` that exposes seven tools. Release 0.10.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -19,11 +19,17 @@ are separate model processes, and neither ever revises the plan.
 | `forge.plan.review` | One review round: a fresh critic judges the current draft |
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
-| `forge.review.code` | Reviews the diff, has the builder fix findings, repeats until the verdict settles |
+| `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
+| `forge.review.fix` | Hands the findings the orchestrator kept to the builder, and logs the deferred ones with reasons |
 | `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
 
-Plan review is one round per call because the orchestrator has to take a turn in between. Code review
-is the whole loop inside one call, because nothing in it needs the orchestrator.
+Both reviews are one round per call, because the orchestrator has to take a turn in between: it
+revises the plan after `forge.plan.review`, and after `forge.review.code` it filters the findings
+against the approved plan before `forge.review.fix` relays them. The critic and the builder never
+talk directly — what the orchestrator defers is recorded in the review log with its reason, so the
+next round's critic treats it as settled and the user sees it when the review ends. See
+[docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md) for why the sealed loop was
+opened.
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
@@ -37,9 +43,9 @@ not be used for, and nothing in this codebase can tell the difference.
 
 ## Vendors
 
-Three vendors can fill either role. `forge.plan.review` and `forge.build.next` choose one per call
-with the `vendor` argument; `forge.review.code` chooses the critic and builder independently with
-role-qualified vendor arguments:
+Three vendors can fill either role, chosen per call with the `vendor` argument: the critic's choice
+goes to the two review tools, the builder's to `forge.build.next` and `forge.review.fix`, so the
+roles stay independent:
 
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
@@ -53,7 +59,8 @@ the vendor CLI decides, and an unfamiliar model is a warning rather than a refus
 
 Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited per project without
 rebuilding the binary. The shared [Roslyn contract](prompts/roslyn-contract.md) is appended to every
-critic prompt.
+critic prompt; the [scope contract](prompts/scope-contract.md) is appended for code review, where
+the critic judges against the approved plan.
 
 ## Requirements
 

@@ -47,7 +47,8 @@ internal sealed class RunDirectory
     public static RunDirectory Open(string workspaceRoot, string runId)
     {
         var runPath = Confine(workspaceRoot, runId);
-        if (!Directory.Exists(runPath)) throw new RunNotFoundException(runId);
+        if (!Directory.Exists(runPath)) 
+            throw new RunNotFoundException(runId);
         return new RunDirectory(runId, runPath);
     }
 
@@ -112,17 +113,18 @@ internal sealed class RunDirectory
 
     public void AppendReviewRound(int round, Critique critique)
     {
-        var entry = new StringBuilder()
-            .Append("## Round ").Append(round).AppendLine()
-            .AppendLine()
-            .Append("Verdict: ").Append(critique.Verdict).AppendLine()
-            .AppendLine()
-            .AppendLine(critique.Summary)
-            .AppendLine();
+        var entry = new StringBuilder().Append("## Round ").Append(round).AppendLine()
+                                       .AppendLine()
+                                       .Append("Verdict: ").Append(critique.Verdict).AppendLine()
+                                       .AppendLine()
+                                       .AppendLine(critique.Summary)
+                                       .AppendLine();
 
         foreach (var finding in critique.Findings)
+        {
             entry.Append("- **").Append(finding.Severity).Append("** ")
                  .Append(finding.Where).Append(" — ").AppendLine(finding.What);
+        }
 
         entry.AppendLine();
         AtomicFile.Append(ReviewLogPath, entry.ToString());
@@ -131,8 +133,32 @@ internal sealed class RunDirectory
         AtomicFile.Write(System.IO.Path.Combine(critiques, $"round-{round:00}.json"),
             JsonSerializer.Serialize(critique, ContractJson.Default.Critique));
     }
+
+    /// <summary>
+    /// Records what the orchestrator did with a round's findings: what went to the builder, and
+    /// what was deferred and why. The deferral is the part that matters — the next round's critic
+    /// reads it as a decision rather than an omission, which is what stops it re-raising the same
+    /// out-of-scope finding as a blocker every round.
+    /// </summary>
+    public void AppendReviewFix(int round, string findings, string? deferred)
+    {
+        var entry = new StringBuilder().Append("## Round ").Append(round).Append(" fixes").AppendLine()
+                                       .AppendLine()
+                                       .AppendLine(findings.TrimEnd());
+
+        if (deferred is { Length: > 0 })
+            entry.AppendLine()
+                 .AppendLine("### Deferred by the orchestrator")
+                 .AppendLine()
+                 .AppendLine(deferred.TrimEnd());
+
+        entry.AppendLine();
+        AtomicFile.Append(ReviewLogPath, entry.ToString());
+    }
 }
 
+// The code-review defaults keep state files written before the counters existed readable; the cap
+// default matches what forge.begin writes today.
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -143,7 +169,9 @@ internal sealed record RunState(string RunId,
                                 bool Approved = false,
                                 int TasksCompleted = 0,
                                 string BuilderSessionId = "",
-                                string BuilderVendor = "");
+                                string BuilderVendor = "",
+                                int CodeReviewRounds = 0,
+                                int CodeReviewRoundCap = 3);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

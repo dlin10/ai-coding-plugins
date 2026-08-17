@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.10.0
+
+The critic-to-builder loop no longer runs sealed inside one call. Running the flow on this
+repository showed why it cannot: when the critic demands work the approved plan excluded, only the
+orchestrator can arbitrate, and the sealed loop had locked it out — the diff grew every round
+instead of converging. See `docs/adr/0005-code-review-through-the-orchestrator.md`.
+
+- **Breaking.** `forge.review.code` runs one critic round per call and returns the critique, like
+  `forge.plan.review`. It takes `model`, `effort`, and `vendor` for the critic; the six
+  role-qualified parameters are removed.
+- Adds `forge.review.fix`: the orchestrator passes the findings it kept to the builder, and records
+  the ones it deferred — each with a reason — in the review log, where the next round's critic
+  reads them as settled and the user sees them when the review ends.
+- The code-review critic now receives the approved plan alongside the diff, plus a shared
+  `prompts/scope-contract.md` appended at load time: out-of-plan demands are `minor` notes, never
+  grounds for `revise` on their own.
+- Code-review rounds are counted in the run state against their own cap, and continue the plan
+  review numbering, so a second review run no longer overwrites earlier `critiques/round-NN.json`
+  files.
+- Code review and the fix step now require an approved plan, since both judge or repair the diff
+  against it.
+
 ## 0.9.0
 
 - **Breaking.** `forge.review.code` now takes separate critic and builder model, vendor, and

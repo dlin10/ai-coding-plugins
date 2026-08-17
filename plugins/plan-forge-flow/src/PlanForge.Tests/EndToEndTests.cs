@@ -74,15 +74,26 @@ public sealed class EndToEndTests : IDisposable
         await File.WriteAllTextAsync(mathFile, built.Replace("a - b", "a + b", StringComparison.Ordinal), ct);
         Assert.DoesNotContain("a - b", await File.ReadAllTextAsync(mathFile, ct), StringComparison.Ordinal);
 
-        // --- Code review: the whole loop, no orchestrator turn --------------
-        var review = await new CodeReview(vendor, vendor, prompts, _git)
-            .RunAsync(run, selection, selection, cap: 3, ct);
+        // --- Code review: one critic round per call, this test playing the
+        // orchestrator's relay turn in between -------------------------------
+        var review = new CodeReview(vendor, prompts, _git);
+        var fix = new ReviewFix(vendor, prompts);
+        var rounds = 0;
+        while (true)
+        {
+            var critique = await review.ReviewAsync(run, selection, ct);
+            rounds++;
+            _output.WriteLine($"review round {rounds}: verdict={critique.Verdict} findings={critique.Findings.Count}");
+            if (critique.Verdict is "approve") break;
 
-        _output.WriteLine($"review: verdict={review.Verdict?.Verdict} rounds={review.Rounds}");
+            var findings = string.Join('\n', critique.Findings
+                .Select(f => $"- **{f.Severity}** {f.Where} — {f.What}"));
+            await fix.FixAsync(run, selection, findings.Length > 0 ? findings : critique.Summary, null, ct);
+        }
+
         _output.WriteLine(await File.ReadAllTextAsync(mathFile, ct));
 
-        Assert.NotNull(review.Verdict);
-        Assert.True(review.Rounds >= 1, "the critic never ran");
+        Assert.True(rounds >= 2, "the critic never caught the injected defect");
         Assert.Contains("a - b", await File.ReadAllTextAsync(mathFile, ct), StringComparison.Ordinal);
     }
 

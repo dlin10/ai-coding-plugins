@@ -31,7 +31,8 @@ internal sealed class ForgeTools
         var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
         run.WriteBaseline(baseline);
         run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
-            ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head));
+            ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head,
+            CodeReviewRoundCap: DefaultCodeReviewCap));
 
         return JsonSerializer.Serialize(new BeginResult(runId, run.Path, profile.ToString(), baseline.Head),
             ForgeToolJson.Default.BeginResult);
@@ -104,29 +105,44 @@ internal sealed class ForgeTools
     }
 
     /// <summary>
-    /// Runs the entire critic-to-builder loop; the orchestrator does not take a turn between rounds.
+    /// One round only, like plan review. The loop used to live inside this call on the premise that
+    /// nothing in it needed the interview context; a critic asking for work the approved plan
+    /// excluded disproved that, so the orchestrator now takes a turn between critic and builder —
+    /// see docs/adr/0005.
     /// </summary>
-    [McpServerTool(Name = "forge.review.code"), Description("Reviews the working diff excluding `CONTEXT.md` and `docs/adr/**`, and has the builder fix findings until the verdict settles.")]
+    [McpServerTool(Name = "forge.review.code"), Description("Runs one round of code review: the critic judges the working diff, excluding `CONTEXT.md` and `docs/adr/**`, against the approved plan and returns the critique. Filter the findings yourself, then pass the kept ones to forge.review.fix.")]
     public static async Task<string> ReviewCode(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
-        [Description("Model for the critic.")] string criticModel,
-        [Description("Model for the builder.")] string builderModel,
-        [Description("Vendor for the critic: claude, codex or cursor. Defaults to claude.")] string? criticVendor,
-        [Description("Vendor for the builder: claude, codex or cursor. Defaults to claude.")] string? builderVendor,
-        [Description("Optional effort level for the critic.")] string? criticEffort,
-        [Description("Optional effort level for the builder.")] string? builderEffort,
+        [Description("Model for the critic.")] string model,
+        [Description("Optional effort level.")] string? effort,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new CodeReview(VendorFactory.Create(criticVendor, workspaceRoot),
-            VendorFactory.Create(builderVendor, workspaceRoot), new PromptLibrary(),
+        var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
             new GitClient(workspaceRoot));
+        var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
 
-        var outcome = await act.RunAsync(run, new Selection(criticModel, criticEffort),
-            new Selection(builderModel, builderEffort), DefaultCodeReviewCap, ct);
+        return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+    }
 
-        return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.CodeReviewOutcome);
+    [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled.")]
+    public static async Task<string> ReviewFix(
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("The findings to fix, as markdown. Compose them from the critique; keep every in-scope correctness finding, and never add work the critic did not ask for.")] string findings,
+        [Description("Optional markdown list of findings deferred rather than fixed, each with its reason — typically that the approved plan excludes it. Recorded in the review log; report them to the user when the review settles.")] string? deferred,
+        [Description("Model for the builder.")] string model,
+        [Description("Optional effort level.")] string? effort,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
+        CancellationToken ct)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
+        var result = await act.FixAsync(run, new Selection(model, effort), findings, deferred, ct);
+
+        return JsonSerializer.Serialize(result, ContractJson.Default.BuildResult);
     }
 
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
@@ -167,5 +183,4 @@ internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedF
 [JsonSerializable(typeof(ApproveResult))]
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(BuildOutcome))]
-[JsonSerializable(typeof(CodeReviewOutcome))]
 internal sealed partial class ForgeToolJson : JsonSerializerContext;
