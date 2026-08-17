@@ -19,7 +19,7 @@ internal sealed class ForgeTools
     private const int DefaultReviewRoundCap = 5;
     private const int DefaultCodeReviewCap = 3;
 
-    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline, and returns the run id and capability profile.")]
+    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id and capability profile.")]
     public static async Task<string> Begin(McpServer server,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct)
@@ -69,7 +69,7 @@ internal sealed class ForgeTools
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The plan to approve, as markdown.")] string plan,
-        [Description("What the user answered. Show them the plan and the drift, ask, and pass what they say; never decide this yourself.")] bool approved,
+        [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
@@ -106,27 +106,30 @@ internal sealed class ForgeTools
     /// <summary>
     /// Runs the entire critic-to-builder loop; the orchestrator does not take a turn between rounds.
     /// </summary>
-    [McpServerTool(Name = "forge.review.code"), Description("Reviews the working diff and has the builder fix findings until the verdict settles.")]
+    [McpServerTool(Name = "forge.review.code"), Description("Reviews the working diff excluding `CONTEXT.md` and `docs/adr/**`, and has the builder fix findings until the verdict settles.")]
     public static async Task<string> ReviewCode(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Model for the critic.")] string criticModel,
         [Description("Model for the builder.")] string builderModel,
+        [Description("Vendor for the critic: claude, codex or cursor. Defaults to claude.")] string? criticVendor,
+        [Description("Vendor for the builder: claude, codex or cursor. Defaults to claude.")] string? builderVendor,
         [Description("Optional effort level for the critic.")] string? criticEffort,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
+        [Description("Optional effort level for the builder.")] string? builderEffort,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
+        var act = new CodeReview(VendorFactory.Create(criticVendor, workspaceRoot),
+            VendorFactory.Create(builderVendor, workspaceRoot), new PromptLibrary(),
             new GitClient(workspaceRoot));
 
         var outcome = await act.RunAsync(run, new Selection(criticModel, criticEffort),
-            new Selection(builderModel, null), DefaultCodeReviewCap, ct);
+            new Selection(builderModel, builderEffort), DefaultCodeReviewCap, ct);
 
         return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.CodeReviewOutcome);
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
     public static async Task<string> Status(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,

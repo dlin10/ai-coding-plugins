@@ -13,13 +13,15 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class CodeReview
 {
-    private readonly IVendor _vendor;
+    private readonly IVendor _criticVendor;
+    private readonly IVendor _builderVendor;
     private readonly PromptLibrary _prompts;
     private readonly GitClient _git;
 
-    public CodeReview(IVendor vendor, PromptLibrary prompts, GitClient git)
+    public CodeReview(IVendor criticVendor, IVendor builderVendor, PromptLibrary prompts, GitClient git)
     {
-        _vendor = vendor;
+        _criticVendor = criticVendor;
+        _builderVendor = builderVendor;
         _prompts = prompts;
         _git = git;
     }
@@ -30,21 +32,21 @@ internal sealed class CodeReview
                                                   int cap,
                                                   CancellationToken ct)
     {
-        var criticPrompt = _prompts.Load(_vendor.Id, VendorRole.Critic);
-        var builderPrompt = _prompts.Load(_vendor.Id, VendorRole.Builder);
+        var criticPrompt = _prompts.Load(_criticVendor.Id, VendorRole.Critic);
+        var builderPrompt = _prompts.Load(_builderVendor.Id, VendorRole.Builder);
 
         Critique? critique = null;
         for (var round = 1; round <= cap; round++)
         {
-            var diff = await _git.OutputAsync(["diff"], ct);
+            await GuardChangedPathsAsync(ct);
+            var diff = await _git.DiffAsync(GitPathspec.WithoutDocumentation, ct);
             if (diff.Length == 0) return new CodeReviewOutcome(new Critique("approve", [], "nothing to review"), round - 1);
 
-            await GuardChangedPathsAsync(ct);
             var review = ComposeReview(diff, run.ReadReviewLog());
             SensitiveInput.Guard(review, "the diff under review");
 
             // Fresh critic each round, but handed the log so it converges instead of oscillating.
-            await using (var critic = await _vendor.StartAsync(
+            await using (var critic = await _criticVendor.StartAsync(
                 new RoleSpec(VendorRole.Critic, criticPrompt), criticSelection, null, ct))
             {
                 critique = await critic.RunAsync(review, Schemas.Critique, ct);
@@ -54,25 +56,37 @@ internal sealed class CodeReview
             if (critique.Verdict is "approve") return new CodeReviewOutcome(critique, round);
 
             var state = run.ReadState();
-            await using var builder = await _vendor.StartAsync(
+            var sameVendor = string.Equals(state.BuilderVendor, _builderVendor.Id, StringComparison.Ordinal);
+            var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
+            var fixes = ComposeFixes(critique);
+            SensitiveInput.Guard(fixes, "the code-review fixes");
+            await using var builder = await _builderVendor.StartAsync(
                 new RoleSpec(VendorRole.Builder, builderPrompt), builderSelection,
-                state.BuilderSessionId is { Length: > 0 } token ? token : null, ct);
+                resumeToken, ct);
 
-            await builder.RunAsync(ComposeFixes(critique), Schemas.BuildResult, ct);
-            run.WriteState(state with { BuilderSessionId = builder.ResumeToken ?? state.BuilderSessionId });
+            await builder.RunAsync(fixes, Schemas.BuildResult, ct);
+            run.WriteState(state with
+            {
+                BuilderSessionId = sameVendor
+                    ? builder.ResumeToken ?? state.BuilderSessionId
+                    : builder.ResumeToken ?? string.Empty,
+                BuilderVendor = _builderVendor.Id
+            });
         }
 
         return new CodeReviewOutcome(critique, cap);
     }
 
     /// <summary>
-    /// A sensitive path in the diff means that file's contents are in the diff. Naming the file is
-    /// a better error than "the diff contains a secret".
+    /// The guard covers exactly the set of paths whose contents are sent, which is why it takes the
+    /// same pathspec as the diff. A sensitive <em>name</em> under an excluded path — an ADR called
+    /// <c>0005-token-rotation.md</c>, say — is not a leak, because that file's contents never reach
+    /// a vendor, and aborting the run over it would refuse a legitimate name for no gain.
     /// </summary>
     private async Task GuardChangedPathsAsync(CancellationToken ct)
     {
-        var changed = await _git.OutputAsync(["diff", "--name-only"], ct);
-        foreach (var path in changed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        var changed = await _git.ChangedPathsAsync(GitPathspec.WithoutDocumentation, ct);
+        foreach (var path in changed)
             if (SensitiveInput.IsSensitivePath(path))
                 throw new SensitiveContentException($"the diff touches {path}, which");
     }

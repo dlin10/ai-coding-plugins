@@ -75,7 +75,7 @@ public sealed class EndToEndTests : IDisposable
         Assert.DoesNotContain("a - b", await File.ReadAllTextAsync(mathFile, ct), StringComparison.Ordinal);
 
         // --- Code review: the whole loop, no orchestrator turn --------------
-        var review = await new CodeReview(vendor, prompts, _git)
+        var review = await new CodeReview(vendor, vendor, prompts, _git)
             .RunAsync(run, selection, selection, cap: 3, ct);
 
         _output.WriteLine($"review: verdict={review.Verdict?.Verdict} rounds={review.Rounds}");

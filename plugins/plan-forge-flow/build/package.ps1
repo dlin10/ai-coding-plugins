@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows) -or
     [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    throw 'Plan Forge 0.8.0 packaging supports only Windows x64.'
+    throw 'Plan Forge packaging supports only Windows x64.'
 }
 $rid = 'win-x64'
 $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -157,9 +157,22 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.status')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
+        $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
+        if ($null -eq $codeReview) { throw 'published executable does not expose forge.review.code schema' }
+        $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
+        $codeReviewRequired = @($codeReview.inputSchema.required)
+        foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
+            if ($codeReviewProperties -notcontains $parameter) { throw "forge.review.code schema is missing $parameter" }
+            if ($codeReviewRequired -notcontains $parameter) { throw "forge.review.code schema does not require $parameter" }
+        }
+        if ($codeReviewProperties -contains 'vendor' -or $codeReviewRequired -contains 'vendor') {
+            throw 'forge.review.code schema still exposes the legacy vendor parameter'
+        }
     }
     finally {
-        if (-not $process.HasExited) { $process.Kill($true) }
+        # Kill() without the entire-process-tree overload: that overload is .NET Core only, and this
+        # script is documented to run on Windows PowerShell 5.1, which is .NET Framework.
+        if (-not $process.HasExited) { $process.Kill() }
         $process.Dispose()
     }
 }
@@ -177,6 +190,8 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
+                'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
+                'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
                 'plugins/plan-forge-flow/prompts/roslyn-contract.md'
             )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive is missing $required" }
@@ -243,8 +258,17 @@ New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'),
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.claude-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
-foreach ($directory in @('skills', 'assets', 'prompts')) {
+foreach ($directory in @('assets', 'prompts')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
+}
+foreach ($file in @(
+        'skills/forge/SKILL.md',
+        'skills/forge/references/CONTEXT-FORMAT.md',
+        'skills/forge/references/ADR-FORMAT.md'
+    )) {
+    $destination = Join-Path $bundlePlugin $file
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $destination
 }
 foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', '.mcp.json')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $bundlePlugin
@@ -291,6 +315,8 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.mcp.json'),
         (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
+        (Join-Path $bundlePlugin 'skills/forge/references/CONTEXT-FORMAT.md'),
+        (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
         (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),

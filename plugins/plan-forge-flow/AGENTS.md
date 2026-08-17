@@ -29,8 +29,8 @@ That publishes `win-x64`, verifies the published binary by completing an MCP han
 that `tools/list` names all six `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
-the script's assertions. Release 0.7.x supports only Windows x64: packaging fails if a second RID
-binary, a second archive, or any sidecar file appears.
+the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
+second archive, or any sidecar file appears.
 
 From the monorepo root, `npm run validate:plugins` checks every plugin's manifests, skill
 frontmatter, cross-host catalog agreement, and version consistency. CI runs it on any push touching
@@ -124,6 +124,14 @@ writes escaping the run folder (one containment check in `RunDirectory`, which a
 non-absolute `workspaceRoot`). Note that the secret regex runs over diffs as well as file contents,
 so its leading character class must keep matching the `+` of an added line.
 
+Baseline capture, drift reporting, the code-review diff, and the sensitive-path check share one
+pathspec: `CONTEXT.md` and `docs/adr/**` are excluded at any depth. The check deliberately takes the
+same pathspec, so it covers exactly what is sent — a sensitive *name* under an excluded path is not a
+leak, and refusing it would only break ADRs that legitimately mention tokens or secrets. It runs
+before the empty-diff return, so a documentation-only tree is still inspected. What none of this
+does is stop a worker reading an excluded file off disk; see
+[docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
+
 Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
 run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
 time rather than blocked. This is deliberate — see
@@ -152,4 +160,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the three architecture decisions.
+decision. `docs/adr/` holds the four architecture decisions.

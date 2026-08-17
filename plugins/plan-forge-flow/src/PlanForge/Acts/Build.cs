@@ -34,16 +34,21 @@ internal sealed class Build
         var prompt = Compose(task, tasks.Count);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
 
+        var sameVendor = string.Equals(state.BuilderVendor, _vendor.Id, StringComparison.Ordinal);
+        var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
         await using var session = await _vendor.StartAsync(
             new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder)),
-            selection, state.BuilderSessionId is { Length: > 0 } token ? token : null, ct);
+            selection, resumeToken, ct);
 
         var result = await session.RunAsync(prompt, Schemas.BuildResult, ct);
 
         run.WriteState(state with
         {
             TasksCompleted = state.TasksCompleted + 1,
-            BuilderSessionId = session.ResumeToken ?? state.BuilderSessionId
+            BuilderSessionId = sameVendor
+                ? session.ResumeToken ?? state.BuilderSessionId
+                : session.ResumeToken ?? string.Empty,
+            BuilderVendor = _vendor.Id
         });
 
         return new BuildOutcome(result, state.TasksCompleted + 1, tasks.Count);

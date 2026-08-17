@@ -142,7 +142,8 @@ internal sealed record RunState(string RunId,
                                 string BaselineHead = "",
                                 bool Approved = false,
                                 int TasksCompleted = 0,
-                                string BuilderSessionId = "");
+                                string BuilderSessionId = "",
+                                string BuilderVendor = "");
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

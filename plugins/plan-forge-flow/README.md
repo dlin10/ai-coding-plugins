@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.8.0
+# Plan Forge Flow 0.9.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes six tools. Release 0.8.0 supports only
+typed .NET 10 executable named `planforge` that exposes six tools. Release 0.9.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -20,7 +20,7 @@ are separate model processes, and neither ever revises the plan.
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
 | `forge.review.code` | Reviews the diff, has the builder fix findings, repeats until the verdict settles |
-| `forge.status` | Reports where the run stands, with any working-tree drift since the baseline |
+| `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
 
 Plan review is one round per call because the orchestrator has to take a turn in between. Code review
 is the whole loop inside one call, because nothing in it needs the orchestrator.
@@ -37,7 +37,9 @@ not be used for, and nothing in this codebase can tell the difference.
 
 ## Vendors
 
-Three vendors can fill either role, chosen per call with the `vendor` argument:
+Three vendors can fill either role. `forge.plan.review` and `forge.build.next` choose one per call
+with the `vendor` argument; `forge.review.code` chooses the critic and builder independently with
+role-qualified vendor arguments:
 
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
@@ -92,6 +94,7 @@ plugins/plan-forge-flow/
   bin/win-x64/planforge.exe
   prompts/
   skills/forge/SKILL.md
+  skills/forge/references/
 ```
 
 ## State
@@ -117,15 +120,20 @@ baseline is a commit SHA in `state.json` plus `baseline.patch`.
 Two checks survive, both against irreversible harm:
 
 - **Secrets leaving for another model.** Every prompt is inspected before it is handed to a vendor,
-  and a diff that touches a sensitive path is refused by name.
+  and a sensitive path is refused by name across the set that is actually sent — the same pathspec
+  the diff uses, so a sensitive name under an excluded documentation path is not refused, because
+  its contents never leave. Workers run in the workspace and can still read files omitted from the
+  filtered diff; see [`docs/adr/0004`](docs/adr/0004-documentation-written-during-the-interview.md).
 - **Writes staying inside the run.** One containment test on the run id, instead of six guards.
 
 Everything else is observable rather than prevented. There are no hooks and no gates, so an
-orchestrator can abandon a run midway or start editing during the interview. Drift since
-`forge.begin` is reported by `forge.status`, so it is visible to whoever looks — and approval itself
-is an assertion by the orchestrator that it asked. Both are deliberate trades, recorded in
+orchestrator can abandon a run midway or start editing during the interview. Filtered drift since
+`forge.begin` is reported by `forge.status`, excluding `CONTEXT.md` and `docs/adr/**`, so it is
+visible to whoever looks — and approval itself is an assertion by the orchestrator that it asked.
+These are deliberate trades, recorded in
 [`docs/adr/0002`](docs/adr/0002-mcp-server-surface-without-enforcement.md) and
-[`docs/adr/0003`](docs/adr/0003-approval-through-the-orchestrator.md).
+[`docs/adr/0003`](docs/adr/0003-approval-through-the-orchestrator.md), with the documentation boundary
+in [`docs/adr/0004`](docs/adr/0004-documentation-written-during-the-interview.md).
 
 ## Development
 

@@ -11,6 +11,7 @@ these terms replace it.
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
+| **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -109,3 +110,15 @@ was taken on Claude Code 2.1.233, the terminal CLI. Both findings are true of th
 measured on, and that is the whole problem: the guarantee is per-surface, it degrades silently, and
 a server cannot tell which surface it is talking to. Approval by elicitation was removed in 0.8.0 —
 see [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md).
+
+## Documentation is outside the review boundary
+
+The baseline, drift report, code-review diff and sensitive-path guard share one pathspec. It hides
+every `CONTEXT.md` and every path under `docs/adr/` at any depth. The guard takes the same pathspec
+deliberately: it covers exactly the set of paths whose contents are sent, so a sensitive *name* under
+an excluded path — an ADR called `0005-token-rotation.md` — is not a leak and must not abort the run.
+
+Two limits come with that boundary, both recorded rather than fixed. A third party's edit to
+`CONTEXT.md` or an ADR is now invisible to drift and to code review as well. And a vendor worker runs
+in the workspace, so nothing here stops it reading an excluded file it was not sent; the pathspec
+governs what is handed over, not what is reachable.

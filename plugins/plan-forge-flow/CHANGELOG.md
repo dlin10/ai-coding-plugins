@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.9.0
+
+- **Breaking.** `forge.review.code` now takes separate critic and builder model, vendor, and
+  effort parameters; the legacy `vendor` parameter is removed.
+- **Breaking.** Working-tree drift, the code-review diff and the sensitive-path guard share one
+  pathspec that excludes `CONTEXT.md` and `docs/adr/**` at any depth, so documentation written
+  during the interview is neither reported as drift nor sent to a vendor. The guard now runs before
+  the empty-diff return, and covers exactly what is sent: a sensitive *name* under an excluded path
+  no longer aborts the run, which is what stops an ADR called `0005-token-rotation.md` from killing
+  every review. A third party's edit to those paths is invisible too — see
+  `docs/adr/0004-documentation-written-during-the-interview.md`.
+- Adds two interview modes: without documentation, and with a maintained domain model. The skill
+  availability chain now makes the `grilling`, `domain-modeling`, `grill-me`, and
+  `grill-with-docs` requirements explicit, including the built-in fallback when the host publishes
+  no catalogue or a composite step is only partly available.
+- Adds the documented-mode write boundary: before approval, the orchestrator may write only
+  `CONTEXT.md` and files under `docs/adr/`.
+- Makes the builder resume token vendor-aware and clears it on a fresh session that returns no
+  token, so a token cannot outlive the vendor session that created it.
+- Adds per-role vendor, model, and effort selection, allowing the critic and builder to use
+  different vendors and model tiers.
+
 ## 0.8.0
 
 Approval no longer runs through MCP elicitation. A host can declare the
