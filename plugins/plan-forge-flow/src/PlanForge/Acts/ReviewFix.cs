@@ -29,8 +29,10 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         if (string.IsNullOrWhiteSpace(findings))
         {
+            var skipped = new BuildResult("done", [], "no findings passed through to the builder");
             run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
-            return new BuildResult("done", [], "no findings passed through to the builder");
+            run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, skipped);
+            return skipped;
         }
 
         var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
@@ -41,6 +43,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var result = await builder.RunAsync(prompt, Schemas.BuildResult, ct);
 
         run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
+        run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, result);
         run.WriteState(state with
         {
             BuilderSessionId = sameVendor

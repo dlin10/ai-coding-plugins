@@ -39,6 +39,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
         var round = state.CodeReviewRounds + 1;
         run.AppendReviewRound(state.ReviewRounds + round, critique);
+        run.AppendFlowCritique("Code review", round, critique);
         run.WriteState(state with { CodeReviewRounds = round });
         return critique;
     }

@@ -164,6 +164,26 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal("final-token", run.ReadState().BuilderSessionId);
     }
 
+    [Fact]
+    public async Task The_fix_round_lands_in_the_flow_log_with_the_builder_outcome()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "fixed the guard"));
+        var run = NewRun(reviewRounds: 5, codeReviewRounds: 1);
+
+        await NewFix(builder).FixAsync(run, new Selection("builder-model", null),
+                                       "- **major** tracked.txt — fix it",
+                                       "- staged coverage — the approved plan excludes it", ct);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Fixes — round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("fix it", flow, StringComparison.Ordinal);
+        Assert.Contains("Deferred by the orchestrator", flow, StringComparison.Ordinal);
+        Assert.Contains("Status: done", flow, StringComparison.Ordinal);
+        Assert.Contains("fixed the guard", flow, StringComparison.Ordinal);
+    }
+
     private ReviewFix NewFix(RecordingVendor builder) =>
         new(builder, new PromptLibrary(RepositoryPrompts()));
 

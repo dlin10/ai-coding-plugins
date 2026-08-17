@@ -77,6 +77,24 @@ public sealed class BuildTests : IDisposable
         Assert.Equal(vendor.Id, run.ReadState().BuilderVendor);
     }
 
+    [Fact]
+    public async Task The_build_outcome_lands_in_the_flow_log()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], "first task built"));
+        var run = NewRun("", "");
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                  new Selection("builder-model", null),
+                                                                                  CancellationToken.None);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Task 1 of 2", flow, StringComparison.Ordinal);
+        Assert.Contains("Status: done", flow, StringComparison.Ordinal);
+        Assert.Contains("first task built", flow, StringComparison.Ordinal);
+        Assert.Contains("- `tracked.txt`", flow, StringComparison.Ordinal);
+    }
+
     private RunDirectory NewRun(string builderVendor, string builderSessionId)
     {
         var run = RunDirectory.Create(_workspace, "build");

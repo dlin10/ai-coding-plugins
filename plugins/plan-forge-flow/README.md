@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.10.0
+# Plan Forge Flow 0.11.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes seven tools. Release 0.10.0 supports only
+typed .NET 10 executable named `planforge` that exposes seven tools. Release 0.11.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review

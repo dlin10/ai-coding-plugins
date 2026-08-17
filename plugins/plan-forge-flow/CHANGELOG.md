@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.11.0
+
+The workers' output now has a user-facing home. Tool results land only in the orchestrator's
+context, so unless it narrated every round, the user watched the run blind.
+
+- Adds `flow_log.md` to the run folder: every critique (verdict, summary, findings), every build
+  result (status, summary, files changed) and every fix round (kept findings, deferrals with
+  reasons, builder outcome) is appended as it happens. Nothing feeds it back to a worker —
+  `review-log.md` remains the critic's input and is unchanged.
+- The skill now tells the orchestrator to surface the flow log with whatever the host has — the
+  Claude Code desktop panel, `cursor <path>` into the Cursor Agents window, an editor tab — and
+  to refresh it after each worker call, with a one-line narration per call in chat. Measured on
+  Cursor 3.15.19: the Agents window renders `.forge/` markdown as Preview, as a snapshot that a
+  repeated `cursor <path>` refreshes.
+
 ## 0.10.0
 
 The critic-to-builder loop no longer runs sealed inside one call. Running the flow on this

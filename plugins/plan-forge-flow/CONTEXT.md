@@ -11,6 +11,7 @@ these terms replace it.
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
+| **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -92,6 +93,20 @@ So the plan is delivered as markdown in the tool result, and progress is observa
 granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas` branch is
 not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from the SDK is
 the check that would enable it.
+
+## Surfacing the flow log is the orchestrator's act, and each host differs
+
+No MCP mechanism lets this server make a host display a file — resources and notifications can
+carry one, but nothing renders unasked — so showing `flow_log.md` belongs to the orchestrator,
+and the skill instructs it per host.
+
+Measured on 2026-08-17 against Cursor 3.15.19 on Windows: `cursor <path>` opens a markdown file
+under `.forge/` in the Agents window rendered as Preview, with the Preview | Source toggle — the
+exclusion that hides that toggle for `.cursor/`, `.claude/` and `.codex/` paths does not cover
+`.forge/`. The rendering is a snapshot, not a watch: an external append changed nothing within
+ten seconds or on window focus, and re-running the same `cursor <path>` is what refreshed it.
+The Claude Code desktop panel is documented to behave the same way — render on send, no disk
+watch — so the skill's rule is uniform: surface once, refresh after every worker call.
 
 ## A declared elicitation capability is not a rendered one
 

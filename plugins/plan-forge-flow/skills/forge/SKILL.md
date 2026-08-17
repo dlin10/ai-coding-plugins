@@ -115,18 +115,27 @@ buries the one version that matters. The plan reaches them exactly once, when th
 ## Show the workers' output as you go
 
 Every tool result lands in your context and nowhere else — the user sees none of it unless you
-relay it. Do so after every worker call, in a few lines:
+surface it. The server keeps the user-facing timeline for you: every worker call appends its
+outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, build results with
+status and files changed, and each fix round's kept and deferred findings. Unlike
+`review-log.md`, nothing feeds this file back to a worker; it exists to be shown.
 
-- `forge.plan.review` — the verdict, and each finding on one line: severity, where, what. The
-  draft itself stays with you, as above; the findings are the user's only window into why the
-  rounds continue.
-- `forge.build.next` — which task was built, its status, and the files changed.
-- `forge.review.code` — the verdict and the findings, each marked as kept or deferred once you
-  have sorted them, with the reason on every deferral.
-- `forge.review.fix` — the builder's status and the files changed.
+The file appears when the first `forge.plan.review` returns. Surface it then, with the best your
+host has, and refresh it after every later worker call — no host watches the disk for you:
 
-This is narration, not a report: keep it short, never paste raw JSON, and never let it grow into
-showing the plan drafts that the paragraph above keeps out of the chat.
+- A host that renders local files (the Claude Code desktop app) — show the file, and re-send it
+  after each call.
+- A host attached to an editor — open it once with `code <path>` or `cursor <path>`. The Cursor
+  Agents window renders it as a snapshot, so re-run the same command after each call; a VS Code
+  tab refreshes itself.
+- A terminal or TUI host — give the user the path once so they can open it in their own editor.
+
+However the log is surfaced, keep one line of narration in chat per worker call: the verdict and
+finding count, or the task built and its status, so the user sees the run move without opening
+anything. When chat is all the host has, expand that line to the findings themselves — severity,
+where, what — and for code review say which findings you kept versus deferred, with the reasons.
+Never paste raw JSON, and never let narration grow into showing the plan drafts that the
+paragraph above keeps out of the chat.
 
 ## Approval
 

@@ -42,6 +42,7 @@ internal sealed class Build
 
         var result = await session.RunAsync(prompt, Schemas.BuildResult, ct);
 
+        run.AppendFlowBuild(task.Number, tasks.Count, result);
         run.WriteState(state with
         {
             TasksCompleted = state.TasksCompleted + 1,

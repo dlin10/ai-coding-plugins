@@ -13,6 +13,7 @@ internal sealed class RunDirectory
     private const string ForgeFolder = ".forge";
     private const string StateFileName = "state.json";
     private const string ReviewLogFileName = "review-log.md";
+    private const string FlowLogFileName = "flow_log.md";
     private const string CritiquesFolder = "critiques";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
@@ -31,6 +32,8 @@ internal sealed class RunDirectory
     public string Path { get; }
 
     public string ReviewLogPath => System.IO.Path.Combine(Path, ReviewLogFileName);
+
+    public string FlowLogPath => System.IO.Path.Combine(Path, FlowLogFileName);
 
     private string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 
@@ -113,21 +116,7 @@ internal sealed class RunDirectory
 
     public void AppendReviewRound(int round, Critique critique)
     {
-        var entry = new StringBuilder().Append("## Round ").Append(round).AppendLine()
-                                       .AppendLine()
-                                       .Append("Verdict: ").Append(critique.Verdict).AppendLine()
-                                       .AppendLine()
-                                       .AppendLine(critique.Summary)
-                                       .AppendLine();
-
-        foreach (var finding in critique.Findings)
-        {
-            entry.Append("- **").Append(finding.Severity).Append("** ")
-                 .Append(finding.Where).Append(" — ").AppendLine(finding.What);
-        }
-
-        entry.AppendLine();
-        AtomicFile.Append(ReviewLogPath, entry.ToString());
+        AtomicFile.Append(ReviewLogPath, CritiqueEntry($"## Round {round}", critique));
 
         var critiques = System.IO.Path.Combine(Path, CritiquesFolder);
         AtomicFile.Write(System.IO.Path.Combine(critiques, $"round-{round:00}.json"),
@@ -154,6 +143,74 @@ internal sealed class RunDirectory
 
         entry.AppendLine();
         AtomicFile.Append(ReviewLogPath, entry.ToString());
+    }
+
+    /// <summary>
+    /// The user-facing timeline of the delegated acts, one file for the orchestrator to surface in
+    /// whatever panel the host has. Unlike the review log it is never fed back to a worker, which
+    /// is why builder entries can live here without shifting what the next round's critic judges.
+    /// </summary>
+    public void AppendFlowCritique(string act, int round, Critique critique) =>
+        AtomicFile.Append(FlowLogPath, CritiqueEntry($"## {act} — round {round}", critique));
+
+    public void AppendFlowBuild(int number, int total, BuildResult result)
+    {
+        var entry = new StringBuilder().Append("## Task ").Append(number).Append(" of ").Append(total).AppendLine()
+                                       .AppendLine();
+
+        AppendBuildResult(entry, result);
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
+    public void AppendFlowFix(int round, string findings, string? deferred, BuildResult result)
+    {
+        var entry = new StringBuilder().Append("## Fixes — round ").Append(round).AppendLine()
+                                       .AppendLine();
+
+        if (findings.Trim().Length > 0)
+            entry.AppendLine(findings.TrimEnd())
+                 .AppendLine();
+
+        if (deferred is { Length: > 0 })
+            entry.AppendLine("### Deferred by the orchestrator")
+                 .AppendLine()
+                 .AppendLine(deferred.TrimEnd())
+                 .AppendLine();
+
+        AppendBuildResult(entry, result);
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
+    private static string CritiqueEntry(string heading, Critique critique)
+    {
+        var entry = new StringBuilder().Append(heading).AppendLine()
+                                       .AppendLine()
+                                       .Append("Verdict: ").Append(critique.Verdict).AppendLine()
+                                       .AppendLine()
+                                       .AppendLine(critique.Summary)
+                                       .AppendLine();
+
+        foreach (var finding in critique.Findings)
+        {
+            entry.Append("- **").Append(finding.Severity).Append("** ")
+                 .Append(finding.Where).Append(" — ").AppendLine(finding.What);
+        }
+
+        entry.AppendLine();
+        return entry.ToString();
+    }
+
+    private static void AppendBuildResult(StringBuilder entry, BuildResult result)
+    {
+        entry.Append("Status: ").Append(result.Status).AppendLine()
+             .AppendLine()
+             .AppendLine(result.Summary)
+             .AppendLine();
+
+        foreach (var file in result.FilesChanged)
+            entry.Append("- `").Append(file).AppendLine("`");
+
+        if (result.FilesChanged.Count > 0) entry.AppendLine();
     }
 }
 

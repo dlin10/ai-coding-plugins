@@ -185,6 +185,27 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Empty(critic.Sessions);
     }
 
+    [Fact]
+    public async Task The_critique_lands_in_the_flow_log_numbered_by_its_own_loop()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("minor", "tracked.txt", "sloppy change")], "one nit"));
+        var run = NewRun(reviewRounds: 3);
+
+        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
+
+        // The review log numbers rounds in one sequence across both loops; the flow log is
+        // act-labelled, so its code-review rounds start at 1.
+        Assert.Contains("## Round 4", run.ReadReviewLog(), StringComparison.Ordinal);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Code review — round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("sloppy change", flow, StringComparison.Ordinal);
+    }
+
     private CodeReview NewReview(RecordingVendor critic, IReviewGit? reviewGit = null) =>
         new(critic, new PromptLibrary(RepositoryPrompts()), reviewGit ?? _git);
 
