@@ -19,7 +19,7 @@ internal sealed class ForgeTools
     private const int DefaultReviewRoundCap = 5;
     private const int DefaultCodeReviewCap = 3;
 
-    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id and capability profile.")]
+    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
     public static async Task<string> Begin(McpServer server,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct)
@@ -34,9 +34,17 @@ internal sealed class ForgeTools
             ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head,
             CodeReviewRoundCap: DefaultCodeReviewCap));
 
-        return JsonSerializer.Serialize(new BeginResult(runId, run.Path, profile.ToString(), baseline.Head),
+        return JsonSerializer.Serialize(
+            new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
             ForgeToolJson.Default.BeginResult);
     }
+
+    /// <summary>
+    /// The clientInfo name from the MCP handshake, verbatim. The skill branches its model-selection
+    /// flow on the host, and the orchestrator's own idea of where it runs is a guess; this is not.
+    /// </summary>
+    private static string ClientName(McpServer server) =>
+        server.ClientInfo?.Name is { Length: > 0 } name ? name : "unknown";
 
     /// <summary>
     /// One round only. The critic judges the draft; revising it and calling again is the
@@ -167,7 +175,7 @@ internal sealed class ForgeTools
         $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("n")[..6]}";
 }
 
-internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead);
+internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead, string Client);
 
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 

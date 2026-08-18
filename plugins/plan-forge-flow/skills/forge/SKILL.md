@@ -21,7 +21,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId` and takes a baseline of the working tree. |
+| `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, and takes a baseline of the working tree. |
 | `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
@@ -190,6 +190,12 @@ Choose vendors and models in two steps, asking at most four questions total.
      `cursor-agent`); no act can run without one.
    - If exactly one resolves, do not ask either vendor question. Tell the user which vendor both
      roles will use and continue directly to step 2.
+   - If you are orchestrating from inside Cursor and `cursor-agent` resolves, do not ask either
+     vendor question even when other CLIs also resolve: Cursor fronts models from several vendors
+     behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
+     model choice. Trust either signal alone: the `client` field `forge.begin` returned names
+     cursor, or the host you are running in is Cursor. Tell the user both workers will run through
+     `cursor-agent` and continue directly to step 2 with both roles on the `cursor` vendor.
 2. Ask one question for each role, requesting its model and effort together as a valid combination
    for that role's chosen vendor. The server publishes no catalogue, and `forge.begin` returns
    none, so the combinations come from the orchestrator's own knowledge of that vendor's current
@@ -197,6 +203,11 @@ Choose vendors and models in two steps, asking at most four questions total.
    open. If the orchestrator does not know that vendor's current models, ask for free text with no
    options rather than offering stale ones. Never offer one vendor's model family under another
    vendor.
+
+   For the `cursor` vendor, effort is not a separate flag — it lives inside the model id
+   (`gpt-5.3-codex-high`, `claude-opus-5-thinking-xhigh`). Offer full ids exactly as
+   `cursor-agent --list-models` spells them, pass the chosen id as `model`, and leave `effort`
+   unset. Never build an id yourself by appending an effort suffix to a model name.
 
 The catalogue is advisory: an unfamiliar model is worth mentioning, not refusing, because the
 vendor CLI decides. The roles are not interchangeable in strength. The builder works against an

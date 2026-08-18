@@ -59,6 +59,62 @@ public sealed class CursorAgentTests
     }
 
     /// <summary>
+    /// Cursor's live ids already carry the effort as a suffix, so the join must accept every shape
+    /// the orchestrator sends: a bare model plus effort, a full id with its effort repeated, and a
+    /// full id with no effort at all — the shape a Cursor-hosted orchestrator produces.
+    /// </summary>
+    [Fact]
+    public void Joins_model_and_effort_the_way_cursor_spells_them()
+    {
+        Assert.Equal("gpt-5.6-sol-xhigh", Session(new Selection("gpt-5.6-sol", "xhigh")).ModelWithEffort());
+        Assert.Equal("gpt-5.3-codex-high", Session(new Selection("gpt-5.3-codex-high", "high")).ModelWithEffort());
+        Assert.Equal("gpt-5.6-sol-xhigh", Session(new Selection("gpt-5.6-sol-xhigh", null)).ModelWithEffort());
+    }
+
+    /// <summary>
+    /// A failed run must read as a bad request to correct, not infrastructure to retry: the reply
+    /// names the model, the effort, and — when the two were joined — the id actually sent.
+    /// </summary>
+    [Fact]
+    public void A_run_failure_names_the_selection()
+    {
+        Assert.Equal("model \"gpt-5.6-sol\" with effort \"xhigh\", sent as \"gpt-5.6-sol-xhigh\"",
+                     Session(new Selection("gpt-5.6-sol", "xhigh")).DescribeSelection());
+        Assert.Equal("model \"gpt-5.6-sol-xhigh\" with no effort",
+                     Session(new Selection("gpt-5.6-sol-xhigh", null)).DescribeSelection());
+    }
+
+    /// <summary>
+    /// A model cursor-agent rejects must fail the act in seconds with the vendor's own message —
+    /// naming the model and the available line-up — never crawl toward a timeout. Measured on
+    /// 2026-08-18: exit 1 in about ten seconds, stderr "Cannot use this model: …", even with a
+    /// 200 KB prompt, because cursor-agent drains stdin before validating the model.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task A_rejected_model_fails_fast_naming_the_model()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var ct = timeout.Token;
+
+        await using var session = new CursorAgentSession(
+            new RoleSpec(VendorRole.Critic, CriticPrompt), new Selection("totally-fake-model-zzz9", null), null);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var error = await Assert.ThrowsAsync<VendorException>(
+            () => session.RunAsync(PlanWithAHole, Schemas.Critique, ct));
+        watch.Stop();
+
+        _output.WriteLine($"rejected in {watch.Elapsed.TotalSeconds:n1}s: {error.Message[..Math.Min(200, error.Message.Length)]}");
+
+        Assert.Contains("totally-fake-model-zzz9", error.Message);
+        Assert.True(watch.Elapsed < TimeSpan.FromMinutes(1), $"rejection took {watch.Elapsed}");
+    }
+
+    private static CursorAgentSession Session(Selection selection) =>
+        new(new RoleSpec(VendorRole.Critic, CriticPrompt), selection, null);
+
+    /// <summary>
     /// The step-10 criterion: a vendor with no native schema still returns a valid object, and it
     /// does so within the retry budget.
     /// </summary>

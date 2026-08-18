@@ -43,7 +43,16 @@ internal sealed class CursorAgentSession : IVendorSession
 
             await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
-            var text = await ReadResultAsync(spec, ct);
+            string text;
+            try
+            {
+                text = await ReadResultAsync(spec, ct);
+            }
+            catch (VendorException error)
+            {
+                await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, error.Message), ct);
+                throw new VendorException($"cursor-agent failed for {DescribeSelection()}: {error.Message}");
+            }
             if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
             {
                 await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
@@ -114,9 +123,21 @@ internal sealed class CursorAgentSession : IVendorSession
     }
 
     /// <summary>Cursor carries effort inside the model id, so the join happens here, not in the core.</summary>
-    private string ModelWithEffort() =>
+    internal string ModelWithEffort() =>
         string.IsNullOrWhiteSpace(_selection.Effort)
         || _selection.Model.EndsWith(_selection.Effort, StringComparison.OrdinalIgnoreCase)
             ? _selection.Model
             : $"{_selection.Model}-{_selection.Effort}";
+
+    /// <summary>
+    /// Names what was asked — model, effort, and the joined id when it differs — so a run the
+    /// vendor rejects reads as a bad request to correct, not as infrastructure to retry.
+    /// </summary>
+    internal string DescribeSelection()
+    {
+        var effort = string.IsNullOrWhiteSpace(_selection.Effort) ? "no effort" : $"effort \"{_selection.Effort}\"";
+        var joined = ModelWithEffort();
+        var sent = joined == _selection.Model ? string.Empty : $", sent as \"{joined}\"";
+        return $"model \"{_selection.Model}\" with {effort}{sent}";
+    }
 }

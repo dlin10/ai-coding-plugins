@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.12.0
+
+A run orchestrated from Cursor sent `model: "gpt-5.6-sol-xhigh", effort: null` and timed out at the
+MCP layer (#19). Measurement disproved the suspected cause: that id is real in Cursor's line-up,
+and cursor-agent rejects a genuinely unknown model in seconds with a clear stderr message that the
+server already surfaces — the timeout was the host's own tool-call timeout on a long review. What
+was left to fix is making bad selections read as bad requests, and stopping the selection flow
+producing confusing ones in the first place (#18).
+
+- A failed cursor-agent run now names the selection it was given — model, effort, and the joined
+  id actually sent — so a vendor rejection reads as a request to correct rather than
+  infrastructure to retry with the same payload.
+- `forge.begin` reports the connecting client (the MCP handshake's `clientInfo.name`) in a new
+  `client` field, so the skill can branch on the host without guessing.
+- The skill skips both vendor questions when orchestrating from inside Cursor: every model there
+  runs through the one `cursor-agent` CLI, so the vendor distinction is already the model choice.
+  Both roles default to the `cursor` vendor and only the two model questions remain.
+- Cursor model ids carry their effort as a suffix (`gpt-5.3-codex-high`); the skill now offers
+  full ids exactly as `cursor-agent --list-models` spells them, passes the chosen id as `model`
+  with `effort` unset, and never invents an id by appending a suffix.
+- Records the measurements in `CONTEXT.md`: the ten-second rejection, the stdin draining that
+  rules out a prompt-size pipe race, and that current Cursor now negotiates the UI capability.
+
 ## 0.11.0
 
 The workers' output now has a user-facing home. Tool results land only in the orchestrator's

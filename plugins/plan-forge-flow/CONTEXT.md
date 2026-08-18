@@ -82,6 +82,26 @@ same guarantee:
   it, at the same latency. Before that flag was added, `--force` went to every role and a Cursor
   critic could edit freely.
 
+## cursor-agent rejects an unknown model fast, and its ids carry the effort
+
+Measured against cursor-agent 2026.08.11-e8db854 on 2026-08-18:
+
+- A model id the CLI does not recognise fails in about ten seconds: exit 1, stderr
+  `Cannot use this model: <id>. Available models: <the full line-up>`. The existing
+  `StreamingProcess` nonzero-exit path surfaces that stderr, so a rejected model already fails the
+  act fast — it never crawls toward a timeout. The CLI drains stdin before validating the model
+  (measured with a 204 KB prompt), so the prompt-size pipe race one might suspect does not exist.
+- The live line-up is full ids with the effort baked in as a suffix — `gpt-5.6-sol-xhigh`,
+  `claude-opus-5-thinking-max`, `gpt-5.3-codex-high-fast` — so a string that looks like an
+  orchestrator-invented model-plus-effort join can be a real id. The payload issue #19 suspected,
+  `model: "gpt-5.6-sol-xhigh", effort: null`, is valid and runs: the id resolves to "GPT-5.6 Sol
+  272K Extra High".
+- The immediate MCP-layer timeout in run `20260818-123941-05cfa8` was therefore the **host's**
+  tool-call timeout on a long-running review, not a vendor rejection: the identical critic
+  invocation (`--mode plan`, same model) completes standalone, with ~35–40 s of CLI spin-up before
+  the API call even starts. Codex is configured around exactly this — `.mcp.json` sets
+  `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob.
+
 ## Only the `text` profile exists
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and
@@ -93,6 +113,11 @@ So the plan is delivered as markdown in the tool result, and progress is observa
 granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas` branch is
 not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from the SDK is
 the check that would enable it.
+
+That spike is dated: run `20260818-123941-05cfa8`, orchestrated from Cursor 3.15, recorded
+`profile: "Canvas"` in its state — the detector only says that when `McpApps.GetUiCapability`
+returns non-null, so current Cursor **does** negotiate the UI capability. The `canvas` branch is
+still unwritten; the profile now merely has a potential customer.
 
 ## Surfacing the flow log is the orchestrator's act, and each host differs
 
