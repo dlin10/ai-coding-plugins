@@ -244,5 +244,12 @@ hooks and no gates in this version — the trade is deliberate. The consequences
   `git diff` never listed untracked files, so a new ADR was already invisible.
 - Do not stop mid-run without telling the user where you stopped and what remains.
 
-Do not hand-edit anything under `.forge/`. Do not stage or commit the workers' changes; leave the
-diff for the user to inspect.
+Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and
+written through `forge.log.append`. Use that tool whenever a run does something a later reader
+would have to guess at: the models and vendors you selected and why, a retry and what provoked it,
+a finding you deferred, the point at which you stopped. It takes `message` plus an optional `level`
+(`info`, `warn`, `error`) and an optional longer `detail`. The server already records every tool
+call with its arguments, every vendor process with its full command line, and every process exit,
+kill and stderr tail into the same file; your entries are the part it cannot see.
+
+Do not stage or commit the workers' changes; leave the diff for the user to inspect.

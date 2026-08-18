@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
+using PlanForge.Diagnostics;
 using PlanForge.Orchestration;
 using PlanForge.Prompts;
 using PlanForge.Repo;
@@ -18,6 +19,7 @@ internal sealed class ForgeTools
 {
     private const int DefaultReviewRoundCap = 5;
     private const int DefaultCodeReviewCap = 3;
+    private const string Source = "server";
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
     public static async Task<string> Begin(McpServer server,
@@ -28,15 +30,22 @@ internal sealed class ForgeTools
         var runId = NewRunId();
         var run = RunDirectory.Create(workspaceRoot, runId);
 
-        var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
-        run.WriteBaseline(baseline);
-        run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
-            ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head,
-            CodeReviewRoundCap: DefaultCodeReviewCap));
+        // The run folder has to exist before anything can be logged, so this is the one tool whose
+        // record starts after its first side effect rather than before it.
+        return await LoggedAsync(run, "forge.begin",
+            [("workspaceRoot", workspaceRoot), ("client", ClientName(server)), ("profile", profile.ToString())],
+            async () =>
+            {
+                var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
+                run.WriteBaseline(baseline);
+                run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
+                    ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head,
+                    CodeReviewRoundCap: DefaultCodeReviewCap));
 
-        return JsonSerializer.Serialize(
-            new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
-            ForgeToolJson.Default.BeginResult);
+                return JsonSerializer.Serialize(
+                    new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
+                    ForgeToolJson.Default.BeginResult);
+            });
     }
 
     /// <summary>
@@ -61,10 +70,15 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-        var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort), ct);
+        return await LoggedAsync(run, "forge.plan.review",
+            [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft)],
+            async () =>
+            {
+                var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
+                var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort), ct);
 
-        return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+                return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+            });
     }
 
     /// <summary>
@@ -82,18 +96,23 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var state = run.ReadState();
-        var tasks = PlanTasks.Parse(plan);
+        return await LoggedAsync(run, "forge.plan.confirm",
+            [("approved", approved.ToString()), ("plan", plan)],
+            async () =>
+            {
+                var state = run.ReadState();
+                var tasks = PlanTasks.Parse(plan);
 
-        var drifted = await run.ReadBaseline(state.BaselineHead)
-                               .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
+                var drifted = await run.ReadBaseline(state.BaselineHead)
+                                       .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
 
-        if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
+                if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
 
-        run.WritePlan(plan);
-        run.WriteState(state with { Approved = true });
+                run.WritePlan(plan);
+                run.WriteState(state with { Approved = true });
 
-        return Serialized(new ApproveResult(true, tasks.Count, drifted));
+                return Serialized(new ApproveResult(true, tasks.Count, drifted));
+            });
     }
 
     [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan.")]
@@ -106,10 +125,15 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-        var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
+        return await LoggedAsync(run, "forge.build.next",
+            [("vendor", vendor), ("model", model), ("effort", effort)],
+            async () =>
+            {
+                var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
+                var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
 
-        return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.BuildOutcome);
+                return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.BuildOutcome);
+            });
     }
 
     /// <summary>
@@ -128,11 +152,16 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
-            new GitClient(workspaceRoot));
-        var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
+        return await LoggedAsync(run, "forge.review.code",
+            [("vendor", vendor), ("model", model), ("effort", effort)],
+            async () =>
+            {
+                var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
+                    new GitClient(workspaceRoot));
+                var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
 
-        return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+                return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+            });
     }
 
     [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled.")]
@@ -147,10 +176,15 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-        var result = await act.FixAsync(run, new Selection(model, effort), findings, deferred, ct);
+        return await LoggedAsync(run, "forge.review.fix",
+            [("vendor", vendor), ("model", model), ("effort", effort), ("findings", findings), ("deferred", deferred)],
+            async () =>
+            {
+                var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
+                var result = await act.FixAsync(run, new Selection(model, effort), findings, deferred, ct);
 
-        return JsonSerializer.Serialize(result, ContractJson.Default.BuildResult);
+                return JsonSerializer.Serialize(result, ContractJson.Default.BuildResult);
+            });
     }
 
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
@@ -160,11 +194,86 @@ internal sealed class ForgeTools
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
-        var state = run.ReadState();
-        var drifted = await run.ReadBaseline(state.BaselineHead)
-                               .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
+        return await LoggedAsync(run, "forge.status", [],
+            async () =>
+            {
+                var state = run.ReadState();
+                var drifted = await run.ReadBaseline(state.BaselineHead)
+                                       .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
 
-        return JsonSerializer.Serialize(new StatusResult(state, drifted), ForgeToolJson.Default.StatusResult);
+                return JsonSerializer.Serialize(new StatusResult(state, drifted), ForgeToolJson.Default.StatusResult);
+            });
+    }
+
+    /// <summary>
+    /// The orchestrator's own entry point into the run log. Everything else here logs itself; this
+    /// is what the acting agent uses to record what it selected, what it retried, and why.
+    /// </summary>
+    /// <remarks>
+    /// A tool rather than a documented licence to edit the file: it keeps the run id inside the
+    /// same containment check every other write passes, keeps the format one thing rather than one
+    /// per agent, and leaves the "do not hand-edit anything under `.forge/`" rule intact.
+    /// </remarks>
+    [McpServerTool(Name = "forge.log.append"), Description("Appends one entry to the run's diagnostic log at `.forge/<runId>/forge.log`. Use it to record what you selected, retried, or decided; never edit the file directly.")]
+    public static string AppendLog(
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("What happened, in one line.")] string message,
+        [Description("Optional level: info, warn or error. Defaults to info.")] string? level,
+        [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));
+
+        return run.DiagnosticLogPath;
+    }
+
+    private static string Level(string? level) =>
+        level?.Trim().ToLowerInvariant() switch
+        {
+            "warn" or "warning" => "warn",
+            "error" => "error",
+            _ => "info"
+        };
+
+    /// <summary>
+    /// Wraps one tool call in its run's log: the arguments on the way in, and the result, the
+    /// exception, or the cancellation on the way out.
+    /// </summary>
+    /// <remarks>
+    /// Setting the ambient log is the other half of the job. Everything the call reaches — the
+    /// vendor sessions, the process runner, the MCP SDK's own logger — finds the run's file through
+    /// <see cref="RunLog.Current"/> rather than being handed one, which is what keeps the log out
+    /// of every signature between here and a process launch.
+    /// </remarks>
+    private static async Task<string> LoggedAsync(RunDirectory run,
+                                                  string tool,
+                                                  (string Name, string? Value)[] arguments,
+                                                  Func<Task<string>> act)
+    {
+        var log = run.Log;
+        using var scope = RunLog.Use(log);
+
+        log.Write("info", Source, "tool.call", [("tool", tool), .. arguments]);
+        try
+        {
+            var result = await act().ConfigureAwait(false);
+            log.Write("info", Source, "tool.result", ("tool", tool), ("result", result));
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            // The host giving up is the failure mode with no other trace: it takes the call away
+            // before any result exists, which is exactly how a timeout looks from in here.
+            log.Write("warn", Source, "tool.cancelled", ("tool", tool));
+            throw;
+        }
+        catch (Exception error)
+        {
+            log.Write("error", Source, "tool.failed",
+                ("tool", tool), ("error", error.Message), ("stack", error.ToString()));
+            throw;
+        }
     }
 
     private static string Serialized(ApproveResult result) =>

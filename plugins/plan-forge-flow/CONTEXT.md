@@ -12,6 +12,7 @@ these terms replace it.
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -160,6 +161,39 @@ for this server alone. The documented stdio defaults (≈28 h wall clock, 30 min
 otherwise abort a worker call whose two 20-minute vendor attempts run back to back. The field was
 measured through `--mcp-config`; the plugin manifest declares its server with the same entry
 schema, which is the one assumption not yet measured end to end.
+
+## A failed act used to leave no trace, so the run log is the server's own record
+
+Both older run files record the **results of acts that succeeded** — `review-log.md` the critiques,
+`flow_log.md` the timeline — so an act that threw wrote nothing at all. The run behind #19 left a
+folder holding `state.json` and no record of whether `cursor-agent` was spawned, with what
+arguments, or how it died. Vendor sessions did emit `Started`/`Finished`/`Failed`, but only into an
+unbounded channel that production never reads.
+
+`forge.log` closes that. It is JSONL rather than prose because its interesting fields are
+themselves multi-line — a command line, a stack trace, a tail of stderr — and one object per line
+keeps them greppable without an escaping convention of our own. Long fields are cut, not dropped:
+the head of a plan draft still says which draft it was.
+
+Three things route into it, all through `RunLog.Current`, an ambient the tool wrapper sets for the
+duration of a call:
+
+- the tool surface — every call with its arguments, and its result, exception or cancellation;
+- `StreamingProcess` — the executable, the full argument list, the working directory, the pid, the
+  exit code, a killed process's reason (cancelled, timeout, output cap) and a bounded stderr tail;
+- `Microsoft.Extensions.Logging`, bridged by `RunFileLoggerProvider`, which is how the MCP SDK's
+  own dispatch and transport entries survive a call that dies before any act writes anything.
+  `ClearProviders()` used to discard them; stdout carries the protocol, so the run folder is the
+  only sink available.
+
+The ambient falls back to the last run this process served, because transport-level entries can
+arrive on a context that never flowed through a tool handler and cannot carry a run id — which is
+precisely the entry a timeout would otherwise drop.
+
+The orchestrator writes through `forge.log.append` rather than by hand. A tool rather than a
+documented licence to edit the file: the run id keeps passing the same containment check as every
+other write, the format stays one thing rather than one per agent, and the skill's "do not
+hand-edit anything under `.forge/`" rule survives intact.
 
 ## Only the `text` profile exists
 

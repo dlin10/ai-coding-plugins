@@ -35,7 +35,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     {
         var executable = ClaudeCliVendor.Executable;
         var spec = new ProcessSpec(executable, BuildArguments(schema.Json), _workingDirectory, prompt);
-        await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
+        await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
 
         JsonElement? structured = null;
         await foreach (var line in StreamingProcess.RunAsync(spec, RunTimeout, ct))
@@ -49,11 +49,11 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         if (structured is null)
         {
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, "no structured output"), ct);
+            await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Failed, "no structured output"), ct);
             throw new VendorException($"{executable} returned no {StructuredOutputTool} result");
         }
 
-        await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+        await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
         return structured.Value.Deserialize(schema.TypeInfo)
             ?? throw new VendorException($"{executable} returned a {StructuredOutputTool} result that did not match the schema");
     }
@@ -80,7 +80,7 @@ internal sealed class ClaudeCliSession : IVendorSession
             switch (kind)
             {
                 case "text" when block.TryGetProperty("text", out var text):
-                    _events.Writer.TryWrite(new VendorEvent(VendorEventKind.Text, text.GetString() ?? string.Empty));
+                    _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.Text, text.GetString() ?? string.Empty));
                     break;
 
                 // --json-schema is served by a tool: the object arrives as this call's input.
@@ -89,7 +89,7 @@ internal sealed class ClaudeCliSession : IVendorSession
                     if (toolName is StructuredOutputTool && block.TryGetProperty("input", out var input))
                         structured = input.Clone();
                     else
-                        _events.Writer.TryWrite(new VendorEvent(VendorEventKind.ToolUse, toolName ?? "?"));
+                        _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolUse, toolName ?? "?"));
                     break;
             }
         }

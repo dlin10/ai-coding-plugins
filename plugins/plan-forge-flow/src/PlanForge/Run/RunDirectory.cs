@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 using PlanForge.Repo;
 using PlanForge.Vendors;
@@ -14,6 +15,7 @@ internal sealed class RunDirectory
     private const string StateFileName = "state.json";
     private const string ReviewLogFileName = "review-log.md";
     private const string FlowLogFileName = "flow_log.md";
+    private const string DiagnosticLogFileName = "forge.log";
     private const string CritiquesFolder = "critiques";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
@@ -34,6 +36,14 @@ internal sealed class RunDirectory
     public string ReviewLogPath => System.IO.Path.Combine(Path, ReviewLogFileName);
 
     public string FlowLogPath => System.IO.Path.Combine(Path, FlowLogFileName);
+
+    /// <summary>
+    /// The run's operational log. Append-only and the one file under <c>.forge/</c> that agents may
+    /// add to, through <c>forge.log.append</c> rather than by hand.
+    /// </summary>
+    public string DiagnosticLogPath => System.IO.Path.Combine(Path, DiagnosticLogFileName);
+
+    public RunLog Log => new(DiagnosticLogPath);
 
     private string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 

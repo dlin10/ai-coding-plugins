@@ -1,5 +1,33 @@
 # Plan Forge Flow releases
 
+## 0.13.0
+
+A failed run left nothing to investigate (#20). `review-log.md` and `flow_log.md` record the
+results of acts that succeeded, so an act that threw wrote nothing at all — the run behind #19 kept
+`state.json` and no record of whether `cursor-agent` was spawned, with what arguments, or how it
+died. Vendor lifecycle events existed but only streamed into a channel nothing reads.
+
+Every run now writes `.forge/<runId>/forge.log`: one JSON object per line, appended through the
+same write path as the rest of the run folder, so concurrent server processes cannot interleave
+inside an entry.
+
+- The tool surface records every call — the tool, its arguments with long fields such as
+  `planDraft` truncated rather than dropped, and then its result, its exception with the stack, or
+  its cancellation. Cancellation is the entry with no other trace: it is how a host's timeout looks
+  from inside the server.
+- `StreamingProcess` records each launch with the executable, the full argument list and the
+  working directory, then the pid, the exit code and a bounded stderr tail. A kill says which clock
+  ran out — the caller's cancellation, the vendor timeout, or the output cap. The
+  `--model gpt-5.6-sol-xhigh` line from #19 would have been readable in the log immediately.
+- `VendorEvent`s are persisted as they are raised, instead of only reaching the unread channel.
+- The MCP SDK's own `ILogger` output now lands there too, through a provider that resolves the
+  current run per entry. `ClearProviders()` had been discarding it, and it is the only record of a
+  call that dies inside the SDK before any act of ours writes anything.
+- New tool `forge.log.append` gives the orchestrator a sanctioned way in — what it selected, what
+  it retried, why it deferred a finding. A tool rather than a documented exception to "do not
+  hand-edit anything under `.forge/`": the run id keeps passing the same containment check, and the
+  format stays one thing rather than one per agent.
+
 ## 0.12.1
 
 `CursorAgentSession` loaded the role prompt from `prompts/cursor/<role>.md` and then never sent it,

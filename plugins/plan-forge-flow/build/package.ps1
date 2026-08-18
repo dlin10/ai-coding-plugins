@@ -154,7 +154,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status')) {
+        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1

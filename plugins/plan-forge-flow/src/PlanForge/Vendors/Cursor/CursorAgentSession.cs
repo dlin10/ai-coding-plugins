@@ -41,7 +41,7 @@ internal sealed class CursorAgentSession : IVendorSession
             var spec = new ProcessSpec(CursorAgentVendor.Executable, BuildArguments(), _workingDirectory,
                 SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure));
 
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
+            await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
             string text;
             try
@@ -50,16 +50,16 @@ internal sealed class CursorAgentSession : IVendorSession
             }
             catch (VendorException error)
             {
-                await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, error.Message), ct);
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, error.Message), ct);
                 throw new VendorException($"cursor-agent failed for {DescribeSelection()}: {error.Message}");
             }
             if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
             {
-                await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
                 return value;
             }
 
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
+            await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
         }
 
         throw new VendorException($"cursor-agent did not return a valid object in {SchemaInPrompt.MaxAttempts} attempts: {lastFailure}");
