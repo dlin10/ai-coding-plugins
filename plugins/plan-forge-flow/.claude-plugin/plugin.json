@@ -1,6 +1,6 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.11.0",
+  "version": "0.13.0",
   "description": "Harden, independently review, approve, and implement plans on Windows x64 in Claude Code, with the review and build work delegated to separate Claude, Codex, or Cursor processes.",
   "author": {
     "name": "Dmitry Linetsky"
@@ -10,7 +10,8 @@
   "mcpServers": {
     "plan-forge-flow": {
       "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/win-x64/planforge.exe"
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/win-x64/planforge.exe",
+      "timeout": 3600000
     }
   }
 }

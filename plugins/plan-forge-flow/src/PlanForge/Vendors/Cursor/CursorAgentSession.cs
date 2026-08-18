@@ -39,18 +39,27 @@ internal sealed class CursorAgentSession : IVendorSession
         for (var attempt = 1; attempt <= SchemaInPrompt.MaxAttempts; attempt++)
         {
             var spec = new ProcessSpec(CursorAgentVendor.Executable, BuildArguments(), _workingDirectory,
-                SchemaInPrompt.Compose(prompt, schema.Json, lastFailure));
+                SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure));
 
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
+            await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
-            var text = await ReadResultAsync(spec, ct);
+            string text;
+            try
+            {
+                text = await ReadResultAsync(spec, ct);
+            }
+            catch (VendorException error)
+            {
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, error.Message), ct);
+                throw new VendorException($"cursor-agent failed for {DescribeSelection()}: {error.Message}");
+            }
             if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
             {
-                await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
                 return value;
             }
 
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
+            await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
         }
 
         throw new VendorException($"cursor-agent did not return a valid object in {SchemaInPrompt.MaxAttempts} attempts: {lastFailure}");
@@ -84,6 +93,12 @@ internal sealed class CursorAgentSession : IVendorSession
         return result;
     }
 
+    /// <summary>
+    /// cursor-agent has no system-prompt flag (measured against 2026.08.11-e8db854: the help lists
+    /// none), so the role instructions ride at the head of the prompt — the one channel it offers.
+    /// </summary>
+    internal string WithRoleInstructions(string prompt) => $"{_role.SystemPrompt}\n\n{prompt}";
+
     internal List<string> BuildArguments()
     {
         var arguments = new List<string>
@@ -114,9 +129,21 @@ internal sealed class CursorAgentSession : IVendorSession
     }
 
     /// <summary>Cursor carries effort inside the model id, so the join happens here, not in the core.</summary>
-    private string ModelWithEffort() =>
+    internal string ModelWithEffort() =>
         string.IsNullOrWhiteSpace(_selection.Effort)
         || _selection.Model.EndsWith(_selection.Effort, StringComparison.OrdinalIgnoreCase)
             ? _selection.Model
             : $"{_selection.Model}-{_selection.Effort}";
+
+    /// <summary>
+    /// Names what was asked — model, effort, and the joined id when it differs — so a run the
+    /// vendor rejects reads as a bad request to correct, not as infrastructure to retry.
+    /// </summary>
+    internal string DescribeSelection()
+    {
+        var effort = string.IsNullOrWhiteSpace(_selection.Effort) ? "no effort" : $"effort \"{_selection.Effort}\"";
+        var joined = ModelWithEffort();
+        var sent = joined == _selection.Model ? string.Empty : $", sent as \"{joined}\"";
+        return $"model \"{_selection.Model}\" with {effort}{sent}";
+    }
 }

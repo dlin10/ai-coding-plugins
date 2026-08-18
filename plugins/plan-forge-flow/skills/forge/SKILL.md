@@ -21,7 +21,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId` and takes a baseline of the working tree. |
+| `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, and takes a baseline of the working tree. |
 | `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
@@ -34,6 +34,14 @@ Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. The four wor
 an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to
 `claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
 and `forge.review.fix`.
+
+Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. The
+Cursor agent path cancels a `tools/call` at a hard 60 seconds — measured, nothing in Cursor raises
+it, and progress cannot reset it — so when `forge.begin` returns a cursor `client`, tell the user
+before the first worker call that the host may cut long calls off with `MCP error -32001: Request
+timed out`, and that the error is the host's timeout, not the act failing. A run interrupted that
+way is not lost: its state lives under `.forge/<runId>/`, and the same `runId` continues from a
+host with a longer clock — the Claude Code and Codex manifests both grant an hour.
 
 ## Act 1: the interview
 
@@ -190,6 +198,12 @@ Choose vendors and models in two steps, asking at most four questions total.
      `cursor-agent`); no act can run without one.
    - If exactly one resolves, do not ask either vendor question. Tell the user which vendor both
      roles will use and continue directly to step 2.
+   - If you are orchestrating from inside Cursor and `cursor-agent` resolves, do not ask either
+     vendor question even when other CLIs also resolve: Cursor fronts models from several vendors
+     behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
+     model choice. Trust either signal alone: the `client` field `forge.begin` returned names
+     cursor, or the host you are running in is Cursor. Tell the user both workers will run through
+     `cursor-agent` and continue directly to step 2 with both roles on the `cursor` vendor.
 2. Ask one question for each role, requesting its model and effort together as a valid combination
    for that role's chosen vendor. The server publishes no catalogue, and `forge.begin` returns
    none, so the combinations come from the orchestrator's own knowledge of that vendor's current
@@ -197,6 +211,11 @@ Choose vendors and models in two steps, asking at most four questions total.
    open. If the orchestrator does not know that vendor's current models, ask for free text with no
    options rather than offering stale ones. Never offer one vendor's model family under another
    vendor.
+
+   For the `cursor` vendor, effort is not a separate flag — it lives inside the model id
+   (`gpt-5.3-codex-high`, `claude-opus-5-thinking-xhigh`). Offer full ids exactly as
+   `cursor-agent --list-models` spells them, pass the chosen id as `model`, and leave `effort`
+   unset. Never build an id yourself by appending an effort suffix to a model name.
 
 The catalogue is advisory: an unfamiliar model is worth mentioning, not refusing, because the
 vendor CLI decides. The roles are not interchangeable in strength. The builder works against an
@@ -225,5 +244,12 @@ hooks and no gates in this version — the trade is deliberate. The consequences
   `git diff` never listed untracked files, so a new ADR was already invisible.
 - Do not stop mid-run without telling the user where you stopped and what remains.
 
-Do not hand-edit anything under `.forge/`. Do not stage or commit the workers' changes; leave the
-diff for the user to inspect.
+Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and
+written through `forge.log.append`. Use that tool whenever a run does something a later reader
+would have to guess at: the models and vendors you selected and why, a retry and what provoked it,
+a finding you deferred, the point at which you stopped. It takes `message` plus an optional `level`
+(`info`, `warn`, `error`) and an optional longer `detail`. The server already records every tool
+call with its arguments, every vendor process with its full command line, and every process exit,
+kill and stderr tail into the same file; your entries are the part it cannot see.
+
+Do not stage or commit the workers' changes; leave the diff for the user to inspect.

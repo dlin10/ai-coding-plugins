@@ -48,16 +48,16 @@ internal sealed class CodexAppServerSession : IVendorSession
         string? lastFailure = null;
         for (var attempt = 1; attempt <= SchemaInPrompt.MaxAttempts; attempt++)
         {
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
+            await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
             var text = await RunTurnAsync(SchemaInPrompt.Compose(prompt, schema.Json, lastFailure), ct);
             if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
             {
-                await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+                await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
                 return value;
             }
 
-            await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
+            await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
         }
 
         throw new VendorException($"codex did not return a valid object in {SchemaInPrompt.MaxAttempts} attempts: {lastFailure}");
@@ -148,12 +148,12 @@ internal sealed class CodexAppServerSession : IVendorSession
         {
             case "item/agentMessage/delta":
                 if (parameters.TryGetProperty("delta", out var delta) && delta.GetString() is { } text)
-                    _events.Writer.TryWrite(new VendorEvent(VendorEventKind.Text, text));
+                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.Text, text));
                 break;
 
             case "item/started":
                 if (ItemType(parameters) is { } startedType and not "userMessage" and not "agentMessage")
-                    _events.Writer.TryWrite(new VendorEvent(VendorEventKind.ToolUse, startedType));
+                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.ToolUse, startedType));
                 break;
 
             case "item/completed":

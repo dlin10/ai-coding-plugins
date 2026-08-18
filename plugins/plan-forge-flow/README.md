@@ -2,7 +2,7 @@
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes seven tools. Release 0.11.0 supports only
+typed .NET 10 executable named `planforge` that exposes eight tools. Release 0.11.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -22,6 +22,7 @@ are separate model processes, and neither ever revises the plan.
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
 | `forge.review.fix` | Hands the findings the orchestrator kept to the builder, and logs the deferred ones with reasons |
 | `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
+| `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
 revises the plan after `forge.plan.review`, and after `forge.review.code` it filters the findings

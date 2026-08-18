@@ -18,6 +18,10 @@ Turn ambitious ideas into implementation-ready plans. Plan Forge Flow brings str
 
 Give your coding agent a true understanding of your C# solution. Roslyn MCP connects it to Visual Studio's live code intelligence, making navigation, impact analysis, diagnostics, and refactoring more accurate—even across large and complex codebases.
 
+### [Explain Code Simply](plugins/explain-code-simply)
+
+Understand code, errors, and C#/.NET concepts in plain language. Explain Code Simply breaks down complex code logic, exceptions, and technical patterns into clear explanations that respect your expertise while avoiding unnecessary jargon.
+
 ## Choose the Right Plugin
 
 | When you want to... | Choose |
@@ -25,6 +29,7 @@ Give your coding agent a true understanding of your C# solution. Roslyn MCP conn
 | Find files anywhere on Windows | **Find Files** |
 | Plan and deliver complex changes with stronger review | **Plan Forge Flow** |
 | Work confidently in C# and .NET solutions | **Roslyn MCP** |
+| Understand code and C#/.NET concepts in plain language | **Explain Code Simply** |
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 

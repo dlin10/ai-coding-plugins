@@ -1,5 +1,76 @@
 # Plan Forge Flow releases
 
+## 0.13.0
+
+A failed run left nothing to investigate (#20). `review-log.md` and `flow_log.md` record the
+results of acts that succeeded, so an act that threw wrote nothing at all — the run behind #19 kept
+`state.json` and no record of whether `cursor-agent` was spawned, with what arguments, or how it
+died. Vendor lifecycle events existed but only streamed into a channel nothing reads.
+
+Every run now writes `.forge/<runId>/forge.log`: one JSON object per line, appended through the
+same write path as the rest of the run folder, so concurrent server processes cannot interleave
+inside an entry.
+
+- The tool surface records every call — the tool, its arguments with long fields such as
+  `planDraft` truncated rather than dropped, and then its result, its exception with the stack, or
+  its cancellation. Cancellation is the entry with no other trace: it is how a host's timeout looks
+  from inside the server.
+- `StreamingProcess` records each launch with the executable, the full argument list and the
+  working directory, then the pid, the exit code and a bounded stderr tail. A kill says which clock
+  ran out — the caller's cancellation, the vendor timeout, or the output cap. The
+  `--model gpt-5.6-sol-xhigh` line from #19 would have been readable in the log immediately.
+- `VendorEvent`s are persisted as they are raised, instead of only reaching the unread channel.
+- The MCP SDK's own `ILogger` output now lands there too, through a provider that resolves the
+  current run per entry. `ClearProviders()` had been discarding it, and it is the only record of a
+  call that dies inside the SDK before any act of ours writes anything.
+- New tool `forge.log.append` gives the orchestrator a sanctioned way in — what it selected, what
+  it retried, why it deferred a finding. A tool rather than a documented exception to "do not
+  hand-edit anything under `.forge/`": the run id keeps passing the same containment check, and the
+  format stays one thing rather than one per agent.
+
+## 0.12.1
+
+`CursorAgentSession` loaded the role prompt from `prompts/cursor/<role>.md` and then never sent it,
+so Cursor critics and builders ran without their role instructions. cursor-agent has no
+system-prompt flag (measured against 2026.08.11-e8db854: the help lists none), so the instructions
+now travel at the head of the prompt itself, ahead of the task and the schema contract — the
+counterpart of Claude's `--append-system-prompt` and the Codex App Server's
+`developerInstructions`.
+
+The host-timeout half of #19 is settled by measurement (probe MCP server, 2026-08-18; the numbers
+are in `CONTEXT.md`):
+
+- The Claude Code manifest now sets `"timeout": 3600000` on its server entry — the hour the Codex
+  host already grants through `tool_timeout_sec`. Measured against Claude Code CLI 2.1.234, the
+  per-server field is honored as a hard wall clock and lifts the client's idle abort, which would
+  otherwise cut a worker call that stays silent past the stdio default.
+- The Cursor manifest is unchanged because nothing can be set: no Cursor schema has a timeout
+  field, cursor-agent's MCP client sends no `progressToken` and cancels a tool call at a hard 60
+  seconds, and Cursor does not reset its clock on `notifications/progress`. Wiring the vendor
+  events channel to MCP progress was therefore rejected; the channel stays deliberately unread.
+  The skill now warns the user when orchestrating from Cursor instead.
+
+A run orchestrated from Cursor sent `model: "gpt-5.6-sol-xhigh", effort: null` and timed out at the
+MCP layer (#19). Measurement disproved the suspected cause: that id is real in Cursor's line-up,
+and cursor-agent rejects a genuinely unknown model in seconds with a clear stderr message that the
+server already surfaces — the timeout was the host's own tool-call timeout on a long review. What
+was left to fix is making bad selections read as bad requests, and stopping the selection flow
+producing confusing ones in the first place (#18).
+
+- A failed cursor-agent run now names the selection it was given — model, effort, and the joined
+  id actually sent — so a vendor rejection reads as a request to correct rather than
+  infrastructure to retry with the same payload.
+- `forge.begin` reports the connecting client (the MCP handshake's `clientInfo.name`) in a new
+  `client` field, so the skill can branch on the host without guessing.
+- The skill skips both vendor questions when orchestrating from inside Cursor: every model there
+  runs through the one `cursor-agent` CLI, so the vendor distinction is already the model choice.
+  Both roles default to the `cursor` vendor and only the two model questions remain.
+- Cursor model ids carry their effort as a suffix (`gpt-5.3-codex-high`); the skill now offers
+  full ids exactly as `cursor-agent --list-models` spells them, passes the chosen id as `model`
+  with `effort` unset, and never invents an id by appending a suffix.
+- Records the measurements in `CONTEXT.md`: the ten-second rejection, the stdin draining that
+  rules out a prompt-size pipe race, and that current Cursor now negotiates the UI capability.
+
 ## 0.11.0
 
 The workers' output now has a user-facing home. Tool results land only in the orchestrator's

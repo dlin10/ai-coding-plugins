@@ -12,6 +12,7 @@ these terms replace it.
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -82,6 +83,118 @@ same guarantee:
   it, at the same latency. Before that flag was added, `--force` went to every role and a Cursor
   critic could edit freely.
 
+## cursor-agent rejects an unknown model fast, and its ids carry the effort
+
+Measured against cursor-agent 2026.08.11-e8db854 on 2026-08-18:
+
+- A model id the CLI does not recognise fails in about ten seconds: exit 1, stderr
+  `Cannot use this model: <id>. Available models: <the full line-up>`. The existing
+  `StreamingProcess` nonzero-exit path surfaces that stderr, so a rejected model already fails the
+  act fast — it never crawls toward a timeout. The CLI drains stdin before validating the model
+  (measured with a 204 KB prompt), so the prompt-size pipe race one might suspect does not exist.
+- The live line-up is full ids with the effort baked in as a suffix — `gpt-5.6-sol-xhigh`,
+  `claude-opus-5-thinking-max`, `gpt-5.3-codex-high-fast` — so a string that looks like an
+  orchestrator-invented model-plus-effort join can be a real id. The payload issue #19 suspected,
+  `model: "gpt-5.6-sol-xhigh", effort: null`, is valid and runs: the id resolves to "GPT-5.6 Sol
+  272K Extra High".
+- The immediate MCP-layer timeout in run `20260818-123941-05cfa8` was therefore the **host's**
+  tool-call timeout on a long-running review, not a vendor rejection: the identical critic
+  invocation (`--mode plan`, same model) completes standalone, with ~35–40 s of CLI spin-up before
+  the API call even starts. Codex is configured around exactly this — `.mcp.json` sets
+  `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob, and none exists to add: see
+  "No progress notification can rescue a Cursor-hosted call".
+
+## cursor-agent has no system-prompt channel
+
+The `--help` of 2026.08.11-e8db854 lists no flag resembling `--system-prompt` — nothing like
+Claude's `--append-system-prompt` or the App Server's `developerInstructions`. Role instructions
+can reach a Cursor worker only inside the prompt itself, so `CursorAgentSession` puts them at its
+head, ahead of the task and the schema contract. Before 0.12.1 the loaded role prompt was silently
+dropped and Cursor critics and builders ran without their instructions.
+
+## No progress notification can rescue a Cursor-hosted call
+
+Measured on 2026-08-18 with a probe MCP stdio server that logs every request's `_meta`, driven by
+cursor-agent 2026.08.11-e8db854 in print mode:
+
+- cursor-agent's own MCP client sends **no `progressToken`** with `tools/call` — `_meta` is absent
+  outright — so on this path a server has no token to attach progress to, and the SDK-injected
+  `IProgress<>` would be its documented no-op.
+- The call is cancelled at a hard **60 seconds**: `notifications/cancelled` arrived 60.0 s after
+  `tools/call` while the tool was still working, and the agent reported `MCP error -32001: Request
+  timed out`. That is the error signature of run `20260818-123941-05cfa8`, whose review died from
+  the Agents window while the identical critic invocation completes standalone.
+- Documented rather than measured (Cursor staff on the forum, May–July 2026): no Cursor schema —
+  `mcp.json`, plugin `mcp.json` blocks, or the published plugin MCP schema — has any timeout
+  field; the IDE path does send a token but `resetTimeoutOnProgress` is not passed to the SDK, so
+  progress never extends any Cursor clock; the IDE ceiling is around 60 minutes against the
+  CLI/ACP path's 60 seconds, none of it configurable; and progress rendering in the chat and
+  Agents UI is a regression open since 3.8. The staff-endorsed pattern for long tools is a job id
+  returned fast plus polling.
+
+The consequence: neither lever the Codex host gets — `tool_timeout_sec` or progress keep-alive —
+exists for Cursor, so a worker call orchestrated from Cursor dies at the host layer whenever it
+outlives the host's clock. Wiring `IVendorSession.Events` to MCP progress was considered on these
+measurements and rejected; the channel stays deliberately unread. The only shape a Cursor host
+would honor is splitting each worker tool into start/poll/fetch calls that return in seconds — a
+surface redesign that collides with one-round-per-call (docs/adr/0005) and needs an ADR of its own
+if it is ever taken.
+
+## Claude Code aborts a silent call, and the manifest timeout feeds both of its clocks
+
+Measured on 2026-08-18 against Claude Code CLI 2.1.234, headless, with the same probe server:
+
+- `tools/call` carries `_meta: { "claudecode/toolUseId": …, "progressToken": … }` — the token is
+  sent, so a server-side `IProgress<>` would reach the wire.
+- A silent tool call is aborted client-side: "sent no response or progress for 30s; aborting", with
+  `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=15000` set (the abort came at 30 s, so treat the configured
+  value as approximate). The abort message itself names the knobs: a per-server `"timeout"` in
+  milliseconds in the server entry, or that global idle variable, `0` to disable.
+- `notifications/progress` feeds the idle timer: the same 45-second tool emitting progress every
+  5 s under the same idle setting ran to completion.
+- The per-server `"timeout"` field is honored and is a hard wall clock that progress does not
+  extend: with `"timeout": 20000`, the call died at 20 s despite progress every 5 s.
+
+Hence `.claude-plugin/plugin.json` sets `"timeout": 3600000` on the server entry — the hour the
+Codex host grants through `tool_timeout_sec` — raising the wall clock and lifting the idle floor
+for this server alone. The documented stdio defaults (≈28 h wall clock, 30 min idle) would
+otherwise abort a worker call whose two 20-minute vendor attempts run back to back. The field was
+measured through `--mcp-config`; the plugin manifest declares its server with the same entry
+schema, which is the one assumption not yet measured end to end.
+
+## A failed act used to leave no trace, so the run log is the server's own record
+
+Both older run files record the **results of acts that succeeded** — `review-log.md` the critiques,
+`flow_log.md` the timeline — so an act that threw wrote nothing at all. The run behind #19 left a
+folder holding `state.json` and no record of whether `cursor-agent` was spawned, with what
+arguments, or how it died. Vendor sessions did emit `Started`/`Finished`/`Failed`, but only into an
+unbounded channel that production never reads.
+
+`forge.log` closes that. It is JSONL rather than prose because its interesting fields are
+themselves multi-line — a command line, a stack trace, a tail of stderr — and one object per line
+keeps them greppable without an escaping convention of our own. Long fields are cut, not dropped:
+the head of a plan draft still says which draft it was.
+
+Three things route into it, all through `RunLog.Current`, an ambient the tool wrapper sets for the
+duration of a call:
+
+- the tool surface — every call with its arguments, and its result, exception or cancellation;
+- `StreamingProcess` — the executable, the full argument list, the working directory, the pid, the
+  exit code, a killed process's reason (cancelled, timeout, output cap) and a bounded stderr tail;
+- `Microsoft.Extensions.Logging`, bridged by `RunFileLoggerProvider`, which is how the MCP SDK's
+  own dispatch and transport entries survive a call that dies before any act writes anything.
+  `ClearProviders()` used to discard them; stdout carries the protocol, so the run folder is the
+  only sink available.
+
+The ambient falls back to the last run this process served, because transport-level entries can
+arrive on a context that never flowed through a tool handler and cannot carry a run id — which is
+precisely the entry a timeout would otherwise drop.
+
+The orchestrator writes through `forge.log.append` rather than by hand. A tool rather than a
+documented licence to edit the file: the run id keeps passing the same containment check as every
+other write, the format stays one thing rather than one per agent, and the skill's "do not
+hand-edit anything under `.forge/`" rule survives intact.
+
 ## Only the `text` profile exists
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and
@@ -93,6 +206,11 @@ So the plan is delivered as markdown in the tool result, and progress is observa
 granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas` branch is
 not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from the SDK is
 the check that would enable it.
+
+That spike is dated: run `20260818-123941-05cfa8`, orchestrated from Cursor 3.15, recorded
+`profile: "Canvas"` in its state — the detector only says that when `McpApps.GetUiCapability`
+returns non-null, so current Cursor **does** negotiate the UI capability. The `canvas` branch is
+still unwritten; the profile now merely has a potential customer.
 
 ## Surfacing the flow log is the orchestrator's act, and each host differs
 

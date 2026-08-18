@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all seven `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all eight `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -112,7 +112,7 @@ attach to.
 ## Run state, and the absence of locks
 
 Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
-`PLAN.md`, `review-log.md`, `flow_log.md`, `critiques/`, `baseline.patch`. The flow log is the
+`PLAN.md`, `review-log.md`, `flow_log.md`, `forge.log`, `critiques/`, `baseline.patch`. The flow log is the
 user-facing timeline — every critique, build result and fix round — and nothing ever feeds it
 back to a worker, which is what lets builder entries live there without shifting what the next
 critic judges; `review-log.md` is critic input and stays free of them. There are no locks and no Git refs —
