@@ -39,7 +39,10 @@ internal sealed class RunFileLoggerProvider : ILoggerProvider
             if (!IsEnabled(logLevel)) return;
             if (RunLog.Current is not { } log) return;
 
-            log.Write(Level(logLevel), category, eventId.Name is { Length: > 0 } name ? name : "mcp",
+            // "log" rather than anything more specific: the categories reaching here include the
+            // hosting lifetime, and naming its shutdown message after MCP would be a lie in the
+            // one field a reader scans first.
+            log.Write(Level(logLevel), category, eventId.Name is { Length: > 0 } name ? name : "log",
                 ("message", formatter(state, exception)),
                 ("exception", exception?.ToString()));
         }
