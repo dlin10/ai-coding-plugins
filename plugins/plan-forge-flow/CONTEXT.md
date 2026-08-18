@@ -100,7 +100,66 @@ Measured against cursor-agent 2026.08.11-e8db854 on 2026-08-18:
   tool-call timeout on a long-running review, not a vendor rejection: the identical critic
   invocation (`--mode plan`, same model) completes standalone, with ~35–40 s of CLI spin-up before
   the API call even starts. Codex is configured around exactly this — `.mcp.json` sets
-  `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob.
+  `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob, and none exists to add: see
+  "No progress notification can rescue a Cursor-hosted call".
+
+## cursor-agent has no system-prompt channel
+
+The `--help` of 2026.08.11-e8db854 lists no flag resembling `--system-prompt` — nothing like
+Claude's `--append-system-prompt` or the App Server's `developerInstructions`. Role instructions
+can reach a Cursor worker only inside the prompt itself, so `CursorAgentSession` puts them at its
+head, ahead of the task and the schema contract. Before 0.12.1 the loaded role prompt was silently
+dropped and Cursor critics and builders ran without their instructions.
+
+## No progress notification can rescue a Cursor-hosted call
+
+Measured on 2026-08-18 with a probe MCP stdio server that logs every request's `_meta`, driven by
+cursor-agent 2026.08.11-e8db854 in print mode:
+
+- cursor-agent's own MCP client sends **no `progressToken`** with `tools/call` — `_meta` is absent
+  outright — so on this path a server has no token to attach progress to, and the SDK-injected
+  `IProgress<>` would be its documented no-op.
+- The call is cancelled at a hard **60 seconds**: `notifications/cancelled` arrived 60.0 s after
+  `tools/call` while the tool was still working, and the agent reported `MCP error -32001: Request
+  timed out`. That is the error signature of run `20260818-123941-05cfa8`, whose review died from
+  the Agents window while the identical critic invocation completes standalone.
+- Documented rather than measured (Cursor staff on the forum, May–July 2026): no Cursor schema —
+  `mcp.json`, plugin `mcp.json` blocks, or the published plugin MCP schema — has any timeout
+  field; the IDE path does send a token but `resetTimeoutOnProgress` is not passed to the SDK, so
+  progress never extends any Cursor clock; the IDE ceiling is around 60 minutes against the
+  CLI/ACP path's 60 seconds, none of it configurable; and progress rendering in the chat and
+  Agents UI is a regression open since 3.8. The staff-endorsed pattern for long tools is a job id
+  returned fast plus polling.
+
+The consequence: neither lever the Codex host gets — `tool_timeout_sec` or progress keep-alive —
+exists for Cursor, so a worker call orchestrated from Cursor dies at the host layer whenever it
+outlives the host's clock. Wiring `IVendorSession.Events` to MCP progress was considered on these
+measurements and rejected; the channel stays deliberately unread. The only shape a Cursor host
+would honor is splitting each worker tool into start/poll/fetch calls that return in seconds — a
+surface redesign that collides with one-round-per-call (docs/adr/0005) and needs an ADR of its own
+if it is ever taken.
+
+## Claude Code aborts a silent call, and the manifest timeout feeds both of its clocks
+
+Measured on 2026-08-18 against Claude Code CLI 2.1.234, headless, with the same probe server:
+
+- `tools/call` carries `_meta: { "claudecode/toolUseId": …, "progressToken": … }` — the token is
+  sent, so a server-side `IProgress<>` would reach the wire.
+- A silent tool call is aborted client-side: "sent no response or progress for 30s; aborting", with
+  `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=15000` set (the abort came at 30 s, so treat the configured
+  value as approximate). The abort message itself names the knobs: a per-server `"timeout"` in
+  milliseconds in the server entry, or that global idle variable, `0` to disable.
+- `notifications/progress` feeds the idle timer: the same 45-second tool emitting progress every
+  5 s under the same idle setting ran to completion.
+- The per-server `"timeout"` field is honored and is a hard wall clock that progress does not
+  extend: with `"timeout": 20000`, the call died at 20 s despite progress every 5 s.
+
+Hence `.claude-plugin/plugin.json` sets `"timeout": 3600000` on the server entry — the hour the
+Codex host grants through `tool_timeout_sec` — raising the wall clock and lifting the idle floor
+for this server alone. The documented stdio defaults (≈28 h wall clock, 30 min idle) would
+otherwise abort a worker call whose two 20-minute vendor attempts run back to back. The field was
+measured through `--mcp-config`; the plugin manifest declares its server with the same entry
+schema, which is the one assumption not yet measured end to end.
 
 ## Only the `text` profile exists
 

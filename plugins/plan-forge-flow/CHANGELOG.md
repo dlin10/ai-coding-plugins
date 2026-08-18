@@ -1,6 +1,26 @@
 # Plan Forge Flow releases
 
-## 0.12.0
+## 0.12.1
+
+`CursorAgentSession` loaded the role prompt from `prompts/cursor/<role>.md` and then never sent it,
+so Cursor critics and builders ran without their role instructions. cursor-agent has no
+system-prompt flag (measured against 2026.08.11-e8db854: the help lists none), so the instructions
+now travel at the head of the prompt itself, ahead of the task and the schema contract — the
+counterpart of Claude's `--append-system-prompt` and the Codex App Server's
+`developerInstructions`.
+
+The host-timeout half of #19 is settled by measurement (probe MCP server, 2026-08-18; the numbers
+are in `CONTEXT.md`):
+
+- The Claude Code manifest now sets `"timeout": 3600000` on its server entry — the hour the Codex
+  host already grants through `tool_timeout_sec`. Measured against Claude Code CLI 2.1.234, the
+  per-server field is honored as a hard wall clock and lifts the client's idle abort, which would
+  otherwise cut a worker call that stays silent past the stdio default.
+- The Cursor manifest is unchanged because nothing can be set: no Cursor schema has a timeout
+  field, cursor-agent's MCP client sends no `progressToken` and cancels a tool call at a hard 60
+  seconds, and Cursor does not reset its clock on `notifications/progress`. Wiring the vendor
+  events channel to MCP progress was therefore rejected; the channel stays deliberately unread.
+  The skill now warns the user when orchestrating from Cursor instead.
 
 A run orchestrated from Cursor sent `model: "gpt-5.6-sol-xhigh", effort: null` and timed out at the
 MCP layer (#19). Measurement disproved the suspected cause: that id is real in Cursor's line-up,

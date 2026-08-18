@@ -39,7 +39,7 @@ internal sealed class CursorAgentSession : IVendorSession
         for (var attempt = 1; attempt <= SchemaInPrompt.MaxAttempts; attempt++)
         {
             var spec = new ProcessSpec(CursorAgentVendor.Executable, BuildArguments(), _workingDirectory,
-                SchemaInPrompt.Compose(prompt, schema.Json, lastFailure));
+                SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure));
 
             await _events.Writer.WriteAsync(new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
@@ -92,6 +92,12 @@ internal sealed class CursorAgentSession : IVendorSession
 
         return result;
     }
+
+    /// <summary>
+    /// cursor-agent has no system-prompt flag (measured against 2026.08.11-e8db854: the help lists
+    /// none), so the role instructions ride at the head of the prompt — the one channel it offers.
+    /// </summary>
+    internal string WithRoleInstructions(string prompt) => $"{_role.SystemPrompt}\n\n{prompt}";
 
     internal List<string> BuildArguments()
     {

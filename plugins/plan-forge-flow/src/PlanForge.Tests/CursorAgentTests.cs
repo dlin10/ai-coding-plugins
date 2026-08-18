@@ -59,6 +59,19 @@ public sealed class CursorAgentTests
     }
 
     /// <summary>
+    /// cursor-agent has no system-prompt flag, so the role instructions must travel at the head of
+    /// the prompt itself; a session that drops them runs a critic that was never told it is one.
+    /// </summary>
+    [Fact]
+    public void Role_instructions_lead_the_prompt()
+    {
+        var composed = Session(new Selection("auto", null)).WithRoleInstructions("Review this plan.");
+
+        Assert.StartsWith(CriticPrompt, composed);
+        Assert.EndsWith("Review this plan.", composed);
+    }
+
+    /// <summary>
     /// Cursor's live ids already carry the effort as a suffix, so the join must accept every shape
     /// the orchestrator sends: a bare model plus effort, a full id with its effort repeated, and a
     /// full id with no effort at all — the shape a Cursor-hosted orchestrator produces.

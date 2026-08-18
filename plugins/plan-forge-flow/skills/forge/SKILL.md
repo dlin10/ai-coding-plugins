@@ -35,6 +35,14 @@ an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, 
 `claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
 and `forge.review.fix`.
 
+Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. The
+Cursor agent path cancels a `tools/call` at a hard 60 seconds — measured, nothing in Cursor raises
+it, and progress cannot reset it — so when `forge.begin` returns a cursor `client`, tell the user
+before the first worker call that the host may cut long calls off with `MCP error -32001: Request
+timed out`, and that the error is the host's timeout, not the act failing. A run interrupted that
+way is not lost: its state lives under `.forge/<runId>/`, and the same `runId` continues from a
+host with a longer clock — the Claude Code and Codex manifests both grant an hour.
+
 ## Act 1: the interview
 
 Call `forge.begin` first, before asking an interview question or invoking an interview skill. Then
