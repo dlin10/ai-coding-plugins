@@ -98,7 +98,7 @@ internal static class StreamingProcess
             ("stderrTail", error.Length == 0 ? null : RunLog.Tail(error)));
 
         if (process.ExitCode != 0)
-            throw new VendorException($"{spec.FileName} exited {process.ExitCode}: {error}");
+            throw new VendorException($"{spec.FileName} exited {process.ExitCode}: {error}", process.ExitCode);
     }
 
     public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec, TimeSpan timeout, CancellationToken ct)

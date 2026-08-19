@@ -118,6 +118,89 @@ public sealed class BaselineTests : IDisposable
         Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
     }
 
+    [Fact]
+    public async Task A_brand_new_file_shows_as_drift_with_its_contents_in_the_diff()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync("brand-new.txt", "created after the baseline\n", ct);
+
+        Assert.Equal(["brand-new.txt"], await baseline.DriftedFilesAsync(_git, ct));
+        Assert.Contains("created after the baseline",
+                        await _git.DiffAsync(GitPathspec.WithoutDocumentation, ct),
+                        StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_staged_edit_shows_as_drift()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync("tracked.txt", "staged after the baseline\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+
+        Assert.Equal(["tracked.txt"], await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    [Fact]
+    public async Task An_untracked_file_present_at_capture_is_not_drift()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("pre-existing.txt", "already here at forge.begin\n", ct);
+
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        Assert.Contains("pre-existing.txt", baseline.Diff, StringComparison.Ordinal);
+        Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    [Fact]
+    public async Task Brand_new_documentation_does_not_show_as_drift()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync("docs/adr/0009-new-decision.md", "written during the interview\n", ct);
+        await WriteFileAsync("nested/CONTEXT.md", "written during the interview\n", ct);
+
+        Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    [Fact]
+    public async Task A_new_binary_file_contributes_no_contents_to_the_diff()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        var path = Path.Combine(_repo, "binary.bin");
+        await File.WriteAllBytesAsync(path, [0x00, 0x01, 0x02, 0x00, 0xff], ct);
+
+        var diff = await _git.DiffAsync(GitPathspec.WithoutDocumentation, ct);
+
+        Assert.Contains("Binary files", diff, StringComparison.Ordinal);
+        Assert.Equal(["binary.bin"], await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    [Fact]
+    public async Task A_self_ignoring_folder_stays_outside_the_window()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync(".forge/.gitignore", "*\n", ct);
+        await WriteFileAsync(".forge/run1/state.json", "{}\n", ct);
+
+        Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
+    }
+
     private async Task InitialCommitAsync(CancellationToken ct, params string[] additionalPaths)
     {
         await _git.OutputAsync(["init", "-q"], ct);

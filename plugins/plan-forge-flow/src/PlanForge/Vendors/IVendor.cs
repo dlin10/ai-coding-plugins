@@ -67,4 +67,8 @@ internal sealed record VendorEvent(VendorEventKind Kind,
 /// </summary>
 internal sealed record VendorSchema<T>(string Json, JsonTypeInfo<T> TypeInfo);
 
-internal sealed class VendorException(string message) : Exception(message);
+internal sealed class VendorException(string message, int? exitCode = null) : Exception(message)
+{
+    /// <summary>Set when the failure is a nonzero exit; absent for a launch failure, timeout or output cap.</summary>
+    public int? ExitCode { get; } = exitCode;
+}
