@@ -291,7 +291,14 @@ every `CONTEXT.md` and every path under `docs/adr/` at any depth. The guard take
 deliberately: it covers exactly the set of paths whose contents are sent, so a sensitive *name* under
 an excluded path — an ADR called `0005-token-rotation.md` — is not a leak and must not abort the run.
 
-Two limits come with that boundary, both recorded rather than fixed. A third party's edit to
-`CONTEXT.md` or an ADR is now invisible to drift and to code review as well. And a vendor worker runs
-in the workspace, so nothing here stops it reading an excluded file it was not sent; the pathspec
-governs what is handed over, not what is reachable.
+The window those four share is the working tree against `HEAD` plus untracked files rendered as
+new-file diffs — staged, unstaged and brand-new alike, composed without staging anything. It was
+narrower once: a bare `git diff`, blind to every new file, which is how round 1 of the run behind
+issue #21 was spent on findings about code that existed on disk (issue #25). The run folder never
+widens in, because `.forge/` ignores itself.
+
+Three limits come with that boundary, all recorded rather than fixed. A third party's edit to
+`CONTEXT.md` or an ADR is invisible to drift and to code review. A commit made mid-run moves `HEAD`
+and takes its changes out of the window — the flow already forbids committing during a run. And a
+vendor worker runs in the workspace, so nothing here stops it reading an excluded file it was not
+sent; the pathspec governs what is handed over, not what is reachable.

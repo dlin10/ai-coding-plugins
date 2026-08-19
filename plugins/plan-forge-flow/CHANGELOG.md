@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.15.1
+
+The review window was blind to every new file, not just new ADRs (#25): `git diff` lists neither
+untracked nor staged files, so a change that added a whole new module was reviewed as if the module
+were not there, the critic reported confident findings about its absence, and a file created during
+the interview never surfaced as drift at approval.
+
+- The window all four consumers share — baseline capture, drift report, code-review diff, and the
+  sensitive-path guard — is now the working tree against `HEAD` plus untracked files rendered as
+  new-file diffs, composed with `ls-files` and `diff --no-index` so the server never stages
+  anything. The documentation exclusions are unchanged, and `.forge/` stays out because it ignores
+  itself.
+- Recorded limits that remain: a commit made mid-run moves `HEAD` and takes its changes out of the
+  window, and an empty new file renders no hunk, so it stays invisible.
+
 ## 0.15.0
 
 A builder that could execute nothing still reported its task `done` (#24): `status` was `done` or
