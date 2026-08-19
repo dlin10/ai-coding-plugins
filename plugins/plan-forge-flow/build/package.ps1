@@ -154,9 +154,15 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
+        $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
+        $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('workspaceRoot', 'runId', 'vendor')) {
+            if ($modelsProperties -notcontains $parameter) { throw "forge.models schema is missing $parameter" }
+        }
+        if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('act', 'planDraft')) {

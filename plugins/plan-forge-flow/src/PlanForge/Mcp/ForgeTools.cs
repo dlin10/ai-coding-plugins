@@ -25,6 +25,7 @@ internal sealed class ForgeTools
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
     public static async Task<string> Begin(McpServer server,
+                                           CatalogCache catalogs,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct)
     {
@@ -38,6 +39,10 @@ internal sealed class ForgeTools
             [("workspaceRoot", workspaceRoot), ("client", ClientName(server)), ("profile", profile.ToString())],
             async () =>
             {
+                // Fire-and-forget: by the time the interview reaches the vendor question,
+                // forge.models finds the catalogues already fetched.
+                catalogs.BeginProbing(workspaceRoot);
+
                 var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
                 run.WriteBaseline(baseline);
                 run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
@@ -56,6 +61,40 @@ internal sealed class ForgeTools
     /// </summary>
     private static string ClientName(McpServer server) =>
         server.ClientInfo?.Name is { Length: > 0 } name ? name : "unknown";
+
+    /// <summary>
+    /// The probes were started by <c>forge.begin</c>, so by interview time this is a cache read;
+    /// a cold call probes on the spot and waits. A probe failure is a value here, not an error —
+    /// the interview's reaction to a dead vendor is to drop it, not to stop.
+    /// </summary>
+    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — live from vendors that publish one (codex, cursor), declarative for claude. A vendor with available:false is not usable; tell the user why and do not offer it.")]
+    public static async Task<string> Models(CatalogCache catalogs,
+                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                            [Description("Run id from forge.begin.")] string runId,
+                                            CancellationToken ct,
+                                            [Description("Vendor: claude, codex or cursor. Omit for all of them.")] string? vendor = null)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        return await LoggedAsync(run, "forge.models", [("vendor", vendor)],
+            async () =>
+            {
+                string[] ids = vendor is { Length: > 0 } ? [vendor] : CatalogCache.KnownVendors;
+                var reports = await Task.WhenAll(ids.Select(id => catalogs.GetAsync(id, workspaceRoot, ct)));
+
+                return JsonSerializer.Serialize(new ModelsResult([.. reports.Select(Catalogue)]),
+                    ForgeToolJson.Default.ModelsResult);
+            });
+    }
+
+    private static VendorCatalogResult Catalogue(VendorCatalogReport report) =>
+        new(report.Vendor,
+            report.Catalog.Live ? "live" : "declarative",
+            report.Available,
+            report.Detail,
+            [
+                .. report.Catalog.Models.Select(model => new CatalogModel(model.Id, model.DisplayName,
+                    model.Description, model.Efforts, model.DefaultEffort, model.IsDefault))
+            ]);
 
     /// <summary>
     /// One round only. The critic judges the draft; revising it and calling again is the
@@ -439,6 +478,22 @@ internal sealed record WorkPollResult(string JobId, string Act, string State, do
 
 internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error);
 
+internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
+
+/// <param name="Source">"live" when the vendor reported the list itself, "declarative" when this repo remembers it.</param>
+internal sealed record VendorCatalogResult(string Vendor,
+                                           string Source,
+                                           bool Available,
+                                           string Detail,
+                                           IReadOnlyList<CatalogModel> Models);
+
+internal sealed record CatalogModel(string Id,
+                                    string? DisplayName,
+                                    string? Description,
+                                    IReadOnlyList<string> Efforts,
+                                    string? DefaultEffort,
+                                    bool IsDefault);
+
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
@@ -448,4 +503,5 @@ internal sealed record WorkFetchResult(string JobId, string Act, string State, s
 [JsonSerializable(typeof(WorkStartResult))]
 [JsonSerializable(typeof(WorkPollResult))]
 [JsonSerializable(typeof(WorkFetchResult))]
+[JsonSerializable(typeof(ModelsResult))]
 internal sealed partial class ForgeToolJson : JsonSerializerContext;

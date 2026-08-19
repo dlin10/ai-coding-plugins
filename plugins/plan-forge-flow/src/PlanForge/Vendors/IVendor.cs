@@ -39,9 +39,20 @@ internal sealed record Selection(string Model, string? Effort);
 
 internal sealed record VendorReadiness(bool Available, string Detail);
 
-internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models);
+/// <param name="Live">
+/// True when the vendor reported this catalogue itself; false when it is a list this repo
+/// remembers. The interview tells the user which kind it is offering.
+/// </param>
+internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, bool Live = false);
 
-internal sealed record VendorModel(string Id, IReadOnlyList<string> Efforts);
+/// <param name="DefaultEffort">The effort the vendor picks when none is asked for, where it says.</param>
+/// <param name="IsDefault">True for the model the vendor itself would pick.</param>
+internal sealed record VendorModel(string Id,
+                                   IReadOnlyList<string> Efforts,
+                                   string? DisplayName = null,
+                                   string? Description = null,
+                                   string? DefaultEffort = null,
+                                   bool IsDefault = false);
 
 internal enum VendorEventKind
 {

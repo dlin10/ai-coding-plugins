@@ -15,6 +15,9 @@ these terms replace it.
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
+| **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported it itself (codex, cursor); **declarative** when it is a list this repo remembers (claude). Advisory for validation either way: the vendor CLI decides. |
+| **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the variants observed. The chosen variant joins back onto the family id; `default` names the bare id and joins to nothing. |
+| **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -105,6 +108,17 @@ Measured against cursor-agent 2026.08.11-e8db854 on 2026-08-18:
   the API call even starts. Codex is configured around exactly this — `.mcp.json` sets
   `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob, and none exists to add: see
   "No progress notification can rescue a Cursor-hosted call".
+
+Two more measurements from 2026-08-19, taken while wiring the catalogue into the interview:
+
+- The bracket-override syntax the foot of `--list-models` itself advertises — "Parameterized models
+  also accept quoted overrides, e.g. `--model 'claude-opus-4-8[context=1m,effort=high,fast=false]'`"
+  — is rejected: both a live family with a bracket (`gpt-5.6-sol[effort=high]`) and the tip's own
+  example fail with the same ten-second `Cannot use this model`. The suffix join stays; the
+  catalogue's families only ever advertise variants whose joined ids appeared in the list.
+- A bare family id absent from the list (`gpt-5.6-sol`, listed only as `-high`/`-xhigh`) is
+  nevertheless accepted and runs, resolving to some default variant. Measured but not relied on:
+  the catalogue offers a `default` variant only where the bare id itself is listed.
 
 ## cursor-agent has no system-prompt channel
 

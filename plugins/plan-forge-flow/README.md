@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.11.0
+# Plan Forge Flow 0.16.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes eight tools. Release 0.11.0 supports only
+typed .NET 10 executable named `planforge` that exposes twelve tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -15,13 +15,17 @@ are separate model processes, and neither ever revises the plan.
 
 | Tool | What it does |
 |---|---|
-| `forge.begin` | Opens a run and takes a baseline of the working tree |
+| `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
+| `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
 | `forge.plan.review` | One review round: a fresh critic judges the current draft |
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
 | `forge.review.fix` | Hands the findings the orchestrator kept to the builder, and logs the deferred ones with reasons |
 | `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
+| `forge.work.start` | On Cursor hosts, starts one worker act as a background job |
+| `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call |
+| `forge.work.fetch` | Fetches the terminal result of a background worker act |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
@@ -55,8 +59,10 @@ roles stay independent:
 | `cursor` | `cursor-agent` CLI | schema in the prompt, validated here | live, `--list-models` |
 
 Structured output is a hard requirement of the vendor interface, so a vendor without native support
-gets the schema in its prompt and one retry against our own validation. Model catalogues advise;
-the vendor CLI decides, and an unfamiliar model is a warning rather than a refusal.
+gets the schema in its prompt and one retry against our own validation. The catalogues feed the
+interview: `forge.models` serves them so the model question offers what the vendor actually serves,
+newest first, rather than the orchestrator's memory of the line-up. They remain advisory for
+validation — the vendor CLI decides, and an unfamiliar model is a warning rather than a refusal.
 
 Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited per project without
 rebuilding the binary. The shared [Roslyn contract](prompts/roslyn-contract.md) is appended to every

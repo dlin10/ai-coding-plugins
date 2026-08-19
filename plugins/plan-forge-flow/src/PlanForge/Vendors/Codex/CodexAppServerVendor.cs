@@ -15,7 +15,7 @@ internal sealed class CodexAppServerVendor : IVendor
     public CodexAppServerVendor(string? workingDirectory = null)
     {
         _workspace = workingDirectory is { Length: > 0 } directory ? directory : Environment.CurrentDirectory;
-        Catalog = new VendorCatalog([]);
+        Catalog = new VendorCatalog([], Live: true);
     }
 
     public string Id => "codex";
@@ -33,7 +33,7 @@ internal sealed class CodexAppServerVendor : IVendor
             if (!await IsSignedInAsync(connection, ct))
                 return new VendorReadiness(false, "codex is not signed in — run 'codex login'");
 
-            Catalog = new VendorCatalog(await ListModelsAsync(connection, ct));
+            Catalog = new VendorCatalog(await ListModelsAsync(connection, ct), Live: true);
             return new VendorReadiness(true, $"{Catalog.Models.Count} models");
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)
@@ -154,9 +154,19 @@ internal sealed class CodexAppServerVendor : IVendor
                            .ToArray()
                 : [];
 
-            models.Add(new VendorModel(modelId, efforts));
+            models.Add(new VendorModel(modelId, efforts,
+                DisplayName: OptionalString(entry, "displayName"),
+                Description: OptionalString(entry, "description"),
+                DefaultEffort: OptionalString(entry, "defaultReasoningEffort"),
+                IsDefault: entry.TryGetProperty("isDefault", out var isDefault)
+                           && isDefault.ValueKind is JsonValueKind.True));
         }
 
         return models;
     }
+
+    private static string? OptionalString(JsonElement entry, string property) =>
+        entry.TryGetProperty(property, out var value) && value.ValueKind is JsonValueKind.String
+            ? value.GetString()
+            : null;
 }
