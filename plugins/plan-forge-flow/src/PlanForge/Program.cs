@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using PlanForge.Diagnostics;
+using PlanForge.Jobs;
 using PlanForge.Mcp;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -19,6 +20,9 @@ builder.Logging.AddProvider(new RunFileLoggerProvider());
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
 
 builder.Services
+    .AddSingleton<JobRegistry>()
+    .AddHostedService<JobRegistryHostedService>()
+    .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
     .AddMcpServer(o => o.ServerInfo = new Implementation { Name = "planforge", Version = version })
     .WithStdioServerTransport()
     .WithTools<ForgeTools>();

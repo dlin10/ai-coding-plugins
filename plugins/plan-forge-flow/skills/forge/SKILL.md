@@ -22,26 +22,32 @@ an ordinary request to plan something, or an existing draft are not consent.
 | Tool | When |
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, and takes a baseline of the working tree. |
-| `forge.plan.review` | Once per round, with the current draft. Returns one critique. **You** then revise the plan and call it again. |
+| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
-| `forge.build.next` | Once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
-| `forge.review.code` | Once per round, after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | After each `revise` verdict, with the findings you kept and the ones you deferred. |
+| `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
+| `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
+| `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
+| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
+| `forge.work.poll` | On Cursor, waits for the started job. A `running` result means keep waiting and is not narration-worthy on its own. |
+| `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
-Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. The four worker tools —
-`forge.plan.review`, `forge.build.next`, `forge.review.code`, `forge.review.fix` — take `model`,
+Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
+act goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`; do not call a
+one-call worker tool there. On every other host, the one-call worker tools — `forge.plan.review`,
+`forge.build.next`, `forge.review.code`, `forge.review.fix` — remain the instruction and take `model`,
 an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to
 `claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
-and `forge.review.fix`.
+and `forge.review.fix`. For Cursor's `review.fix`, blank `findings` means all findings are
+deferred, so the act completes without starting a builder session. If `forge.work.start` returns
+`started: false`, rejoin its active job with poll → fetch.
 
-Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. The
-Cursor agent path cancels a `tools/call` at a hard 60 seconds — measured, nothing in Cursor raises
-it, and progress cannot reset it — so when `forge.begin` returns a cursor `client`, tell the user
-before the first worker call that the host may cut long calls off with `MCP error -32001: Request
-timed out`, and that the error is the host's timeout, not the act failing. A run interrupted that
-way is not lost: its state lives under `.forge/<runId>/`, and the same `runId` continues from a
-host with a longer clock — the Claude Code and Codex manifests both grant an hour.
+Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
+use the three work tools above so the surviving server can rejoin a detached worker; on every other
+host, use the one-call worker tools. A `running` poll alone is not narration-worthy. If the
+originating server process exits, an in-flight job id is unknown to a new server and cannot be
+rejoined; after restart, start a new act. Persisted terminal results remain under
+`.forge/<runId>/`.
 
 ## Act 1: the interview
 
@@ -108,10 +114,10 @@ tasks will be built as one.
 
 ## Rounds, revision, and caps
 
-`forge.plan.review` runs exactly one round and returns a verdict of `approve` or `revise` plus
-findings. On `revise`, address the findings in the plan yourself and call the tool again. The critic
-is a fresh process each round but is given the log of earlier rounds, so it converges rather than
-reopening settled points.
+Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetch round, runs exactly
+one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, address the
+findings in the plan yourself and run the next round. The critic is a fresh process each round but
+is given the log of earlier rounds, so it converges rather than reopening settled points.
 
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
@@ -128,8 +134,9 @@ outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, buil
 status and files changed, and each fix round's kept and deferred findings. Unlike
 `review-log.md`, nothing feeds this file back to a worker; it exists to be shown.
 
-The file appears when the first `forge.plan.review` returns. Surface it then, with the best your
-host has, and refresh it after every later worker call — no host watches the disk for you:
+The file appears when the first plan-review result returns, whether from the one-call tool or
+`forge.work.fetch`. Surface it then, with the best your host has, and refresh it after every later
+worker act — no host watches the disk for you:
 
 - A host that renders local files (the Claude Code desktop app) — show the file, and re-send it
   after each call.
@@ -164,11 +171,12 @@ builder. No code anywhere checks whether anyone was actually asked.
 
 ## The code-review loop
 
-After the last task, the loop is yours to run, exactly as with plan review: `forge.review.code`
-runs one critic round against the approved plan and returns a critique, you decide what the builder
-sees, and `forge.review.fix` hands it over. Repeat until the verdict is `approve` or the cap
-refuses. The critic and the builder never talk directly — you are between them because you are the
-only participant who knows what the plan deliberately left out.
+After the last task, the loop is yours to run, exactly as with plan review: on non-Cursor hosts,
+`forge.review.code` runs one critic round against the approved plan and `forge.review.fix` hands
+kept findings to the builder; on Cursor, run both acts through start → poll → fetch. Repeat until
+the verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
+are between them because you are the only participant who knows what the plan deliberately left
+out.
 
 Between the two calls, sort every finding into exactly two piles:
 

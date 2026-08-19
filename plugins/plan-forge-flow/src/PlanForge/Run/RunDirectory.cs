@@ -16,6 +16,7 @@ internal sealed class RunDirectory
     private const string ReviewLogFileName = "review-log.md";
     private const string FlowLogFileName = "flow_log.md";
     private const string DiagnosticLogFileName = "forge.log";
+    private const string JobsFolder = "jobs";
     private const string CritiquesFolder = "critiques";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
@@ -32,6 +33,36 @@ internal sealed class RunDirectory
     public string RunId { get; }
 
     public string Path { get; }
+
+    internal static RunDirectory FromPath(string runPath)
+    {
+        if (!System.IO.Path.IsPathRooted(runPath))
+            throw new WorkspaceNotRootedException(runPath);
+
+        var fullPath = System.IO.Path.GetFullPath(runPath);
+        return new RunDirectory(System.IO.Path.GetFileName(fullPath), fullPath);
+    }
+
+    internal string JobFilePath(string jobId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
+        if (!string.Equals(jobId, System.IO.Path.GetFileName(jobId), StringComparison.Ordinal))
+            throw new ArgumentException("job id must be a file name", nameof(jobId));
+
+        var jobsPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, JobsFolder));
+        var jobPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(jobsPath, jobId + ".json"));
+        var prefix = jobsPath.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        if (!jobPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("job id resolves outside the run's jobs folder", nameof(jobId));
+
+        return jobPath;
+    }
+
+    internal IEnumerable<string> EnumerateJobFiles()
+    {
+        var jobsPath = System.IO.Path.Combine(Path, JobsFolder);
+        return Directory.Exists(jobsPath) ? Directory.EnumerateFiles(jobsPath, "*.json") : [];
+    }
 
     public string ReviewLogPath => System.IO.Path.Combine(Path, ReviewLogFileName);
 
