@@ -29,7 +29,9 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         if (string.IsNullOrWhiteSpace(findings))
         {
-            var skipped = new BuildResult("done", [], "no findings passed through to the builder");
+            var skipped = new BuildResult("done", [],
+                new Verification("passed", "no findings were sent to the builder; nothing to change or verify"),
+                "no findings passed through to the builder");
             run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
             run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, skipped);
             return skipped;

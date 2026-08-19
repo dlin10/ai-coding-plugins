@@ -169,6 +169,26 @@ Never call `forge.plan.confirm` with an answer you did not get from the user. Th
 of what approval means here: it writes `PLAN.md`, flips `approved` in the run state, and unlocks the
 builder. No code anywhere checks whether anyone was actually asked.
 
+## The builder's verification is self-reported — reacting to it is yours
+
+Every build and fix result carries a `verification` object beside its `status`: `outcome` is
+`passed`, `failed` or `unavailable`, and `evidence` says what ran and what it showed — or quotes
+the refusal when nothing could run. The server records it and moves on; nothing downstream
+re-checks it, and the code review reads the diff, not the test results.
+
+So when `outcome` is anything but `passed`, the verification step is yours before the run
+advances:
+
+- **`unavailable`** — the builder implemented the task but could not execute its verification
+  (a broken sandbox, a denied spawn). Run the task's verification step yourself, in your own
+  environment. Record what you ran and the outcome through `forge.log.append` before starting the
+  next worker act, whichever tool your host reaches it through.
+- **`failed`** — the check ran and did not pass. Do not advance past it: verify yourself, and
+  either fix forward through the flow or stop and ask the user.
+
+Say the outcome in your one line of narration either way — a task whose verification the builder
+could not run must never read like a clean `done` in the chat.
+
 ## The code-review loop
 
 After the last task, the loop is yours to run, exactly as with plan review: on non-Cursor hosts,

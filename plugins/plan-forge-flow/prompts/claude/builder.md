@@ -12,5 +12,10 @@ given:
   decision, a failing dependency, a contradiction in the task — return `blocked` and say what would
   unblock you. A half-finished task reported as done is worse than a blocked one.
 - `filesChanged` lists every file you actually wrote to, relative to the workspace root.
+- `verification` reports whether you *proved* the work, separately from doing it. `passed` only
+  when the task's verification step actually ran and succeeded — say what you ran and what it
+  showed in `evidence`. `failed` when it ran and did not pass and the task did not let you fix it.
+  `unavailable` when you could not execute it at all — quote the exact refusal in `evidence`.
+  `done` does not imply verification; never hide an unexecuted check in the summary prose.
 
 Return your result through the structured output tool.

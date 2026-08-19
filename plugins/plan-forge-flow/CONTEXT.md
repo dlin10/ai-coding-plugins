@@ -15,6 +15,7 @@ these terms replace it.
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
+| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -178,6 +179,24 @@ for this server alone. The documented stdio defaults (≈28 h wall clock, 30 min
 otherwise abort a worker call whose two 20-minute vendor attempts run back to back. The field was
 measured through `--mcp-config`; the plugin manifest declares its server with the same entry
 schema, which is the one assumption not yet measured end to end.
+
+## Verification is self-reported, and the run log is its audit
+
+A builder that changed files but could not execute anything used to have no honest answer: `status`
+was `done` or `blocked`, so it answered `done` and put the caveat in prose, which only a careful
+orchestrator noticed (issue #24 — a Codex sandbox that could spawn no process at all). "Did the
+work" and "proved the work" are orthogonal, so the contract carries them on separate axes:
+`status` stays `done | blocked`, and a required `verification` reports `passed | failed |
+unavailable` with evidence.
+
+The report is the builder's word, deliberately. The server does not re-check it: the only signal it
+could check against — command exit codes in the vendor's event stream — exists reliably for Codex
+alone, and a guarantee that varies by vendor is worse than none. The audit trail is the run log,
+which since this change records each tool's outcome (command, exit code, output tail) for Codex and
+Claude; Cursor's intermediate events are unmeasured and stay unread. Reacting to `unavailable` or
+`failed` belongs to the orchestrator — the skill directs it to run the task's verification step
+itself and record the outcome — because the server has no environment of its own to verify in, and
+blocking the flow would kill a run that can degrade gracefully.
 
 ## A failed act used to leave no trace, so the run log is the server's own record
 

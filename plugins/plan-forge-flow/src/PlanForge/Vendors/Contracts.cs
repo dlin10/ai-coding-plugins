@@ -11,7 +11,17 @@ internal sealed record Critique(string Verdict, IReadOnlyList<Finding> Findings,
 internal sealed record Finding(string Severity, string Where, string What);
 
 /// <summary>What a Builder must return after working one task.</summary>
-internal sealed record BuildResult(string Status, IReadOnlyList<string> FilesChanged, string Summary);
+internal sealed record BuildResult(string Status,
+                                   IReadOnlyList<string> FilesChanged,
+                                   Verification Verification,
+                                   string Summary);
+
+/// <summary>
+/// The builder's own account of whether it proved the work, separate from whether it did the work.
+/// Self-reported by design: the server does not re-check it, the run log is the audit trail, and
+/// reacting to <c>unavailable</c> or <c>failed</c> belongs to the orchestrator.
+/// </summary>
+internal sealed record Verification(string Outcome, string Evidence);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(Critique))]
@@ -52,9 +62,17 @@ internal static class Schemas
           "properties": {
             "status": { "type": "string", "enum": ["done", "blocked"] },
             "filesChanged": { "type": "array", "items": { "type": "string" } },
+            "verification": {
+              "type": "object",
+              "properties": {
+                "outcome": { "type": "string", "enum": ["passed", "failed", "unavailable"] },
+                "evidence": { "type": "string" }
+              },
+              "required": ["outcome", "evidence"]
+            },
             "summary": { "type": "string" }
           },
-          "required": ["status", "filesChanged", "summary"]
+          "required": ["status", "filesChanged", "verification", "summary"]
         }
         """,
         ContractJson.Default.BuildResult);
