@@ -245,6 +245,9 @@ internal sealed class RunDirectory
     {
         entry.Append("Status: ").Append(result.Status).AppendLine()
              .AppendLine()
+             .Append("Verification: ").Append(result.Verification.Outcome)
+             .Append(" — ").Append(result.Verification.Evidence).AppendLine()
+             .AppendLine()
              .AppendLine(result.Summary)
              .AppendLine();
 

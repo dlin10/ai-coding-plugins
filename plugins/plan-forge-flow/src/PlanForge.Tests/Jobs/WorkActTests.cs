@@ -55,7 +55,7 @@ public sealed class WorkActTests : IDisposable
     public async Task Build_dispatch_matches_the_direct_act_payload()
     {
         var directVendor = new RecordingVendor("codex");
-        var response = new BuildResult("done", ["tracked.cs"], "built");
+        var response = new BuildResult("done", ["tracked.cs"], new Verification("passed", "the checks ran"), "built");
         directVendor.Enqueue(response, "next");
         var direct = await new Build(directVendor, _prompts).NextAsync(
             NewApprovedRun("build-direct"), new Selection("builder", null), CancellationToken.None);
@@ -94,7 +94,7 @@ public sealed class WorkActTests : IDisposable
         const string findings = "- **major** tracked.cs — fix it";
         const string deferred = "- coverage — outside the plan";
         var directVendor = new RecordingVendor("codex");
-        var response = new BuildResult("done", ["tracked.cs"], "fixed");
+        var response = new BuildResult("done", ["tracked.cs"], new Verification("passed", "the checks ran"), "fixed");
         directVendor.Enqueue(response, "next");
         var directRun = NewApprovedRun("fix-direct", "codex", "old");
         var direct = await new ReviewFix(directVendor, _prompts).FixAsync(

@@ -1,5 +1,23 @@
 # Plan Forge Flow releases
 
+## 0.15.0
+
+A builder that could execute nothing still reported its task `done` (#24): `status` was `done` or
+`blocked`, so a worker whose sandbox denied every spawn answered `done` and put the caveat in
+prose, and the 224 `vendor.tooluse` events that run logged carried only the item type — the denial
+never reached the log.
+
+- `BuildResult` carries a required `verification` object — `outcome: passed | failed |
+  unavailable` plus `evidence` — so "implemented but could not prove it" is expressible. The
+  report is the builder's word by design; the server records it into the flow log and the tool
+  result, and the skill directs the orchestrator to run the task's verification step itself on
+  `unavailable` or `failed` before advancing.
+- The run log now records tool outcomes, not just tool names. Codex `item/completed` events carry
+  the command, exit code, and an output tail; Claude `tool_use` inputs and `tool_result` payloads
+  (with `is_error`) are parsed out of the stream. Cursor's intermediate events remain unmeasured
+  and unread. New `vendor.toolresult` entries keep each value a separate JSONL field, cut by the
+  existing truncation.
+
 ## 0.14.0
 
 Worker acts now run as background jobs with one active job per run and persisted terminal results,

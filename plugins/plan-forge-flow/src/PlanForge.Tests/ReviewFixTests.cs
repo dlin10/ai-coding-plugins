@@ -28,7 +28,7 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "fixed"));
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
 
         var result = await NewFix(builder).FixAsync(NewRun(), new Selection("builder-model", "low"),
                                                     "- **major** tracked.txt — fix it", null, ct);
@@ -45,7 +45,7 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "fixed"));
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
         var run = NewRun(reviewRounds: 5, codeReviewRounds: 1);
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", null),
@@ -70,6 +70,7 @@ public sealed class ReviewFixTests : IDisposable
                                                     "- staged coverage — the approved plan excludes it", ct);
 
         Assert.Equal("done", result.Status);
+        Assert.Equal("passed", result.Verification.Outcome);
         Assert.Empty(builder.Sessions);
         var log = run.ReadReviewLog();
         Assert.Contains("## Round 6 fixes", log, StringComparison.Ordinal);
@@ -120,7 +121,7 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "new-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "new-token");
         var run = NewRun(builderVendor: "claude", builderSessionId: "foreign-token");
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", "low"), "- fix it", null, ct);
@@ -135,7 +136,7 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"));
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"));
         var run = NewRun(builderVendor: "claude", builderSessionId: "foreign-token");
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
@@ -150,8 +151,8 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "next-token");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "done"), "final-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "next-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "final-token");
         var run = NewRun(builderVendor: "codex", builderSessionId: "existing-token");
 
         var fix = NewFix(builder);
@@ -169,7 +170,7 @@ public sealed class ReviewFixTests : IDisposable
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], "fixed the guard"));
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed the guard"));
         var run = NewRun(reviewRounds: 5, codeReviewRounds: 1);
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", null),

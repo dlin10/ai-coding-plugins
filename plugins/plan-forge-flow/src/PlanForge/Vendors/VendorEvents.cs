@@ -30,7 +30,13 @@ internal static class VendorEvents
         writer.TryWrite(raised);
     }
 
-    private static void Record(string vendor, VendorEvent raised) =>
+    private static void Record(string vendor, VendorEvent raised)
+    {
+        var fields = new (string Name, string? Value)[1 + (raised.Fields?.Count ?? 0)];
+        fields[0] = ("text", raised.Text);
+        for (var i = 0; i < (raised.Fields?.Count ?? 0); i++) fields[i + 1] = raised.Fields![i];
+
         RunLog.Current?.Write(raised.Kind is VendorEventKind.Failed ? "error" : "info",
-            vendor, $"vendor.{raised.Kind.ToString().ToLowerInvariant()}", ("text", raised.Text));
+            vendor, $"vendor.{raised.Kind.ToString().ToLowerInvariant()}", fields);
+    }
 }

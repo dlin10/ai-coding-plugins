@@ -100,7 +100,7 @@ public sealed class WorkToolsTests : IDisposable
     {
         var run = NewRun("failure");
         var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(new BuildResult("done", [], "wrong schema"));
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "the checks ran"), "wrong schema"));
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,

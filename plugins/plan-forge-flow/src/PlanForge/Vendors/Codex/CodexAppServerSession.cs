@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
+using PlanForge.Diagnostics;
 
 namespace PlanForge.Vendors.Codex;
 
@@ -153,15 +154,27 @@ internal sealed class CodexAppServerSession : IVendorSession
 
             case "item/started":
                 if (ItemType(parameters) is { } startedType and not "userMessage" and not "agentMessage")
-                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.ToolUse, startedType));
+                    _events.Writer.Emit("codex",
+                        new VendorEvent(VendorEventKind.ToolUse, startedType, ItemDetail(parameters)));
                 break;
 
             case "item/completed":
-                if (ItemType(parameters) is "agentMessage"
-                    && parameters.GetProperty("item").TryGetProperty("text", out var message)
-                    && message.GetString() is { Length: > 0 } body)
+                switch (ItemType(parameters))
                 {
-                    turn.Say(body);
+                    case "agentMessage":
+                        if (parameters.GetProperty("item").TryGetProperty("text", out var message)
+                            && message.GetString() is { Length: > 0 } body)
+                        {
+                            turn.Say(body);
+                        }
+                        break;
+
+                    // The completion is what carries the item's outcome — the command's exit code
+                    // and output — which is exactly what a post-mortem of the run needs.
+                    case { } completedType and not "userMessage":
+                        _events.Writer.Emit("codex",
+                            new VendorEvent(VendorEventKind.ToolResult, completedType, ItemDetail(parameters)));
+                        break;
                 }
                 break;
 
@@ -185,6 +198,32 @@ internal sealed class CodexAppServerSession : IVendorSession
         parameters.TryGetProperty("item", out var item) && item.TryGetProperty("type", out var type)
             ? type.GetString()
             : null;
+
+    /// <summary>
+    /// The item's interesting fields, taken as the server sends them: a command line, an exit code,
+    /// an output tail. Absent fields are simply not carried.
+    /// </summary>
+    internal static List<(string Name, string? Value)>? ItemDetail(JsonElement parameters)
+    {
+        if (!parameters.TryGetProperty("item", out var item)) return null;
+
+        List<(string Name, string? Value)>? detail = null;
+
+        void Carry(string name, string? value)
+        {
+            if (value is null) return;
+            (detail ??= []).Add((name, value));
+        }
+
+        if (item.TryGetProperty("command", out var command)) Carry("command", command.GetString());
+        if (item.TryGetProperty("exitCode", out var exit) && exit.ValueKind is JsonValueKind.Number)
+            Carry("exitCode", exit.GetRawText());
+        if (item.TryGetProperty("aggregatedOutput", out var output))
+            Carry("output", output.GetString() is { } text ? RunLog.Tail(text) : null);
+        if (item.TryGetProperty("status", out var status)) Carry("status", status.GetString());
+
+        return detail;
+    }
 
     /// <summary>Collects one turn's output and settles when the server says the turn is over.</summary>
     private sealed class Turn(string threadId)

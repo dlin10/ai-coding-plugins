@@ -48,11 +48,18 @@ internal enum VendorEventKind
     Started,
     Text,
     ToolUse,
+    ToolResult,
     Finished,
     Failed
 }
 
-internal sealed record VendorEvent(VendorEventKind Kind, string Text);
+/// <param name="Fields">
+/// Structured detail — a command line, an exit code, an output tail — logged as separate JSONL
+/// fields so the run log stays greppable. Null for events that are just their text.
+/// </param>
+internal sealed record VendorEvent(VendorEventKind Kind,
+                                   string Text,
+                                   IReadOnlyList<(string Name, string? Value)>? Fields = null);
 
 /// <summary>
 /// The wire schema plus its deserialization contract. Reflection-based serialization is disabled
