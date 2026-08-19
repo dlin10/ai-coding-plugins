@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.16.0
+
+The interview asked for models out of the orchestrator's training data while the code already knew
+the real answer and threw it away (#23): `ProbeAsync` filled each vendor's catalogue, had no
+production caller, and no tool read the result.
+
+- New `forge.models` tool serves every vendor's catalogue to the interview: availability with the
+  probe's reason, `live` versus `declarative` source, and per model the display name, description,
+  effort levels, and the vendor's own defaults. `forge.begin` starts all probes in the background,
+  so by the vendor question the answer is already cached; a failed probe is not cached, and the
+  skill no longer offers a vendor whose probe failed.
+- Codex keeps `model/list`'s own order — measured already newest-first, with `isDefault` marking
+  the vendor's pick — and its parser now reads the display name, description, and default effort.
+- Cursor's ~200 raw ids collapse into families: strip `-fast` and the effort suffix, group, and
+  advertise exactly the variants the list contained (`default` names the bare id and joins to
+  nothing). Families sort newest first by the version parsed out of the id, segment-wise and
+  numeric — `claude-opus-4-8` is 4.8, not 48 — with versionless ids at the tail. The bracket
+  overrides the CLI's own tip advertises were measured on 2026-08-19 and rejected even for the
+  tip's own example, so the suffix join stays and can only rebuild observed ids.
+- Claude's catalogue remains declarative — re-verified against `claude --help` — and is now
+  labelled as such instead of pretending to be live. See docs/adr/0007.
+
 ## 0.15.1
 
 The review window was blind to every new file, not just new ADRs (#25): `git diff` lists neither

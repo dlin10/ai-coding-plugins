@@ -34,6 +34,10 @@ public sealed class CodexAppServerTests
             {
               "data": [
                 { "id": "gpt-5.6-sol",
+                  "displayName": "GPT-5.6-Sol",
+                  "description": "Latest frontier agentic coding model.",
+                  "defaultReasoningEffort": "low",
+                  "isDefault": true,
                   "supportedReasoningEfforts": [
                     { "reasoningEffort": "low", "description": "Fast responses" },
                     { "reasoningEffort": "max", "description": "Maximum reasoning depth" }
@@ -49,7 +53,13 @@ public sealed class CodexAppServerTests
 
         Assert.Equal(["gpt-5.6-sol", "gpt-5.6-terra"], models.Select(model => model.Id));
         Assert.Equal(["low", "max"], models[0].Efforts);
+        Assert.Equal("GPT-5.6-Sol", models[0].DisplayName);
+        Assert.Equal("Latest frontier agentic coding model.", models[0].Description);
+        Assert.Equal("low", models[0].DefaultEffort);
+        Assert.True(models[0].IsDefault);
         Assert.Empty(models[1].Efforts);
+        Assert.Null(models[1].DisplayName);
+        Assert.False(models[1].IsDefault);
     }
 
     [Fact]

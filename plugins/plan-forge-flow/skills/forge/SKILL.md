@@ -21,7 +21,8 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, and takes a baseline of the working tree. |
+| `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
+| `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
 | `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
@@ -216,38 +217,45 @@ only reason they were not fixed here, and they are candidates for the next run.
 
 ## Choosing the vendor and model
 
-Choose vendors and models in two steps, asking at most four questions total.
+Choose vendors and models in two steps, asking at most four questions total. The combinations come
+from the server, not from your own knowledge: `forge.begin` already started every vendor's probe in
+the background, so call `forge.models` (no `vendor` argument) once before the vendor question and
+work from its answer.
 
-1. Resolve the vendors, then ask for the critic vendor and the builder vendor. Offer only vendors
-   whose executables resolve on this machine using the same `ExecutableResolver` behavior as the
-   server: `claude` and `codex` on `PATH`, and `cursor` when `cursor-agent` resolves on `PATH` or
-   under `%LOCALAPPDATA%\cursor-agent`. Do not offer an unresolved vendor.
-   - If none resolves, stop and tell the user which CLI to install (`claude`, `codex`, or
-     `cursor-agent`); no act can run without one.
-   - If exactly one resolves, do not ask either vendor question. Tell the user which vendor both
-     roles will use and continue directly to step 2.
-   - If you are orchestrating from inside Cursor and `cursor-agent` resolves, do not ask either
-     vendor question even when other CLIs also resolve: Cursor fronts models from several vendors
+1. Ask for the critic vendor and the builder vendor, offering only vendors the catalogue reports
+   `available: true`. Never offer a vendor with `available: false`; its `detail` names the cause —
+   a missing CLI, a sign-in — so tell the user why it is out and what would bring it back.
+   - If none is available, stop and relay what each probe reported; no act can run without a
+     working vendor CLI.
+   - If exactly one is available, do not ask either vendor question. Tell the user which vendor
+     both roles will use and continue directly to step 2.
+   - If you are orchestrating from inside Cursor and `cursor` is available, do not ask either
+     vendor question even when other vendors are too: Cursor fronts models from several vendors
      behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
      model choice. Trust either signal alone: the `client` field `forge.begin` returned names
      cursor, or the host you are running in is Cursor. Tell the user both workers will run through
      `cursor-agent` and continue directly to step 2 with both roles on the `cursor` vendor.
 2. Ask one question for each role, requesting its model and effort together as a valid combination
-   for that role's chosen vendor. The server publishes no catalogue, and `forge.begin` returns
-   none, so the combinations come from the orchestrator's own knowledge of that vendor's current
-   line-up. Offer three concrete model-plus-effort pairs, newest first, and always leave free text
-   open. If the orchestrator does not know that vendor's current models, ask for free text with no
-   options rather than offering stale ones. Never offer one vendor's model family under another
-   vendor.
+   for that role's chosen vendor, drawn from that vendor's catalogue in the tool's order — it is
+   already newest first. Offer three concrete model-plus-effort pairs, leading with the vendor's
+   own pick where it names one (`isDefault`, `defaultEffort`), and always leave free text open.
+   Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
+   `source: "declarative"` (claude) is the list this repo remembers, which the CLI may have moved
+   past. Never offer one vendor's model family under another vendor.
 
-   For the `cursor` vendor, effort is not a separate flag — it lives inside the model id
-   (`gpt-5.3-codex-high`, `claude-opus-5-thinking-xhigh`). Offer full ids exactly as
-   `cursor-agent --list-models` spells them, pass the chosen id as `model`, and leave `effort`
-   unset. Never build an id yourself by appending an effort suffix to a model name.
+   For the `cursor` vendor, the catalogue has already collapsed the ~200 raw ids into families:
+   the model id is the family (`gpt-5.3-codex`) and `efforts` are the variants the CLI actually
+   listed (`low`, `high`, `high-fast`, …, plus `default` when the bare id is itself listed). Pass
+   the family id as `model` and the chosen variant as `effort` — or leave `effort` unset for the
+   `default` variant — and the server joins them back into an id the CLI listed. Never build an id
+   yourself, never offer an effort the catalogue does not list for that family, and never use the
+   bracket-override syntax the CLI's own tip advertises (`model[effort=high]`): measured on
+   2026-08-19, cursor-agent rejects even the tip's own example.
 
-The catalogue is advisory: an unfamiliar model is worth mentioning, not refusing, because the
-vendor CLI decides. The roles are not interchangeable in strength. The builder works against an
-already-hardened plan and can be cheap; the critic is judging, so lean nearer the strong end.
+The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
+refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The
+builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
+nearer the strong end.
 
 ## What is not enforced
 

@@ -6,6 +6,7 @@ using ModelContextProtocol.Protocol;
 using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
+using PlanForge.Vendors;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders();   // stdout carries the protocol
@@ -21,6 +22,7 @@ var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? 
 
 builder.Services
     .AddSingleton<JobRegistry>()
+    .AddSingleton<CatalogCache>()
     .AddHostedService<JobRegistryHostedService>()
     .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
     .AddMcpServer(o => o.ServerInfo = new Implementation { Name = "planforge", Version = version })

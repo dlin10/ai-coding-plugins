@@ -10,7 +10,7 @@ namespace PlanForge.Vendors.Cursor;
 /// </summary>
 internal sealed class CursorAgentSession : IVendorSession
 {
-    private static readonly TimeSpan RunTimeout = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan _runTimeout = TimeSpan.FromMinutes(20);
 
     private readonly RoleSpec _role;
     private readonly Selection _selection;
@@ -74,7 +74,7 @@ internal sealed class CursorAgentSession : IVendorSession
     private async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct)
     {
         var result = string.Empty;
-        await foreach (var line in StreamingProcess.RunAsync(spec, RunTimeout, ct))
+        await foreach (var line in StreamingProcess.RunAsync(spec, _runTimeout, ct))
         {
             JsonDocument message;
             try { message = JsonDocument.Parse(line); }
@@ -128,9 +128,13 @@ internal sealed class CursorAgentSession : IVendorSession
         return arguments;
     }
 
-    /// <summary>Cursor carries effort inside the model id, so the join happens here, not in the core.</summary>
+    /// <summary>
+    /// Cursor carries effort inside the model id, so the join happens here, not in the core.
+    /// "default" is the catalogue's name for a family's bare variant, so it joins to nothing.
+    /// </summary>
     internal string ModelWithEffort() =>
         string.IsNullOrWhiteSpace(_selection.Effort)
+        || _selection.Effort.Equals("default", StringComparison.OrdinalIgnoreCase)
         || _selection.Model.EndsWith(_selection.Effort, StringComparison.OrdinalIgnoreCase)
             ? _selection.Model
             : $"{_selection.Model}-{_selection.Effort}";

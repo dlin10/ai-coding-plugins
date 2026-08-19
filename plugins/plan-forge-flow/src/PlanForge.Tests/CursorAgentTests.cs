@@ -23,18 +23,61 @@ public sealed class CursorAgentTests
 
     public CursorAgentTests(ITestOutputHelper output) => _output = output;
 
+    /// <summary>
+    /// The raw list names every effort and speed variant on its own line; the interview wants
+    /// families. Collapsed efforts must stay joinable — every one of them appended to its family
+    /// base (except "default", which appends nothing) is an id the list actually contained.
+    /// </summary>
     [Fact]
-    public void Parses_the_live_model_catalogue()
+    public void Collapses_the_live_list_into_families_newest_first()
     {
         var models = CursorAgentVendor.ParseModels([
             "Available models",
             string.Empty,
-            "auto - Auto (default)",
+            "auto - Auto (current, default)",
+            "gpt-5.3-codex-low - Codex 5.3 Low",
+            "gpt-5.3-codex-low-fast - Codex 5.3 Low Fast",
+            "gpt-5.3-codex - Codex 5.3",
+            "gpt-5.3-codex-fast - Codex 5.3 Fast",
             "gpt-5.3-codex-high - Codex 5.3 High",
+            "gpt-5.3-codex-xhigh-fast - Codex 5.3 Extra High Fast",
+            "claude-opus-4-8-thinking-high - Claude Opus 4.8 Thinking",
+            "claude-opus-5-thinking-high - Claude Opus 5 1M Thinking",
+            "gpt-5.6-sol-high - GPT-5.6 Sol 1M High",
+            "gpt-5.6-sol-xhigh - GPT-5.6 Sol 1M Extra High",
             "not a model line"
         ]);
 
-        Assert.Equal(["auto", "gpt-5.3-codex-high"], models.Select(m => m.Id));
+        // 5.6 above 5.3, opus-5 above opus-4-8, the versionless "auto" at the tail.
+        Assert.Equal(["gpt-5.6-sol", "gpt-5.3-codex", "claude-opus-5-thinking", "claude-opus-4-8-thinking", "auto"],
+                     models.Select(m => m.Id));
+
+        var codex = models.Single(m => m.Id == "gpt-5.3-codex");
+        Assert.Equal(["low", "low-fast", "default", "fast", "high", "xhigh-fast"], codex.Efforts);
+        Assert.Equal("Codex 5.3", codex.DisplayName);
+        Assert.Equal("default", codex.DefaultEffort);
+
+        var sol = models.Single(m => m.Id == "gpt-5.6-sol");
+        Assert.Equal(["high", "xhigh"], sol.Efforts);
+        Assert.Null(sol.DisplayName);
+        Assert.Null(sol.DefaultEffort);
+
+        var auto = models.Single(m => m.Id == "auto");
+        Assert.True(auto.IsDefault);
+        Assert.Equal(["default"], auto.Efforts);
+        Assert.False(codex.IsDefault);
+    }
+
+    /// <summary>"4-8" is the two-segment version 4.8 written with dashes, never the integer 48.</summary>
+    [Fact]
+    public void Reads_version_segments_out_of_model_ids()
+    {
+        Assert.Equal([4, 8], CursorAgentVendor.VersionSegments("claude-opus-4-8-thinking"));
+        Assert.Equal([5, 3], CursorAgentVendor.VersionSegments("gpt-5.3-codex"));
+        Assert.Equal([5], CursorAgentVendor.VersionSegments("claude-opus-5-thinking"));
+        Assert.Equal([2, 5], CursorAgentVendor.VersionSegments("composer-2.5"));
+        Assert.Empty(CursorAgentVendor.VersionSegments("auto"));
+        Assert.Empty(CursorAgentVendor.VersionSegments("kimi-k3"));
     }
 
     /// <summary>
@@ -82,6 +125,9 @@ public sealed class CursorAgentTests
         Assert.Equal("gpt-5.6-sol-xhigh", Session(new Selection("gpt-5.6-sol", "xhigh")).ModelWithEffort());
         Assert.Equal("gpt-5.3-codex-high", Session(new Selection("gpt-5.3-codex-high", "high")).ModelWithEffort());
         Assert.Equal("gpt-5.6-sol-xhigh", Session(new Selection("gpt-5.6-sol-xhigh", null)).ModelWithEffort());
+        // "default" names a family's bare variant in the catalogue, so it joins to nothing.
+        Assert.Equal("gpt-5.3-codex", Session(new Selection("gpt-5.3-codex", "default")).ModelWithEffort());
+        Assert.Equal("gpt-5.3-codex-high-fast", Session(new Selection("gpt-5.3-codex", "high-fast")).ModelWithEffort());
     }
 
     /// <summary>
