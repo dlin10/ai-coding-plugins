@@ -1,5 +1,12 @@
 # Plan Forge Flow releases
 
+## 0.14.0
+
+Worker acts now run as background jobs with one active job per run and persisted terminal results,
+bounded shutdown reaping, and Cursor-safe `start` → `poll` → `fetch` routing. The MCP surface adds
+`forge.work.start`, `forge.work.poll`, and `forge.work.fetch`; `forge.status` reports the active
+job, and the Forge skill documents rejoining jobs and the blank-findings deferred path.
+
 ## 0.13.0
 
 A failed run left nothing to investigate (#20). `review-log.md` and `flow_log.md` record the

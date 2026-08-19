@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
 using PlanForge.Diagnostics;
+using PlanForge.Jobs;
 using PlanForge.Orchestration;
 using PlanForge.Prompts;
 using PlanForge.Repo;
@@ -19,6 +20,7 @@ internal sealed class ForgeTools
 {
     private const int DefaultReviewRoundCap = 5;
     private const int DefaultCodeReviewCap = 3;
+    private const int WorkPollTimeoutSeconds = 45;
     private const string Source = "server";
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
@@ -187,8 +189,111 @@ internal sealed class ForgeTools
             });
     }
 
+    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id.")]
+    public static Task<string> StartWork(
+        JobRegistry registry,
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("Worker act: plan.review, build.next, review.code or review.fix.")] string act,
+        [Description("Model for the worker.")] string model,
+        CancellationToken ct,
+        [Description("Optional effort level.")] string? effort = null,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+        [Description("Plan draft, required only by plan.review.")] string? planDraft = null,
+        [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
+        [Description("Optional deferred findings for review.fix.")] string? deferred = null)
+    {
+        // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
+        return StartWork(registry, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
+                         deferred, ct, () => VendorFactory.Create(vendor, workspaceRoot));
+    }
+
+    internal static async Task<string> StartWork(
+        JobRegistry registry,
+        string workspaceRoot,
+        string runId,
+        string act,
+        string model,
+        string? effort,
+        string? vendor,
+        string? planDraft,
+        string? findings,
+        string? deferred,
+        CancellationToken ct,
+        Func<IVendor> vendorFactory)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        return await LoggedAsync(run, "forge.work.start",
+            [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
+             ("planDraft", planDraft), ("findings", findings), ("deferred", deferred)],
+            async () =>
+            {
+                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred);
+
+                var workAct = new WorkAct(vendorFactory(), new PromptLibrary());
+                var selection = new Selection(model, effort);
+                var started = registry.Start(run.Path, act,
+                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, jobCt));
+
+                var record = started.Record;
+                return JsonSerializer.Serialize(
+                    new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started),
+                    ForgeToolJson.Default.WorkStartResult);
+            });
+    }
+
+    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds.")]
+    public static async Task<string> PollWork(
+        JobRegistry registry,
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("Job id returned by forge.work.start.")] string jobId,
+        CancellationToken ct)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        return await LoggedAsync(run, "forge.work.poll", [("jobId", jobId)],
+            async () =>
+            {
+                ValidateJobId(jobId);
+                var record = await registry.WaitAsync(run.Path, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct)
+                    .ConfigureAwait(false);
+                RequireJob(record, jobId);
+
+                return JsonSerializer.Serialize(
+                    new WorkPollResult(record!.Id, record.Act, StateName(record.State), ElapsedSeconds(record),
+                                       record.State == JobState.Failed ? record.Error : null),
+                    ForgeToolJson.Default.WorkPollResult);
+            });
+    }
+
+    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act.")]
+    public static async Task<string> FetchWork(
+        JobRegistry registry,
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("Job id returned by forge.work.start.")] string jobId)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        return await LoggedAsync(run, "forge.work.fetch", [("jobId", jobId)],
+            () =>
+            {
+                ValidateJobId(jobId);
+                var record = registry.Get(run.Path, jobId);
+                RequireJob(record, jobId);
+                if (record!.State == JobState.Running)
+                    throw new InvalidOperationException($"job {jobId} is still running");
+
+                var result = record.State == JobState.Completed ? record.ResultPayload : null;
+                return Task.FromResult(JsonSerializer.Serialize(
+                    new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
+                                        record.State == JobState.Failed ? record.Error : null),
+                    ForgeToolJson.Default.WorkFetchResult));
+            });
+    }
+
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
     public static async Task<string> Status(
+        JobRegistry registry,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         CancellationToken ct)
@@ -200,10 +305,16 @@ internal sealed class ForgeTools
                 var state = run.ReadState();
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
+                var active = registry.Get(run.Path) is { State: JobState.Running } job
+                    ? new ActiveJob(job.Id, job.Act, StateName(job.State), ElapsedSeconds(job))
+                    : null;
 
-                return JsonSerializer.Serialize(new StatusResult(state, drifted), ForgeToolJson.Default.StatusResult);
+                return JsonSerializer.Serialize(new StatusResult(state, drifted, active), ForgeToolJson.Default.StatusResult);
             });
     }
+
+    public static Task<string> Status(string workspaceRoot, string runId, CancellationToken ct) =>
+        Status(new JobRegistry(), workspaceRoot, runId, ct);
 
     /// <summary>
     /// The orchestrator's own entry point into the run log. Everything else here logs itself; this
@@ -226,6 +337,31 @@ internal sealed class ForgeTools
         run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));
 
         return run.DiagnosticLogPath;
+    }
+
+    private static string StateName(JobState state) =>
+        state switch
+        {
+            JobState.Running => "running",
+            JobState.Completed => "succeeded",
+            JobState.Failed => "failed",
+            _ => throw new ArgumentOutOfRangeException(nameof(state))
+        };
+
+    private static double ElapsedSeconds(JobRecord record) =>
+        Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
+
+    private static void ValidateJobId(string jobId)
+    {
+        if (jobId.Length != 16 || jobId.Any(character =>
+                !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))))
+            throw new ArgumentException("jobId must be 16 lowercase hexadecimal characters", nameof(jobId));
+    }
+
+    private static void RequireJob(JobRecord? record, string jobId)
+    {
+        if (record is null || record.Id != jobId)
+            throw new InvalidOperationException($"unknown jobId '{jobId}'");
     }
 
     private static string Level(string? level) =>
@@ -293,11 +429,23 @@ internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList
 /// to show it to the user <em>before</em> asking, and the decision call is where it would arrive
 /// too late to matter.
 /// </summary>
-internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles);
+internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob);
+
+internal sealed record ActiveJob(string JobId, string Act, string State, double ElapsedSeconds);
+
+internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started);
+
+internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error);
+
+internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error);
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
 [JsonSerializable(typeof(StatusResult))]
+[JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]
+[JsonSerializable(typeof(WorkStartResult))]
+[JsonSerializable(typeof(WorkPollResult))]
+[JsonSerializable(typeof(WorkFetchResult))]
 internal sealed partial class ForgeToolJson : JsonSerializerContext;

@@ -8,6 +8,7 @@ these terms replace it.
 | **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex App Server, Cursor Agent, later Grok. Not "provider" — that word was overloaded. |
 | **Orchestrator** | The host agent: runs the interview, **revises the plan in response to critique**, calls the tools. Always an LLM, never a C# class. Strong model. |
 | **Act** | A major stage of a run. The four delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`. The interview is not an act class; it lives in the orchestrator. |
+| **Job** | One delegated act running in the background, keyed by `jobId` and started, watched and collected through `forge.work.start` / `poll` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
@@ -136,9 +137,25 @@ The consequence: neither lever the Codex host gets — `tool_timeout_sec` or pro
 exists for Cursor, so a worker call orchestrated from Cursor dies at the host layer whenever it
 outlives the host's clock. Wiring `IVendorSession.Events` to MCP progress was considered on these
 measurements and rejected; the channel stays deliberately unread. The only shape a Cursor host
-would honor is splitting each worker tool into start/poll/fetch calls that return in seconds — a
-surface redesign that collides with one-round-per-call (docs/adr/0005) and needs an ADR of its own
-if it is ever taken.
+would honor is splitting each worker tool into start/poll/fetch calls that return in seconds. That
+redesign was taken — see [docs/adr/0006](docs/adr/0006-worker-acts-as-jobs-on-the-cursor-host.md).
+One round per call becomes one round per job on this path; the orchestrator's mandatory turn between
+rounds, which is what docs/adr/0005 is about, is untouched.
+
+## A backgrounded vendor process has only two things left that can end it
+
+Read out of `StreamingProcess.RunAsync` rather than measured: the kill-tree lives in the enumerator's
+`finally`, so it fires only while the server process is alive and something has cancelled the token.
+Under the one-call tools the host's own timeout was that something — Cursor cancelling at 60 seconds
+took the vendor process down with it, which is why a run that died there left no orphan.
+
+A job is deliberately detached from its `tools/call` token; that detachment is the whole point, and
+it removes the reaper. What remains is the vendor's own `RunTimeout` — 20 minutes per attempt — and
+the server's shutdown, so `ApplicationStopping` cancels every active job and a graceful exit still
+reaps the children. A server killed outright orphans them: nothing here uses a Windows job object,
+and on Windows a child does not die with its parent. For a critic that is harmless, since every
+vendor keeps it read-only. For a builder it means edits landing in a workspace whose run is already
+gone.
 
 ## Claude Code aborts a silent call, and the manifest timeout feeds both of its clocks
 
