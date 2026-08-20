@@ -59,23 +59,23 @@ ask exactly one mode question, unless the user already said which mode they want
 - interview without documentation;
 - interview that maintains the domain model as it goes.
 
-Keep the skill-availability chain out of that question. Each mode resolves down a three-step ladder,
+Keep the skill-availability chain out of that question. Each mode resolves down a two-step ladder,
 taking the first step that is available:
 
 | | without documentation | with documentation |
 |---|---|---|
-| 1 | `grill-me` | `grill-with-docs` |
-| 2 | `grilling` | `grilling` **and** `domain-modeling` |
-| 3 | the interview paragraph below | the built-in documented rules below, plus the two references |
+| 1 | `grilling` | `grilling` **and** `domain-modeling` |
+| 2 | the interview paragraph below | the built-in documented rules below, plus the two references |
 
-A step is available only when **every** skill it names is in the host's catalogue. So step 1 of the
-mode without documentation needs `grill-me` *and* the `grilling` it delegates to; step 1 of the
-documented mode needs `grill-with-docs`, `grilling` and `domain-modeling`. A name absent from the
-catalogue is absent; never guess that it is available.
+A step is available only when **every** skill it names is in the host's catalogue. A name absent
+from the catalogue is absent for you; never guess that it is available. But absent for you is not
+uninstalled: hosts keep slash-only skills out of the model-facing catalogue, so a skill you cannot
+see may be sitting right under the user's `/`. Tell the user which skill is running the interview,
+and never claim that a skill is missing or not installed.
 
-If the host publishes no catalogue at all, each candidate step may be attempted once: make one
-attempt per candidate, not one attempt per run, and treat any error as absence. When a catalogue
-exists, do not attempt a name that it does not contain.
+If the host publishes no catalogue at all, each skill may be attempted once: make one attempt per
+name, not one attempt per run, and treat any error as absence. When a catalogue exists, do not
+attempt a name that it does not contain.
 
 For the documented mode's composite step, attempt `grilling` first. If it errors, the composite
 step is absent. If `grilling` succeeds and `domain-modeling` errors, the interview is already
@@ -95,6 +95,11 @@ Ask grilling questions **one at a time** and wait for each answer. You are looki
 the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
+When the interview has settled the decisions, choose the vendors and models — the whole of the
+"Choosing the vendor and model" section below — before writing the first draft. The builder's
+selection is an input to the draft: the plan's depth is calibrated to the model and effort that
+will execute it, so a draft written before that choice is written blind.
+
 Write the plan as markdown, with the tasks under a heading spelled exactly `## Approach`. That
 heading is not a suggestion: `PlanTasks` refuses a plan without exactly one of it, and
 `forge.plan.confirm` parses before it writes anything, so the wrong heading fails at approval rather
@@ -112,6 +117,20 @@ tasks will be built as one.
 1. **First task.** What to change, and how it is verified.
 2. **Second task.** …
 ```
+
+Write every task to be read alone. The builder receives `# Task N of M` and the task's own text —
+not the preamble, not the other tasks, not the interview. Context a task needs must be inlined into
+the task; the builder's session accretes across tasks, but task 1 starts from nothing.
+
+Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
+goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
+task must be: name the files and the symbols, decide the edge cases and the error paths yourself,
+and end every task with the exact verification command — leave nothing to the builder's judgement,
+because the builder you chose has less of it. Judge strength from the vendor's own catalogue — the
+position in its newest-first list and the chosen effort — not from a remembered model name.
+
+State the builder's selection in the plan's preamble, above `## Approach`, in one line — vendor,
+model, effort. The critic judges the plan's depth against the builder named there.
 
 ## Rounds, revision, and caps
 
@@ -216,6 +235,9 @@ findings go to the user with the outcome. They are real findings about real gaps
 only reason they were not fixed here, and they are candidates for the next run.
 
 ## Choosing the vendor and model
+
+This happens at the end of Act 1, after the last interview question and before the first plan
+draft — the depth rule above reads the builder's selection.
 
 Choose vendors and models in two steps, asking at most four questions total. The combinations come
 from the server, not from your own knowledge: `forge.begin` already started every vendor's probe in
