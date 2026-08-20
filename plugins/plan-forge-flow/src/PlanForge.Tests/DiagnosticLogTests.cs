@@ -35,8 +35,8 @@ public sealed class DiagnosticLogTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_repo, recursive: true); } catch (DirectoryNotFoundException) { }
-        catch (UnauthorizedAccessException) { }
+        try { Directory.Delete(_repo, recursive: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     [Fact]

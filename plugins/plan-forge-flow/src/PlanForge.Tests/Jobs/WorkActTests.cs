@@ -27,7 +27,7 @@ public sealed class WorkActTests : IDisposable
         {
             Directory.Delete(_workspace, true);
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
         }
     }

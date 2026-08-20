@@ -30,8 +30,7 @@ public sealed class JobRegistryHostedServiceTests
         finally
         {
             try { Directory.Delete(runPath, true); }
-            catch (DirectoryNotFoundException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
 
         // An outright server kill still orphans the vendor process; this hosted-service path does

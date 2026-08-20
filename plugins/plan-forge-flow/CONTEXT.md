@@ -31,6 +31,8 @@ role's definition:
   the plan. A fresh reviser process does not have that context, so the revision cannot be delegated
   to a vendor.
 - **Builder (cheap)** works against an already-hardened plan, where the decisions were made for it.
+  The dependency runs both ways: the cheaper the builder, the deeper the plan — the orchestrator
+  chooses the builder before drafting and calibrates task granularity to its model and effort.
 - **Critic** judges; the user picks the tier, defaulting nearer the strong end.
 
 The direct consequence for the tool surface: **neither review loop can live inside a single call**,

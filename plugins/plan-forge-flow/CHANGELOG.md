@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.17.0
+
+Two interview-time gaps, both in the orchestrator's instructions rather than the server. The skill
+ladder's first step named `grill-me` and `grill-with-docs`, which the current generation of those
+skills hides from the model-facing catalogue and reduces to one-line aliases of `grilling` — so
+step 1 was unreachable, and resolving past it told the user an installed skill "is not in the
+catalogue". And nothing tied the plan's depth to the builder that would execute it: the model
+questions had no fixed position in the flow, so a plan could be drafted before the builder was
+even chosen.
+
+- The ladder is two steps: `grilling` (plus `domain-modeling` in documented mode), then the
+  built-in rules. The orchestrator says which skill is running the interview and never claims a
+  skill is missing — a catalogue omits slash-only skills that may well be installed.
+- Vendors and models are chosen at the end of Act 1, before the first draft. The plan's depth
+  scales inversely to the builder's model and effort, every task is written to be read alone, and
+  the preamble names the builder's selection.
+- The critic prompts judge depth against the builder the preamble names, falling back to the old
+  "competent implementer" bar when no builder is stated.
+
 ## 0.16.0
 
 The interview asked for models out of the orchestrator's training data while the code already knew

@@ -293,7 +293,7 @@ public sealed class JobRegistryTests
             {
                 Directory.Delete(_root, true);
             }
-            catch (DirectoryNotFoundException)
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
             }
         }

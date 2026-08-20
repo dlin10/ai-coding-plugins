@@ -22,8 +22,8 @@ public sealed class BuildTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_workspace, recursive: true); } catch (DirectoryNotFoundException) { }
-        catch (UnauthorizedAccessException) { }
+        try { Directory.Delete(_workspace, recursive: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     [Fact]
