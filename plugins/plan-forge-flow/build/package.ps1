@@ -209,7 +209,8 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
                 'plugins/plan-forge-flow/prompts/roslyn-contract.md',
-                'plugins/plan-forge-flow/prompts/scope-contract.md'
+                'plugins/plan-forge-flow/prompts/scope-contract.md',
+                'plugins/plan-forge-flow/prompts/requirements-contract.md'
             )) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive is missing $required" }
         }
@@ -336,6 +337,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
         (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
         (Join-Path $bundlePlugin 'prompts/scope-contract.md'),
+        (Join-Path $bundlePlugin 'prompts/requirements-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),

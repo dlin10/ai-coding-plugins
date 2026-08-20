@@ -28,6 +28,12 @@ are separate model processes, and neither ever revises the plan.
 | `forge.work.fetch` | Fetches the terminal result of a background worker act |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
 
+The draft the critic reads states its own intent: a `## Requirements` section above the tasks,
+numbered and cited by the tasks that serve them, and the checks that would catch a requirement being
+violated — a `Gate` ending each task, plus a `## Gates` section for whatever no single task owns.
+The requirements are under review beside the tasks, and only what they exclude is settled, so a plan
+aimed at the wrong thing is a finding rather than a clean approve.
+
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
 revises the plan after `forge.plan.review`, and after `forge.review.code` it filters the findings
 against the approved plan before `forge.review.fix` relays them. The critic and the builder never

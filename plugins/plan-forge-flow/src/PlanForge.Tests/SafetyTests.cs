@@ -89,4 +89,35 @@ public sealed class SafetyTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    /// <summary>
+    /// One critic role, two review acts, and each contract belongs to exactly one of them: the
+    /// requirements section a plan carries is not in front of a critic reading a diff, and "judge
+    /// against the approved plan" has nothing to attach to while the plan is still a draft.
+    /// </summary>
+    [Fact]
+    public void Appends_each_review_contract_to_its_own_act_only()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "planforge-prompts", Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(Path.Combine(root, "claude"));
+        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "judge");
+        File.WriteAllText(Path.Combine(root, "requirements-contract.md"), "the requirements are yours");
+        File.WriteAllText(Path.Combine(root, "scope-contract.md"), "the scope is not yours");
+
+        try
+        {
+            var prompts = new PromptLibrary(root);
+            var planReview = prompts.LoadPlanReviewCritic("claude");
+            var codeReview = prompts.LoadCodeReviewCritic("claude");
+
+            Assert.Contains("the requirements are yours", planReview, StringComparison.Ordinal);
+            Assert.DoesNotContain("the scope is not yours", planReview, StringComparison.Ordinal);
+            Assert.Contains("the scope is not yours", codeReview, StringComparison.Ordinal);
+            Assert.DoesNotContain("the requirements are yours", codeReview, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

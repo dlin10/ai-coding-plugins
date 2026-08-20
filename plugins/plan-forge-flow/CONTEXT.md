@@ -18,6 +18,8 @@ these terms replace it.
 | **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported it itself (codex, cursor); **declarative** when it is a list this repo remembers (claude). Advisory for validation either way: the vendor CLI decides. |
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the variants observed. The chosen variant joins back onto the family id; `default` names the bare id and joins to nothing. |
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
+| **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
+| **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task and the builder runs it; a `## Gates` entry — `G1`…`Gn` — belongs to no single task and the orchestrator runs it after the last one. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -54,6 +56,45 @@ and defending your own are different acts. The cost is nil: the plan is a few ki
 system prompt is identical, so caching applies.
 
 Interface consequence: `CanResume` is needed only by the Builder; the Critic is always stateless.
+
+## The plan states its own intent, and the critic judges that too
+
+The plan used to be the only statement of what a run was for, and the critic's bar was completeness
+for implementation: `approve` when nothing is left for the implementer to guess at. A plan that is
+detailed, internally consistent and aimed at the wrong thing clears that bar without a finding,
+because nothing independent of it says what right would have been. The interview knew — and it lived
+only in the orchestrator's context, where no worker and no later session can read it.
+
+So the plan carries `## Requirements` above `## Approach`: numbered `R1`…`Rn`, what must become true
+and what must not change, plus what the run deliberately excludes. Tasks cite the requirements they
+serve, and `prompts/requirements-contract.md` — appended for plan review exactly as
+`scope-contract.md` is for code review — puts the requirements themselves under review and asks for
+coverage in both directions.
+
+Handing a critic a fixed yardstick is the move `scope-contract.md` already makes, and there it is
+meant to narrow: work the plan does not ask for is at most `minor`. Repeating that at plan stage
+would turn the critic into a conformance checker and make a wrong requirement unfalsifiable, which
+is worse than having no requirements at all. Hence the asymmetry — the requirements are open to
+attack and only the **exclusions** are settled. Without that second half a critic invents
+requirements the user ruled out in an interview it never saw, and every round is spent defending it.
+
+The cost is that the plan-review loop is no longer purely between orchestrator and critic. A finding
+that a requirement is missing can be a question only the user can answer, so it goes back to them
+mid-loop rather than waiting for approval, where its answer would invalidate every round since.
+
+Gates apply the same idea to verification. A task already ended with how it is verified; the `Gate`
+label only makes that mandatory and findable, which is what lets the critic treat its absence as a
+finding and the orchestrator run the exact command when a builder reports `unavailable`. What had no
+home at all is a check no single task owns — a test suite, a warnings-clean build, an invariant
+spanning the change — so those go under `## Gates`, and the orchestrator runs them after the last
+task. Not the builder, whose session is per-task; and not the critic, because a build writes `bin/`
+and `obj/` into the tree it is judging, and each vendor's read-only guarantee covers the agent's own
+edits, not the side effects of a command it ran. More gates also mean more self-reported claims, so
+the rule below stands unchanged: anything but `passed` is the orchestrator's to run itself.
+
+None of this adds an artifact. The requirements live in the plan file, `PlanTasks` walks only what
+is under `## Approach`, and both review acts already send the whole plan — `PlanReview` the draft,
+`CodeReview` the approved copy — so requirements and gates reach both critics with no plumbing.
 
 ## The App Server spells its sandbox two different ways
 

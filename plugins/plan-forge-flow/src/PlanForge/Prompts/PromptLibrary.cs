@@ -11,6 +11,7 @@ internal sealed class PromptLibrary(string? root = null)
     private const string PromptsFolder = "prompts";
     private const string RoslynContractFile = "roslyn-contract.md";
     private const string ScopeContractFile = "scope-contract.md";
+    private const string RequirementsContractFile = "requirements-contract.md";
 
     private readonly string _root = root ?? Locate();
 
@@ -46,6 +47,15 @@ internal sealed class PromptLibrary(string? root = null)
         // than copied into each critic file, which is how the 1.x copies drifted apart.
         return Append(prompt, RoslynContractFile);
     }
+
+    /// <summary>
+    /// The critic prompt plus the plan-review requirements contract, which tells the critic that
+    /// the plan's own requirements and gates are under review beside its tasks. Kept out of
+    /// <see cref="Load"/> for the same reason as the scope contract: the same critic role also
+    /// reviews diffs, where no requirements section is in front of it.
+    /// </summary>
+    public string LoadPlanReviewCritic(string vendorId) =>
+        Append(Load(vendorId, VendorRole.Critic), RequirementsContractFile);
 
     /// <summary>
     /// The critic prompt plus the code-review scope contract. The contract is not folded into
