@@ -95,41 +95,75 @@ Ask grilling questions **one at a time** and wait for each answer. You are looki
 the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
-When the interview has settled the decisions, choose the vendors and models — the whole of the
-"Choosing the vendor and model" section below — before writing the first draft. The builder's
-selection is an input to the draft: the plan's depth is calibrated to the model and effort that
-will execute it, so a draft written before that choice is written blind.
+When the interview has settled the decisions, write the requirements first — the `## Requirements`
+section described below. They are the interview's own output and do not depend on who implements
+them, which is why they come before the vendor and model questions.
 
-Write the plan as markdown, with the tasks under a heading spelled exactly `## Approach`. That
-heading is not a suggestion: `PlanTasks` refuses a plan without exactly one of it, and
-`forge.plan.confirm` parses before it writes anything, so the wrong heading fails at approval rather
-than later. Anything above `## Approach` is context for the reader and is not walked; the section
-ends at the next `##` heading, so put the tasks last or expect everything after that heading to be
-dropped.
+Then choose the vendors and models — the whole of the "Choosing the vendor and model" section
+below — before writing the tasks. The builder's selection is an input to them: the plan's depth is
+calibrated to the model and effort that will execute it, so tasks written before that choice are
+written blind.
+
+Write the plan as markdown, in three parts: the requirements, the gates, and the tasks.
+
+The tasks live under a heading spelled exactly `## Approach`. That heading is not a suggestion:
+`PlanTasks` refuses a plan without exactly one of it, and `forge.plan.confirm` parses before it
+writes anything, so the wrong heading fails at approval rather than later. Anything above
+`## Approach` is context for the reader and is not walked; the section ends at the next `##`
+heading, so put the tasks last or expect everything after that heading to be dropped.
 
 Inside it, number the tasks `1.` to `N.` in order, one task per numbered item — a gap or a repeat is
 refused outright. That numbering is what `forge.build.next` walks, so a task that is really three
 tasks will be built as one.
 
+Above it, `## Requirements` states what must be true when the work is done: one numbered requirement
+per item, `R1` to `Rn`, and then what the run deliberately does not do. Requirements are the
+interview's answers, not the implementation — what must become true, what must not change, how it
+would be observed — so no file names, no symbols, no "how". The exclusions carry as much weight as
+the requirements: they are what stops the critic demanding work the user already ruled out.
+
+Every task ends with a **Gate** — the command or the observable condition that would show that task
+done — and cites the requirements it serves. A check that belongs to no single task goes under
+`## Gates` instead, numbered `G1` to `Gn`, each citing what it discharges: the test suite, a
+warnings-clean build, an invariant spanning the whole change. Leave that section out when the task
+gates already cover everything; a ceremonial gate is worse than none. Its entries are yours to run
+after the last task — see the code-review loop below.
+
 ```markdown
+Builder: cursor / gpt-5.3-codex / high
+
+## Requirements
+
+1. **R1.** What must be true once the work is done.
+2. **R2.** What must not change.
+
+**Out of scope.** What this run deliberately does not do.
+
+## Gates
+
+1. **G1.** `dotnet test …` passes. (R1, R2)
+
 ## Approach
 
-1. **First task.** What to change, and how it is verified.
-2. **Second task.** …
+1. **First task.** What to change. **Gate:** the command or condition showing it done. (R1)
+2. **Second task.** … (R2)
 ```
 
 Write every task to be read alone. The builder receives `# Task N of M` and the task's own text —
-not the preamble, not the other tasks, not the interview. Context a task needs must be inlined into
-the task; the builder's session accretes across tasks, but task 1 starts from nothing.
+not the preamble, not the requirements, not the run-wide gates, not the other tasks, not the
+interview. Context a task needs must be inlined into the task, and that includes whatever a
+requirement it cites actually demands; the builder's session accretes across tasks, but task 1
+starts from nothing.
 
 Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
 goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
 task must be: name the files and the symbols, decide the edge cases and the error paths yourself,
-and end every task with the exact verification command — leave nothing to the builder's judgement,
-because the builder you chose has less of it. Judge strength from the vendor's own catalogue — the
-position in its newest-first list and the chosen effort — not from a remembered model name.
+and make each task's `Gate` an exact command rather than a condition to interpret — leave nothing to
+the builder's judgement, because the builder you chose has less of it. Judge strength from the
+vendor's own catalogue — the position in its newest-first list and the chosen effort — not from a
+remembered model name.
 
-State the builder's selection in the plan's preamble, above `## Approach`, in one line — vendor,
+State the builder's selection at the top of the plan, above `## Requirements`, in one line — vendor,
 model, effort. The critic judges the plan's depth against the builder named there.
 
 ## Rounds, revision, and caps
@@ -138,6 +172,14 @@ Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetc
 one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, address the
 findings in the plan yourself and run the next round. The critic is a fresh process each round but
 is given the log of earlier rounds, so it converges rather than reopening settled points.
+
+The critic judges the requirements too, and those findings are not all yours to fix. One the
+interview already settles — two requirements you wrote that contradict each other, a condition
+stated too vaguely to check — you revise and carry on without stopping. One it does not — a
+requirement covering a question nobody asked, or an answer that would move the scope — goes to the
+user before you revise, and its answer goes into `forge.log.append`. Ask the moment it comes up
+rather than saving it for approval: a scope question answered late invalidates every round that ran
+after it.
 
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
@@ -211,9 +253,16 @@ could not run must never read like a clean `done` in the chat.
 
 ## The code-review loop
 
-After the last task, the loop is yours to run, exactly as with plan review: on non-Cursor hosts,
-`forge.review.code` runs one critic round against the approved plan and `forge.review.fix` hands
-kept findings to the builder; on Cursor, run both acts through start → poll → fetch. Repeat until
+After the last task and before the first review round, run the plan's `## Gates` entries yourself,
+in your own environment. Nobody else will: they are the checks no single task owned, so no builder
+ran them, and the critic must not — it judges the diff, and a build writes into the very tree it is
+reading. Record what you ran and what it showed with `forge.log.append`. A failing gate is not a
+code-review finding: stop there and decide with the user, exactly as with a task whose verification
+failed.
+
+Then the loop is yours to run, exactly as with plan review: on non-Cursor hosts, `forge.review.code`
+runs one critic round against the approved plan and `forge.review.fix` hands kept findings to the
+builder; on Cursor, run both acts through start → poll → fetch. Repeat until
 the verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.

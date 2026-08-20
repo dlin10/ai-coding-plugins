@@ -111,6 +111,25 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Contains("no verification step named", flow, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The requirements contract reaches the critic only through <c>LoadPlanReviewCritic</c>. A
+    /// plan review wired to the plain critic prompt still runs and still returns a verdict — it
+    /// just judges the tasks and never the requirements above them, which nothing else would catch.
+    /// </summary>
+    [Fact]
+    public async Task The_critic_is_told_that_the_requirements_are_under_review()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 0, cap: 5);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), CancellationToken.None);
+
+        Assert.Contains("Coverage runs both ways", critic.Sessions[0].Role.SystemPrompt,
+            StringComparison.Ordinal);
+    }
+
     private RunDirectory NewRun(int rounds, int cap)
     {
         const string runId = "test-run";

@@ -28,7 +28,7 @@ internal sealed class PlanReview
             throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap);
 
         var round = state.ReviewRounds + 1;
-        var systemPrompt = _prompts.Load(_vendor.Id, VendorRole.Critic);
+        var systemPrompt = _prompts.LoadPlanReviewCritic(_vendor.Id);
 
         await using var session = await _vendor.StartAsync(
             new RoleSpec(VendorRole.Critic, systemPrompt), selection, resumeToken: null, ct);

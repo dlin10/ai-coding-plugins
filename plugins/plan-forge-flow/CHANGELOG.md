@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.18.0
+
+The critic judged a plan for completeness alone — `approve` once nothing is left for the implementer
+to guess at — so a plan that was detailed, self-consistent and aimed at the wrong thing passed
+without a finding. What the run was actually for lived in the orchestrator's interview context,
+where no worker and no later session can read it.
+
+- The plan now states its own intent: a `## Requirements` section above `## Approach`, numbered
+  `R1`…`Rn`, carrying what must become true, what must not change and what the run excludes, with
+  every task citing the requirements it serves. No new artifact and no new tool — `PlanTasks` still
+  walks only what is under `## Approach`, and both review acts already send the whole plan.
+- New `prompts/requirements-contract.md`, appended for plan review exactly as `scope-contract.md`
+  is for code review. It puts the requirements themselves under review and asks for coverage in
+  both directions, settling only the exclusions: a yardstick the critic may attack is what keeps it
+  from degrading into a conformance checker against a wrong requirement.
+- Verification became findable. Every task ends in a `Gate` — the command or condition showing it
+  done — and checks no single task owns go under an optional `## Gates` section that the
+  orchestrator runs itself after the last task and before the first code-review round. Not the
+  builder, whose session is per task; not the critic, because a build writes into the tree it is
+  judging.
+- A requirements finding the interview never settled goes back to the user mid-loop rather than at
+  approval, where its answer would invalidate every round run since.
+
 ## 0.17.0
 
 Two interview-time gaps, both in the orchestrator's instructions rather than the server. The skill
