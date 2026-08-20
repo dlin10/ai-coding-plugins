@@ -1,6 +1,6 @@
-# Roslyn MCP 0.5.0
+# Roslyn MCP 0.6.0
 
-Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each repository uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk.
+Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
 This release supports clients running natively on Windows with Visual Studio 2022 or 2026. WSL and non-Windows hosts are not supported.
 
@@ -37,14 +37,18 @@ Then ask Codex to use `$roslyn-install-vsix`. In each repository, ask it to use 
 
 ## Repository setup behavior
 
-`roslyn-setup-repo` performs a complete read-only preflight before it changes anything. It validates the port, checks sibling repositories for collisions, locates the solution, rejects a tracked `.codex/config.toml`, and displays conflicting global MCP entries for approval before removal.
+A port belongs to a solution rather than to a repository, because one Visual Studio instance serves one solution. A repository with several solutions therefore gets one port per solution.
 
-After preflight, it writes or merges:
+`roslyn-setup-repo` performs a complete read-only preflight before it changes anything. It enumerates the solutions, validates a distinct port for each, scans for files already claiming those ports, rejects a tracked `.codex/config.toml`, and displays conflicting global MCP entries for approval before removal.
+
+After preflight, it writes or merges the following in each solution's owning directory — the repository root when there is one solution, otherwise the component folder the extension reaches by searching upward from the solution:
 
 - `.roslynmcp.json` for the Visual Studio extension;
 - `.codex/config.toml` for Codex;
 - `.cursor/mcp.json` for Cursor;
 - a Claude Code local-scope MCP entry when the `claude` CLI is available.
+
+Codex and Cursor read the port from the directory, so they follow the solution automatically. Claude Code keys local-scope servers by Git repository root instead, so a repository with several solutions gets one entry per solution under distinct names such as `roslyn-<solution-slug>`, and its tools are named `mcp__roslyn-<slug>__*`.
 
 The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions after setup so they reload the project configuration.
 
