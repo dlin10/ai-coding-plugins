@@ -427,7 +427,7 @@ internal sealed class ForgeTools
                                                   Func<Task<string>> act)
     {
         var log = run.Log;
-        using var scope = RunLog.Use(log);
+        using var scope = RunLog.Serve(log);
 
         log.Write("info", Source, "tool.call", [("tool", tool), .. arguments]);
         try

@@ -15,8 +15,7 @@ public sealed class StatusJobTests : IDisposable
     public void Dispose()
     {
         try { Directory.Delete(_workspace, true); }
-        catch (DirectoryNotFoundException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     [Fact]

@@ -45,7 +45,8 @@ public sealed class PlanReviewTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_workspace, recursive: true); } catch (DirectoryNotFoundException) { }
+        try { Directory.Delete(_workspace, recursive: true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     [Fact]

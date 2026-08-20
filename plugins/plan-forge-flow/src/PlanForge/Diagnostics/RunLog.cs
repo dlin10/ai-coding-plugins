@@ -48,13 +48,30 @@ internal sealed class RunLog
     /// </remarks>
     public static RunLog? Current => Ambient.Value ?? Volatile.Read(ref _last);
 
-    /// <summary>Makes <paramref name="log"/> ambient for the duration of one tool call.</summary>
+    /// <summary>Makes <paramref name="log"/> ambient for the current async flow, and nothing more.</summary>
+    /// <remarks>
+    /// Deliberately not published as the fallback: a log scoped here is reachable only through
+    /// the ambient context, so writers on unrelated flows can never interleave their entries into
+    /// it. That isolation is what lets a test assert on the file's exact contents while parallel
+    /// tests spawn processes of their own. A tool call serving a run wants the opposite and goes
+    /// through <see cref="Serve"/>.
+    /// </remarks>
     public static IDisposable Use(RunLog log)
     {
         var previous = Ambient.Value;
         Ambient.Value = log;
-        Volatile.Write(ref _last, log);
         return new Scope(previous);
+    }
+
+    /// <summary>
+    /// Makes <paramref name="log"/> ambient for the duration of one tool call, and publishes it
+    /// as the last log this process served — the fallback <see cref="Current"/> hands to contexts
+    /// that never flowed through a tool handler.
+    /// </summary>
+    public static IDisposable Serve(RunLog log)
+    {
+        Volatile.Write(ref _last, log);
+        return Use(log);
     }
 
     public void Write(string level, string source, string name, params (string Name, string? Value)[] fields)

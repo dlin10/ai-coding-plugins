@@ -19,7 +19,8 @@ public sealed class WorkToolsTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_workspace, true); } catch (DirectoryNotFoundException) { }
+        try { Directory.Delete(_workspace, true); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     [Fact]
