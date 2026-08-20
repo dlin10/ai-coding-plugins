@@ -72,7 +72,7 @@ The extension logs all activity to a dedicated **"Roslyn MCP Extension"** pane i
 - **Exceptions**: any errors during server startup, command execution, or VS interaction
 - **MCP Server messages**: the HTTP server process logs back to the Output pane via RPC
 
-### Per-repository Port Configuration
+### Per-solution Port Configuration
 
 When a solution opens, the extension walks upward from the solution directory and uses the nearest `.roslynmcp.json` file:
 
@@ -80,7 +80,7 @@ When a solution opens, the extension walks upward from the solution directory an
 { "port": 5051 }
 ```
 
-This allows several Visual Studio instances to expose different solutions simultaneously, each on its own port. Keep `.roslynmcp.json` developer-local and configure every MCP client for that repository to use the same `http://localhost:<port>/mcp` endpoint.
+This allows several Visual Studio instances to expose different solutions simultaneously, each on its own port. Because the nearest file wins, a repository holding one solution can keep `.roslynmcp.json` at its root, while a repository holding several places one beside each solution to give each its own port. Keep `.roslynmcp.json` developer-local and configure every MCP client that works on a solution to use that solution's `http://localhost:<port>/mcp` endpoint.
 
 If no `.roslynmcp.json` is found, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
 
@@ -148,7 +148,7 @@ Find dead code including public members
 | Find References | ✅ Semantic `SymbolFinder` | ❌ Text search or separate workspace |
 | Diagnostics | ✅ Live from VS compiler | ⚠️ Re-compiled separately |
 | Build integration | ✅ Uses VS compilation state | ❌ Separate compilation |
-| Multi-instance support | Per-repository ports resolved from `.roslynmcp.json` | Commonly one global server configuration |
+| Multi-instance support | Per-solution ports resolved from `.roslynmcp.json` | Commonly one global server configuration |
 | Setup | Install the VSIX and align each repository's client port | Configure and load a separate workspace |
 | Logging | ✅ Dedicated Output pane | ❌ Console/file logs |
 | Session recovery | ✅ Transparent migration | ❌ Client must reconnect |

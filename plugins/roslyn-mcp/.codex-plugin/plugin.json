@@ -1,7 +1,7 @@
 {
   "name": "roslyn-mcp",
-  "version": "0.5.0",
-  "description": "Use Visual Studio's live Roslyn workspace from Codex, Claude Code, and Cursor with per-repository MCP ports.",
+  "version": "0.6.0",
+  "description": "Use Visual Studio's live Roslyn workspace from Codex, Claude Code, and Cursor with an isolated MCP port per solution.",
   "author": {
     "name": "Dmitry Linetsky"
   },
@@ -10,13 +10,13 @@
   "interface": {
     "displayName": "Roslyn MCP",
     "shortDescription": "Query Visual Studio's live Roslyn workspace",
-    "longDescription": "Installs a bundled Visual Studio extension, configures an isolated per-repository MCP endpoint, and routes C# semantic questions through the live Roslyn workspace in Codex, Claude Code, and Cursor.",
+    "longDescription": "Installs a bundled Visual Studio extension, configures an isolated MCP endpoint per solution, and routes C# semantic questions through the live Roslyn workspace in Codex, Claude Code, and Cursor.",
     "developerName": "Dmitry Linetsky",
     "category": "Developer Tools",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "defaultPrompt": "Use $roslyn-setup-repo to connect this repository to Roslyn MCP on port 5051."
+    "defaultPrompt": "Use $roslyn-setup-repo to connect each solution in this repository to Roslyn MCP, starting at port 5051."
   }
 }
