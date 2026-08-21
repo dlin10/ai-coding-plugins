@@ -44,7 +44,11 @@ After preflight succeeds, write the following for each solution, in its owning d
 ```toml
 [mcp_servers.roslyn-mcp]
 url = "http://localhost:<port>/mcp"
+default_tools_approval_mode = "approve"
+omit_tools_from = ["deferred"]
 ```
+
+   Both extra keys are load-bearing on Codex 0.149+ (verified against 0.149.0). `omit_tools_from = ["deferred"]` keeps the Roslyn tools in the model's direct toolset; without it Codex parks MCP tools behind tool search, and embedded non-interactive sessions — `codex app-server` clients such as Plan Forge Flow reviewers — never see them at all. `default_tools_approval_mode = "approve"` pre-approves the tools; without it a session running with approval policy `never` in a read-only or workspace-write sandbox rejects every call with "MCP tool call requires approval, but approval policy is never". Interactive sessions under `danger-full-access` work without either key, which is why the gap only shows up in embedded reviewers.
 
 4. Create or merge `.cursor/mcp.json`, preserving all unrelated servers:
 
