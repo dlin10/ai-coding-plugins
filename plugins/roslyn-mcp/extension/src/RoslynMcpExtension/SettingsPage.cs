@@ -7,8 +7,8 @@ namespace RoslynMcpExtension;
 public class SettingsPage : DialogPage
 {
     [System.ComponentModel.Category("Server")]
-    [System.ComponentModel.DisplayName("Port")]
-    [System.ComponentModel.Description("HTTP port for the MCP server (default: 5050)")]
+    [System.ComponentModel.DisplayName("Fallback Port")]
+    [System.ComponentModel.Description("HTTP port for the MCP server (default: 5050). Used when setup-repo command was not executed (no .roslynmcp.json file found)")]
     public int Port { get; set; } = 5050;
 
     [System.ComponentModel.Category("Server")]

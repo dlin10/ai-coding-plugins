@@ -1,7 +1,6 @@
 using System;
 using System.ComponentModel.Design;
 using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
 namespace RoslynMcpExtension;
@@ -25,13 +24,15 @@ internal static class ServerCommands
 
     private static void OnStartServer(object sender, EventArgs e)
     {
+        ThreadHelper.ThrowIfNotOnUIThread();
+
         var pkg = RoslynMcpPackage.Instance;
         if (pkg == null) return;
 
         pkg.Logger?.Log("Start Server command invoked");
 
         // Re-resolves the per-solution port (walks up for .roslynmcp.json) and starts/restarts.
-        pkg.EnsureServerAsync().Forget();
+        pkg.RequestEnsureServer();
     }
 
     private static void OnStopServer(object sender, EventArgs e)
@@ -41,6 +42,6 @@ internal static class ServerCommands
 
         pkg.Logger?.Log("Stop Server command invoked");
 
-        pkg.StopServerAsync().Forget();
+        pkg.RequestStopServer();
     }
 }

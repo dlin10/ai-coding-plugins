@@ -6,7 +6,9 @@
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'RoslynMcpExtension'">
+  <!-- The extension and its tests both inherit the VS SDK's pinned dependency graph, whose
+       advisories cannot be resolved from here. -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'RoslynMcpExtension' And '$(MSBuildProjectName)' != 'RoslynMcpExtension.Tests'">
     <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
 </Project>
