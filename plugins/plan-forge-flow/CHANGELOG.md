@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.18.1
+
+A Cursor critic or builder ran without the solution's MCP servers: headless `cursor-agent` loads
+global and plugin servers but drops workspace `.cursor/mcp.json` entries unless they are approved
+at launch, and the persistent approval `cursor-agent mcp enable` writes does not reach print mode
+(measured against 2026.08.11-e8db854). A reviewer told to verify a plan against Roslyn MCP found
+the server missing every round and fell back to text search — the same symptom the Codex critic
+showed for a different reason.
+
+- Both roles now pass `--approve-mcps`. Plan mode never blocked MCP calls, so the critic guard is
+  unchanged; the flag approves every configured server for the session, so a plan-mode critic can
+  also reach the user's global MCP servers — a server that must stay out of reach belongs behind
+  `cursor-agent mcp disable`.
+
 ## 0.18.0
 
 The critic judged a plan for completeness alone — `approve` once nothing is left for the implementer
