@@ -9,14 +9,13 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
-using Microsoft.VisualStudio.Threading;
 using RoslynMcpExtension.Services;
 
 namespace RoslynMcpExtension;
 
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", "1.6.0")]
+[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", "1.7.0")]
 [ProvideOptionPage(typeof(SettingsPage), "Roslyn MCP Extension", "General", 0, 0, true)]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExists_string, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("b8a7f3e2-1c4d-4e5f-9a6b-8c7d0e1f2a3b")]
@@ -27,13 +26,10 @@ public sealed class RoslynMcpPackage : AsyncPackage
 
     internal OutputLogger? Logger { get; private set; }
     internal RoslynAnalysisService? AnalysisService { get; private set; }
-    internal RpcServer? RpcServer { get; private set; }
-    internal ServerProcessManager? ProcessManager { get; private set; }
+    internal McpServerController? Controller { get; private set; }
 
-    private readonly SemaphoreSlim _serverLock = new(1, 1);
     private IVsSolution? _solutionService;
     private uint _solutionEventsCookie;
-    private int _currentPort = -1;
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
@@ -56,8 +52,12 @@ public sealed class RoslynMcpPackage : AsyncPackage
             AnalysisService = componentModel.GetService<RoslynAnalysisService>();
             AnalysisService.Logger = Logger;
 
-            RpcServer = new RpcServer(AnalysisService, Logger);
-            ProcessManager = new ServerProcessManager(Logger);
+            var analysisService = AnalysisService;
+            var logger = Logger;
+            Controller = new McpServerController(options => McpServerSession.StartAsync(options, analysisService, logger), logger)
+            {
+                StartFailedAsync = ShowStartupFailureAsync
+            };
 
             await ServerCommands.InitializeAsync(this);
 
@@ -69,7 +69,7 @@ public sealed class RoslynMcpPackage : AsyncPackage
             if (settings.AutoStart)
             {
                 Logger?.Log("Auto-starting MCP server...");
-                EnsureServerAsync().Forget();
+                RequestEnsureServer();
             }
 
             Logger?.Log("Extension loaded");
@@ -81,97 +81,43 @@ public sealed class RoslynMcpPackage : AsyncPackage
     }
 
     /// <summary>
-    /// Resolves the port for the currently loaded solution and ensures the MCP server is running
-    /// on it: no-op if already serving that port, restart if the port changed, start if not
-    /// running. Serialized so overlapping solution events cannot start two servers.
+    /// Resolves the per-solution configuration and queues a start, or a restart when the port
+    /// changed. Reading the configuration here rather than inside the queued work is deliberate:
+    /// GetDialogPage and GetSolutionInfo require the UI thread and every caller is already on it,
+    /// so no thread hop can reorder the close/open pair a solution reload produces.
     /// </summary>
-    internal async Task EnsureServerAsync()
+    internal void RequestEnsureServer()
     {
-        if (RpcServer == null || ProcessManager == null)
-            return;
+        ThreadHelper.ThrowIfNotOnUIThread();
+        if (Controller == null) return;
 
-        // GetSolutionInfo / GetDialogPage require the UI thread; resolve there, then do the
-        // process work off the UI thread (StartAsync waits on the child process).
-        await JoinableTaskFactory.SwitchToMainThreadAsync();
-        var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
-		var solutionDirectory = GetCurrentSolutionDirectory();
-		var port = RoslynMcpConfig.ResolvePort(solutionDirectory, settings.Port, out var configPath);
-        var serverName = settings.ServerName;
-
-        await TaskScheduler.Default;
-
-        await _serverLock.WaitAsync();
         try
         {
-            if (ProcessManager.IsRunning && _currentPort == port)
-                return;
+            var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
+            var solutionDirectory = GetCurrentSolutionDirectory();
+            var port = RoslynMcpConfig.ResolvePort(solutionDirectory, settings.Port, out var configPath);
 
-            if (ProcessManager.IsRunning)
-            {
-                Logger?.Log($"Solution changed; restarting MCP server on port {port}...");
-                RpcServer.Stop();
-                await ProcessManager.StopAsync();
-            }
-
-            var pipeName = RpcServer.Start();
-			#pragma warning disable VSTHRD003 // RpcServer owns the readiness task for the child process.
-			var startResult = await ProcessManager.StartAsync(pipeName, port, serverName, RpcServer.Ready);
-			#pragma warning restore VSTHRD003
-			if (startResult.Succeeded)
-			{
-				_currentPort = port;
-			}
-			else
-			{
-				RpcServer.Stop();
-				_currentPort = -1;
-				if (startResult.FailureKind is ServerStartFailureKind.ProcessExited or ServerStartFailureKind.ReadinessTimeout)
-					await ShowStartupFailureAsync(port, configPath, solutionDirectory, startResult.Message);
-			}
+            Controller.EnqueueEnsure(new McpServerSessionOptions(port, settings.ServerName, solutionDirectory, configPath));
         }
         catch (Exception ex)
         {
-            Logger?.Log($"Failed to start MCP server: {ex.Message}");
-        }
-        finally
-        {
-            _serverLock.Release();
+            Logger?.Log($"Could not resolve the MCP server configuration: {ex.Message}");
         }
     }
 
-	private async Task ShowStartupFailureAsync(int port, string? configPath, string? solutionDirectory, string detail)
-	{
-		var configSource = configPath ?? (solutionDirectory == null
-			? RoslynMcpConfig.FileName
-			: Path.Combine(solutionDirectory, RoslynMcpConfig.FileName));
-		var message = $"Roslyn MCP server failed to start on port {port}. Another Visual Studio instance may already be using that port. Configuration: {configSource}. {detail}";
+    internal void RequestStopServer() => Controller?.EnqueueStop();
 
-		await JoinableTaskFactory.SwitchToMainThreadAsync();
-		var infoBar = await VS.InfoBar.CreateAsync(new InfoBarModel(message, KnownMonikers.StatusWarning, true));
-		if (infoBar != null)
-			await infoBar.TryShowInfoBarUIAsync();
-	}
-
-    internal async Task StopServerAsync()
+    private async Task ShowStartupFailureAsync(McpServerSessionOptions options, ServerStartResult result)
     {
-        if (ProcessManager == null)
-            return;
+        var configSource = options.ConfigPath ?? (options.SolutionDirectory == null
+            ? RoslynMcpConfig.FileName
+            : Path.Combine(options.SolutionDirectory, RoslynMcpConfig.FileName));
+        var message = $"Roslyn MCP server failed to start on port {options.Port}. Another Visual Studio instance may already be using that port. Configuration: {configSource}. {result.Message}";
 
-        await _serverLock.WaitAsync();
-        try
-        {
-            RpcServer?.Stop();
-            await ProcessManager.StopAsync();
-            _currentPort = -1;
-        }
-        catch (Exception ex)
-        {
-            Logger?.Log($"Failed to stop MCP server: {ex.Message}");
-        }
-        finally
-        {
-            _serverLock.Release();
-        }
+        await JoinableTaskFactory.SwitchToMainThreadAsync();
+        var infoBar = await VS.InfoBar.CreateAsync(new InfoBarModel(message, KnownMonikers.StatusWarning, true));
+        if (infoBar != null)
+            await infoBar.TryShowInfoBarUIAsync();
     }
 
     private string? GetCurrentSolutionDirectory()
@@ -195,11 +141,11 @@ public sealed class RoslynMcpPackage : AsyncPackage
                 _solutionEventsCookie = 0;
             }
 
-            _ = ProcessManager?.StopAsync();
-            RpcServer?.Dispose();
-            _serverLock.Dispose();
+            // Terminate rather than negotiate: VS is exiting and the UI thread must not wait.
+            Controller?.ShutdownFast();
             Instance = null;
         }
+
         base.Dispose(disposing);
     }
 
@@ -207,13 +153,14 @@ public sealed class RoslynMcpPackage : AsyncPackage
     {
         public int OnAfterOpenSolution(object pUnkReserved, int fNewSolution)
         {
-            package.EnsureServerAsync().Forget();
+            ThreadHelper.ThrowIfNotOnUIThread();
+            package.RequestEnsureServer();
             return VSConstants.S_OK;
         }
 
         public int OnBeforeCloseSolution(object pUnkReserved)
         {
-            package.StopServerAsync().Forget();
+            package.RequestStopServer();
             return VSConstants.S_OK;
         }
 

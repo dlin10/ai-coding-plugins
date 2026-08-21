@@ -74,7 +74,7 @@ The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.6.0**.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.7.0**.
 - `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.

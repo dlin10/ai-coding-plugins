@@ -14,7 +14,7 @@ public class RoslynAnalysisService(VisualStudioWorkspace workspace) : IRoslynAna
 {
 	private readonly DocumentFinder _documentFinder = new(workspace);
 
-	internal OutputLogger? Logger { get; set; }
+	internal IExtensionLogger? Logger { get; set; }
 	internal Action? ServerReadyHandler { get; set; }
 
 	public Task LogAsync(string message)

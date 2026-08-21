@@ -4,7 +4,16 @@ using Microsoft.VisualStudio.Shell.Interop;
 
 namespace RoslynMcpExtension;
 
-internal sealed class OutputLogger
+/// <summary>
+/// Sink for extension diagnostics. Keeps the server lifecycle types free of VS shell
+/// dependencies so they can be exercised outside Visual Studio.
+/// </summary>
+internal interface IExtensionLogger
+{
+	void Log(string message);
+}
+
+internal sealed class OutputLogger : IExtensionLogger
 {
 	private static readonly Guid _paneGuid = new("d4e5f6a7-1b2c-3d4e-8f9a-0b1c2d3e4f5a");
 	private readonly IVsOutputWindowPane _pane;

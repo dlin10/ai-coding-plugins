@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
@@ -41,6 +41,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RoslynMcpExtension.Shared\RoslynMcpExtension.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RoslynMcpExtension.Tests" />
   </ItemGroup>
 
   <ItemGroup>
