@@ -102,6 +102,26 @@ public sealed class CursorAgentTests
     }
 
     /// <summary>
+    /// Headless cursor-agent drops workspace .cursor/mcp.json servers unless they are approved at
+    /// launch — "cursor-agent mcp enable" does not reach print mode (measured against
+    /// 2026.08.11-e8db854). A role that loses the flag silently loses solution-local MCP servers
+    /// such as roslyn-mcp.
+    /// </summary>
+    [Fact]
+    public void Both_roles_approve_workspace_mcp_servers()
+    {
+        var selection = new Selection("auto", null);
+
+        var critic = new CursorAgentSession(new RoleSpec(VendorRole.Critic, CriticPrompt), selection, null)
+                     .BuildArguments();
+        var builder = new CursorAgentSession(new RoleSpec(VendorRole.Builder, "implement"), selection, null)
+                      .BuildArguments();
+
+        Assert.Contains("--approve-mcps", critic);
+        Assert.Contains("--approve-mcps", builder);
+    }
+
+    /// <summary>
     /// cursor-agent has no system-prompt flag, so the role instructions must travel at the head of
     /// the prompt itself; a session that drops them runs a critic that was never told it is one.
     /// </summary>
