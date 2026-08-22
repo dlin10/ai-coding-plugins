@@ -2,7 +2,7 @@
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes twelve tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes thirteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -17,7 +17,7 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
-| `forge.plan.review` | One review round: a fresh critic judges the current draft |
+| `forge.plan.review` | One review round: a fresh critic judges the current draft, beside the orchestrator's account of what the previous round changed |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
@@ -37,9 +37,12 @@ aimed at the wrong thing is a finding rather than a clean approve.
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
 revises the plan after `forge.plan.review`, and after `forge.review.code` it filters the findings
-against the approved plan before `forge.review.fix` relays them. The critic and the builder never
-talk directly — what the orchestrator defers is recorded in the review log with its reason, so the
-next round's critic treats it as settled and the user sees it when the review ends. See
+against the approved plan before `forge.review.fix` relays them. That turn is recorded rather than
+assumed — a plan-review round after the first is refused without an account of what the previous
+one changed, and it lands in the flow log where the user reads the two loops as a conversation. The
+critic and the builder never talk directly — what the orchestrator defers is recorded in the review
+log with its reason, so the next round's critic treats it as settled and the user sees it when the
+review ends. See
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md) for why the sealed loop was
 opened.
 

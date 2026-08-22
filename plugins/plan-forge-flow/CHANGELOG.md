@@ -21,6 +21,28 @@ been quietly recording `profile: "Canvas"` against a branch that was never writt
   the host frames it under a CSP that allows none, and a plan that renders as unstyled text at the
   moment of approval is worse than no canvas at all.
 
+## 0.19.0
+
+A Cursor run left a flow log holding four plan-review verdicts in a row — three of them `revise` —
+with nothing between them to say what the plan changed in answer to any of them. Revising the draft
+is the one act the orchestrator does not delegate, so the server never saw it and never wrote it
+down, and the timeline read as a critic contradicting itself. The same run surfaced the log's path
+in its closing message and nowhere earlier, by which time there was nothing left to watch.
+
+- `forge.plan.review` now takes `revision` — what you changed in answer to the previous round's
+  findings — and refuses the call without it from the second round on. It lands in `flow_log.md`
+  ahead of the round it answers into, and no worker ever reads it.
+- The same call takes an optional `deferred`, for findings answered with a decision rather than a
+  change. Like the code-review loop's, it lands in the review log as well, so the next round's
+  critic treats those findings as settled instead of raising them again.
+- Every worker act result now carries a `flowLog` object — the path plus what to do with it — from
+  the moment the file exists. The instruction to surface the timeline used to live only in the
+  skill, and an hour into a run the skill is no longer what the orchestrator is reading. This is
+  the remedy 0.18.2 gave `forge.work.poll`, applied to the one thing the user actually watches.
+- Both arguments are also accepted by `forge.work.start` for the `plan.review` act, and the missing
+  revision is refused there rather than inside the job, so it stays an argument error with no vendor
+  behind it.
+
 ## 0.18.3
 
 A Cursor critic returned a verdict two and a half minutes into its act, and the run failed twenty

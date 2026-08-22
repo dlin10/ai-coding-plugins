@@ -116,9 +116,11 @@ attach to.
 
 Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
 `PLAN.md`, `review-log.md`, `flow_log.md`, `forge.log`, `critiques/`, `baseline.patch`. The flow log is the
-user-facing timeline — every critique, build result and fix round — and nothing ever feeds it
-back to a worker, which is what lets builder entries live there without shifting what the next
-critic judges; `review-log.md` is critic input and stays free of them. There are no locks and no Git refs —
+user-facing timeline — every critique, build result and fix round, plus the orchestrator's own
+revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
+lets builder entries live there without shifting what the next critic judges; `review-log.md` is
+critic input and stays free of them, carrying only the deferrals the next critic must treat as
+settled. There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
 patch.
 

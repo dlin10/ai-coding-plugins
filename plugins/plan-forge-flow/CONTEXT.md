@@ -12,7 +12,8 @@ these terms replace it.
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
-| **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported it itself (codex, cursor); **declarative** when it is a list this repo remembers (claude). Advisory for validation either way: the vendor CLI decides. |
@@ -324,6 +325,34 @@ exclusion that hides that toggle for `.cursor/`, `.claude/` and `.codex/` paths 
 ten seconds or on window focus, and re-running the same `cursor <path>` is what refreshed it.
 The Claude Code desktop panel is documented to behave the same way — render on send, no disk
 watch — so the skill's rule is uniform: surface once, refresh after every worker call.
+
+What the skill could not do on its own is make that happen early. Run `20260822-190108-fcccbd`,
+orchestrated from Cursor, surfaced the path in its closing message and nowhere before it: the
+instruction to show the file at the first plan-review result had fallen out of view long before the
+result arrived, and no tool result carried the path, so nothing brought it back. Every act result
+now carries a `flowLog` object — the path plus what to do with it — from the moment the file
+exists, which is the same remedy `forge.work.poll` got for its next call in 0.18.2 and the same
+reason: an instruction that lives only in the skill does not survive an hour of a run.
+
+## The orchestrator's turn is an act too, and the timeline used to skip it
+
+The same run left four plan-review verdicts in `flow_log.md` with nothing between them. Three of
+them said `revise`, so the plan changed three times, and none of those changes is anywhere in the
+file — the server records what workers return, and revising the draft is the one act it does not
+delegate. A reader of that timeline sees a critic contradicting itself rather than a loop
+converging.
+
+`forge.plan.review` now takes the answer with the round it answers into: `revision`, refused when
+absent from the second round on, and an optional `deferred`. The split between them is the split
+between the two logs. A revision is already visible to the next critic — it is holding the
+redrafted plan — so it goes to the flow log alone, where nothing feeds it back. A deferral is
+invisible in the draft, which is exactly why the same finding returns every round unless the review
+log carries it as a decision; that is the mechanism `forge.review.fix` already used for code
+review, and it applies unchanged here.
+
+Both are written after the critique returns rather than before it, so a vendor timeout or a
+restarted server — both of which this run hit — records the revision once when the act is retried
+with the same arguments.
 
 ## A declared elicitation capability is not a rendered one
 
