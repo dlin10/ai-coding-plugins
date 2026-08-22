@@ -48,6 +48,31 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_poll_that_times_out_asks_for_another_poll_and_a_terminal_one_asks_for_the_fetch()
+    {
+        var run = NewRun("next-call");
+        var vendor = new BlockingVendor();
+        var registry = new JobRegistry();
+
+        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+            "claude", "## draft", null, null, CancellationToken.None, () => vendor);
+        var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
+
+        var running = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
+            TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
+
+        Assert.Equal("running", running["state"]!.GetValue<string>());
+        Assert.Contains("forge.work.poll", running["next"]!.GetValue<string>(), StringComparison.Ordinal);
+
+        vendor.Release();
+        var settled = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
+            CancellationToken.None))!;
+
+        Assert.Equal("succeeded", settled["state"]!.GetValue<string>());
+        Assert.Contains("forge.work.fetch", settled["next"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Invalid_act_and_blank_plan_do_not_construct_the_vendor()
     {
         var run = NewRun("invalid");

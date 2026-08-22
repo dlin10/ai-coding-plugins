@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
@@ -123,6 +124,30 @@ public sealed class DiagnosticLogTests : IDisposable
     }
 
     /// <summary>
+    /// The twenty-minute timeout that swallowed a critique delivered in two: cursor-agent finished
+    /// and exited, an MCP server it had spawned kept the inherited stdout handle, and a reader
+    /// waiting for EOF was waiting on a process that was never the one under the timeout. What the
+    /// vendor wrote still arrives; the wait ends when the vendor does.
+    /// </summary>
+    [Fact]
+    public async Task A_child_holding_the_pipe_open_does_not_extend_the_wait_past_the_process()
+    {
+        var run = RunDirectory.Create(_repo, "20260101-000000-lingering");
+        var clock = Stopwatch.StartNew();
+
+        IReadOnlyList<string> lines;
+        using (RunLog.Use(run.Log))
+        {
+            lines = await StreamingProcess.CollectAsync(Lingering(), TimeSpan.FromMinutes(1), CancellationToken.None);
+        }
+
+        Assert.Equal("done", lines.Single());
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10),
+            $"the read waited {clock.Elapsed} on a pipe the process no longer owned");
+        Assert.Equal("0", Field(Single(Read(run), "process.exit"), "exitCode"));
+    }
+
+    /// <summary>
     /// A plan draft is tens of kilobytes, and a log that swallowed it whole would cost more than it
     /// explains. Cut rather than omitted: the head still identifies which draft was under review.
     /// </summary>
@@ -153,6 +178,20 @@ public sealed class DiagnosticLogTests : IDisposable
                 ["/c", $"echo {Message} 1>&2 & exit 3", "--model", "gpt-5.6-sol-xhigh"], _repo, string.Empty)
             : new ProcessSpec("/bin/sh",
                 ["-c", $"echo '{Message}' 1>&2; exit 3", "--model", "gpt-5.6-sol-xhigh"], _repo, string.Empty);
+    }
+
+    /// <summary>
+    /// Stands in for a vendor that outlives itself: it writes its one line and exits at once, while
+    /// a background child it started holds the stdout handle it inherited for far longer.
+    /// </summary>
+    private ProcessSpec Lingering()
+    {
+        const int Seconds = 15;
+        return OperatingSystem.IsWindows()
+            ? new ProcessSpec("cmd.exe",
+                ["/c", $"echo done&start /b powershell -NoProfile -Command Start-Sleep -Seconds {Seconds}"],
+                _repo, string.Empty)
+            : new ProcessSpec("/bin/sh", ["-c", $"echo done; sleep {Seconds} &"], _repo, string.Empty);
     }
 
     private static IReadOnlyList<JsonElement> Read(RunDirectory run) =>

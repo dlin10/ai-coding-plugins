@@ -1,5 +1,38 @@
 # Plan Forge Flow releases
 
+## 0.18.3
+
+A Cursor critic returned a verdict two and a half minutes into its act, and the run failed twenty
+minutes later with "The operation was canceled". `cursor-agent` had finished and exited; an MCP
+server it spawned kept the stdout handle it inherited, so the pipe never reached EOF — and EOF was
+what the reader was waiting for. The critique sat complete in the vendor's own session store while
+the job spent the rest of its timeout, and because the process was long gone by then the run log
+recorded neither a kill nor an exit to say what had happened. Every vendor read output this way, so
+this was luck rather than a Cursor-only fault.
+
+- A vendor process ending now ends its stream. Each read races the next line against the process's
+  own exit, and once it has exited the pipe is drained for two seconds — long enough for output it
+  already wrote, short enough that a handle held by something else costs nothing. The stderr tail
+  is bounded the same way, for the same reason.
+- The prompt write moved inside the block that kills and logs. A vendor that never drains its stdin
+  blocked that write where nothing was watching, which left a live process behind and a log holding
+  nothing but a launch line.
+
+## 0.18.2
+
+A Cursor run stopped mid-review and asked the user to type "continue". One `forge.work.poll` waits
+45 seconds, and a critic on a reasoning model takes minutes, so a `running` result is the normal
+case rather than the exception — but the instruction to poll again lived only in the skill, and a
+host far enough into a run to have moved past it reads a bare `running` as the end of the wait.
+Nothing was lost: the job kept going and poll → fetch rejoined it. It was still a stall on a call
+the orchestrator could have made itself.
+
+- `forge.work.poll` now answers with the call it wants next: another poll while the job runs, a
+  fetch once it stops, and on `running` an explicit refusal to end the turn or ask the user. The
+  payload travels with the result, so it survives the skill falling out of the host's attention.
+- The skill says the same thing as a prohibition rather than a note, and names the 45-second bound
+  so the many-polls-in-a-row shape is visible before the first one returns.
+
 ## 0.18.1
 
 A Cursor critic or builder ran without the solution's MCP servers: headless `cursor-agent` loads

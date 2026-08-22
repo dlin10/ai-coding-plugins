@@ -281,12 +281,21 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds.")]
-    public static async Task<string> PollWork(
+    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds. A `running` result is not the end of the wait: call this again with the same job id.")]
+    public static Task<string> PollWork(
         JobRegistry registry,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Job id returned by forge.work.start.")] string jobId,
+        CancellationToken ct) =>
+        PollWork(registry, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct);
+
+    internal static async Task<string> PollWork(
+        JobRegistry registry,
+        string workspaceRoot,
+        string runId,
+        string jobId,
+        TimeSpan timeout,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
@@ -294,13 +303,13 @@ internal sealed class ForgeTools
             async () =>
             {
                 ValidateJobId(jobId);
-                var record = await registry.WaitAsync(run.Path, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct)
+                var record = await registry.WaitAsync(run.Path, jobId, timeout, ct)
                     .ConfigureAwait(false);
                 RequireJob(record, jobId);
 
                 return JsonSerializer.Serialize(
                     new WorkPollResult(record!.Id, record.Act, StateName(record.State), ElapsedSeconds(record),
-                                       record.State == JobState.Failed ? record.Error : null),
+                                       record.State == JobState.Failed ? record.Error : null, NextCall(record.State)),
                     ForgeToolJson.Default.WorkPollResult);
             });
     }
@@ -386,6 +395,17 @@ internal sealed class ForgeTools
             JobState.Failed => "failed",
             _ => throw new ArgumentOutOfRangeException(nameof(state))
         };
+
+    /// <summary>
+    /// The poll payload carries its own next call because the instruction to keep polling lives
+    /// only in the skill, and a host whose context has moved on from it reads a bare
+    /// <c>running</c> as the end of the wait: it hands the turn back and asks the user to resume a
+    /// job that never needed them.
+    /// </summary>
+    private static string NextCall(JobState state) =>
+        state == JobState.Running
+            ? "the job is still running: call forge.work.poll again now with this job id. Do not end your turn, and do not ask the user to continue."
+            : "call forge.work.fetch with this job id.";
 
     private static double ElapsedSeconds(JobRecord record) =>
         Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
@@ -474,7 +494,9 @@ internal sealed record ActiveJob(string JobId, string Act, string State, double 
 
 internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started);
 
-internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error);
+/// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
+internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error,
+                                      string Next);
 
 internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error);
 
