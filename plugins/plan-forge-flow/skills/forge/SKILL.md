@@ -30,7 +30,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
 | `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
-| `forge.work.poll` | On Cursor, waits for the started job. A `running` result means keep waiting and is not narration-worthy on its own. |
+| `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
@@ -45,10 +45,13 @@ deferred, so the act completes without starting a builder session. If `forge.wor
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
 use the three work tools above so the surviving server can rejoin a detached worker; on every other
-host, use the one-call worker tools. A `running` poll alone is not narration-worthy. If the
-originating server process exits, an in-flight job id is unknown to a new server and cannot be
-rejoined; after restart, start a new act. Persisted terminal results remain under
-`.forge/<runId>/`.
+host, use the one-call worker tools. One `forge.work.poll` waits 45 seconds, so an act that takes
+minutes needs many of them in a row: keep calling it, in the same turn, until the state is no longer
+`running`, and only then fetch. Each poll result says which call it wants next. A `running` poll is
+not a result, not narration-worthy, and never a reason to end your turn — never stop on one to ask
+the user to continue, because there is nothing for them to answer. If the originating server process
+exits, an in-flight job id is unknown to a new server and cannot be rejoined; after restart, start a
+new act. Persisted terminal results remain under `.forge/<runId>/`.
 
 ## Act 1: the interview
 

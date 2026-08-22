@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.18.2
+
+A Cursor run stopped mid-review and asked the user to type "continue". One `forge.work.poll` waits
+45 seconds, and a critic on a reasoning model takes minutes, so a `running` result is the normal
+case rather than the exception — but the instruction to poll again lived only in the skill, and a
+host far enough into a run to have moved past it reads a bare `running` as the end of the wait.
+Nothing was lost: the job kept going and poll → fetch rejoined it. It was still a stall on a call
+the orchestrator could have made itself.
+
+- `forge.work.poll` now answers with the call it wants next: another poll while the job runs, a
+  fetch once it stops, and on `running` an explicit refusal to end the turn or ask the user. The
+  payload travels with the result, so it survives the skill falling out of the host's attention.
+- The skill says the same thing as a prohibition rather than a note, and names the 45-second bound
+  so the many-polls-in-a-row shape is visible before the first one returns.
+
 ## 0.18.1
 
 A Cursor critic or builder ran without the solution's MCP servers: headless `cursor-agent` loads
