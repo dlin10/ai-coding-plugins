@@ -40,12 +40,12 @@ public sealed class WorkActTests : IDisposable
         var response = new Critique("approve", [], "good");
         directVendor.Enqueue(response);
         var direct = await new PlanReview(directVendor, _prompts).ReviewAsync(
-            NewRun("plan-direct"), draft, new Selection("critic", "low"), CancellationToken.None);
+            NewRun("plan-direct"), draft, new Selection("critic", "low"), null, null, CancellationToken.None);
 
         var dispatchedVendor = new RecordingVendor("claude");
         dispatchedVendor.Enqueue(response);
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "plan.review", NewRun("plan-dispatched"), draft, new Selection("critic", "low"), null, null,
+            "plan.review", NewRun("plan-dispatched"), draft, new Selection("critic", "low"), null, null, null,
             CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
@@ -63,7 +63,7 @@ public sealed class WorkActTests : IDisposable
         var dispatchedVendor = new RecordingVendor("codex");
         dispatchedVendor.Enqueue(response, "next");
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "build.next", NewApprovedRun("build-dispatched"), null, new Selection("builder", null), null, null,
+            "build.next", NewApprovedRun("build-dispatched"), null, new Selection("builder", null), null, null, null,
             CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ForgeToolJson.Default.BuildOutcome), payload);
@@ -82,7 +82,7 @@ public sealed class WorkActTests : IDisposable
         var dispatchedVendor = new RecordingVendor("claude");
         dispatchedVendor.Enqueue(response);
         var payload = await new WorkAct(dispatchedVendor, _prompts, git).RunAsync(
-            "review.code", NewApprovedRun("code-dispatched"), null, new Selection("critic", null), null, null,
+            "review.code", NewApprovedRun("code-dispatched"), null, new Selection("critic", null), null, null, null,
             CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
@@ -104,7 +104,7 @@ public sealed class WorkActTests : IDisposable
         dispatchedVendor.Enqueue(response, "next");
         var dispatchedRun = NewApprovedRun("fix-dispatched", "codex", "old");
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "review.fix", dispatchedRun, null, new Selection("builder", null), findings, deferred,
+            "review.fix", dispatchedRun, null, new Selection("builder", null), findings, deferred, null,
             CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.BuildResult), payload);
@@ -119,7 +119,7 @@ public sealed class WorkActTests : IDisposable
         var run = NewApprovedRun("fix-deferred");
 
         var payload = await new WorkAct(vendor, _prompts).RunAsync(
-            "review.fix", run, null, new Selection("builder", null), " \n", "- outside the plan",
+            "review.fix", run, null, new Selection("builder", null), " \n", "- outside the plan", null,
             CancellationToken.None);
 
         Assert.Empty(vendor.Sessions);
@@ -131,7 +131,7 @@ public sealed class WorkActTests : IDisposable
     public async Task Unknown_act_is_refused()
     {
         var error = await Assert.ThrowsAsync<ArgumentException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
-            .RunAsync("unknown", NewRun("unknown"), null, new Selection("model", null), null, null,
+            .RunAsync("unknown", NewRun("unknown"), null, new Selection("model", null), null, null, null,
                 CancellationToken.None));
 
         Assert.Contains("unknown work act", error.Message, StringComparison.Ordinal);

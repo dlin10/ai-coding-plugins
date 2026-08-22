@@ -56,7 +56,8 @@ public sealed class PlanReviewTests : IDisposable
         var act = NewAct();
 
         var rejection = await Assert.ThrowsAsync<ReviewCapReachedException>(
-            () => act.ReviewAsync(run, HoledPlan, new Selection("sonnet", null), CancellationToken.None));
+            () => act.ReviewAsync(run, HoledPlan, new Selection("sonnet", null), "tightened step 3", null,
+                                  CancellationToken.None));
 
         Assert.Contains("cap is 5", rejection.Message, StringComparison.Ordinal);
         Assert.Equal(5, run.ReadState().ReviewRounds);
@@ -72,7 +73,7 @@ public sealed class PlanReviewTests : IDisposable
         var act = NewAct();
         var selection = new Selection("sonnet", "low");
 
-        var first = await act.ReviewAsync(run, HoledPlan, selection, ct);
+        var first = await act.ReviewAsync(run, HoledPlan, selection, null, null, ct);
         Assert.Equal("revise", first.Verdict);
         Assert.NotEmpty(first.Findings);
 
@@ -81,7 +82,10 @@ public sealed class PlanReviewTests : IDisposable
         var raised = string.Join(" ", first.Findings.Select(f => $"{f.Where} {f.What}"));
         Assert.Contains(Holes, hole => raised.Contains(hole, StringComparison.OrdinalIgnoreCase));
 
-        var second = await act.ReviewAsync(run, HardenedPlan, selection, ct);
+        var second = await act.ReviewAsync(run, HardenedPlan, selection,
+                                           "defined the retention window, verified every step, and made the "
+                                           + "destructive delete run last behind a passing verification",
+                                           null, ct);
 
         Assert.Equal(2, run.ReadState().ReviewRounds);
 
@@ -103,12 +107,78 @@ public sealed class PlanReviewTests : IDisposable
         var run = NewRun(rounds: 0, cap: 5);
 
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
-            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), CancellationToken.None);
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, CancellationToken.None);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Plan review — round 1", flow, StringComparison.Ordinal);
         Assert.Contains("Verdict: revise", flow, StringComparison.Ordinal);
         Assert.Contains("no verification step named", flow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The gap this closes: the timeline used to show one verdict after another with nothing
+    /// between them, because the orchestrator's turn — the only one that changes the plan — was
+    /// never written anywhere.
+    /// </summary>
+    [Fact]
+    public async Task The_orchestrators_answer_to_a_round_lands_in_the_flow_log_before_the_next_critique()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 1, cap: 5);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                         "named the retention window and moved the delete behind a passing verification",
+                         "- rollback rehearsal — the user ruled it out of scope", CancellationToken.None);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan revision after round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("named the retention window", flow, StringComparison.Ordinal);
+        Assert.Contains("### Deferred by the orchestrator", flow, StringComparison.Ordinal);
+        Assert.True(flow.IndexOf("## Plan revision after round 1", StringComparison.Ordinal)
+                    < flow.IndexOf("## Plan review — round 2", StringComparison.Ordinal),
+                    "the revision must read before the round it answers into");
+    }
+
+    /// <summary>
+    /// Only the deferral travels to the critic. What was changed is already in the draft it is
+    /// handed; what was refused is invisible there, and comes back as the same finding every round
+    /// unless the log records it as a decision.
+    /// </summary>
+    [Fact]
+    public async Task A_deferral_reaches_the_next_rounds_critic_and_the_revision_does_not()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 1, cap: 5);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                         "rewrote the verification of step 2",
+                         "- rollback rehearsal — the user ruled it out of scope", CancellationToken.None);
+
+        var reviewLog = run.ReadReviewLog();
+        Assert.Contains("## Round 1 — deferred by the orchestrator", reviewLog, StringComparison.Ordinal);
+        Assert.Contains("rollback rehearsal", reviewLog, StringComparison.Ordinal);
+        Assert.DoesNotContain("rewrote the verification", reviewLog, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_round_after_the_first_is_refused_without_a_revision()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 1, cap: 5);
+
+        var rejection = await Assert.ThrowsAsync<RevisionMissingException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), " ", null,
+                             CancellationToken.None));
+
+        Assert.Contains("round 1 has already run", rejection.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+        Assert.Equal(1, run.ReadState().ReviewRounds);
     }
 
     /// <summary>
@@ -124,7 +194,7 @@ public sealed class PlanReviewTests : IDisposable
         var run = NewRun(rounds: 0, cap: 5);
 
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
-            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), CancellationToken.None);
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, CancellationToken.None);
 
         Assert.Contains("Coverage runs both ways", critic.Sessions[0].Role.SystemPrompt,
             StringComparison.Ordinal);

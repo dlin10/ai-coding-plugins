@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PlanForge.Acts;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Run;
@@ -33,7 +34,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         Assert.Equal("running", JsonNode.Parse(start)!["state"]!.GetValue<string>());
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
@@ -47,6 +48,76 @@ public sealed class WorkToolsTests : IDisposable
             fetch["result"]!.GetValue<string>());
     }
 
+    /// <summary>
+    /// The path travels with the result for the same reason the poll carries its next call: the
+    /// instruction to surface the timeline lives in the skill, and a run that has been going for
+    /// an hour has long since stopped reading it.
+    /// </summary>
+    [Fact]
+    public async Task The_fetched_result_carries_the_flow_log_once_there_is_one_to_show()
+    {
+        var run = NewRun("timeline");
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new Critique("revise", [new Finding("major", "step 1", "no gate")], "one hole"));
+        var registry = new JobRegistry();
+
+        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
+        var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
+        await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
+
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId))!;
+
+        Assert.Equal(run.FlowLogPath, fetch["flowLog"]!["path"]!.GetValue<string>());
+        Assert.Contains("show this file to the user now", fetch["flowLog"]!["next"]!.GetValue<string>(),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reflection-based serialization is off repo-wide, so a result shape missing from
+    /// <c>ForgeToolJson</c> compiles and then throws on the first real call — and the one-call
+    /// tools that return these three cannot be reached without a live vendor CLI.
+    /// </summary>
+    [Fact]
+    public void Every_act_result_shape_serializes_through_the_source_generated_context()
+    {
+        var flowLog = new FlowLog(@"C:\repo\.forge\run\flow_log.md", "show it");
+        var critique = new Critique("revise", [new Finding("major", "step 1", "no gate")], "one hole");
+        var build = new BuildResult("done", ["tracked.cs"], new Verification("passed", "the checks ran"), "built");
+
+        Assert.Contains("\"critique\"", JsonSerializer.Serialize(new CritiqueResult(critique, flowLog),
+            ForgeToolJson.Default.CritiqueResult), StringComparison.Ordinal);
+        Assert.Contains("\"build\"", JsonSerializer.Serialize(new BuildNextResult(new BuildOutcome(build, 1, 1), flowLog),
+            ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
+        Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, flowLog),
+            ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The act refuses this itself, but only once the job is running. Refusing at the start keeps
+    /// it an argument error answered by this call, with no vendor constructed behind it.
+    /// </summary>
+    [Fact]
+    public async Task A_second_plan_review_round_without_a_revision_is_refused_before_the_vendor()
+    {
+        var run = NewRun("no-revision");
+        run.WriteState(run.ReadState() with { ReviewRounds = 1 });
+        var registry = new JobRegistry();
+        var calls = 0;
+        Func<IVendor> factory = () =>
+        {
+            calls++;
+            return new RecordingVendor("claude");
+        };
+
+        await Assert.ThrowsAsync<RevisionMissingException>(() => ForgeTools.StartWork(registry, _workspace,
+            run.RunId, "plan.review", "critic", null, "claude", "## draft", null, null, null,
+            CancellationToken.None, factory));
+
+        Assert.Equal(0, calls);
+        Assert.Null(registry.Get(run.Path));
+    }
+
     [Fact]
     public async Task A_poll_that_times_out_asks_for_another_poll_and_a_terminal_one_asks_for_the_fetch()
     {
@@ -55,7 +126,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
         var running = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
@@ -85,9 +156,9 @@ public sealed class WorkToolsTests : IDisposable
         };
 
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, CancellationToken.None, factory));
+            "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, CancellationToken.None, factory));
+            "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Null(registry.Get(run.Path));
@@ -101,7 +172,7 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
         var first = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review",
-            "critic", null, "claude", "## draft", null, null, CancellationToken.None, () => vendor))!;
+            "critic", null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var calls = 0;
         Func<IVendor> factory = () =>
@@ -111,9 +182,9 @@ public sealed class WorkToolsTests : IDisposable
         };
 
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, CancellationToken.None, factory));
+            "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, CancellationToken.None, factory));
+            "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Equal(jobId, registry.Get(run.Path)?.Id);
@@ -130,7 +201,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
 
@@ -149,10 +220,10 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var first = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, CancellationToken.None, () => vendor))!;
+            null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var second = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, CancellationToken.None, () => vendor))!;
+            null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
 
         Assert.False(second["started"]!.GetValue<bool>());
         Assert.Equal(jobId, second["jobId"]!.GetValue<string>());

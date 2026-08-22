@@ -33,16 +33,17 @@ internal sealed class WorkAct
         Selection selection,
         string? findings,
         string? deferred,
+        string? revision,
         CancellationToken ct)
     {
-        ValidateArguments(act, planDraft, selection, findings, deferred);
+        ValidateArguments(act, planDraft, selection, findings, deferred, revision);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft!, selection, ct)
+                    .ReviewAsync(run, planDraft!, selection, revision, deferred, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
@@ -75,7 +76,8 @@ internal sealed class WorkAct
         string? planDraft,
         Selection? selection,
         string? findings,
-        string? deferred)
+        string? deferred,
+        string? revision)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
@@ -90,16 +92,17 @@ internal sealed class WorkAct
             case "plan.review":
                 Require(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
-                RejectProvided(deferred, nameof(deferred), act);
                 break;
             case "build.next":
             case "review.code":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
                 RejectProvided(deferred, nameof(deferred), act);
+                RejectProvided(revision, nameof(revision), act);
                 break;
             case "review.fix":
                 RejectProvided(planDraft, nameof(planDraft), act);
+                RejectProvided(revision, nameof(revision), act);
                 if (findings is null)
                     throw new ArgumentException($"{act} requires findings", nameof(findings));
                 break;

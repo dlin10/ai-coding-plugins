@@ -100,7 +100,7 @@ internal sealed class ForgeTools
     /// One round only. The critic judges the draft; revising it and calling again is the
     /// orchestrator's job, because the revision needs the interview context.
     /// </summary>
-    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique.")]
+    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique with the path to the run's flow log.")]
     public static async Task<string> ReviewPlan(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
@@ -108,17 +108,22 @@ internal sealed class ForgeTools
         [Description("Model for the critic.")] string model,
         [Description("Optional effort level.")] string? effort,
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
+        [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision,
+        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred,
         CancellationToken ct)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.plan.review",
-            [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft)],
+            [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft),
+             ("revision", revision), ("deferred", deferred)],
             async () =>
             {
                 var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-                var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort), ct);
+                var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort),
+                                                     revision, deferred, ct);
 
-                return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+                return JsonSerializer.Serialize(new CritiqueResult(critique, Timeline(run)),
+                                                ForgeToolJson.Default.CritiqueResult);
             });
     }
 
@@ -173,7 +178,8 @@ internal sealed class ForgeTools
                 var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
                 var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
 
-                return JsonSerializer.Serialize(outcome, ForgeToolJson.Default.BuildOutcome);
+                return JsonSerializer.Serialize(new BuildNextResult(outcome, Timeline(run)),
+                                                ForgeToolJson.Default.BuildNextResult);
             });
     }
 
@@ -201,7 +207,8 @@ internal sealed class ForgeTools
                     new GitClient(workspaceRoot));
                 var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
 
-                return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+                return JsonSerializer.Serialize(new CritiqueResult(critique, Timeline(run)),
+                                                ForgeToolJson.Default.CritiqueResult);
             });
     }
 
@@ -224,7 +231,8 @@ internal sealed class ForgeTools
                 var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
                 var result = await act.FixAsync(run, new Selection(model, effort), findings, deferred, ct);
 
-                return JsonSerializer.Serialize(result, ContractJson.Default.BuildResult);
+                return JsonSerializer.Serialize(new ReviewFixResult(result, Timeline(run)),
+                                                ForgeToolJson.Default.ReviewFixResult);
             });
     }
 
@@ -240,11 +248,12 @@ internal sealed class ForgeTools
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
         [Description("Plan draft, required only by plan.review.")] string? planDraft = null,
         [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
-        [Description("Optional deferred findings for review.fix.")] string? deferred = null)
+        [Description("Deferred findings, with reasons: for review.fix, and optionally for plan.review.")] string? deferred = null,
+        [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
-                         deferred, ct, () => VendorFactory.Create(vendor, workspaceRoot));
+                         deferred, revision, ct, () => VendorFactory.Create(vendor, workspaceRoot));
     }
 
     internal static async Task<string> StartWork(
@@ -258,21 +267,28 @@ internal sealed class ForgeTools
         string? planDraft,
         string? findings,
         string? deferred,
+        string? revision,
         CancellationToken ct,
         Func<IVendor> vendorFactory)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
-             ("planDraft", planDraft), ("findings", findings), ("deferred", deferred)],
+             ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
+             ("revision", revision)],
             async () =>
             {
-                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred);
+                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred, revision);
+
+                // The act would refuse this itself a moment later, inside the job. Refusing here
+                // instead keeps a missing revision an argument error, answered by this call rather
+                // than by a poll that reports a failure with nothing running behind it.
+                if (act == "plan.review") PlanReview.RequireRevision(run.ReadState().ReviewRounds, revision);
 
                 var workAct = new WorkAct(vendorFactory(), new PromptLibrary());
                 var selection = new Selection(model, effort);
                 var started = registry.Start(run.Path, act,
-                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, jobCt));
+                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision, jobCt));
 
                 var record = started.Record;
                 return JsonSerializer.Serialize(
@@ -334,7 +350,7 @@ internal sealed class ForgeTools
                 var result = record.State == JobState.Completed ? record.ResultPayload : null;
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
-                                        record.State == JobState.Failed ? record.Error : null),
+                                        record.State == JobState.Failed ? record.Error : null, Timeline(run)),
                     ForgeToolJson.Default.WorkFetchResult));
             });
     }
@@ -386,6 +402,19 @@ internal sealed class ForgeTools
 
         return run.DiagnosticLogPath;
     }
+
+    /// <summary>
+    /// The flow log travelling with every act result, for the same reason `forge.work.poll` carries
+    /// its next call: an instruction that lives only in the skill is gone by mid-run, and the one it
+    /// lost was "surface this file". The path is <see langword="null"/> until the file exists, which
+    /// is what makes the first result carrying one the moment there is something to show.
+    /// </summary>
+    private static FlowLog? Timeline(RunDirectory run) =>
+        File.Exists(run.FlowLogPath)
+            ? new FlowLog(run.FlowLogPath,
+                          "show this file to the user now — it is the run's user-facing timeline — "
+                          + "and show it again after every later worker act.")
+            : null;
 
     private static string StateName(JobState state) =>
         state switch
@@ -494,11 +523,22 @@ internal sealed record ActiveJob(string JobId, string Act, string State, double 
 
 internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started);
 
+/// <param name="Next">What to do with the file: the instruction travels with the path so neither depends on the skill still being in view.</param>
+internal sealed record FlowLog(string Path, string Next);
+
+/// <summary>Both review tools answer with this: one critique, plus where the user can watch the run.</summary>
+internal sealed record CritiqueResult(Critique Critique, FlowLog? FlowLog);
+
+internal sealed record BuildNextResult(BuildOutcome Build, FlowLog? FlowLog);
+
+internal sealed record ReviewFixResult(BuildResult Fix, FlowLog? FlowLog);
+
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
 internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error,
                                       string Next);
 
-internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error);
+internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error,
+                                       FlowLog? FlowLog);
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
@@ -522,6 +562,10 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]
+[JsonSerializable(typeof(FlowLog))]
+[JsonSerializable(typeof(CritiqueResult))]
+[JsonSerializable(typeof(BuildNextResult))]
+[JsonSerializable(typeof(ReviewFixResult))]
 [JsonSerializable(typeof(WorkStartResult))]
 [JsonSerializable(typeof(WorkPollResult))]
 [JsonSerializable(typeof(WorkFetchResult))]

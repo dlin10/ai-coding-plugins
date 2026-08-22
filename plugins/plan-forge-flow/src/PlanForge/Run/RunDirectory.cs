@@ -187,12 +187,48 @@ internal sealed class RunDirectory
     }
 
     /// <summary>
+    /// What the orchestrator refused to change after a plan-review round, and why. Only the
+    /// refusals travel to the next round's critic: the revisions themselves are already in the
+    /// draft it is handed, while a deferral is invisible there and comes back as the same finding
+    /// every round unless it is recorded as a decision.
+    /// </summary>
+    public void AppendReviewDeferral(int round, string deferred) =>
+        AtomicFile.Append(ReviewLogPath,
+            new StringBuilder().Append("## Round ").Append(round).AppendLine(" — deferred by the orchestrator")
+                               .AppendLine()
+                               .AppendLine(deferred.TrimEnd())
+                               .AppendLine()
+                               .ToString());
+
+    /// <summary>
     /// The user-facing timeline of the delegated acts, one file for the orchestrator to surface in
     /// whatever panel the host has. Unlike the review log it is never fed back to a worker, which
     /// is why builder entries can live here without shifting what the next round's critic judges.
     /// </summary>
     public void AppendFlowCritique(string act, int round, Critique critique) =>
         AtomicFile.Append(FlowLogPath, CritiqueEntry($"## {act} — round {round}", critique));
+
+    /// <summary>
+    /// The orchestrator's own turn in the plan-review loop, which the timeline used to skip: the
+    /// user saw one verdict, then the next, with nothing between them saying what the findings
+    /// changed. The critic's rounds are worker acts and the server records them; this is the only
+    /// entry the orchestrator has to hand in itself.
+    /// </summary>
+    public void AppendFlowRevision(int round, string revision, string? deferred)
+    {
+        var entry = new StringBuilder().Append("## Plan revision after round ").Append(round).AppendLine()
+                                       .AppendLine()
+                                       .AppendLine(revision.TrimEnd())
+                                       .AppendLine();
+
+        if (deferred is { Length: > 0 })
+            entry.AppendLine("### Deferred by the orchestrator")
+                 .AppendLine()
+                 .AppendLine(deferred.TrimEnd())
+                 .AppendLine();
+
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
 
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
