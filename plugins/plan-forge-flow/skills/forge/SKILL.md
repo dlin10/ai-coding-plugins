@@ -23,13 +23,13 @@ an ordinary request to plan something, or an existing draft are not consent.
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
-| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again. |
+| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again, saying in `revision` what you changed — required from the second round on. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
-| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
+| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
@@ -42,6 +42,10 @@ an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, 
 and `forge.review.fix`. For Cursor's `review.fix`, blank `findings` means all findings are
 deferred, so the act completes without starting a builder session. If `forge.work.start` returns
 `started: false`, rejoin its active job with poll → fetch.
+
+Every worker act answers with its own result beside a `flowLog` object — the critique under
+`critique`, the build under `build`, the fix under `fix`, and on Cursor the act's own payload as
+the `result` string of `forge.work.fetch`. What to do with the `flowLog` is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
 use the three work tools above so the surviving server can rejoin a detached worker; on every other
@@ -176,6 +180,18 @@ one round and returns a verdict of `approve` or `revise` plus findings. On `revi
 findings in the plan yourself and run the next round. The critic is a fresh process each round but
 is given the log of earlier rounds, so it converges rather than reopening settled points.
 
+Every round after the first carries your answer to the one before it, in two arguments, and the
+tool refuses the call without the first of them:
+
+- `revision` — what you changed in the plan, in a sentence or a short list, in the findings' own
+  terms. It goes to the flow log and nowhere else, so the user can see your turn between the
+  critic's; no worker ever reads it. Say so plainly when a round changed nothing and you are
+  re-running for another reason.
+- `deferred` — findings you decided not to act on, each with its reason. It goes to the flow log
+  **and** to the review log, so the next round's critic reads it as a decision instead of raising
+  the same point again. Defer what the user has settled or the scope excludes, never what is merely
+  inconvenient — the bias is the same one the code-review loop runs on.
+
 The critic judges the requirements too, and those findings are not all yours to fix. One the
 interview already settles — two requirements you wrote that contradict each other, a condition
 stated too vaguely to check — you revise and carry on without stopping. One it does not — a
@@ -195,13 +211,17 @@ buries the one version that matters. The plan reaches them exactly once, when th
 
 Every tool result lands in your context and nowhere else — the user sees none of it unless you
 surface it. The server keeps the user-facing timeline for you: every worker call appends its
-outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, build results with
-status and files changed, and each fix round's kept and deferred findings. Unlike
-`review-log.md`, nothing feeds this file back to a worker; it exists to be shown.
+outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, your own revision and
+deferrals between plan-review rounds, build results with status and files changed, and each fix
+round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to a
+worker; it exists to be shown.
 
-The file appears when the first plan-review result returns, whether from the one-call tool or
-`forge.work.fetch`. Surface it then, with the best your host has, and refresh it after every later
-worker act — no host watches the disk for you:
+Every act result carries the file as `flowLog`, with its `path` and what to do with it, from the
+moment there is something to show — the first plan-review result, whether from the one-call tool
+or `forge.work.fetch`. **Surface it in the same turn that first `flowLog` arrives**, not at the
+end of the run: a link handed over once the work is finished is a link to something the user
+could no longer watch. Then refresh it after every later worker act — no host watches the disk
+for you:
 
 - A host that renders local files (the Claude Code desktop app) — show the file, and re-send it
   after each call.
