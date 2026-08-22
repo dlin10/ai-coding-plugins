@@ -1,5 +1,23 @@
 # Plan Forge Flow releases
 
+## 0.18.3
+
+A Cursor critic returned a verdict two and a half minutes into its act, and the run failed twenty
+minutes later with "The operation was canceled". `cursor-agent` had finished and exited; an MCP
+server it spawned kept the stdout handle it inherited, so the pipe never reached EOF — and EOF was
+what the reader was waiting for. The critique sat complete in the vendor's own session store while
+the job spent the rest of its timeout, and because the process was long gone by then the run log
+recorded neither a kill nor an exit to say what had happened. Every vendor read output this way, so
+this was luck rather than a Cursor-only fault.
+
+- A vendor process ending now ends its stream. Each read races the next line against the process's
+  own exit, and once it has exited the pipe is drained for two seconds — long enough for output it
+  already wrote, short enough that a handle held by something else costs nothing. The stderr tail
+  is bounded the same way, for the same reason.
+- The prompt write moved inside the block that kills and logs. A vendor that never drains its stdin
+  blocked that write where nothing was watching, which left a live process behind and a log holding
+  nothing but a launch line.
+
 ## 0.18.2
 
 A Cursor run stopped mid-review and asked the user to type "continue". One `forge.work.poll` waits
