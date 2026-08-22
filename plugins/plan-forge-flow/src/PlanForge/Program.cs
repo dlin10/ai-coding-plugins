@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Protocol;
 using PlanForge.Diagnostics;
 using PlanForge.Jobs;
@@ -27,6 +28,11 @@ builder.Services
     .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
     .AddMcpServer(o => o.ServerInfo = new Implementation { Name = "planforge", Version = version })
     .WithStdioServerTransport()
-    .WithTools<ForgeTools>();
+    .WithTools<ForgeTools>()
+    .WithResources<PlanCanvas>()
+    // Reads the [McpAppUi] attributes the tools already carry and turns them into _meta.ui, so it
+    // has to come after WithTools. Only forge.plan.show carries one; every other tool is untouched,
+    // and a host that never negotiated the capability sees the same surface it always did.
+    .WithMcpApps();
 
 await builder.Build().RunAsync();

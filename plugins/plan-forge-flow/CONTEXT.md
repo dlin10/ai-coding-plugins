@@ -288,22 +288,28 @@ documented licence to edit the file: the run id keeps passing the same containme
 other write, the format stays one thing rather than one per agent, and the skill's "do not
 hand-edit anything under `.forge/`" rule survives intact.
 
-## Only the `text` profile exists
+## The `canvas` profile has a host; the Tasks extension still has none
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and
 Cursor 1.0.0 both negotiate protocol `2025-11-25` and report `extensions: null` with no UI
 capability. Neither the MCP Apps extension (the `canvas` profile) nor the Tasks extension (streamed
 progress) is negotiated by any available host.
 
-So the plan is delivered as markdown in the tool result, and progress is observable only at the
-granularity of one tool call per unit of work, plus `forge.status` on demand. The `canvas` branch is
-not written until a host negotiates the capability; `McpApps.GetUiCapability(...)` from the SDK is
-the check that would enable it.
+Half of that has expired. Run `20260818-123941-05cfa8`, orchestrated from Cursor 3.15, recorded
+`profile: "Canvas"` in its state, and run `20260822-190108-fcccbd` did the same from Cursor 3.17.8 —
+which identifies itself as `cursor-vscode` and advertises
+`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`. The
+detector only says `Canvas` when `McpApps.GetUiCapability(...)` returns non-null, so current Cursor
+**does** negotiate the UI capability. Claude Code still reports `Text`; Codex has not been measured,
+because its sandbox refuses to spawn the spike.
 
-That spike is dated: run `20260818-123941-05cfa8`, orchestrated from Cursor 3.15, recorded
-`profile: "Canvas"` in its state — the detector only says that when `McpApps.GetUiCapability`
-returns non-null, so current Cursor **does** negotiate the UI capability. The `canvas` branch is
-still unwritten; the profile now merely has a potential customer.
+So the `canvas` branch is written, and it is one tool wide: `forge.plan.show` renders the plan
+through the `ui://planforge/plan.html` resource — see [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
+Every other tool still delivers markdown in the tool result, which is also what a `Text` host gets
+from `forge.plan.show` itself.
+
+The Tasks half stands unchanged: nobody negotiates it, so progress is observable only at the
+granularity of one tool call per unit of work, plus `forge.status` on demand.
 
 ## Surfacing the flow log is the orchestrator's act, and each host differs
 

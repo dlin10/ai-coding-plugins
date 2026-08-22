@@ -1,5 +1,26 @@
 # Plan Forge Flow releases
 
+## 0.20.0
+
+The plan reaches the user exactly once, at approval, and until now it reached them as a wall of
+markdown in the chat — the worst place to read a document you are being asked to sign off. The
+spike behind [docs/adr/0002](docs/adr/0002-mcp-server-surface-without-enforcement.md) had ruled a
+canvas out because no host negotiated the UI capability. That is no longer true: MCP Apps shipped
+as the first official MCP extension, Cursor implements it, and runs orchestrated from Cursor have
+been quietly recording `profile: "Canvas"` against a branch that was never written.
+
+- `forge.plan.show` renders the plan as a document in the host's own UI, with the working-tree
+  drift above it. Display only: it writes nothing and decides nothing, approval is still
+  `forge.plan.confirm` recording an answer the orchestrator collected, and the canvas says so to
+  the user. See [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
+- Nothing changes for a host that does not negotiate the capability. Verified against the published
+  binary with two clients, one advertising the extension and one not: `tools/list` is identical
+  either way, and `_meta.ui` appears on this one tool alone. Claude Code and Codex keep the twelve
+  tools they had; what they also see now is a `resources` capability and one `ui://` resource.
+- The canvas document is self-contained — no stylesheet, font or script from any origin — because
+  the host frames it under a CSP that allows none, and a plan that renders as unstyled text at the
+  moment of approval is worse than no canvas at all.
+
 ## 0.18.3
 
 A Cursor critic returned a verdict two and a half minutes into its act, and the run failed twenty

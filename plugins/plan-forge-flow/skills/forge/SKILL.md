@@ -21,9 +21,10 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId` and the connecting `client`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
+| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
 | `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again. |
+| `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
@@ -223,11 +224,20 @@ Nothing in the server asks the user anything. Showing them the plan and getting 
 job, in four steps:
 
 1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
-2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it. Use
-   whatever your host displays best: an artifact, a canvas, a widget, or plain markdown in the chat.
-   If anything drifted, say so out loud rather than leaving it in a list they may not read.
-3. Ask them to approve it or say what to change. On a change, revise the plan and go back to
-   `forge.plan.review` — a plan amended after the last verdict has not been reviewed.
+2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
+   - On the `Canvas` profile — the one `forge.begin` reported, which today means Cursor — call
+     `forge.plan.show` with the plan. It renders as a document, with the drift above it, in the
+     host's own UI. Do not paste the plan into the chat as well; the canvas is where they read it.
+   - On the `Text` profile, use whatever your host displays best: an artifact, a widget, or plain
+     markdown in the chat. Do not call `forge.plan.show` — nothing renders, and the result is the
+     plan you are already holding.
+
+   Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
+   read.
+3. Ask them to approve it or say what to change. Ask in the chat even when the canvas is up: it
+   displays and nothing more, and it says so to the user. On a change, revise the plan and go back
+   to `forge.plan.review` — a plan amended after the last verdict has not been reviewed — then show
+   the revised plan again before asking a second time.
 4. Pass what they answered to `forge.plan.confirm`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole

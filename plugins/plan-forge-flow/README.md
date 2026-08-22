@@ -18,6 +18,7 @@ are separate model processes, and neither ever revises the plan.
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
 | `forge.plan.review` | One review round: a fresh critic judges the current draft |
+| `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
@@ -44,10 +45,16 @@ opened.
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
-that drift however its own host shows things best — an artifact, a widget, plain chat — and passes
-back what they answered. `forge.plan.confirm` records it. See
+that drift however its own host shows things best, and passes back what they answered.
+`forge.plan.confirm` records it. See
 [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md) for why elicitation was removed
 rather than repaired.
+
+On a host that negotiates the MCP Apps UI extension — Cursor does, Claude Code does not — "however
+its own host shows things best" has a concrete answer: `forge.plan.show` renders the plan as a
+document, with the drift above it, in the host's own UI. It is display only, and every other host
+sees the surface it always did. See
+[docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
 
 The tool is for a decision the user actually made. Deciding on their behalf is the one thing it must
 not be used for, and nothing in this codebase can tell the difference.
