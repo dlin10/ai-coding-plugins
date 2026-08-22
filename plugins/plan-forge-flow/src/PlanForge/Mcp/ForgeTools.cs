@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
 using PlanForge.Diagnostics;
@@ -124,6 +125,39 @@ internal sealed class ForgeTools
 
                 return JsonSerializer.Serialize(new CritiqueResult(critique, Timeline(run)),
                                                 ForgeToolJson.Default.CritiqueResult);
+            });
+    }
+
+    /// <summary>
+    /// Display only, and the one tool here that exists for the user rather than for the run: it
+    /// puts the whole plan and the drift in front of them as a document instead of a wall of chat.
+    /// It writes nothing and decides nothing — the answer still arrives through
+    /// <c>forge.plan.confirm</c>, and a host that renders this still has to ask.
+    /// </summary>
+    /// <remarks>
+    /// The UI is attached through <c>_meta.ui</c>, which a host without the MCP Apps capability
+    /// ignores, so the call degrades to the same JSON every other tool returns. That is why the
+    /// description sends Text-profile hosts to the chat rather than here: the result would be the
+    /// plan they already hold, rendered by nobody. See docs/adr/0008.
+    /// </remarks>
+    [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead.")]
+    public static async Task<string> ShowPlan(
+        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+        [Description("Run id from forge.begin.")] string runId,
+        [Description("The plan to show, as markdown. The whole plan, not a summary of it.")] string plan,
+        CancellationToken ct)
+    {
+        var run = RunDirectory.Open(workspaceRoot, runId);
+        return await LoggedAsync(run, "forge.plan.show", [("plan", plan)],
+            async () =>
+            {
+                var state = run.ReadState();
+                var drifted = await run.ReadBaseline(state.BaselineHead)
+                                       .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
+
+                return JsonSerializer.Serialize(
+                    new PlanViewResult(state.RunId, plan, drifted, state.ReviewRounds, state.Approved),
+                    ForgeToolJson.Default.PlanViewResult);
             });
     }
 
@@ -513,6 +547,17 @@ internal sealed record BeginResult(string RunId, string RunPath, string Profile,
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 
 /// <summary>
+/// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`
+/// because the plan has not been written yet at the moment it needs showing — `forge.plan.confirm`
+/// is what writes it, and it runs after the user has answered.
+/// </summary>
+internal sealed record PlanViewResult(string RunId,
+                                      string Plan,
+                                      IReadOnlyList<string> DriftedFiles,
+                                      int ReviewRounds,
+                                      bool Approved);
+
+/// <summary>
 /// Drift travels with the status rather than only with the decision, because the orchestrator has
 /// to show it to the user <em>before</em> asking, and the decision call is where it would arrive
 /// too late to matter.
@@ -559,6 +604,7 @@ internal sealed record CatalogModel(string Id,
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
+[JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]

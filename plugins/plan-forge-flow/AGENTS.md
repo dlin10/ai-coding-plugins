@@ -112,6 +112,11 @@ precisely because the 1.x copies drifted apart. `prompts/scope-contract.md` is a
 way, but only for code review, where "judge the diff against the approved plan" has something to
 attach to.
 
+The canvas document is the deliberate exception. `Mcp/PlanCanvas.html` is a real file for the sake
+of editing it as HTML, but it is an `EmbeddedResource` rather than a sidecar: it is UI code with a
+postMessage contract to keep, not a tunable, and the bundle is asserted to ship no loose files
+beside the binary. Do not move it in with the prompts.
+
 ## Run state, and the absence of locks
 
 Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,

@@ -139,10 +139,12 @@ function Test-PublishedServer([string]$Executable) {
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"package-verify","version":"1.0.0"}}}')
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ui://planforge/plan.html"}}')
         $process.StandardInput.Flush()
 
         $tools = $null
-        while ($null -eq $tools) {
+        $canvas = $null
+        while ($null -eq $tools -or $null -eq $canvas) {
             $read = $process.StandardOutput.ReadLineAsync()
             if (-not $read.Wait(60000)) { throw 'published executable did not answer the MCP handshake within 60s' }
             $line = $read.Result
@@ -152,10 +154,30 @@ function Test-PublishedServer([string]$Executable) {
                 if ($message.error) { throw "published executable failed tools/list: $($message.error.message)" }
                 $tools = @($message.result.tools)
             }
+            if ($message.id -eq 3) {
+                if ($message.error) { throw "published executable failed resources/read: $($message.error.message)" }
+                $canvas = @($message.result.contents)[0]
+            }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.review', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
+        }
+        # The canvas is two halves that only work together: the tool has to point at the resource,
+        # and the resource has to come back as an MCP App. Either half alone renders nothing.
+        $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1
+        if ($planShow._meta.ui.resourceUri -ne 'ui://planforge/plan.html') {
+            throw 'forge.plan.show does not carry the canvas resource in _meta.ui'
+        }
+        $uiTools = @($tools | Where-Object { $_._meta.ui })
+        if ($uiTools.Count -ne 1) {
+            throw "expected exactly one tool with _meta.ui, found $($uiTools.Count): $($uiTools.name -join ', ')"
+        }
+        if ($canvas.mimeType -ne 'text/html;profile=mcp-app') {
+            throw "canvas resource has the wrong mime type: $($canvas.mimeType)"
+        }
+        if ($canvas.text -notmatch 'ui/notifications/tool-result') {
+            throw 'canvas resource does not listen for the tool result it renders'
         }
         $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
         $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)

@@ -1,2 +1,5 @@
 plugins/plan-forge-flow/bin/win-x64/planforge.exe filter=lfs diff=lfs merge=lfs -text
 plugins/plan-forge-flow/bin/planforge-launcher.sh text eol=lf
+# Embedded verbatim into planforge.exe, so its line endings are shipped bytes rather than a
+# working-copy detail: without this a CRLF checkout would build a different resource.
+plugins/plan-forge-flow/src/PlanForge/Mcp/PlanCanvas.html text eol=lf

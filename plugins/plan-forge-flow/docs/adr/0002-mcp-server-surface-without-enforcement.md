@@ -1,7 +1,10 @@
 # Ship as an MCP server with no enforcement, and no canvas or task extensions
 
 The approval half is superseded by [0003](0003-approval-through-the-orchestrator.md): elicitation is
-gone, and the orchestrator asks. Everything else below stands.
+gone, and the orchestrator asks. The canvas half is superseded by
+[0008](0008-render-the-plan-on-a-canvas.md): the measurement below has expired, Cursor negotiates
+the MCP Apps UI capability, and the plan renders through it. Everything else below stands, the
+absent Tasks extension included.
 
 Plan Forge Flow stops being a CLI wrapped in hooks and becomes an MCP server. The surface is tools plus elicitation: the orchestrator carries `runId` explicitly on every call, the plan arrives as markdown in the tool result, and approval runs through elicitation, whose multi-round tool response cycle is verified working. Hooks, session activations, transcript reading, and the three tiers of enforcement (hook-enforced, skill-enforced, advisory) are all deleted, because they existed only to compensate for each host granting a different level of coercion. What replaces the protection native plan mode used to give is a single host-agnostic check: `forge.begin` takes a working-tree baseline and `forge.plan.approve` recomputes it, showing the user a diff beside the plan when they diverge. Enforcement is deliberately given up — the orchestrator can abandon a run midway or start editing code during the interview; the first is now visible to the user, the second is caught at approval but only after the fact.
 
