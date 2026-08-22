@@ -3,8 +3,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>planforge</AssemblyName>
     <RootNamespace>PlanForge</RootNamespace>
-    <!-- MCPEXP003: MCP Apps are experimental. Referenced only to detect the canvas capability,
-         which no host negotiates yet — see docs/adr/0002. -->
+    <!-- MCPEXP003: MCP Apps are experimental. Used to detect the canvas capability and to serve
+         the plan document to hosts that negotiate it — see docs/adr/0008. -->
     <NoWarn>$(NoWarn);MCPEXP003</NoWarn>
   </PropertyGroup>
 
@@ -16,6 +16,14 @@
     <!-- Role prompts ship beside the binary and stay editable without a rebuild. -->
     <Content Include="../../prompts/**/*.md" Link="prompts/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The canvas document is embedded rather than shipped beside the binary like the prompts:
+         it is UI code with a bridge contract to keep, not a tunable, and the bundle is asserted to
+         carry no sidecar files. LogicalName pins the lookup name PlanCanvas.cs asks for. -->
+    <None Remove="Mcp/PlanCanvas.html" />
+    <EmbeddedResource Include="Mcp/PlanCanvas.html" LogicalName="PlanForge.Mcp.PlanCanvas.html" />
   </ItemGroup>
 
   <ItemGroup>
