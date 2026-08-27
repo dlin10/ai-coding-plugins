@@ -1,5 +1,21 @@
 # Plan Forge Flow releases
 
+## 0.20.1
+
+A builder in an MCP-heavy workspace died on its first task, twice, and the log blamed an
+output-cap kill that never happened ([#41](https://github.com/dlin10/ai-coding-plugins/issues/41)).
+The real failure was a stdout line that parsed as JSON but not as an object — asking it for a
+property crashed the session, disposing the stream killed the still-running vendor, and the kill
+reason was inferred by elimination, so a consumer fault wore the cap's name and the surfaced error
+sent the reader hunting a schema bug that did not exist.
+
+- `StreamingProcess` now tells the two kills apart: `output-cap` is logged only when the cap
+  actually threw, and a consumer that stopped reading — a fault or an early exit — is logged as
+  `abandoned`.
+- The Claude and Cursor sessions skip a line whose JSON root is not an object instead of crashing
+  on it, and log the skipped payload as `vendor.skipped-line` — what a CLI emits outside the
+  protocol is exactly what the next post-mortem needs.
+
 ## 0.20.0
 
 The plan reaches the user exactly once, at approval, and until now it reached them as a wall of

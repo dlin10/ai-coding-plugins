@@ -71,6 +71,17 @@ internal sealed class ClaudeCliSession : IVendorSession
     /// <summary>Returns the structured payload when this message carries it.</summary>
     internal JsonElement? Observe(JsonElement root)
     {
+        // A line can parse as JSON without being a message — a bare string, for one. Asking such a
+        // root for a property throws, and that crash used to take the whole run down under a
+        // misleading output-cap kill (issue #41). Logged rather than dropped: what the CLI emits
+        // outside the protocol is exactly what the next post-mortem needs.
+        if (root.ValueKind is not JsonValueKind.Object)
+        {
+            RunLog.Current?.Write("warn", "claude", "vendor.skipped-line",
+                ("payload", RunLog.Truncate(root.GetRawText())));
+            return null;
+        }
+
         if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _sessionId = id;
         if (!root.TryGetProperty("type", out var type)) return null;
         if (!root.TryGetProperty("message", out var message)

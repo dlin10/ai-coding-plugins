@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Threading.Channels;
+using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 
 namespace PlanForge.Vendors.Cursor;
@@ -71,7 +72,7 @@ internal sealed class CursorAgentSession : IVendorSession
         return ValueTask.CompletedTask;
     }
 
-    private async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct)
+    internal async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct)
     {
         var result = string.Empty;
         await foreach (var line in StreamingProcess.RunAsync(spec, _runTimeout, ct))
@@ -83,6 +84,17 @@ internal sealed class CursorAgentSession : IVendorSession
             using (message)
             {
                 var root = message.RootElement;
+
+                // Same hazard as ClaudeCliSession.Observe (issue #41): a line that parses as JSON
+                // but not as an object would throw on the property probe and end the run under a
+                // misleading output-cap kill.
+                if (root.ValueKind is not JsonValueKind.Object)
+                {
+                    RunLog.Current?.Write("warn", "cursor", "vendor.skipped-line",
+                        ("payload", RunLog.Truncate(root.GetRawText())));
+                    continue;
+                }
+
                 if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _chatId = id;
                 if (root.TryGetProperty("type", out var type) && type.GetString() is "result"
                     && root.TryGetProperty("result", out var payload))
