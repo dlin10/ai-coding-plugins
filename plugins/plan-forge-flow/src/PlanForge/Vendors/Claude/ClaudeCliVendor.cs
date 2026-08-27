@@ -19,6 +19,7 @@ internal sealed class ClaudeCliVendor : IVendor
     // Claude is the one vendor without a live model list, so its catalog is declarative and
     // advisory: an unknown model is a warning, not a refusal.
     public VendorCatalog Catalog { get; } = new([
+        new VendorModel("fable", Efforts),
         new VendorModel("opus", Efforts),
         new VendorModel("sonnet", Efforts),
         new VendorModel("haiku", Efforts)
