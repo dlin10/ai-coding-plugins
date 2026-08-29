@@ -11,8 +11,8 @@ jobs:
       run:
         working-directory: plugins/plan-forge-flow
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - run: dotnet restore src/PlanForgeFlow.sln
@@ -34,8 +34,8 @@ jobs:
       run:
         working-directory: plugins/plan-forge-flow
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - name: Publish and package win-x64
