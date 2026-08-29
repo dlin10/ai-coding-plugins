@@ -36,6 +36,16 @@ From the monorepo root, `npm run validate:plugins` checks every plugin's manifes
 frontmatter, cross-host catalog agreement, and version consistency. CI runs it on any push touching
 `plugins/**`, so a manifest edit here can turn the whole repository red.
 
+**Releasing is bumping the version.** `.github/workflows/release.yml` runs on every merge to `main`
+that touches this plugin: it reads the version out of the manifests and, when no
+`plan-forge-flow-v<version>` tag exists yet, runs the fast suite, packages, and creates that tag and
+the GitHub release together. So a version bump merged to `main` releases itself, and a merge that
+does not bump releases nothing. Do not push a release tag by hand as part of ordinary work — the
+tag trigger survives only as a way to re-cut a release whose upload failed, and it refuses a tag
+that disagrees with the manifest. What makes the bump load-bearing rather than cosmetic is
+`bin/planforge-launcher.ps1`: it downloads `planforge.exe` from the release matching the manifest
+version, so a manifest naming a version with no release behind it breaks every fresh install.
+
 ## Layout
 
 ```text

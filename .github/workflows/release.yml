@@ -1,36 +1,104 @@
 name: Plan Forge Flow release
 
+# Two ways in, one job that publishes. A merge to main carrying a version no tag knows yet cuts its
+# own release; a tag pushed by hand still cuts one, which is the escape hatch when an upload failed
+# and the release has to be re-cut. Both paths end in the same `gh release create`, and they have to
+# end in the same run: a tag pushed from here under GITHUB_TOKEN does not start another workflow, so
+# splitting this into "tag in one workflow, release in another" would leave the tag standing with
+# nothing behind it.
+#
+# `paths` holds the merge path to this plugin. It does not hold back a tag push — GitHub does not
+# evaluate path filters for tags — which is exactly what the manual path needs. See the note in
+# ci.yml for the other half of that behaviour.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'plan-forge-flow-v*'
+    paths:
+      - 'plugins/plan-forge-flow/**'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
 
+# Two merges in quick succession must not race to create the same tag.
+concurrency:
+  group: plan-forge-flow-release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  decide:
     runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
+    outputs:
+      cut: ${{ steps.decide.outputs.cut }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       # Before the build, not after: a tag that disagrees with the manifest should cost seconds
       # rather than a full publish, and the release it would cut is named after the tag while the
       # asset inside is named after the manifest.
-      - name: Check the tag against the manifest
+      #
+      # On the merge path there is no tag to disagree with, so the question is the other one — has
+      # this version been released already? The tag's absence is what "the version was bumped"
+      # means here. Reading the bump that way rather than diffing the merge commit keeps the answer
+      # idempotent (a re-run releases nothing twice) and self-healing (a merge that slipped through
+      # without a release is caught by the next push), and avoids having to decide which parent of
+      # a merge commit the previous version came from.
+      #
+      # The manifest is read rather than spelled out, and one manifest is enough: validate-plugins
+      # already refuses a plugin whose host manifests disagree on the version.
+      - name: Decide the version, and whether there is a release to cut
+        id: decide
         shell: pwsh
         run: |
           $version = (Get-Content .codex-plugin/plugin.json -Raw | ConvertFrom-Json).version
-          $tag = '${{ github.ref_name }}'
-          if ($tag -ne "plan-forge-flow-v$version") {
-            throw "Tag $tag disagrees with manifest version $version; expected plan-forge-flow-v$version"
+          $tag = "plan-forge-flow-v$version"
+
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -ne $tag) {
+              throw "Tag ${{ github.ref_name }} disagrees with manifest version $version; expected $tag"
+            }
+            $cut = $true
           }
-          "PLUGIN_VERSION=$version" >> $env:GITHUB_ENV
+          else {
+            # ls-remote rather than the API: it answers with an empty line and exit code 0 when the
+            # tag is absent, so "not released yet" stays a value instead of a failed step.
+            $existing = git ls-remote --tags origin "refs/tags/$tag" | Out-String
+            $cut = [string]::IsNullOrWhiteSpace($existing)
+            if (-not $cut) { Write-Host "$tag is already released; nothing to cut." }
+            else { Write-Host "$tag does not exist yet; cutting it from ${{ github.sha }}." }
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "cut=$($cut.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.cut == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
+    env:
+      PLUGIN_VERSION: ${{ needs.decide.outputs.version }}
+      RELEASE_TAG: ${{ needs.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      # The release proves its own artifact rather than trusting the run of ci.yml beside it: on the
+      # merge path the two start together, so CI has no verdict yet at the moment this would need
+      # one. Integration tests drive the real vendor CLIs, none of which exist on a runner.
+      - name: Test before publishing
+        run: dotnet test src/PlanForgeFlow.sln --configuration Release --filter "Category!=Integration"
       - name: Build win-x64 local-marketplace bundle
         shell: pwsh
         run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/release-artifacts" -InstallBinaries
@@ -39,7 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:RELEASE_TAG
           $expected = "plan-forge-flow-$env:PLUGIN_VERSION-win-x64.zip"
           $assets = Get-ChildItem "$env:GITHUB_WORKSPACE/release-artifacts" -Filter '*.zip' -File
           if ($assets.Count -ne 1 -or $assets[0].Name -ne $expected) {
@@ -49,4 +117,6 @@ jobs:
           # by this exact asset name, so renaming it here breaks every fresh install.
           $executable = 'bin/win-x64/planforge.exe'
           if (-not (Test-Path $executable -PathType Leaf)) { throw "package.ps1 -InstallBinaries did not leave $executable" }
-          gh release create $tag $assets.FullName $executable --title "Plan Forge Flow $tag" --generate-notes
+          # --target names the commit the tag is created at on the merge path; on the manual path the
+          # tag already exists and gh ignores it.
+          gh release create $tag $assets.FullName $executable --target ${{ github.sha }} --title "Plan Forge Flow $tag" --generate-notes
