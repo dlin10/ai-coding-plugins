@@ -32,5 +32,10 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         }
     }
 }
+# The prompts ship in the plugin package, never in the release asset, so an executable running from
+# the download cache has none above it to walk up to. This is the only place that knows both, and
+# PromptLibrary takes the value as given -- hence the existence check here rather than there.
+$prompts = Join-Path $pluginRoot 'prompts'
+if (Test-Path -LiteralPath $prompts -PathType Container) { $env:PLANFORGE_PROMPTS = $prompts }
 & $exe @args
 exit $LASTEXITCODE

@@ -106,7 +106,13 @@ relies on `--mode plan` alone. `CONTEXT.md` documents what was measured for each
 
 Role prompts live under `prompts/<vendor>/<role>.md` and are copied beside the binary, so they can
 be edited and tuned per project **without a rebuild**. `PromptLibrary` walks up from the binary
-because the two shipped layouts differ (publish output vs. installed plugin). The shared
+because the shipped layouts differ (publish output vs. installed plugin), but **a third layout
+cannot be walked to at all**: the launcher downloads the bare executable into a per-version cache
+under `%LOCALAPPDATA%`, and the prompts never travel with the release asset. So
+`bin/planforge-launcher.ps1` — the only thing that knows both the plugin root and the executable —
+names the folder in `PLANFORGE_PROMPTS`, and `PromptLibrary` takes a value there as the root
+without probing it. Change the variable's spelling on one side and the assertion in
+`build/package.ps1` or `PromptRootTests` turns red; nothing else ties the two halves together. The shared
 `prompts/roslyn-contract.md` is appended to every critic prompt at load time — it lives once
 precisely because the 1.x copies drifted apart. `prompts/scope-contract.md` is appended the same
 way, but only for code review, where "judge the diff against the approved plan" has something to

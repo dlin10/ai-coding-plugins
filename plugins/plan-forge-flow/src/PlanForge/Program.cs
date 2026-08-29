@@ -26,7 +26,11 @@ builder.Services
     .AddSingleton<CatalogCache>()
     .AddHostedService<JobRegistryHostedService>()
     .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
-    .AddMcpServer(o => o.ServerInfo = new Implementation { Name = "planforge", Version = version })
+    .AddMcpServer(o =>
+    {
+        o.ServerInfo = new Implementation { Name = "planforge", Version = version };
+        o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
+    })
     .WithStdioServerTransport()
     .WithTools<ForgeTools>()
     .WithResources<PlanCanvas>()
