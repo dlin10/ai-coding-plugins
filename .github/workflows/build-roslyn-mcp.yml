@@ -1,7 +1,11 @@
 name: Build Roslyn MCP extension
 
+# See the note in ci.yml: without `branches`, a tag push runs this again on an already-checked
+# commit, and the `paths` filter below does not hold it back on a tag.
 on:
   push:
+    branches:
+      - main
     paths:
       - 'plugins/roslyn-mcp/extension/**'
       - 'plugins/roslyn-mcp/assets/**'

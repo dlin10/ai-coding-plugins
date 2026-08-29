@@ -1,7 +1,12 @@
 name: CI
 
+# A branch push and its pull request are the same commit, and an unfiltered `push` matches every
+# ref — tags included, which re-ran this whole suite on a commit `main` had just tested. Restricting
+# push to the default branch leaves each commit checked once: on its pull request, then on the merge.
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 jobs:
