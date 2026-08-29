@@ -92,14 +92,14 @@ the critic judges against the approved plan.
 - Git, and a Git repository for the target change
 - The CLI of whichever vendor you select for a role
 - .NET 10 SDK only when building from source
-- Git LFS when checking out the repository or publishing bundles
+- Access to github.com on the first launch of a version, when the launcher downloads the executable
 
 The distributed executable is self-contained, trimmed, and single-file; no preinstalled .NET runtime
 is needed. Node.js is no longer required — the hooks that needed it are gone.
 
 ## Installation
 
-The public repository is the marketplace. Clone it with Git LFS enabled, then install the plugin:
+The public repository is the marketplace. Install the plugin:
 
 ```text
 codex plugin marketplace add <owner>/<repository>
@@ -121,11 +121,16 @@ plugins/plan-forge-flow/
   .claude-plugin/plugin.json
   .cursor-plugin/plugin.json
   .mcp.json
-  bin/win-x64/planforge.exe
+  bin/planforge-launcher.ps1
   prompts/
   skills/forge/SKILL.md
   skills/forge/references/
 ```
+
+The executable is not in the repository. On launch, `bin/planforge-launcher.ps1` runs a locally
+built `bin/win-x64/planforge.exe` when one exists, and otherwise downloads `planforge.exe` for the
+manifest version from the matching GitHub release, cached once per version under
+`%LOCALAPPDATA%\plan-forge-flow`.
 
 ## State
 

@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.21.0
+
+Every fresh checkout pulled a 17 MB executable through Git LFS — each plugin install, each
+per-commit Cursor cache, each CI run — and GitHub meters that bandwidth: the account's monthly
+quota ran out, which blocks the very downloads the marketplace depends on. Release assets are not
+metered, and a release workflow already publishes one per version, so the executable now travels
+that road instead of the repository.
+
+- `planforge.exe` is no longer committed, and nothing in the repository is LFS-tracked any more.
+  The manifests launch `bin/planforge-launcher.ps1`, which runs a locally built
+  `bin/win-x64/planforge.exe` when one exists and otherwise downloads the executable for the
+  manifest version from the matching GitHub release, cached once per version under
+  `%LOCALAPPDATA%\plan-forge-flow` — so per-commit plugin caches never re-download it.
+- The release workflow uploads the bare `planforge.exe` next to the bundle zip, giving the
+  launcher an asset to fetch. The zip still carries the executable, so a local-marketplace
+  install keeps working offline.
+
 ## 0.20.1
 
 A builder in an MCP-heavy workspace died on its first task, twice, and the log blamed an
