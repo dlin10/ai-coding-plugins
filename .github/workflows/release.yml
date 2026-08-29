@@ -15,7 +15,7 @@ jobs:
       run:
         working-directory: plugins/plan-forge-flow
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Before the build, not after: a tag that disagrees with the manifest should cost seconds
       # rather than a full publish, and the release it would cut is named after the tag while the
       # asset inside is named after the manifest.
@@ -28,7 +28,7 @@ jobs:
             throw "Tag $tag disagrees with manifest version $version; expected plan-forge-flow-v$version"
           }
           "PLUGIN_VERSION=$version" >> $env:GITHUB_ENV
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - name: Build win-x64 local-marketplace bundle
