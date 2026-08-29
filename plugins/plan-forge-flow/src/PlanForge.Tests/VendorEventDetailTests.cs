@@ -53,6 +53,7 @@ public sealed class VendorEventDetailTests
     [Fact]
     public async Task Claude_tool_use_carries_the_command_and_its_result_carries_the_error()
     {
+        using var log = new ScopedLog();
         var session = new ClaudeCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
 
         using (var call = JsonDocument.Parse(
@@ -97,6 +98,7 @@ public sealed class VendorEventDetailTests
     [Fact]
     public async Task Claude_tool_result_flattens_text_blocks_and_survives_an_unknown_call_id()
     {
+        using var log = new ScopedLog();
         var session = new ClaudeCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
 
         using (var result = JsonDocument.Parse(
@@ -132,6 +134,7 @@ public sealed class VendorEventDetailTests
     [Fact]
     public async Task Cursor_tool_calls_carry_the_command_and_the_failure_that_has_no_success()
     {
+        using var log = new ScopedLog();
         var session = new CursorAgentSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("auto", null), null);
 
         using (var started = JsonDocument.Parse(
@@ -188,6 +191,7 @@ public sealed class VendorEventDetailTests
     [Fact]
     public async Task Cursor_reads_the_exit_code_of_a_command_that_ran_and_still_returns_the_result()
     {
+        using var log = new ScopedLog();
         var session = new CursorAgentSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("auto", null), null);
 
         using (var completed = JsonDocument.Parse(
@@ -276,5 +280,33 @@ public sealed class VendorEventDetailTests
         var events = new List<VendorEvent>();
         await foreach (var raised in session.Events) events.Add(raised);
         return events;
+    }
+
+    /// <summary>
+    /// A session raising events writes them to <see cref="RunLog.Current"/>, which outside an
+    /// ambient scope is whatever log this process served last — another test class's file, held
+    /// open for append while that class reads it back, which on a CI runner is an
+    /// <see cref="IOException"/> in a test that shares nothing with this one. Scoping a log of our
+    /// own is what <see cref="RunLog.Use"/> exists for; these tests assert on the events
+    /// themselves, so the file is a sink and nothing reads it.
+    /// </summary>
+    private sealed class ScopedLog : IDisposable
+    {
+        private readonly string _directory =
+            Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
+
+        private readonly IDisposable _scope;
+
+        public ScopedLog()
+        {
+            Directory.CreateDirectory(_directory);
+            _scope = RunLog.Use(new RunLog(Path.Combine(_directory, "forge.log")));
+        }
+
+        public void Dispose()
+        {
+            _scope.Dispose();
+            try { Directory.Delete(_directory, recursive: true); } catch (IOException) { }
+        }
     }
 }
