@@ -68,21 +68,32 @@ public sealed class SafetyTests
         Assert.Throws<WorkspaceNotRootedException>(() => RunDirectory.Create(workspaceRoot, "any-run"));
     }
 
+    /// <summary>
+    /// Roslyn-first is how a critic reads C# and belongs to that role alone. The orchestration
+    /// contract belongs to both: a host hands whichever worker it runs whatever the user installed
+    /// in it, and on 2026-08-29 that put this plugin's own skill and MCP server in front of a
+    /// cursor builder.
+    /// </summary>
     [Fact]
-    public void Appends_the_shared_roslyn_contract_to_a_critic_only()
+    public void Appends_the_shared_contracts_each_role_is_owed()
     {
         var root = Path.Combine(Path.GetTempPath(), "planforge-prompts", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(Path.Combine(root, "claude"));
         File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "judge");
         File.WriteAllText(Path.Combine(root, "claude", "builder.md"), "implement");
         File.WriteAllText(Path.Combine(root, "roslyn-contract.md"), "roslyn first");
+        File.WriteAllText(Path.Combine(root, "orchestration-contract.md"), "the forge tools are not yours");
 
         try
         {
             var prompts = new PromptLibrary(root);
+            var critic = prompts.Load("claude", VendorRole.Critic);
+            var builder = prompts.Load("claude", VendorRole.Builder);
 
-            Assert.Contains("roslyn first", prompts.Load("claude", VendorRole.Critic), StringComparison.Ordinal);
-            Assert.DoesNotContain("roslyn first", prompts.Load("claude", VendorRole.Builder), StringComparison.Ordinal);
+            Assert.Contains("roslyn first", critic, StringComparison.Ordinal);
+            Assert.DoesNotContain("roslyn first", builder, StringComparison.Ordinal);
+            Assert.Contains("the forge tools are not yours", critic, StringComparison.Ordinal);
+            Assert.Contains("the forge tools are not yours", builder, StringComparison.Ordinal);
         }
         finally
         {
