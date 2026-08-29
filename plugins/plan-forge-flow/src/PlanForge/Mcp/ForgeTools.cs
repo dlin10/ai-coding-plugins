@@ -107,11 +107,11 @@ internal sealed class ForgeTools
         [Description("Run id from forge.begin.")] string runId,
         [Description("The current plan draft, as markdown.")] string planDraft,
         [Description("Model for the critic.")] string model,
-        [Description("Optional effort level.")] string? effort,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
-        [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision,
-        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred,
-        CancellationToken ct)
+        CancellationToken ct,
+        [Description("Optional effort level.")] string? effort = null,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+        [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
+        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.plan.review",
@@ -200,9 +200,9 @@ internal sealed class ForgeTools
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Model for the builder.")] string model,
-        [Description("Optional effort level.")] string? effort,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
-        CancellationToken ct)
+        CancellationToken ct,
+        [Description("Optional effort level.")] string? effort = null,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.build.next",
@@ -228,9 +228,9 @@ internal sealed class ForgeTools
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Model for the critic.")] string model,
-        [Description("Optional effort level.")] string? effort,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
-        CancellationToken ct)
+        CancellationToken ct,
+        [Description("Optional effort level.")] string? effort = null,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.review.code",
@@ -251,11 +251,11 @@ internal sealed class ForgeTools
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The findings to fix, as markdown. Compose them from the critique; keep every in-scope correctness finding, and never add work the critic did not ask for.")] string findings,
-        [Description("Optional markdown list of findings deferred rather than fixed, each with its reason — typically that the approved plan excludes it. Recorded in the review log; report them to the user when the review settles.")] string? deferred,
         [Description("Model for the builder.")] string model,
-        [Description("Optional effort level.")] string? effort,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor,
-        CancellationToken ct)
+        CancellationToken ct,
+        [Description("Optional markdown list of findings deferred rather than fixed, each with its reason — typically that the approved plan excludes it. Recorded in the review log; report them to the user when the review settles.")] string? deferred = null,
+        [Description("Optional effort level.")] string? effort = null,
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         return await LoggedAsync(run, "forge.review.fix",
@@ -428,8 +428,8 @@ internal sealed class ForgeTools
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("What happened, in one line.")] string message,
-        [Description("Optional level: info, warn or error. Defaults to info.")] string? level,
-        [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail)
+        [Description("Optional level: info, warn or error. Defaults to info.")] string? level = null,
+        [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null)
     {
         var run = RunDirectory.Open(workspaceRoot, runId);
         run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));

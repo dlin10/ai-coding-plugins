@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.21.1
+
+Moving the executable to a release asset in 0.21.0 left the prompts behind. The launcher downloads
+one file, the prompts ship in the plugin package, and `PromptLibrary` finds them by walking up from
+the binary — which from a cache under `%LOCALAPPDATA%` walks past nothing at all. Every worker act
+died on its first prompt on every machine that installed from the marketplace rather than building
+locally, and the tool result said only that an error had occurred
+([#44](https://github.com/dlin10/ai-coding-plugins/issues/44)).
+
+- `bin/planforge-launcher.ps1` names the prompts folder in `PLANFORGE_PROMPTS`, and `PromptLibrary`
+  takes that as the root when it is set. The prompts stay in one place — the plugin package — so
+  editing them without a rebuild keeps working, now on the download path too.
+- The nullable parameters of `forge.plan.review`, `forge.build.next`, `forge.review.code`,
+  `forge.review.fix` and `forge.log.append` are declared optional rather than required. Required
+  and nullable together had no encoding that worked: omitting the key was refused server-side, and
+  a host that dropped the `null` literal while serializing sent JSON that never parsed. The domain
+  rule that a second review round must carry a `revision` is unchanged — it was always the act's
+  check rather than the schema's.
+- A failure now says why. An exception of this server's own is answered as a tool error carrying
+  its message, so the orchestrator can act on the reason instead of finding it later in `forge.log`;
+  anything else keeps the SDK's generic answer.
+
 ## 0.21.0
 
 Every fresh checkout pulled a 17 MB executable through Git LFS — each plugin install, each

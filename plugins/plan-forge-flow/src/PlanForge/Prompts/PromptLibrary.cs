@@ -13,15 +13,32 @@ internal sealed class PromptLibrary(string? root = null)
     private const string ScopeContractFile = "scope-contract.md";
     private const string RequirementsContractFile = "requirements-contract.md";
 
-    private readonly string _root = root ?? Locate();
+    /// <summary>
+    /// The launcher's half of the contract in <see cref="Locate"/>. Renaming it here without
+    /// renaming it in <c>bin/planforge-launcher.ps1</c> turns the assertion in
+    /// <c>build/package.ps1</c> red, which is the only thing tying the two spellings together.
+    /// </summary>
+    internal const string RootVariable = "PLANFORGE_PROMPTS";
+
+    private readonly string _root = root ?? Locate(Environment.GetEnvironmentVariable(RootVariable));
 
     /// <summary>
-    /// Walks up from the binary. The two shipped layouts differ: publish output puts prompts beside
-    /// the executable, while the installed plugin puts the executable under bin/&lt;rid&gt;/ and the
-    /// prompts at the plugin root.
+    /// Three layouts ship, and only two of them can be found by walking up from the binary: publish
+    /// output puts prompts beside the executable, and the installed plugin puts the executable under
+    /// bin/&lt;rid&gt;/ with the prompts at the plugin root. The third has no prompts above it at all
+    /// — the launcher downloads the bare executable into a per-version cache under %LOCALAPPDATA% —
+    /// so the launcher, which knows the plugin root, names it through <see cref="RootVariable"/>.
     /// </summary>
-    private static string Locate()
+    /// <param name="configured">
+    /// The value of <see cref="RootVariable"/>. Taken as given rather than probed: the launcher sets
+    /// it only when the folder is there, so a value that leads nowhere means a broken install, and
+    /// falling back to the walk-up would answer that with the same guess that failed to begin with —
+    /// a <see cref="PromptNotFoundException"/> naming a path nobody configured.
+    /// </param>
+    internal static string Locate(string? configured)
     {
+        if (!string.IsNullOrWhiteSpace(configured)) return configured;
+
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {

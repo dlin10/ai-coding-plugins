@@ -289,6 +289,39 @@ documented licence to edit the file: the run id keeps passing the same containme
 other write, the format stays one thing rather than one per agent, and the skill's "do not
 hand-edit anything under `.forge/`" rule survives intact.
 
+## A failure explains itself only if it is an exception of ours
+
+The run log records why an act died, but the caller was told nothing: the SDK replaces the message
+of any exception that is not an `McpException` with a generic one, so that a server cannot leak
+whatever a stray exception happens to carry. Measured against SDK 2.2.0 on 2026-08-29: the run in
+#44 died on a prompt file that was never deployed, `forge.log` named the exact path, and what the
+orchestrator received was `An error occurred invoking 'forge.plan.review'.` It retried, gave up, and
+found the reason only by reading the log afterwards.
+
+The eleven exception types declared in this assembly are all written for that reader — they name the
+argument, the round, the cap, the path. `Mcp/ToolErrors.cs` answers those as a tool error carrying
+their message and lets everything else keep the SDK's blank. It is a `CallToolFilters` filter rather
+than a `try`/`catch` inside the tools because `RunDirectory.Open` runs before the run's log exists
+and so before anything a tool could wrap: a non-absolute `workspaceRoot` or a lost `runId` fails
+earlier than every other failure, and a wrapper inside the acts would have left exactly that class
+mute.
+
+## Required and nullable is a contract with no encoding that works
+
+A nullable parameter with no default is published as `required` with `"type": ["string", "null"]`,
+which reads as "send it, null is fine" and is answered by the SDK's marshaller refusing the call
+when the key is absent: `The arguments dictionary is missing a value for the required parameter
+'revision'.` Measured on Claude Code 2.1.247 on 2026-08-29, the other half was uncallable too — the
+host's tool-call serializer dropped the `null` literal and emitted `"revision": ,` on four separate
+attempts, so the request never parsed. The only encoding that reached the server was a non-null
+string, which pollutes the meaning of a field whose absence is the point.
+
+So every nullable parameter on the tool surface carries `= null`, which is what keeps it out of
+`required`; `ToolSurfaceTests` pins the rule by reflection and `build/package.ps1` pins it against
+the published schema. Domain rules that depend on a value being present — a second review round must
+carry a `revision` — stay where they always were, in the act, where they can say what is missing and
+why.
+
 ## The `canvas` profile has a host; the Tasks extension still has none
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and

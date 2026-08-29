@@ -142,11 +142,15 @@ function Test-PublishedServer([string]$Executable) {
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
         $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ui://planforge/plan.html"}}')
+        # A call that fails before the run folder is even open, which is the failure the tool result
+        # used to describe as "An error occurred" and nothing more.
+        $process.StandardInput.WriteLine('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"forge.plan.review","arguments":{"workspaceRoot":"relative/path","runId":"none","planDraft":"x","model":"m"}}}')
         $process.StandardInput.Flush()
 
         $tools = $null
         $canvas = $null
-        while ($null -eq $tools -or $null -eq $canvas) {
+        $failure = $null
+        while ($null -eq $tools -or $null -eq $canvas -or $null -eq $failure) {
             $read = $process.StandardOutput.ReadLineAsync()
             if (-not $read.Wait(60000)) { throw 'published executable did not answer the MCP handshake within 60s' }
             $line = $read.Result
@@ -159,6 +163,10 @@ function Test-PublishedServer([string]$Executable) {
             if ($message.id -eq 3) {
                 if ($message.error) { throw "published executable failed resources/read: $($message.error.message)" }
                 $canvas = @($message.result.contents)[0]
+            }
+            if ($message.id -eq 4) {
+                if ($message.error) { throw "the failing call came back as a protocol error rather than a tool result: $($message.error.message)" }
+                $failure = $message.result
             }
         }
 
@@ -208,6 +216,34 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($parameter in @('findings', 'deferred', 'model', 'effort', 'vendor')) {
             if ($reviewFixProperties -notcontains $parameter) { throw "forge.review.fix schema is missing $parameter" }
         }
+        # Declared nullable but listed as required is a contract with no encoding that works: omitting
+        # the key is refused server-side, and at least one host drops the `null` literal while
+        # serializing and sends `"revision": ,` which never parses. See issue #44.
+        $optional = @{
+            'forge.plan.review' = @('effort', 'vendor', 'revision', 'deferred')
+            'forge.build.next'  = @('effort', 'vendor')
+            'forge.review.code' = @('effort', 'vendor')
+            'forge.review.fix'  = @('effort', 'vendor', 'deferred')
+            'forge.log.append'  = @('level', 'detail')
+        }
+        foreach ($name in $optional.Keys) {
+            $tool = $tools | Where-Object { $_.name -eq $name } | Select-Object -First 1
+            if ($null -eq $tool) { throw "published executable does not expose $name" }
+            foreach ($parameter in $optional[$name]) {
+                if (@($tool.inputSchema.properties.PSObject.Properties.Name) -notcontains $parameter) {
+                    throw "$name schema is missing $parameter"
+                }
+                if (@($tool.inputSchema.required) -contains $parameter) {
+                    throw "$name schema incorrectly requires the optional $parameter"
+                }
+            }
+        }
+        # The reason has to reach the caller, not only the run log: this one names the argument.
+        if (-not $failure.isError) { throw 'a failing tool call did not come back as an error result' }
+        $reason = @($failure.content | Where-Object { $_.type -eq 'text' } | ForEach-Object { $_.text }) -join ''
+        if ($reason -notmatch 'relative/path') {
+            throw "a failing tool call did not surface its reason; it said: $reason"
+        }
     }
     finally {
         # Kill() without the entire-process-tree overload: that overload is .NET Core only, and this
@@ -244,6 +280,16 @@ function Test-PluginArchive([string]$Archive) {
             })
         if ($shippedExecutables.Count -ne 1 -or $shippedExecutables[0].FullName -ne 'plugins/plan-forge-flow/bin/win-x64/planforge.exe') {
             throw "archive must contain only the win-x64 executable"
+        }
+        # The prompts ship in this bundle and never in the bare release asset, so an executable
+        # fetched from the release has nothing above it to walk up to and the launcher has to name
+        # the folder. The other half of the contract is PromptLibrary.RootVariable, pinned by
+        # PromptRootTests; this half guards what actually ships.
+        $launcherEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/bin/planforge-launcher.ps1')
+        $reader = [IO.StreamReader]::new($launcherEntry.Open())
+        try { $launcherScript = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        if ($launcherScript -notmatch 'PLANFORGE_PROMPTS') {
+            throw 'the bundled launcher does not tell the executable where the prompts are'
         }
         # Every vendor the registry can build needs its two role prompts, or that vendor fails at
         # the first act rather than at install time.
