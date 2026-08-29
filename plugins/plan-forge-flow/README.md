@@ -46,6 +46,12 @@ review ends. See
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md) for why the sealed loop was
 opened.
 
+The plan itself is readable from the first round rather than at the end of them: each round writes
+the draft to `PLAN.md` before the critic starts, so what the verdicts are about is a document you
+can open while they arrive. The price is that an approval is no longer final within a run — a round
+run after one takes it back and resets the build progress. See
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md).
+
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
 that drift however its own host shows things best, and passes back what they answered.
@@ -141,11 +147,18 @@ Everything a run knows lives in the repository under one folder, isolated by run
   .gitignore            # contains "*" — the folder ignores itself
   <runId>/
     state.json
-    PLAN.md
+    PLAN.md               # the plan as it currently stands, rewritten every review round
     review-log.md
+    flow_log.md           # the user-facing timeline
+    forge.log
     critiques/
     baseline.patch
 ```
+
+`PLAN.md` and `flow_log.md` are the two files written to be read by a person, and the tools hand
+their paths back so the orchestrator can put them in front of you while the run is still moving.
+Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
+after an approval takes that flag back.
 
 There are no locks: concurrent runs in one workspace are allowed. There are no Git refs: the
 baseline is a commit SHA in `state.json` plus `baseline.patch`.

@@ -76,7 +76,12 @@ internal sealed class RunDirectory
 
     public RunLog Log => new(DiagnosticLogPath);
 
-    private string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
+    /// <summary>
+    /// The run's plan as it currently stands, approved or not. Public because the path travels out
+    /// with every act result: the plan is written from the first review round on, so the user can
+    /// watch it change rather than meeting it once at approval.
+    /// </summary>
+    public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 
     public static RunDirectory Create(string workspaceRoot, string runId)
     {
@@ -144,6 +149,11 @@ internal sealed class RunDirectory
         return new Baseline(head, File.Exists(path) ? AtomicFile.Read(path) : string.Empty);
     }
 
+    /// <summary>
+    /// Whole-file replacement, which is what lets a review round write the draft before the critic
+    /// runs: a round that dies and is retried with the same arguments writes the same bytes again,
+    /// unlike the log appends that have to wait for the critique.
+    /// </summary>
     public void WritePlan(string plan) => AtomicFile.Write(PlanPath, plan);
 
     public string ReadPlan() => AtomicFile.Read(PlanPath);
@@ -229,6 +239,25 @@ internal sealed class RunDirectory
 
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
+
+    /// <summary>
+    /// A review round run against an already-approved plan takes the approval back, and the user
+    /// meets that as a build refusing for no visible reason unless it is in the timeline. The
+    /// entry names the task count that went with it, because that is the part that costs money to
+    /// rebuild.
+    /// </summary>
+    public void AppendFlowReopened(int tasksCompleted) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().AppendLine("## Plan reopened")
+                               .AppendLine()
+                               .Append("A review round ran against the approved plan, so the approval no longer holds. ")
+                               .Append("Build progress was reset from ").Append(tasksCompleted)
+                               .AppendLine(tasksCompleted == 1 ? " completed task." : " completed tasks.")
+                               .AppendLine()
+                               .Append("The plan has to be approved again before the builder will run, ")
+                               .AppendLine("and it will start from the first task.")
+                               .AppendLine()
+                               .ToString());
 
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {

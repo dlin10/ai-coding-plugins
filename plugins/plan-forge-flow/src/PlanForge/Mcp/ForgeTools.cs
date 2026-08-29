@@ -101,7 +101,7 @@ internal sealed class ForgeTools
     /// One round only. The critic judges the draft; revising it and calling again is the
     /// orchestrator's job, because the revision needs the interview context.
     /// </summary>
-    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique with the path to the run's flow log.")]
+    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique, plus the run's flow log and the plan it just wrote under `documents`. It writes the draft you pass to `PLAN.md` before the critic starts, so show that file to the user. A round run against an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> ReviewPlan(
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
@@ -123,7 +123,7 @@ internal sealed class ForgeTools
                 var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort),
                                                      revision, deferred, ct);
 
-                return JsonSerializer.Serialize(new CritiqueResult(critique, Timeline(run)),
+                return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                 ForgeToolJson.Default.CritiqueResult);
             });
     }
@@ -212,7 +212,7 @@ internal sealed class ForgeTools
                 var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
                 var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
 
-                return JsonSerializer.Serialize(new BuildNextResult(outcome, Timeline(run)),
+                return JsonSerializer.Serialize(new BuildNextResult(outcome, Documents(run)),
                                                 ForgeToolJson.Default.BuildNextResult);
             });
     }
@@ -241,7 +241,7 @@ internal sealed class ForgeTools
                     new GitClient(workspaceRoot));
                 var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
 
-                return JsonSerializer.Serialize(new CritiqueResult(critique, Timeline(run)),
+                return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                 ForgeToolJson.Default.CritiqueResult);
             });
     }
@@ -265,7 +265,7 @@ internal sealed class ForgeTools
                 var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
                 var result = await act.FixAsync(run, new Selection(model, effort), findings, deferred, ct);
 
-                return JsonSerializer.Serialize(new ReviewFixResult(result, Timeline(run)),
+                return JsonSerializer.Serialize(new ReviewFixResult(result, Documents(run)),
                                                 ForgeToolJson.Default.ReviewFixResult);
             });
     }
@@ -384,7 +384,7 @@ internal sealed class ForgeTools
                 var result = record.State == JobState.Completed ? record.ResultPayload : null;
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
-                                        record.State == JobState.Failed ? record.Error : null, Timeline(run)),
+                                        record.State == JobState.Failed ? record.Error : null, Documents(run)),
                     ForgeToolJson.Default.WorkFetchResult));
             });
     }
@@ -438,17 +438,31 @@ internal sealed class ForgeTools
     }
 
     /// <summary>
-    /// The flow log travelling with every act result, for the same reason `forge.work.poll` carries
-    /// its next call: an instruction that lives only in the skill is gone by mid-run, and the one it
-    /// lost was "surface this file". The path is <see langword="null"/> until the file exists, which
-    /// is what makes the first result carrying one the moment there is something to show.
+    /// The run's user-facing files travelling with every act result, for the same reason
+    /// `forge.work.poll` carries its next call: an instruction that lives only in the skill is gone
+    /// by mid-run, and the one it lost was "surface this file". Each entry is
+    /// <see langword="null"/> until its file exists, which is what makes the first result carrying
+    /// one the moment there is something to show.
     /// </summary>
-    private static FlowLog? Timeline(RunDirectory run) =>
-        File.Exists(run.FlowLogPath)
-            ? new FlowLog(run.FlowLogPath,
-                          "show this file to the user now — it is the run's user-facing timeline — "
-                          + "and show it again after every later worker act.")
-            : null;
+    /// <remarks>
+    /// Two files rather than one, each with its own instruction, because they change on different
+    /// rhythms: the timeline grows with every act, while the plan only moves when a review round
+    /// rewrites it. One shared instruction would have to blur that into "show these to the user".
+    /// The review log and the diagnostic log are deliberately absent — the first is critic input,
+    /// the second is for the orchestrator, and neither is written to be read by a person here.
+    /// </remarks>
+    private static RunDocuments Documents(RunDirectory run) =>
+        new(File.Exists(run.FlowLogPath)
+                ? new RunDocument(run.FlowLogPath,
+                                  "show this file to the user now — it is the run's user-facing timeline — "
+                                  + "and show it again after every later worker act.")
+                : null,
+            File.Exists(run.PlanPath)
+                ? new RunDocument(run.PlanPath,
+                                  "the plan as it now stands, rewritten by every review round: show this "
+                                  + "file to the user now and again after each later round, so they can "
+                                  + "watch it change. Link it; do not paste the draft into the chat.")
+                : null);
 
     private static string StateName(JobState state) =>
         state switch
@@ -547,9 +561,10 @@ internal sealed record BeginResult(string RunId, string RunPath, string Profile,
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 
 /// <summary>
-/// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`
-/// because the plan has not been written yet at the moment it needs showing — `forge.plan.confirm`
-/// is what writes it, and it runs after the user has answered.
+/// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`,
+/// because the file holds the draft of the last review round while the orchestrator may be holding
+/// a newer one — a plan amended after the last verdict is shown for approval before any round has
+/// seen it.
 /// </summary>
 internal sealed record PlanViewResult(string RunId,
                                       string Plan,
@@ -569,21 +584,28 @@ internal sealed record ActiveJob(string JobId, string Act, string State, double 
 internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started);
 
 /// <param name="Next">What to do with the file: the instruction travels with the path so neither depends on the skill still being in view.</param>
-internal sealed record FlowLog(string Path, string Next);
+internal sealed record RunDocument(string Path, string Next);
+
+/// <summary>
+/// The files of a run that exist to be shown to a person. Both entries are optional and start out
+/// absent: the timeline appears with the first act that records one, the plan with the first review
+/// round that writes one.
+/// </summary>
+internal sealed record RunDocuments(RunDocument? FlowLog, RunDocument? Plan);
 
 /// <summary>Both review tools answer with this: one critique, plus where the user can watch the run.</summary>
-internal sealed record CritiqueResult(Critique Critique, FlowLog? FlowLog);
+internal sealed record CritiqueResult(Critique Critique, RunDocuments Documents);
 
-internal sealed record BuildNextResult(BuildOutcome Build, FlowLog? FlowLog);
+internal sealed record BuildNextResult(BuildOutcome Build, RunDocuments Documents);
 
-internal sealed record ReviewFixResult(BuildResult Fix, FlowLog? FlowLog);
+internal sealed record ReviewFixResult(BuildResult Fix, RunDocuments Documents);
 
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
 internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error,
                                       string Next);
 
 internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error,
-                                       FlowLog? FlowLog);
+                                       RunDocuments Documents);
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
@@ -608,7 +630,8 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]
-[JsonSerializable(typeof(FlowLog))]
+[JsonSerializable(typeof(RunDocument))]
+[JsonSerializable(typeof(RunDocuments))]
 [JsonSerializable(typeof(CritiqueResult))]
 [JsonSerializable(typeof(BuildNextResult))]
 [JsonSerializable(typeof(ReviewFixResult))]

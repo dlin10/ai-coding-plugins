@@ -13,6 +13,7 @@ these terms replace it.
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Plan file** | The run's plan as it currently stands, `PLAN.md`: rewritten by every plan-review round before the critic starts, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a round run after it takes the flag back. |
 | **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
@@ -363,9 +364,31 @@ What the skill could not do on its own is make that happen early. Run `20260822-
 orchestrated from Cursor, surfaced the path in its closing message and nowhere before it: the
 instruction to show the file at the first plan-review result had fallen out of view long before the
 result arrived, and no tool result carried the path, so nothing brought it back. Every act result
-now carries a `flowLog` object — the path plus what to do with it — from the moment the file
-exists, which is the same remedy `forge.work.poll` got for its next call in 0.18.2 and the same
+now carries a `documents` object — a path plus what to do with it, per file — from the moment each
+file exists, which is the same remedy `forge.work.poll` got for its next call in 0.18.2 and the same
 reason: an instruction that lives only in the skill does not survive an hour of a run.
+
+## The plan was the one artefact the run withheld
+
+`PLAN.md` was written by `forge.plan.confirm` and nothing else, and the skill told the orchestrator
+to keep every draft to itself until the critic said `approve`. The two together made plan review a
+sequence of verdicts about a document the user had never read — they had chosen the critic and the
+builder, and then watched judgements on something invisible for up to five rounds.
+
+The draft was already reaching the server every round as `planDraft`, and already reaching disk in
+`forge.log` through the tool-call record, so nothing had to be gathered and nothing new was exposed
+by writing it. Every round now writes it to `PLAN.md` before starting the critic — before, because
+the round takes minutes and those minutes are when reading it is worth something — and the path
+travels out beside the flow log's under `documents.plan`. The chat rule that replaces "keep the
+drafts to yourself" is "link them, do not paste them": the old rule was right that five pasted
+revisions bury the sixth, and wrong that a file the user can ignore does the same.
+
+What it costs is that `PLAN.md` no longer means "the approved plan". Nothing ever read the file's
+existence as approval — `Build` and `CodeReview` both gate on `approved` in the run state — but a
+round run *after* an approval would have left that flag raised over text nobody approved. So a round
+now withdraws it, zeroing `tasksCompleted` and the builder session with it, and says so in the flow
+log. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md), including the
+two orderings inside the act that the safety of this rests on.
 
 ## The orchestrator's turn is an act too, and the timeline used to skip it
 

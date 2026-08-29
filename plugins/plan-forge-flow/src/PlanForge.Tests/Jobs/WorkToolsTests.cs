@@ -54,7 +54,7 @@ public sealed class WorkToolsTests : IDisposable
     /// an hour has long since stopped reading it.
     /// </summary>
     [Fact]
-    public async Task The_fetched_result_carries_the_flow_log_once_there_is_one_to_show()
+    public async Task The_fetched_result_carries_the_run_documents_once_there_is_something_to_show()
     {
         var run = NewRun("timeline");
         var vendor = new RecordingVendor("claude");
@@ -68,8 +68,12 @@ public sealed class WorkToolsTests : IDisposable
 
         var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId))!;
 
-        Assert.Equal(run.FlowLogPath, fetch["flowLog"]!["path"]!.GetValue<string>());
-        Assert.Contains("show this file to the user now", fetch["flowLog"]!["next"]!.GetValue<string>(),
+        var documents = fetch["documents"]!;
+        Assert.Equal(run.FlowLogPath, documents["flowLog"]!["path"]!.GetValue<string>());
+        Assert.Contains("show this file to the user now", documents["flowLog"]!["next"]!.GetValue<string>(),
+            StringComparison.Ordinal);
+        Assert.Equal(run.PlanPath, documents["plan"]!["path"]!.GetValue<string>());
+        Assert.Contains("watch it change", documents["plan"]!["next"]!.GetValue<string>(),
             StringComparison.Ordinal);
     }
 
@@ -81,15 +85,16 @@ public sealed class WorkToolsTests : IDisposable
     [Fact]
     public void Every_act_result_shape_serializes_through_the_source_generated_context()
     {
-        var flowLog = new FlowLog(@"C:\repo\.forge\run\flow_log.md", "show it");
+        var documents = new RunDocuments(new RunDocument(@"C:\repo\.forge\run\flow_log.md", "show it"),
+                                         new RunDocument(@"C:\repo\.forge\run\PLAN.md", "show it too"));
         var critique = new Critique("revise", [new Finding("major", "step 1", "no gate")], "one hole");
         var build = new BuildResult("done", ["tracked.cs"], new Verification("passed", "the checks ran"), "built");
 
-        Assert.Contains("\"critique\"", JsonSerializer.Serialize(new CritiqueResult(critique, flowLog),
+        Assert.Contains("\"critique\"", JsonSerializer.Serialize(new CritiqueResult(critique, documents),
             ForgeToolJson.Default.CritiqueResult), StringComparison.Ordinal);
-        Assert.Contains("\"build\"", JsonSerializer.Serialize(new BuildNextResult(new BuildOutcome(build, 1, 1), flowLog),
+        Assert.Contains("\"build\"", JsonSerializer.Serialize(new BuildNextResult(new BuildOutcome(build, 1, 1), documents),
             ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
-        Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, flowLog),
+        Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
     }
 

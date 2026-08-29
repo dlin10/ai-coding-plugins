@@ -57,6 +57,11 @@ public sealed class PlanCanvasTests : IDisposable
     /// The whole point of the tool is that it is inert. Approval is still
     /// <c>forge.plan.confirm</c>'s alone — see docs/adr/0003 — so showing a plan must not write one.
     /// </summary>
+    /// <remarks>
+    /// <c>PLAN.md</c> is no longer written only at approval: a review round writes it too. This run
+    /// has had no round, so an existing file here could only have come from the call under test —
+    /// which is exactly what makes the assertion still worth making.
+    /// </remarks>
     [Fact]
     public async Task Showing_a_plan_approves_nothing_and_writes_no_plan_file()
     {

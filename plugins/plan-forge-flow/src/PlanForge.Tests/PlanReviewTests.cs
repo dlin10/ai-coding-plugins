@@ -200,6 +200,102 @@ public sealed class PlanReviewTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The write is deliberately ahead of the vendor call, not behind it: a round runs for minutes,
+    /// and the plan exists to be read during them. A vendor with nothing scripted throws out of
+    /// <c>StartAsync</c>, which is the earliest a real round can die.
+    /// </summary>
+    [Fact]
+    public async Task The_draft_reaches_the_plan_file_before_the_critic_runs()
+    {
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(rounds: 0, cap: 5);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null,
+                             CancellationToken.None));
+
+        Assert.Equal(HoledPlan, run.ReadPlan());
+    }
+
+    [Fact]
+    public async Task Every_round_rewrites_the_plan_file_with_the_draft_it_was_handed()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 3", "no verification")], "one hole"));
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 0, cap: 5);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await act.ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null,
+                              CancellationToken.None);
+        Assert.Equal(HoledPlan, run.ReadPlan());
+
+        await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                              "named the retention window", null, CancellationToken.None);
+
+        Assert.Equal(HardenedPlan, run.ReadPlan());
+    }
+
+    /// <summary>
+    /// The price of writing the plan from the first round on: the file the builder reads is no
+    /// longer frozen at approval, so a later round has to take the approval back rather than leave
+    /// a raised flag over text nobody approved.
+    /// </summary>
+    /// <remarks>
+    /// The <c>ReviewRounds</c> assertion is the regression guard. The closing <c>WriteState</c>
+    /// builds on the state captured at the top of the act, and a capture taken before the
+    /// withdrawal would restore <c>Approved</c> on its way out — silently, and only on the path
+    /// where a round succeeds.
+    /// </remarks>
+    [Fact]
+    public async Task A_round_against_an_approved_plan_takes_the_approval_back()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 1, cap: 5);
+        run.WriteState(run.ReadState() with
+        {
+            Approved = true, TasksCompleted = 3, BuilderSessionId = "builder-session"
+        });
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                         "reworked step 3", null, CancellationToken.None);
+
+        var state = run.ReadState();
+        Assert.False(state.Approved);
+        Assert.Equal(0, state.TasksCompleted);
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Equal(2, state.ReviewRounds);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan reopened", flow, StringComparison.Ordinal);
+        Assert.Contains("reset from 3 completed tasks", flow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The crash window between withdrawing the approval and writing the plan is one-directional by
+    /// construction: whatever fails afterwards, the run is left refusing to build rather than
+    /// building an unapproved plan.
+    /// </summary>
+    [Fact]
+    public async Task A_round_that_dies_leaves_the_approval_withdrawn_rather_than_the_plan_unguarded()
+    {
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(rounds: 1, cap: 5);
+        run.WriteState(run.ReadState() with { Approved = true, TasksCompleted = 3 });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                             "reworked step 3", null, CancellationToken.None));
+
+        Assert.False(run.ReadState().Approved);
+        Assert.Equal(HardenedPlan, run.ReadPlan());
+    }
+
     private RunDirectory NewRun(int rounds, int cap)
     {
         const string runId = "test-run";
