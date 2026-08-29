@@ -32,9 +32,11 @@ foreach ($protectedPath in @($pluginRoot, $workspaceRoot, $parentRoot, $pathRoot
 $packageMarkerContent = 'plan-forge-flow-package-root-v1'
 $packageMarker = Join-Path $outputRoot '.planforge-flow-package-root'
 $staging = Join-Path $outputRoot 'staging'
-$ridDirectories = @(Get-ChildItem -LiteralPath (Join-Path $pluginRoot 'bin') -Directory -Force)
-if ($ridDirectories.Count -ne 1 -or $ridDirectories[0].Name -ne $rid) {
-    throw "Tracked distribution must contain only bin/$rid; found $($ridDirectories.Name -join ', ')"
+# bin/win-x64 is absent until the first local publish: the executable is not tracked, it is a
+# release asset. Only a foreign RID directory is a packaging fault.
+$foreignRids = @(Get-ChildItem -LiteralPath (Join-Path $pluginRoot 'bin') -Directory -Force | Where-Object { $_.Name -ne $rid })
+if ($foreignRids.Count -gt 0) {
+    throw "Tracked distribution must contain only bin/$rid; found $($foreignRids.Name -join ', ')"
 }
 
 function Assert-SafePackageTree([string]$Path) {
@@ -227,6 +229,7 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.claude-plugin/plugin.json',
                 'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
+                'plugins/plan-forge-flow/bin/planforge-launcher.ps1',
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
                 'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
@@ -316,6 +319,7 @@ foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES
 $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
 New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
 Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundleRidBin $expectedExecutable)
+Copy-Item -LiteralPath (Join-Path $pluginRoot 'bin/planforge-launcher.ps1') -Destination (Join-Path $bundlePlugin 'bin/planforge-launcher.ps1')
 $marketplace = [ordered]@{
     name      = 'plan-forge-flow-bundle'
     interface = [ordered]@{ displayName = 'Plan Forge Flow bundle' }
@@ -361,6 +365,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'prompts/scope-contract.md'),
         (Join-Path $bundlePlugin 'prompts/requirements-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
+        (Join-Path $bundlePlugin 'bin/planforge-launcher.ps1'),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
         (Join-Path $bundlePlugin 'prompts/codex/critic.md'),

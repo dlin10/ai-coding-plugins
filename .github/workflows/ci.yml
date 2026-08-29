@@ -12,8 +12,6 @@ jobs:
         working-directory: plugins/plan-forge-flow
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -37,8 +35,6 @@ jobs:
         working-directory: plugins/plan-forge-flow
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
