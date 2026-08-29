@@ -12,6 +12,7 @@ internal sealed class PromptLibrary(string? root = null)
     private const string RoslynContractFile = "roslyn-contract.md";
     private const string ScopeContractFile = "scope-contract.md";
     private const string RequirementsContractFile = "requirements-contract.md";
+    private const string OrchestrationContractFile = "orchestration-contract.md";
 
     /// <summary>
     /// The launcher's half of the contract in <see cref="Locate"/>. Renaming it here without
@@ -56,13 +57,15 @@ internal sealed class PromptLibrary(string? root = null)
         if (!File.Exists(path)) 
             throw new PromptNotFoundException(path);
 
-        var prompt = File.ReadAllText(path);
-        if (role is not VendorRole.Critic) 
-            return prompt;
+        // A host running a worker for us also hands it whatever the user installed there, and this
+        // plugin is usually among that: a cursor builder measured on 2026-08-29 was given the run's
+        // own forge skill and started its MCP server. Neither role has any business driving the run
+        // it was called into, so both are told to leave that surface alone.
+        var prompt = Append(File.ReadAllText(path), OrchestrationContractFile);
 
-        // The Roslyn contract is shared across vendors, so it lives once and is appended rather
-        // than copied into each critic file, which is how the 1.x copies drifted apart.
-        return Append(prompt, RoslynContractFile);
+        // The shared contracts live once and are appended rather than copied into each vendor's
+        // file, which is how the 1.x copies drifted apart.
+        return role is VendorRole.Critic ? Append(prompt, RoslynContractFile) : prompt;
     }
 
     /// <summary>

@@ -173,6 +173,31 @@ can reach a Cursor worker only inside the prompt itself, so `CursorAgentSession`
 head, ahead of the task and the schema contract. Before 0.12.1 the loaded role prompt was silently
 dropped and Cursor critics and builders ran without their instructions.
 
+## cursor-agent reports every tool in one message, and the exit code in it is a shell's
+
+Measured on 2026-08-29 against 2026.08.25-3e8eec8 in print mode with `--output-format stream-json`,
+after a builder run whose every shell call failed without leaving a trace in `forge.log`:
+
+- A tool produces two `"type": "tool_call"` messages — `"subtype"` `started`, then `completed`. The
+  `tool_call` object holds exactly one `<name>ToolCall` member (`shellToolCall`, `readToolCall`)
+  beside `toolCallId` and the timestamps, so that member's name is the tool.
+- `result` is a one-of. A call that worked carries `success`; a failure carries a member named
+  after itself — `error` with `errorMessage` for a path the read tool could not find, `spawnError`
+  for a shell backend answering "the shell command returned no exit status". Everything that is not
+  `success` is therefore read as the failure, whatever it is called, so an unseen failure shape
+  cannot pass for a clean call.
+- `success.exitCode` is not the command's own. `cmd /c exit 3` came back as `exitCode: 0` with
+  cmd's banner in `stdout`, so the tool hands the command to a shell it keeps rather than running
+  it. The code is logged as reported and nothing is decided on it — see "Verification is
+  self-reported" below.
+- A host that runs cursor-agent for us also hands the worker whatever the user installed there, and
+  this plugin was among it: the builder's prompt listed the `forge` skill, and cursor-agent started
+  a plan-forge-flow MCP server of its own per task — four `planforge.exe` processes that outlived
+  the runs that spawned them, each holding a console window, because a server launched from one
+  that has no console gets a fresh one. What the host offers a worker is a property of the host,
+  not of the role, so `prompts/orchestration-contract.md` is appended to both — it answers the half
+  of this we control, and the rest is the host's.
+
 ## No progress notification can rescue a Cursor-hosted call
 
 Measured on 2026-08-18 with a probe MCP stdio server that logs every request's `_meta`, driven by
@@ -250,9 +275,10 @@ unavailable` with evidence.
 
 The report is the builder's word, deliberately. The server does not re-check it: the only signal it
 could check against — command exit codes in the vendor's event stream — exists reliably for Codex
-alone, and a guarantee that varies by vendor is worse than none. The audit trail is the run log,
-which since this change records each tool's outcome (command, exit code, output tail) for Codex and
-Claude; Cursor's intermediate events are unmeasured and stay unread. Reacting to `unavailable` or
+alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit code too,
+but it is its own shell's rather than the command's, which is the shape of the problem: a check
+built on it would pass a build that never ran. The audit trail is the run log, which records each
+tool's outcome — command, exit code, output tail — for all three vendors. Reacting to `unavailable` or
 `failed` belongs to the orchestrator — the skill directs it to run the task's verification step
 itself and record the outcome — because the server has no environment of its own to verify in, and
 blocking the flow would kill a run that can degrade gracefully.

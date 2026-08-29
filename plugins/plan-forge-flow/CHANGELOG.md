@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.22.1
+
+A cursor builder spent four tasks reporting `verification: unavailable` because every shell command
+it ran came back with no exit status — and `forge.log` recorded none of it. The session read the
+final text out of the stream and dropped the rest, so five failed calls, among them a bare
+`echo hello` the builder ran to test the shell, reached the log as a clean run. The same run had the
+host hand the worker this plugin's own surface: cursor-agent started the forge MCP server for the
+builder and offered it the forge skill.
+
+- `CursorAgentSession` reads `tool_call` messages the way the Claude session already reads
+  `tool_use` and `tool_result`: a started call logs its command, a completed one logs whether it
+  succeeded, its exit code, and the tail of its result. The result is a one-of, so anything that is
+  not `success` is logged as an error — a failure shape this vendor has not shown yet still lands
+  in the log as a failure rather than as silence.
+- Every role prompt carries a new shared `prompts/orchestration-contract.md`: the forge skill and
+  the `forge.*` tools belong to the orchestrator, and neither a builder nor a critic may call them
+  or follow it. It is appended the way the Roslyn contract is appended to critics, so it lives once
+  rather than in six vendor files.
+
 ## 0.22.0
 
 The plan was the one thing a run withheld. `PLAN.md` was written by `forge.plan.confirm` and by
