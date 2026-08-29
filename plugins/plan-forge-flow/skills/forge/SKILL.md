@@ -23,7 +23,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
-| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Returns one critique. **You** then revise the plan and call it again, saying in `revision` what you changed — required from the second round on. |
+| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Writes that draft to `PLAN.md` before the critic starts, and returns one critique. **You** then revise the plan and call it again, saying in `revision` what you changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
@@ -44,9 +44,10 @@ and `forge.review.fix`. For Cursor's `review.fix`, blank `findings` means all fi
 deferred, so the act completes without starting a builder session. If `forge.work.start` returns
 `started: false`, rejoin its active job with poll → fetch.
 
-Every worker act answers with its own result beside a `flowLog` object — the critique under
+Every worker act answers with its own result beside a `documents` object — the critique under
 `critique`, the build under `build`, the fix under `fix`, and on Cursor the act's own payload as
-the `result` string of `forge.work.fetch`. What to do with the `flowLog` is below.
+the `result` string of `forge.work.fetch`. `documents` holds `flowLog` and `plan`, each with a
+`path` and what to do with it, and each `null` until its file exists. What to do with them is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
 use the three work tools above so the surviving server can rejoin a detached worker; on every other
@@ -204,9 +205,17 @@ after it.
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
 
-Keep the drafts to yourself. The rounds are working material, and showing the user every revision
-buries the one version that matters. The plan reaches them exactly once, when the critic returns
-`approve`.
+Link the drafts, do not paste them. Every round writes the draft you passed to `<runPath>/PLAN.md`
+before the critic starts, so the user can watch the plan change while the rounds run — surface that
+file the way you surface the flow log, and refresh it after each round. What stays out of the chat
+is the plan's *text*: five revisions pasted into the conversation bury the one version that matters,
+which is why the file exists.
+
+A round run against an already-approved plan takes the approval back: the server clears `approved`,
+resets the build progress to zero, and records it in the flow log. That is not a silent
+housekeeping detail — say it in the chat, because the next `forge.build.next` will refuse until the
+user approves again, and the builder will then start from the first task. If tasks were already
+built, tell the user how many are about to be rebuilt before you run the round.
 
 ## Show the workers' output as you go
 
@@ -217,26 +226,30 @@ deferrals between plan-review rounds, build results with status and files change
 round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to a
 worker; it exists to be shown.
 
-Every act result carries the file as `flowLog`, with its `path` and what to do with it, from the
-moment there is something to show — the first plan-review result, whether from the one-call tool
-or `forge.work.fetch`. **Surface it in the same turn that first `flowLog` arrives**, not at the
-end of the run: a link handed over once the work is finished is a link to something the user
-could no longer watch. Then refresh it after every later worker act — no host watches the disk
-for you:
+The plan is the second such file. `forge.plan.review` writes the draft you hand it to
+`<runPath>/PLAN.md` before the critic starts, and rewrites it every round, so the user reads the
+current plan while the round runs rather than meeting it once at approval.
 
-- A host that renders local files (the Claude Code desktop app) — show the file, and re-send it
+Every act result carries both as `documents.flowLog` and `documents.plan`, each with its `path` and
+what to do with it, from the moment there is something to show — the first plan-review result,
+whether from the one-call tool or `forge.work.fetch`. Either can be `null` while its file does not
+exist yet. **Surface them in the same turn that first `documents` arrives**, not at the end of the
+run: a link handed over once the work is finished is a link to something the user could no longer
+watch. Then refresh them after every later worker act — no host watches the disk for you:
+
+- A host that renders local files (the Claude Code desktop app) — show the files, and re-send them
   after each call.
-- A host attached to an editor — open it once with `code <path>` or `cursor <path>`. The Cursor
-  Agents window renders it as a snapshot, so re-run the same command after each call; a VS Code
+- A host attached to an editor — open each once with `code <path>` or `cursor <path>`. The Cursor
+  Agents window renders them as snapshots, so re-run the same command after each call; a VS Code
   tab refreshes itself.
-- A terminal or TUI host — give the user the path once so they can open it in their own editor.
+- A terminal or TUI host — give the user the paths once so they can open them in their own editor.
 
-However the log is surfaced, keep one line of narration in chat per worker call: the verdict and
+However the files are surfaced, keep one line of narration in chat per worker call: the verdict and
 finding count, or the task built and its status, so the user sees the run move without opening
 anything. When chat is all the host has, expand that line to the findings themselves — severity,
 where, what — and for code review say which findings you kept versus deferred, with the reasons.
-Never paste raw JSON, and never let narration grow into showing the plan drafts that the
-paragraph above keeps out of the chat.
+Never paste raw JSON, and never let narration grow into pasting the plan itself — that is what the
+`documents.plan` link is for.
 
 ## Approval
 
@@ -261,8 +274,10 @@ job, in four steps:
 4. Pass what they answered to `forge.plan.confirm`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
-of what approval means here: it writes `PLAN.md`, flips `approved` in the run state, and unlocks the
-builder. No code anywhere checks whether anyone was actually asked.
+of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
+state, and unlocks the builder. No code anywhere checks whether anyone was actually asked. Pass the
+plan you showed them, not the last draft a round reviewed — those differ whenever step 3 sent you
+back to revise, and it is the confirmed text the builder walks.
 
 ## The builder's verification is self-reported — reacting to it is yours
 

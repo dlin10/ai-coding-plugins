@@ -1,5 +1,30 @@
 # Plan Forge Flow releases
 
+## 0.22.0
+
+The plan was the one thing a run withheld. `PLAN.md` was written by `forge.plan.confirm` and by
+nothing else, and the skill told the orchestrator to keep every draft to itself until the critic
+returned `approve` — so after choosing a critic and a builder, the user watched up to five rounds of
+verdicts about a document they had never seen.
+
+- `forge.plan.review` writes the draft it is handed to `PLAN.md` before the critic starts, and
+  rewrites it every round. Before rather than after, because the round takes minutes and those are
+  the minutes when having the plan to read is worth something. The write is a whole-file
+  replacement, so a retried round writes the same bytes; no new guard precedes it, because the same
+  draft already reaches disk in `forge.log` through the tool-call record.
+- The `flowLog` object on every act result is replaced by `documents`, holding `flowLog` and `plan`
+  — each a `path` plus what to do with it, each `null` until its file exists. **Breaking**: a host
+  reading `flowLog` off a result finds nothing there. The skill ships with the change.
+- The skill's "keep the drafts to yourself" rule becomes "link them, do not paste them". The plan's
+  text still stays out of the chat; the file is surfaced and refreshed the way the flow log already
+  was.
+- A review round run against an already-approved plan takes the approval back: `approved` is
+  cleared, `tasksCompleted` returns to zero, the builder session is dropped, and a `## Plan reopened`
+  entry lands in the flow log naming the task count. The plan has to be approved again before the
+  builder runs, and it starts from the first task. `PLAN.md` therefore means "the plan as it
+  currently stands", not "the approved plan" — approval was always `approved` in the run state, and
+  still is. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md).
+
 ## 0.21.1
 
 Moving the executable to a release asset in 0.21.0 left the prompts behind. The launcher downloads
