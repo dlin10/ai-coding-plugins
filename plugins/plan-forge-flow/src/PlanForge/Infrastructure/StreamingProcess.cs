@@ -57,6 +57,7 @@ internal static class StreamingProcess
         var exited = process.WaitForExitAsync(token);
 
         var seen = 0L;
+        var capped = false;
         try
         {
             // Inside the try because a vendor that never drains its stdin blocks this write, and
@@ -69,7 +70,10 @@ internal static class StreamingProcess
             {
                 seen += line.Length;
                 if (seen > MaxOutputBytes)
+                {
+                    capped = true;
                     throw new VendorException($"{spec.FileName} exceeded {MaxOutputBytes} bytes of output");
+                }
 
                 yield return line;
             }
@@ -79,9 +83,13 @@ internal static class StreamingProcess
             if (!process.HasExited)
             {
                 // Which cancellation fired decides how the failure reads: the caller walking away
-                // is not the same event as the vendor outstaying its timeout.
+                // is not the same event as the vendor outstaying its timeout. This finally also
+                // runs when the consumer of the stream faults or stops early — the iterator is
+                // disposed with the process still alive — and only the flag separates that from a
+                // genuine cap breach, so a consumer's own exception is not billed to the vendor.
                 var reason = ct.IsCancellationRequested ? "cancelled"
-                    : deadline.IsCancellationRequested ? "timeout" : "output-cap";
+                    : deadline.IsCancellationRequested ? "timeout"
+                    : capped ? "output-cap" : "abandoned";
 
                 // Kill before draining. On the output-cap path nothing has cancelled the stderr
                 // read, so a live process would keep it open and the drain would spend its whole
