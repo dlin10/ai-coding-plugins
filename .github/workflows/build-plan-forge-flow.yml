@@ -1,13 +1,25 @@
-name: CI
+name: Build Plan Forge Flow
 
 # A branch push and its pull request are the same commit, and an unfiltered `push` matches every
 # ref — tags included, which re-ran this whole suite on a commit `main` had just tested. Restricting
 # push to the default branch leaves each commit checked once: on its pull request, then on the merge.
+#
+# Both jobs below build and package one plugin, so `paths` holds them to it: a README edit or a
+# change under another plugin has nothing here to check. The filter is complete because nothing
+# outside the plugin feeds the build — global.json and Directory.Build.props live inside it, not at
+# the repository root. Adding required status checks would break this: a filtered workflow never
+# reports, and a required check that never reports blocks the merge forever.
 on:
   push:
     branches:
       - main
+    paths:
+      - 'plugins/plan-forge-flow/**'
+      - '.github/workflows/build-plan-forge-flow.yml'
   pull_request:
+    paths:
+      - 'plugins/plan-forge-flow/**'
+      - '.github/workflows/build-plan-forge-flow.yml'
 
 jobs:
   test:

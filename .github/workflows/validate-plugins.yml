@@ -1,7 +1,7 @@
 name: Validate plugin marketplaces
 
-# See the note in ci.yml: without `branches`, a tag push runs this again on an already-checked
-# commit, and the `paths` filter below does not hold it back on a tag.
+# See the note in build-plan-forge-flow.yml: without `branches`, a tag push runs this again on
+# an already-checked commit, and the `paths` filter below does not hold it back on a tag.
 on:
   push:
     branches:

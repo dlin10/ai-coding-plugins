@@ -9,7 +9,7 @@ name: Plan Forge Flow release
 #
 # `paths` holds the merge path to this plugin. It does not hold back a tag push — GitHub does not
 # evaluate path filters for tags — which is exactly what the manual path needs. See the note in
-# ci.yml for the other half of that behaviour.
+# build-plan-forge-flow.yml for the other half of that behaviour.
 on:
   push:
     branches:
@@ -94,9 +94,10 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
-      # The release proves its own artifact rather than trusting the run of ci.yml beside it: on the
-      # merge path the two start together, so CI has no verdict yet at the moment this would need
-      # one. Integration tests drive the real vendor CLIs, none of which exist on a runner.
+      # The release proves its own artifact rather than trusting the run of
+      # build-plan-forge-flow.yml beside it: on the merge path the two start together, so that
+      # workflow has no verdict yet at the moment this would need one. Integration tests drive the
+      # real vendor CLIs, none of which exist on a runner.
       - name: Test before publishing
         run: dotnet test src/PlanForgeFlow.sln --configuration Release --filter "Category!=Integration"
       - name: Build win-x64 local-marketplace bundle
