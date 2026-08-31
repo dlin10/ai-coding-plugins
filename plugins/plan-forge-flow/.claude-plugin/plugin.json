@@ -10,13 +10,11 @@
   "mcpServers": {
     "plan-forge-flow": {
       "type": "stdio",
-      "command": "powershell.exe",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${CLAUDE_PLUGIN_ROOT}/bin/planforge-launcher.ps1"
+        "/d",
+        "/c",
+        "${CLAUDE_PLUGIN_ROOT}\\bin\\planforge-launcher.cmd"
       ],
       "timeout": 3600000
     }

@@ -14,6 +14,24 @@ itself.
   the same heading in the log the next critic reads. Folders left behind by earlier runs stay where
   they are — nothing cleans them up.
 
+A host starts the server for every session whether the flow is used in it or not, and the launcher
+it starts stays alive as the server's parent until that session ends. The launcher was PowerShell:
+around 50 MB of working set sitting beside a 33 MB server, doing nothing but waiting, once per
+session and per host.
+
+- `bin/planforge-launcher.cmd` is what the three manifests start now, with `/d` so that a user's
+  `AutoRun` cannot write to the stdout the MCP protocol owns. It resolves the executable itself —
+  the local build, else the cached download for the manifest version — and names the prompts folder
+  in `PLANFORGE_PROMPTS`, which is the half of that contract `build/package.ps1` asserts against.
+  A session now costs under 10 MB for the launcher rather than around 50, and starts faster for
+  not loading PowerShell.
+- `bin/planforge-launcher.ps1` is gone rather than reduced to a fetch step: the batch file reads the
+  version out of the manifest with `findstr` and downloads the release asset with the `curl.exe`
+  Windows has shipped since 10 1803, so the plugin now carries no interpreter of its own. A version
+  it cannot read is refused rather than guessed at, and the download lands beside its destination
+  before being moved into place, so a killed session leaves no half-written executable behind for
+  the next one to run.
+
 ## 0.22.1
 
 A cursor builder spent four tasks reporting `verification: unavailable` because every shell command

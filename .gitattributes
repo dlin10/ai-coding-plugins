@@ -2,3 +2,7 @@ plugins/plan-forge-flow/bin/planforge-launcher.sh text eol=lf
 # Embedded verbatim into planforge.exe, so its line endings are shipped bytes rather than a
 # working-copy detail: without this a CRLF checkout would build a different resource.
 plugins/plan-forge-flow/src/PlanForge/Mcp/PlanCanvas.html text eol=lf
+
+# cmd.exe is the interpreter, and a batch file it reads with LF endings misparses labels,
+# so the endings are shipped bytes here too rather than a checkout setting.
+plugins/plan-forge-flow/bin/planforge-launcher.cmd text eol=crlf

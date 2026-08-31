@@ -43,7 +43,7 @@ the GitHub release together. So a version bump merged to `main` releases itself,
 does not bump releases nothing. Do not push a release tag by hand as part of ordinary work — the
 tag trigger survives only as a way to re-cut a release whose upload failed, and it refuses a tag
 that disagrees with the manifest. What makes the bump load-bearing rather than cosmetic is
-`bin/planforge-launcher.ps1`: it downloads `planforge.exe` from the release matching the manifest
+`bin/planforge-launcher.cmd`: it downloads `planforge.exe` from the release matching the manifest
 version, so a manifest naming a version with no release behind it breaks every fresh install.
 
 ## Layout
@@ -119,7 +119,7 @@ be edited and tuned per project **without a rebuild**. `PromptLibrary` walks up 
 because the shipped layouts differ (publish output vs. installed plugin), but **a third layout
 cannot be walked to at all**: the launcher downloads the bare executable into a per-version cache
 under `%LOCALAPPDATA%`, and the prompts never travel with the release asset. So
-`bin/planforge-launcher.ps1` — the only thing that knows both the plugin root and the executable —
+`bin/planforge-launcher.cmd` — the only thing that knows both the plugin root and the executable —
 names the folder in `PLANFORGE_PROMPTS`, and `PromptLibrary` takes a value there as the root
 without probing it. Change the variable's spelling on one side and the assertion in
 `build/package.ps1` or `PromptRootTests` turns red; nothing else ties the two halves together. The shared

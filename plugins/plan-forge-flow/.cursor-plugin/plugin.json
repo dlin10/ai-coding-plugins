@@ -20,13 +20,11 @@
   "skills": "./skills/",
   "mcpServers": {
     "plan-forge-flow": {
-      "command": "powershell.exe",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${CURSOR_PLUGIN_ROOT}/bin/planforge-launcher.ps1"
+        "/d",
+        "/c",
+        "${CURSOR_PLUGIN_ROOT}\\bin\\planforge-launcher.cmd"
       ]
     }
   }

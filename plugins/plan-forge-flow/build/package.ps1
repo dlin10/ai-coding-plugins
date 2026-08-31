@@ -265,7 +265,7 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.claude-plugin/plugin.json',
                 'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
-                'plugins/plan-forge-flow/bin/planforge-launcher.ps1',
+                'plugins/plan-forge-flow/bin/planforge-launcher.cmd',
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
                 'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
@@ -286,7 +286,7 @@ function Test-PluginArchive([string]$Archive) {
         # fetched from the release has nothing above it to walk up to and the launcher has to name
         # the folder. The other half of the contract is PromptLibrary.RootVariable, pinned by
         # PromptRootTests; this half guards what actually ships.
-        $launcherEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/bin/planforge-launcher.ps1')
+        $launcherEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/bin/planforge-launcher.cmd')
         $reader = [IO.StreamReader]::new($launcherEntry.Open())
         try { $launcherScript = $reader.ReadToEnd() } finally { $reader.Dispose() }
         if ($launcherScript -notmatch 'PLANFORGE_PROMPTS') {
@@ -366,7 +366,7 @@ foreach ($file in @('README.md', 'CHANGELOG.md', 'LICENSE', 'THIRD-PARTY-NOTICES
 $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
 New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
 Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundleRidBin $expectedExecutable)
-Copy-Item -LiteralPath (Join-Path $pluginRoot 'bin/planforge-launcher.ps1') -Destination (Join-Path $bundlePlugin 'bin/planforge-launcher.ps1')
+Copy-Item -LiteralPath (Join-Path $pluginRoot 'bin/planforge-launcher.cmd') -Destination (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd')
 $marketplace = [ordered]@{
     name      = 'plan-forge-flow-bundle'
     interface = [ordered]@{ displayName = 'Plan Forge Flow bundle' }
@@ -413,7 +413,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'prompts/requirements-contract.md'),
         (Join-Path $bundlePlugin 'prompts/orchestration-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
-        (Join-Path $bundlePlugin 'bin/planforge-launcher.ps1'),
+        (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd'),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
         (Join-Path $bundlePlugin 'prompts/codex/critic.md'),

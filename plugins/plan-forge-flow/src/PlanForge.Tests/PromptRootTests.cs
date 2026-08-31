@@ -79,11 +79,11 @@ public sealed class PromptRootTests : IDisposable
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            var candidate = Path.Combine(directory.FullName, "bin", "planforge-launcher.ps1");
+            var candidate = Path.Combine(directory.FullName, "bin", "planforge-launcher.cmd");
             if (File.Exists(candidate)) return candidate;
             directory = directory.Parent;
         }
 
-        throw new FileNotFoundException("could not locate planforge-launcher.ps1 above the test binary");
+        throw new FileNotFoundException("could not locate planforge-launcher.cmd above the test binary");
     }
 }
