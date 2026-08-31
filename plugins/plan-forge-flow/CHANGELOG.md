@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.22.2
+
+Every critique was written to disk four times. `review-log.md` carries it because the next round's
+fresh critic reads it, `flow_log.md` because the user does, and `forge.log` records it once more as
+the tool call's result — and `critiques/round-NN.json` was a fourth copy nothing ever opened: no act
+read it back, no tool handed its path out, and the only code that named the folder was the write
+itself.
+
+- `forge.plan.review` and `forge.review.code` no longer write `critiques/round-NN.json`, and a run
+  folder no longer carries a `critiques/` directory. Round numbering is untouched: code review still
+  continues the plan review's count, because the number is what keeps two rounds from arriving under
+  the same heading in the log the next critic reads. Folders left behind by earlier runs stay where
+  they are — nothing cleans them up.
+
 ## 0.22.1
 
 A cursor builder spent four tasks reporting `verification: unavailable` because every shell command

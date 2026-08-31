@@ -151,7 +151,6 @@ Everything a run knows lives in the repository under one folder, isolated by run
     review-log.md
     flow_log.md           # the user-facing timeline
     forge.log
-    critiques/
     baseline.patch
 ```
 

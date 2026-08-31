@@ -34,7 +34,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public void Creates_the_directory_it_writes_into()
     {
-        var path = Path.Combine(_root, "critiques", "round-01.json");
+        var path = Path.Combine(_root, "jobs", "job-01.json");
 
         AtomicFile.Write(path, "{}");
 

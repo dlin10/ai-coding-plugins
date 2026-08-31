@@ -17,7 +17,6 @@ internal sealed class RunDirectory
     private const string FlowLogFileName = "flow_log.md";
     private const string DiagnosticLogFileName = "forge.log";
     private const string JobsFolder = "jobs";
-    private const string CritiquesFolder = "critiques";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
 
@@ -165,14 +164,8 @@ internal sealed class RunDirectory
     public string ReadReviewLog() =>
         File.Exists(ReviewLogPath) ? AtomicFile.Read(ReviewLogPath) : string.Empty;
 
-    public void AppendReviewRound(int round, Critique critique)
-    {
+    public void AppendReviewRound(int round, Critique critique) =>
         AtomicFile.Append(ReviewLogPath, CritiqueEntry($"## Round {round}", critique));
-
-        var critiques = System.IO.Path.Combine(Path, CritiquesFolder);
-        AtomicFile.Write(System.IO.Path.Combine(critiques, $"round-{round:00}.json"),
-            JsonSerializer.Serialize(critique, ContractJson.Default.Critique));
-    }
 
     /// <summary>
     /// Records what the orchestrator did with a round's findings: what went to the builder, and
