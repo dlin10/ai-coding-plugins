@@ -1,4 +1,4 @@
-# Roslyn MCP 0.6.0
+# Roslyn MCP 0.7.1
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
@@ -44,13 +44,21 @@ A port belongs to a solution rather than to a repository, because one Visual Stu
 After preflight, it writes or merges the following in each solution's owning directory — the repository root when there is one solution, otherwise the component folder the extension reaches by searching upward from the solution:
 
 - `.roslynmcp.json` for the Visual Studio extension;
-- `.codex/config.toml` for Codex;
+- `.codex/config.toml` for Codex, carrying `default_tools_approval_mode = "approve"` and `omit_tools_from = ["deferred"]` beside the URL;
 - `.cursor/mcp.json` for Cursor;
 - a Claude Code local-scope MCP entry when the `claude` CLI is available.
+
+Both extra Codex keys are load-bearing on Codex 0.149+. Without `omit_tools_from`, Codex parks MCP tools behind tool search and embedded `codex app-server` clients never see them; without `default_tools_approval_mode`, a session running with approval policy `never` in a read-only or workspace-write sandbox rejects every call.
 
 Codex and Cursor read the port from the directory, so they follow the solution automatically. Claude Code keys local-scope servers by Git repository root instead, so a repository with several solutions gets one entry per solution under distinct names such as `roslyn-<solution-slug>`, and its tools are named `mcp__roslyn-<slug>__*`.
 
 The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions after setup so they reload the project configuration.
+
+## Port resolution and server lifecycle
+
+The extension walks upward from the solution directory and uses the nearest `.roslynmcp.json`. When it finds none, it falls back to the **Fallback Port** setting under **Tools ▸ Options ▸ Roslyn MCP Extension ▸ General**, which also carries **Server Name** and **Auto Start**. The setting applies only in that unconfigured case, which is what its name says.
+
+Loading, closing, and reloading a solution — what a branch switch does — starts and stops the server through a single serialized queue, so a close-then-open burst keeps its order and a stale exit callback can never reach a newer run. Stopping asks the server to exit over its RPC channel so Kestrel releases the listening socket instead of being killed, which avoids the "port may already be in use" failures that used to follow a restart. Visual Studio shutdown keeps a fast path that terminates the child without waiting, because the UI thread must not block while the IDE exits.
 
 ## Behavioral guidance
 
@@ -101,7 +109,7 @@ npm run validate:plugins
 npm run test:roslyn-hooks
 ```
 
-CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the extension build, the bundled VSIX version, and standalone server package advisories.
+CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the extension build, the standalone server tests, the bundled VSIX version, and standalone server package advisories. `RoslynMcpExtension.Tests`, which covers the server lifecycle inside the extension, needs the Visual Studio SDK and runs locally from the built solution rather than in CI.
 
 ## License
 

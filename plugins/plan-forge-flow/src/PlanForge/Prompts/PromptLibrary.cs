@@ -16,7 +16,7 @@ internal sealed class PromptLibrary(string? root = null)
 
     /// <summary>
     /// The launcher's half of the contract in <see cref="Locate"/>. Renaming it here without
-    /// renaming it in <c>bin/planforge-launcher.ps1</c> turns the assertion in
+    /// renaming it in <c>bin/planforge-launcher.cmd</c> turns the assertion in
     /// <c>build/package.ps1</c> red, which is the only thing tying the two spellings together.
     /// </summary>
     internal const string RootVariable = "PLANFORGE_PROMPTS";

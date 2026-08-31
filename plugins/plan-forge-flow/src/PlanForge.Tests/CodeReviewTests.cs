@@ -101,8 +101,9 @@ public sealed class CodeReviewTests : IDisposable
 
         await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
 
-        // Plan review used rounds 1-5, so the first code-review round is 6 — never a collision.
-        Assert.True(File.Exists(Path.Combine(run.Path, "critiques", "round-06.json")));
+        // Plan review used rounds 1-5, so the first code-review round is 6: the log the next critic
+        // reads never carries two rounds under the same number.
+        Assert.Contains("## Round 6", run.ReadReviewLog());
     }
 
     [Fact]

@@ -1,13 +1,11 @@
 {
   "mcpServers": {
     "plan-forge-flow": {
-      "command": "powershell.exe",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "./bin/planforge-launcher.ps1"
+        "/d",
+        "/c",
+        ".\\bin\\planforge-launcher.cmd"
       ],
       "cwd": ".",
       "tool_timeout_sec": 3600

@@ -1,7 +1,7 @@
 {
   "name": "plan-forge-flow",
   "displayName": "Plan Forge Flow",
-  "version": "0.22.1",
+  "version": "0.22.2",
   "description": "Harden, review, and implement plans on Windows x64 with independent review rounds and explicit approval, delegating the work to separate Claude, Codex, or Cursor processes.",
   "minClientVersions": {
     "cursor": "3.15.6"
@@ -20,13 +20,11 @@
   "skills": "./skills/",
   "mcpServers": {
     "plan-forge-flow": {
-      "command": "powershell.exe",
+      "command": "cmd.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${CURSOR_PLUGIN_ROOT}/bin/planforge-launcher.ps1"
+        "/d",
+        "/c",
+        "${CURSOR_PLUGIN_ROOT}\\bin\\planforge-launcher.cmd"
       ]
     }
   }

@@ -127,16 +127,19 @@ plugins/plan-forge-flow/
   .claude-plugin/plugin.json
   .cursor-plugin/plugin.json
   .mcp.json
-  bin/planforge-launcher.ps1
+  bin/planforge-launcher.cmd
   prompts/
   skills/forge/SKILL.md
   skills/forge/references/
 ```
 
-The executable is not in the repository. On launch, `bin/planforge-launcher.ps1` runs a locally
-built `bin/win-x64/planforge.exe` when one exists, and otherwise downloads `planforge.exe` for the
-manifest version from the matching GitHub release, cached once per version under
-`%LOCALAPPDATA%\plan-forge-flow`.
+The executable is not in the repository. On launch, `bin/planforge-launcher.cmd` runs a locally
+built `bin/win-x64/planforge.exe` when one exists, and otherwise the copy cached under
+`%LOCALAPPDATA%\plan-forge-flow` for the manifest version. When neither is there it downloads
+`planforge.exe` from the matching GitHub release into that cache with `curl.exe` — once per version
+rather than once per session, and with no interpreter of the plugin's own: the launcher is a batch
+file because a host starts it for every session and it then stays alive as the server's parent,
+where `cmd.exe` holds under 10 MB of working set and `powershell.exe` around 50.
 
 ## State
 
@@ -151,7 +154,6 @@ Everything a run knows lives in the repository under one folder, isolated by run
     review-log.md
     flow_log.md           # the user-facing timeline
     forge.log
-    critiques/
     baseline.patch
 ```
 
