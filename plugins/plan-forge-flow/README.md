@@ -76,7 +76,7 @@ roles stay independent:
 
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
-| `claude` | Claude Code CLI | `--json-schema`, natively | declarative |
+| `claude` | Claude Code CLI | `--json-schema`, natively | resolved, aliases through `init` |
 | `codex` | Codex App Server over stdio | schema in the prompt, validated here | live, `model/list` |
 | `cursor` | `cursor-agent` CLI | schema in the prompt, validated here | live, `--list-models` |
 

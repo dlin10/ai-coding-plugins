@@ -359,8 +359,11 @@ work from its answer.
    already newest first. Offer three concrete model-plus-effort pairs, leading with the vendor's
    own pick where it names one (`isDefault`, `defaultEffort`), and always leave free text open.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
-   `source: "declarative"` (claude) is the list this repo remembers, which the CLI may have moved
-   past. Never offer one vendor's model family under another vendor.
+   `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
+   CLI into the model it currently stands for — so name that model beside the alias, because
+   `displayName` carries it and the alias alone does not say which model the run would use. A
+   family released since this plugin shipped appears only if the CLI knew to name it. Never offer
+   one vendor's model family under another vendor.
 
    For the `cursor` vendor, the catalogue has already collapsed the ~200 raw ids into families:
    the model id is the family (`gpt-5.3-codex`) and `efforts` are the variants the CLI actually

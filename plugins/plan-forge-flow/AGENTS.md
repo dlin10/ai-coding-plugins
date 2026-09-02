@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all twelve `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all thirteen `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -94,7 +94,10 @@ Codex and Cursor do not, so both go through `SchemaInPrompt` — schema in the p
 here, exactly one retry. Model catalogues feed the interview: `CatalogCache` probes every vendor in
 the background from `forge.begin`, and `forge.models` serves the results so the model question
 offers what the vendor actually serves — see
-[docs/adr/0007](docs/adr/0007-serve-live-catalogues-to-the-interview.md). For validation they stay
+[docs/adr/0007](docs/adr/0007-serve-live-catalogues-to-the-interview.md). A catalogue is `live`
+where the vendor publishes a list (codex, cursor) and `resolved` for claude, whose probe turns each
+remembered alias into the model id the CLI would send and drops any it does not resolve — see
+[docs/adr/0010](docs/adr/0010-resolve-claude-aliases-through-the-cli.md). For validation they stay
 **advisory**: the vendor CLI decides, and an unrecognised model is a warning, not a refusal.
 
 Effort is kept separate from model in `Selection` because each vendor expresses it differently —

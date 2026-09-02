@@ -26,12 +26,12 @@ public sealed class CatalogTests : IDisposable
         var cache = new CatalogCache((id, _) => id switch
         {
             "claude" => new CatalogVendor("claude", available: true, new VendorCatalog([
-                new VendorModel("opus", ["low", "high"])
-            ])),
+                new VendorModel("opus", ["low", "high"], "claude-opus-5")
+            ], CatalogSource.Resolved)),
             "codex" => new CatalogVendor("codex", available: true, new VendorCatalog([
                 new VendorModel("gpt-5.6-sol", ["low", "ultra"], "GPT-5.6-Sol", "Latest.", "low", IsDefault: true)
-            ], Live: true)),
-            _ => new CatalogVendor("cursor", available: false, new VendorCatalog([], Live: true),
+            ], CatalogSource.Live)),
+            _ => new CatalogVendor("cursor", available: false, new VendorCatalog([], CatalogSource.Live),
                 detail: "cursor-agent was not found on PATH")
         });
 
@@ -39,7 +39,7 @@ public sealed class CatalogTests : IDisposable
 
         var vendors = result["vendors"]!.AsArray();
         Assert.Equal(["claude", "codex", "cursor"], vendors.Select(v => v!["vendor"]!.GetValue<string>()));
-        Assert.Equal(["declarative", "live", "live"], vendors.Select(v => v!["source"]!.GetValue<string>()));
+        Assert.Equal(["resolved", "live", "live"], vendors.Select(v => v!["source"]!.GetValue<string>()));
         Assert.Equal([true, true, false], vendors.Select(v => v!["available"]!.GetValue<bool>()));
 
         var sol = vendors[1]!["models"]!.AsArray().Single()!;
@@ -60,7 +60,7 @@ public sealed class CatalogTests : IDisposable
         var created = new List<CatalogVendor>();
         var cache = new CatalogCache((id, _) =>
         {
-            var vendor = new CatalogVendor(id!, available: true, new VendorCatalog([], Live: true));
+            var vendor = new CatalogVendor(id!, available: true, new VendorCatalog([], CatalogSource.Live));
             created.Add(vendor);
             return vendor;
         });
@@ -80,7 +80,7 @@ public sealed class CatalogTests : IDisposable
     [Fact]
     public async Task A_failed_probe_is_retried_on_the_next_request()
     {
-        var vendor = new CatalogVendor("codex", available: false, new VendorCatalog([], Live: true),
+        var vendor = new CatalogVendor("codex", available: false, new VendorCatalog([], CatalogSource.Live),
             detail: "codex is not signed in — run 'codex login'");
         var cache = new CatalogCache((_, _) => vendor);
 
@@ -107,7 +107,7 @@ public sealed class CatalogTests : IDisposable
         public bool Available = available;
 
         public string Id => id;
-        public VendorCatalog Catalog { get; private set; } = new([], catalog.Live);
+        public VendorCatalog Catalog { get; private set; } = new([], catalog.Source);
 
         public Task<VendorReadiness> ProbeAsync(CancellationToken ct)
         {
