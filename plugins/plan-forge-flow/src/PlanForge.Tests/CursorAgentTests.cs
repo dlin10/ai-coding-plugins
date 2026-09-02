@@ -72,12 +72,12 @@ public sealed class CursorAgentTests
     [Fact]
     public void Reads_version_segments_out_of_model_ids()
     {
-        Assert.Equal([4, 8], CursorAgentVendor.VersionSegments("claude-opus-4-8-thinking"));
-        Assert.Equal([5, 3], CursorAgentVendor.VersionSegments("gpt-5.3-codex"));
-        Assert.Equal([5], CursorAgentVendor.VersionSegments("claude-opus-5-thinking"));
-        Assert.Equal([2, 5], CursorAgentVendor.VersionSegments("composer-2.5"));
-        Assert.Empty(CursorAgentVendor.VersionSegments("auto"));
-        Assert.Empty(CursorAgentVendor.VersionSegments("kimi-k3"));
+        Assert.Equal([4, 8], ModelVersion.Segments("claude-opus-4-8-thinking"));
+        Assert.Equal([5, 3], ModelVersion.Segments("gpt-5.3-codex"));
+        Assert.Equal([5], ModelVersion.Segments("claude-opus-5-thinking"));
+        Assert.Equal([2, 5], ModelVersion.Segments("composer-2.5"));
+        Assert.Empty(ModelVersion.Segments("auto"));
+        Assert.Empty(ModelVersion.Segments("kimi-k3"));
     }
 
     /// <summary>

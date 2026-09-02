@@ -15,7 +15,7 @@ internal sealed class CodexAppServerVendor : IVendor
     public CodexAppServerVendor(string? workingDirectory = null)
     {
         _workspace = workingDirectory is { Length: > 0 } directory ? directory : Environment.CurrentDirectory;
-        Catalog = new VendorCatalog([], Live: true);
+        Catalog = new VendorCatalog([], CatalogSource.Live);
     }
 
     public string Id => "codex";
@@ -33,7 +33,7 @@ internal sealed class CodexAppServerVendor : IVendor
             if (!await IsSignedInAsync(connection, ct))
                 return new VendorReadiness(false, "codex is not signed in — run 'codex login'");
 
-            Catalog = new VendorCatalog(await ListModelsAsync(connection, ct), Live: true);
+            Catalog = new VendorCatalog(await ListModelsAsync(connection, ct), CatalogSource.Live);
             return new VendorReadiness(true, $"{Catalog.Models.Count} models");
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)

@@ -8,7 +8,7 @@ internal sealed class RecordingVendor(string id) : IVendor
 
     public string Id { get; } = id;
 
-    public VendorCatalog Catalog { get; } = new([]);
+    public VendorCatalog Catalog { get; } = new([], CatalogSource.Resolved);
 
     public List<RecordingVendorSession> Sessions { get; } = [];
 

@@ -16,7 +16,7 @@ internal sealed class CursorAgentVendor : IVendor
     public CursorAgentVendor(string? workingDirectory = null)
     {
         _workingDirectory = workingDirectory;
-        Catalog = new VendorCatalog([], Live: true);
+        Catalog = new VendorCatalog([], CatalogSource.Live);
     }
 
     public string Id => "cursor";
@@ -35,7 +35,7 @@ internal sealed class CursorAgentVendor : IVendor
             var spec = new ProcessSpec(Executable, ["--list-models"], _workingDirectory, string.Empty);
             var lines = await StreamingProcess.CollectAsync(spec, TimeSpan.FromMinutes(1), ct);
 
-            Catalog = new VendorCatalog(ParseModels(lines), Live: true);
+            Catalog = new VendorCatalog(ParseModels(lines), CatalogSource.Live);
             return new VendorReadiness(true, $"{Catalog.Models.Count} model families");
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)
@@ -86,7 +86,7 @@ internal sealed class CursorAgentVendor : IVendor
         return
         [
             .. families.Where(family => family.Version.Length > 0)
-                       .OrderByDescending(family => family.Version, VersionOrder.Instance)
+                       .OrderByDescending(family => family.Version, ModelVersion.Order)
                        .Concat(families.Where(family => family.Version.Length == 0))
                        .Select(family => family.ToModel())
         ];
@@ -114,29 +114,10 @@ internal sealed class CursorAgentVendor : IVendor
         return (trimmed, fast ? "fast" : DefaultVariant);
     }
 
-    /// <summary>
-    /// The version is the first run of numeric tokens, each contributing its dot-separated
-    /// segments: "claude-opus-4-8" is the two-segment 4.8 written with dashes, not the integer 48,
-    /// and "gpt-5.3-codex" carries 5.3 inside one token. Ids without one ("auto") return empty.
-    /// </summary>
-    internal static int[] VersionSegments(string id)
-    {
-        var segments = new List<int>();
-        foreach (var token in id.Split('-'))
-        {
-            var parts = token.Split('.');
-            if (parts.All(part => part.Length > 0 && part.All(char.IsAsciiDigit)))
-                segments.AddRange(parts.Select(int.Parse));
-            else if (segments.Count > 0) break;
-        }
-
-        return [.. segments];
-    }
-
     private sealed class Family(string id)
     {
         public string Id { get; } = id;
-        public int[] Version { get; } = VersionSegments(id);
+        public int[] Version { get; } = ModelVersion.Segments(id);
         public List<string> Efforts { get; } = [];
         public string? DisplayName { get; set; }
 
@@ -144,24 +125,6 @@ internal sealed class CursorAgentVendor : IVendor
             new(Id, Efforts, DisplayName,
                 DefaultEffort: Efforts.Contains(DefaultVariant) ? DefaultVariant : null,
                 IsDefault: DisplayName?.Contains("default", StringComparison.OrdinalIgnoreCase) is true);
-    }
-
-    private sealed class VersionOrder : IComparer<int[]>
-    {
-        public static readonly VersionOrder Instance = new();
-
-        public int Compare(int[]? left, int[]? right)
-        {
-            for (var index = 0; index < Math.Max(left!.Length, right!.Length); index++)
-            {
-                var difference = Segment(left, index).CompareTo(Segment(right, index));
-                if (difference != 0) return difference;
-            }
-
-            return 0;
-        }
-
-        private static int Segment(int[] version, int index) => index < version.Length ? version[index] : 0;
     }
 
     private static string[] FallbackDirectories()

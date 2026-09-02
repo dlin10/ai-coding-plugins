@@ -39,11 +39,20 @@ internal sealed record Selection(string Model, string? Effort);
 
 internal sealed record VendorReadiness(bool Available, string Detail);
 
-/// <param name="Live">
-/// True when the vendor reported this catalogue itself; false when it is a list this repo
-/// remembers. The interview tells the user which kind it is offering.
-/// </param>
-internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, bool Live = false);
+/// <param name="Source">Where the catalogue came from. The interview tells the user which kind it is offering.</param>
+internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, CatalogSource Source);
+
+internal enum CatalogSource
+{
+    /// <summary>The vendor reported the list itself: codex, cursor.</summary>
+    Live,
+
+    /// <summary>
+    /// The aliases are a list this repo remembers, but the vendor resolved each one into the model
+    /// it stands for: claude. An alias it did not resolve is not in the catalogue.
+    /// </summary>
+    Resolved
+}
 
 /// <param name="DefaultEffort">The effort the vendor picks when none is asked for, where it says.</param>
 /// <param name="IsDefault">True for the model the vendor itself would pick.</param>

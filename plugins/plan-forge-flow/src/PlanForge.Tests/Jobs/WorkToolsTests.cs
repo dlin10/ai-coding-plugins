@@ -279,7 +279,7 @@ public sealed class WorkToolsTests : IDisposable
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public string Id => "claude";
-        public VendorCatalog Catalog { get; } = new([]);
+        public VendorCatalog Catalog { get; } = new([], CatalogSource.Resolved);
 
         public void Release() => _release.SetResult();
 

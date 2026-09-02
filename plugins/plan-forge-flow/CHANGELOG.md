@@ -1,5 +1,33 @@
 # Plan Forge Flow releases
 
+## 0.22.3
+
+The interview offered claude's four model aliases and could not say what any of them stood for. The
+aliases themselves were never the stale part — `opus` and `sonnet` resolve to the newest model of
+their family on their own — but nothing told the user whether `fable` meant 5.1 or 5, and the
+catalogue was labelled `declarative` precisely because the CLI publishes no list to check against.
+
+- The claude probe now resolves every alias through the CLI and serves the model id it resolved to
+  as the catalogue's `displayName`. One `--bare` process per alias reads the id out of the
+  `init` event and is killed there: `--bare` skips hooks, MCP servers and the keychain, `init`
+  precedes any API call, and the alias table is local, so the whole list resolves offline in about
+  four seconds. An alias the CLI echoes back unchanged did not resolve and is not offered — the CLI
+  answers an unknown model that way and only fails at the API forty seconds later.
+- One further process, without `--model`, is the probe's only billed turn and does three jobs: it
+  proves sign-in, so a signed-out CLI makes the vendor unavailable exactly as codex's probe does;
+  its own `init` names the model the CLI picks by itself, which becomes `isDefault`; and its answer
+  names the model families, so a family released after this plugin shipped can still be offered.
+  Only the family names are read from that answer, shape-checked before they can reach a `--model`
+  argument, and unioned with the four this repo remembers. The ids it offers are discarded: the
+  system-prompt block it reads them from said `claude-fable-5-1` on 2026-09-02 while the CLI
+  resolved `fable` to `claude-fable-5`. A discovery that fails for any reason other than sign-in
+  leaves the remembered aliases standing and says so in the probe's detail.
+- `forge.models` reports `source: "resolved"` for claude instead of `declarative`, which no vendor
+  is any more. Its catalogue is ordered newest-first by the version parsed out of the resolved id,
+  by the same code that already orders cursor's families — now shared as `ModelVersion` rather than
+  living inside the cursor vendor. See
+  [docs/adr/0010](docs/adr/0010-resolve-claude-aliases-through-the-cli.md).
+
 ## 0.22.2
 
 Every critique was written to disk four times. `review-log.md` carries it because the next round's

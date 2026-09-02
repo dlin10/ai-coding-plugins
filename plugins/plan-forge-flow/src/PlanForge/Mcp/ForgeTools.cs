@@ -68,7 +68,7 @@ internal sealed class ForgeTools
     /// a cold call probes on the spot and waits. A probe failure is a value here, not an error —
     /// the interview's reaction to a dead vendor is to drop it, not to stop.
     /// </summary>
-    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — live from vendors that publish one (codex, cursor), declarative for claude. A vendor with available:false is not usable; tell the user why and do not offer it.")]
+    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it.")]
     public static async Task<string> Models(CatalogCache catalogs,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
@@ -89,7 +89,7 @@ internal sealed class ForgeTools
 
     private static VendorCatalogResult Catalogue(VendorCatalogReport report) =>
         new(report.Vendor,
-            report.Catalog.Live ? "live" : "declarative",
+            report.Catalog.Source.ToString().ToLowerInvariant(),
             report.Available,
             report.Detail,
             [
@@ -609,7 +609,7 @@ internal sealed record WorkFetchResult(string JobId, string Act, string State, s
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
-/// <param name="Source">"live" when the vendor reported the list itself, "declarative" when this repo remembers it.</param>
+/// <param name="Source">"live" when the vendor reported the list itself, "resolved" when it resolved aliases this repo remembers.</param>
 internal sealed record VendorCatalogResult(string Vendor,
                                            string Source,
                                            bool Available,
