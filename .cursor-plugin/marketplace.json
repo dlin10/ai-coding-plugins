@@ -23,6 +23,11 @@
       "name": "explain-code-simply",
       "source": "./plugins/explain-code-simply",
       "description": "Clear, accurate explanations of code and .NET concepts in the user's language."
+    },
+    {
+      "name": "cache-detective",
+      "source": "./plugins/cache-detective",
+      "description": "Caching bug diagnosis for C# and .NET — traces one cache key through every write, read, and eviction to find key collisions, entries that never expire, and missing invalidation."
     }
   ]
 }

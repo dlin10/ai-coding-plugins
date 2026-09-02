@@ -22,6 +22,10 @@ Give your coding agent a true understanding of your C# solution. Roslyn MCP conn
 
 Understand code, errors, and C#/.NET concepts in plain language. Explain Code Simply breaks down complex code logic, exceptions, and technical patterns into clear explanations that respect your expertise while avoiding unnecessary jargon.
 
+### [Cache Detective](plugins/cache-detective)
+
+Find out why a value is stale instead of guessing. Cache Detective traces a cache key through every write, read, and eviction, names the layer that actually served the stale value, and points at the break in the lifecycle—so the fix addresses the cause rather than the symptom.
+
 ## Choose the Right Plugin
 
 | When you want to... | Choose |
@@ -30,6 +34,7 @@ Understand code, errors, and C#/.NET concepts in plain language. Explain Code Si
 | Plan and deliver complex changes with stronger review | **Plan Forge Flow** |
 | Work confidently in C# and .NET solutions | **Roslyn MCP** |
 | Understand code and C#/.NET concepts in plain language | **Explain Code Simply** |
+| Track down a caching bug or stale data | **Cache Detective** |
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 

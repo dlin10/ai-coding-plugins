@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="CacheDetective.Cli.Tests/CacheDetective.Cli.Tests.csproj" />
+  <Project Path="CacheDetective.Cli/CacheDetective.Cli.csproj" />
+</Solution>

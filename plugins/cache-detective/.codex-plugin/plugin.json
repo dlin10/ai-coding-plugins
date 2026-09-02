@@ -1,0 +1,22 @@
+{
+  "name": "cache-detective",
+  "version": "0.1.0",
+  "description": "Investigate caching bugs in C# code: keys that collide, entries that never expire, and writes with no invalidation path.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Cache Detective",
+    "shortDescription": "Diagnose stale reads, key collisions, and missing invalidation",
+    "longDescription": "Works a caching bug back to its cause instead of guessing. Traces the lifecycle of one cache key across every write, read, and eviction, identifies which caching layer actually served the stale value, and checks the result against the failure modes behind most caching bugs: a key that cannot tell its callers apart, an entry that never expires, a write path with no invalidation, and a process-local cache in a multi-instance service.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Interactive"
+    ],
+    "defaultPrompt": "Use $cache-detective to find out why this value is stale."
+  }
+}

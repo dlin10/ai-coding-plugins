@@ -1,0 +1,24 @@
+{
+  "name": "cache-detective",
+  "displayName": "Cache Detective",
+  "version": "0.1.0",
+  "description": "Investigate caching bugs in C# code: keys that collide, entries that never expire, and writes with no invalidation path.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "category": "developer-tools",
+  "keywords": [
+    "cache",
+    "invalidation",
+    "stale-data",
+    "csharp",
+    "dotnet"
+  ],
+  "tags": [
+    "debugging",
+    "diagnostics",
+    "developer-tools"
+  ],
+  "skills": "./skills/"
+}

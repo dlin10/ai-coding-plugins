@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>cachedet</AssemblyName>
+    <RootNamespace>CacheDetective</RootNamespace>
+    <PublishAot>false</PublishAot>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CacheDetective.Cli.Tests" />
+  </ItemGroup>
+</Project>

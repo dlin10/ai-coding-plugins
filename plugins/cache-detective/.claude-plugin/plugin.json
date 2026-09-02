@@ -1,0 +1,10 @@
+{
+  "name": "cache-detective",
+  "version": "0.1.0",
+  "description": "Investigate caching bugs in C# code: keys that collide, entries that never expire, and writes with no invalidation path.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}
