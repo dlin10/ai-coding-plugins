@@ -15,6 +15,7 @@ these terms replace it.
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
 | **Plan file** | The run's plan as it currently stands, `PLAN.md`: rewritten by every plan-review round before the critic starts, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a round run after it takes the flag back. |
 | **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
+| **Granted round** | The user's answer to a reached cap: `userGrantedRound` on the next round call raises that cap by exactly one and runs the round past it. Spent by the call that carries it, so the round after needs a fresh answer, and counted in the run state beside the cap it moved — `grantedReviewRounds` next to `reviewRoundCap`, `grantedCodeReviewRounds` next to `codeReviewRoundCap`. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported the list itself (codex, cursor); **resolved** when the list of aliases is one this repo remembers but the vendor turned each alias into the concrete model it stands for at probe time (claude). An alias the vendor did not resolve is not offered. Advisory for validation either way: the vendor CLI decides. |
@@ -97,6 +98,17 @@ the rule below stands unchanged: anything but `passed` is the orchestrator's to 
 None of this adds an artifact. The requirements live in the plan file, `PlanTasks` walks only what
 is under `## Approach`, and both review acts already send the whole plan — `PlanReview` the draft,
 `CodeReview` the approved copy — so requirements and gates reach both critics with no plumbing.
+
+## A cap is a checkpoint, not a stop
+
+Review rounds and code-review rounds are both capped for the same reason: an orchestrator left to
+its own budget will keep spending it, since nothing about a `revise` verdict forces the loop to end.
+The cap exists to catch that runaway, not to overrule a user who has read the critique and decided
+the remaining risk is one they will accept — so it is the orchestrator that cannot raise it on its
+own. Only the user's answer can: `userGrantedRound: true` on the next round call raises the cap by
+exactly one and lets that round run past it. It is spent by the very round it unlocks, which is what
+makes "ask every time" fall out of the mechanism instead of depending on the skill to remember —
+there is no way to carry a grant forward, only to ask again.
 
 ## The App Server spells its sandbox two different ways
 

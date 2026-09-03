@@ -116,17 +116,19 @@ internal sealed class ForgeTools
         [Description("Optional effort level.")] string? effort = null,
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
         [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
-        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null)
+        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null,
+        [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.review",
             [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft),
-             ("revision", revision), ("deferred", deferred)],
+             ("revision", revision), ("deferred", deferred),
+             ("userGrantedRound", userGrantedRound ? "true" : "false")],
             async () =>
             {
                 var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
                 var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort),
-                                                     revision, deferred, ct);
+                                                     revision, deferred, userGrantedRound, ct);
 
                 return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                 ForgeToolJson.Default.CritiqueResult);
@@ -239,16 +241,18 @@ internal sealed class ForgeTools
         [Description("Model for the critic.")] string model,
         CancellationToken ct,
         [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
+        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+        [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.code",
-            [("vendor", vendor), ("model", model), ("effort", effort)],
+            [("vendor", vendor), ("model", model), ("effort", effort),
+             ("userGrantedRound", userGrantedRound ? "true" : "false")],
             async () =>
             {
                 var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
                     new GitClient(workspaceRoot));
-                var critique = await act.ReviewAsync(run, new Selection(model, effort), ct);
+                var critique = await act.ReviewAsync(run, new Selection(model, effort), userGrantedRound, ct);
 
                 return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                 ForgeToolJson.Default.CritiqueResult);
@@ -294,11 +298,12 @@ internal sealed class ForgeTools
         [Description("Plan draft, required only by plan.review.")] string? planDraft = null,
         [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
         [Description("Deferred findings, with reasons: for review.fix, and optionally for plan.review.")] string? deferred = null,
-        [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null)
+        [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
+        [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
-                         deferred, revision, ct, () => VendorFactory.Create(vendor, workspaceRoot));
+                         deferred, revision, userGrantedRound, ct, () => VendorFactory.Create(vendor, workspaceRoot));
     }
 
     internal static async Task<string> StartWork(
@@ -314,6 +319,7 @@ internal sealed class ForgeTools
         string? findings,
         string? deferred,
         string? revision,
+        bool userGrantedRound,
         CancellationToken ct,
         Func<IVendor> vendorFactory)
     {
@@ -321,10 +327,11 @@ internal sealed class ForgeTools
         return await LoggedAsync(run, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
              ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
-             ("revision", revision)],
+             ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false")],
             async () =>
             {
-                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred, revision);
+                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred, revision,
+                                          userGrantedRound);
 
                 // The act would refuse this itself a moment later, inside the job. Refusing here
                 // instead keeps a missing revision an argument error, answered by this call rather
@@ -334,7 +341,8 @@ internal sealed class ForgeTools
                 var workAct = new WorkAct(vendorFactory(), new PromptLibrary());
                 var selection = new Selection(model, effort);
                 var started = registry.Start(run.Path, act,
-                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision, jobCt));
+                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
+                                              userGrantedRound, jobCt));
 
                 var record = started.Record;
                 return JsonSerializer.Serialize(

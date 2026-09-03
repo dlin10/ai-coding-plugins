@@ -34,16 +34,17 @@ internal sealed class WorkAct
         string? findings,
         string? deferred,
         string? revision,
+        bool userGrantedRound,
         CancellationToken ct)
     {
-        ValidateArguments(act, planDraft, selection, findings, deferred, revision);
+        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft!, selection, revision, deferred, ct)
+                    .ReviewAsync(run, planDraft!, selection, revision, deferred, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
@@ -56,7 +57,7 @@ internal sealed class WorkAct
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
                 var codeReview = await new CodeReview(_vendor, _prompts, git)
-                    .ReviewAsync(run, selection, ct)
+                    .ReviewAsync(run, selection, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique);
 
@@ -77,7 +78,8 @@ internal sealed class WorkAct
         Selection? selection,
         string? findings,
         string? deferred,
-        string? revision)
+        string? revision,
+        bool userGrantedRound)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
@@ -94,6 +96,12 @@ internal sealed class WorkAct
                 RejectProvided(findings, nameof(findings), act);
                 break;
             case "build.next":
+                RejectProvided(planDraft, nameof(planDraft), act);
+                RejectProvided(findings, nameof(findings), act);
+                RejectProvided(deferred, nameof(deferred), act);
+                RejectProvided(revision, nameof(revision), act);
+                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
+                break;
             case "review.code":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
@@ -103,6 +111,7 @@ internal sealed class WorkAct
             case "review.fix":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(revision, nameof(revision), act);
+                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
                 if (findings is null)
                     throw new ArgumentException($"{act} requires findings", nameof(findings));
                 break;
@@ -118,6 +127,12 @@ internal sealed class WorkAct
     private static void RejectProvided(string? value, string argumentName, string act)
     {
         if (!string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"{argumentName} is not used by {act}", argumentName);
+    }
+
+    private static void RejectProvided(bool value, string argumentName, string act)
+    {
+        if (value)
             throw new ArgumentException($"{argumentName} is not used by {act}", argumentName);
     }
 }

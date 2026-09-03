@@ -40,13 +40,13 @@ public sealed class WorkActTests : IDisposable
         var response = new Critique("approve", [], "good");
         directVendor.Enqueue(response);
         var direct = await new PlanReview(directVendor, _prompts).ReviewAsync(
-            NewRun("plan-direct"), draft, new Selection("critic", "low"), null, null, CancellationToken.None);
+            NewRun("plan-direct"), draft, new Selection("critic", "low"), null, null, false, CancellationToken.None);
 
         var dispatchedVendor = new RecordingVendor("claude");
         dispatchedVendor.Enqueue(response);
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
             "plan.review", NewRun("plan-dispatched"), draft, new Selection("critic", "low"), null, null, null,
-            CancellationToken.None);
+            false, CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
     }
@@ -64,7 +64,7 @@ public sealed class WorkActTests : IDisposable
         dispatchedVendor.Enqueue(response, "next");
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
             "build.next", NewApprovedRun("build-dispatched"), null, new Selection("builder", null), null, null, null,
-            CancellationToken.None);
+            false, CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ForgeToolJson.Default.BuildOutcome), payload);
     }
@@ -77,15 +77,55 @@ public sealed class WorkActTests : IDisposable
         var response = new Critique("approve", [], "good");
         directVendor.Enqueue(response);
         var direct = await new CodeReview(directVendor, _prompts, git).ReviewAsync(
-            NewApprovedRun("code-direct"), new Selection("critic", null), CancellationToken.None);
+            NewApprovedRun("code-direct"), new Selection("critic", null), false, CancellationToken.None);
 
         var dispatchedVendor = new RecordingVendor("claude");
         dispatchedVendor.Enqueue(response);
         var payload = await new WorkAct(dispatchedVendor, _prompts, git).RunAsync(
             "review.code", NewApprovedRun("code-dispatched"), null, new Selection("critic", null), null, null, null,
-            CancellationToken.None);
+            false, CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
+    }
+
+    /// <summary>
+    /// The Cursor host reaches every worker act only through forge.work.start, so without this the
+    /// grant's dead end would survive there even after the direct tools accept it.
+    /// </summary>
+    [Fact]
+    public async Task A_grant_is_accepted_for_plan_review_and_review_code()
+    {
+        var planVendor = new RecordingVendor("claude");
+        planVendor.Enqueue(new Critique("approve", [], "good"));
+        var planPayload = await new WorkAct(planVendor, _prompts).RunAsync(
+            "plan.review", NewRun("plan-granted"), "## Approach\n\n1. Review the change.\n",
+            new Selection("critic", "low"), null, null, null, true, CancellationToken.None);
+        Assert.Contains("\"verdict\":\"approve\"", planPayload, StringComparison.Ordinal);
+
+        var git = new RecordingReviewGit(["tracked.cs"], "diff");
+        var codeVendor = new RecordingVendor("claude");
+        codeVendor.Enqueue(new Critique("approve", [], "good"));
+        var codePayload = await new WorkAct(codeVendor, _prompts, git).RunAsync(
+            "review.code", NewApprovedRun("code-granted"), null, new Selection("critic", null), null, null, null,
+            true, CancellationToken.None);
+        Assert.Contains("\"verdict\":\"approve\"", codePayload, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// One theory over both capless acts is deliberate: after the case-arm split in
+    /// <c>ValidateArguments</c>, <c>build.next</c> and <c>review.fix</c> reject the grant in
+    /// different arms, and a fact covering only one would let the other be dropped silently.
+    /// </summary>
+    [Theory]
+    [InlineData("build.next")]
+    [InlineData("review.fix")]
+    public async Task A_grant_is_refused_by_the_capless_acts(string act)
+    {
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
+            .RunAsync(act, NewRun($"{act}-granted"), null, new Selection("model", null), null, null, null,
+                true, CancellationToken.None));
+
+        Assert.Contains("userGrantedRound", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -105,7 +145,7 @@ public sealed class WorkActTests : IDisposable
         var dispatchedRun = NewApprovedRun("fix-dispatched", "codex", "old");
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
             "review.fix", dispatchedRun, null, new Selection("builder", null), findings, deferred, null,
-            CancellationToken.None);
+            false, CancellationToken.None);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.BuildResult), payload);
         Assert.Equal(directRun.ReadState().BuilderSessionId, dispatchedRun.ReadState().BuilderSessionId);
@@ -120,7 +160,7 @@ public sealed class WorkActTests : IDisposable
 
         var payload = await new WorkAct(vendor, _prompts).RunAsync(
             "review.fix", run, null, new Selection("builder", null), " \n", "- outside the plan", null,
-            CancellationToken.None);
+            false, CancellationToken.None);
 
         Assert.Empty(vendor.Sessions);
         Assert.Contains("\"status\":\"done\"", payload, StringComparison.Ordinal);
@@ -132,7 +172,7 @@ public sealed class WorkActTests : IDisposable
     {
         var error = await Assert.ThrowsAsync<ArgumentException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
             .RunAsync("unknown", NewRun("unknown"), null, new Selection("model", null), null, null, null,
-                CancellationToken.None));
+                false, CancellationToken.None));
 
         Assert.Contains("unknown work act", error.Message, StringComparison.Ordinal);
     }

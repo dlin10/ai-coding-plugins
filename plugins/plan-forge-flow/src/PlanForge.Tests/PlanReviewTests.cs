@@ -57,10 +57,87 @@ public sealed class PlanReviewTests : IDisposable
 
         var rejection = await Assert.ThrowsAsync<ReviewCapReachedException>(
             () => act.ReviewAsync(run, HoledPlan, new Selection("sonnet", null), "tightened step 3", null,
-                                  CancellationToken.None));
+                                  false, CancellationToken.None));
 
         Assert.Contains("cap is 5", rejection.Message, StringComparison.Ordinal);
+        Assert.Contains("userGrantedRound", rejection.Message, StringComparison.Ordinal);
         Assert.Equal(5, run.ReadState().ReviewRounds);
+    }
+
+    /// <summary>
+    /// The counters are only half of what a grant has to prove: "exactly one higher" on both
+    /// <c>ReviewRounds</c> and <c>ReviewRoundCap</c> is what stops a single grant from raising the
+    /// cap twice, and the flow-log entry is the half the counters do not cover — a reader has to see
+    /// the round as bought, not budgeted.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_round_runs_past_the_cap_and_raises_it_by_one()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                         "reworked step 3", null, true, CancellationToken.None);
+
+        var state = run.ReadState();
+        Assert.Equal(6, state.ReviewRounds);
+        Assert.Equal(6, state.ReviewRoundCap);
+        Assert.Equal(1, state.GrantedReviewRounds);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan review — extra round granted", flow, StringComparison.Ordinal);
+        Assert.True(flow.IndexOf("## Plan review — extra round granted", StringComparison.Ordinal)
+                    < flow.IndexOf("## Plan review — round 6", StringComparison.Ordinal),
+                    "the grant must read before the critique it unlocked");
+    }
+
+    /// <summary>
+    /// A grant is spent by the call that used it, not carried by the run: once it raises the cap, a
+    /// further round past the new cap is refused again unless it brings its own grant. That is what
+    /// makes "ask every time" fall out of the mechanism instead of depending on the orchestrator to
+    /// remember.
+    /// </summary>
+    [Fact]
+    public async Task A_round_past_the_raised_cap_is_refused_without_a_new_grant()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                              "reworked step 3", null, true, CancellationToken.None);
+
+        var rejection = await Assert.ThrowsAsync<ReviewCapReachedException>(
+            () => act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                                  "reworked step 3 again", null, false, CancellationToken.None));
+
+        Assert.Contains("cap is 6", rejection.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grant is written after the critique returns, and this is the test that makes that
+    /// ordering a property rather than only a comment: a builder who moved <c>WriteState</c> ahead
+    /// of the critique would spend the grant on a round that never happened.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_rounds_dying_critique_spends_nothing()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new InvalidOperationException("vendor died mid-turn"));
+        var run = NewRun(rounds: 5, cap: 5);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                             "reworked step 3", null, true, CancellationToken.None));
+
+        var state = run.ReadState();
+        Assert.Equal(5, state.ReviewRounds);
+        Assert.Equal(5, state.ReviewRoundCap);
+        Assert.Equal(0, state.GrantedReviewRounds);
     }
 
     [Fact]
@@ -73,7 +150,7 @@ public sealed class PlanReviewTests : IDisposable
         var act = NewAct();
         var selection = new Selection("sonnet", "low");
 
-        var first = await act.ReviewAsync(run, HoledPlan, selection, null, null, ct);
+        var first = await act.ReviewAsync(run, HoledPlan, selection, null, null, false, ct);
         Assert.Equal("revise", first.Verdict);
         Assert.NotEmpty(first.Findings);
 
@@ -85,7 +162,7 @@ public sealed class PlanReviewTests : IDisposable
         var second = await act.ReviewAsync(run, HardenedPlan, selection,
                                            "defined the retention window, verified every step, and made the "
                                            + "destructive delete run last behind a passing verification",
-                                           null, ct);
+                                           null, false, ct);
 
         Assert.Equal(2, run.ReadState().ReviewRounds);
 
@@ -107,7 +184,8 @@ public sealed class PlanReviewTests : IDisposable
         var run = NewRun(rounds: 0, cap: 5);
 
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
-            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, CancellationToken.None);
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, false,
+                        CancellationToken.None);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Plan review — round 1", flow, StringComparison.Ordinal);
@@ -130,7 +208,7 @@ public sealed class PlanReviewTests : IDisposable
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
             .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
                          "named the retention window and moved the delete behind a passing verification",
-                         "- rollback rehearsal — the user ruled it out of scope", CancellationToken.None);
+                         "- rollback rehearsal — the user ruled it out of scope", false, CancellationToken.None);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Plan revision after round 1", flow, StringComparison.Ordinal);
@@ -156,7 +234,7 @@ public sealed class PlanReviewTests : IDisposable
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
             .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
                          "rewrote the verification of step 2",
-                         "- rollback rehearsal — the user ruled it out of scope", CancellationToken.None);
+                         "- rollback rehearsal — the user ruled it out of scope", false, CancellationToken.None);
 
         var reviewLog = run.ReadReviewLog();
         Assert.Contains("## Round 1 — deferred by the orchestrator", reviewLog, StringComparison.Ordinal);
@@ -174,7 +252,7 @@ public sealed class PlanReviewTests : IDisposable
         var rejection = await Assert.ThrowsAsync<RevisionMissingException>(
             () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
                 .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), " ", null,
-                             CancellationToken.None));
+                             false, CancellationToken.None));
 
         Assert.Contains("round 1 has already run", rejection.Message, StringComparison.Ordinal);
         Assert.Empty(critic.Sessions);
@@ -194,7 +272,8 @@ public sealed class PlanReviewTests : IDisposable
         var run = NewRun(rounds: 0, cap: 5);
 
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
-            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, CancellationToken.None);
+            .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null, false,
+                        CancellationToken.None);
 
         Assert.Contains("Coverage runs both ways", critic.Sessions[0].Role.SystemPrompt,
             StringComparison.Ordinal);
@@ -214,7 +293,7 @@ public sealed class PlanReviewTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
                 .ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null,
-                             CancellationToken.None));
+                             false, CancellationToken.None));
 
         Assert.Equal(HoledPlan, run.ReadPlan());
     }
@@ -229,11 +308,11 @@ public sealed class PlanReviewTests : IDisposable
         var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
 
         await act.ReviewAsync(run, HoledPlan, new Selection("critic-model", null), null, null,
-                              CancellationToken.None);
+                              false, CancellationToken.None);
         Assert.Equal(HoledPlan, run.ReadPlan());
 
         await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
-                              "named the retention window", null, CancellationToken.None);
+                              "named the retention window", null, false, CancellationToken.None);
 
         Assert.Equal(HardenedPlan, run.ReadPlan());
     }
@@ -262,7 +341,7 @@ public sealed class PlanReviewTests : IDisposable
 
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
             .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
-                         "reworked step 3", null, CancellationToken.None);
+                         "reworked step 3", null, false, CancellationToken.None);
 
         var state = run.ReadState();
         Assert.False(state.Approved);
@@ -290,7 +369,7 @@ public sealed class PlanReviewTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
                 .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
-                             "reworked step 3", null, CancellationToken.None));
+                             "reworked step 3", null, false, CancellationToken.None));
 
         Assert.False(run.ReadState().Approved);
         Assert.Equal(HardenedPlan, run.ReadPlan());

@@ -203,7 +203,11 @@ rather than saving it for approval: a scope question answered late invalidates e
 after it.
 
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
-Ask the user whether to accept the remaining risk or stop — never raise a cap on your own.
+Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
+what the last verdict said, so the question carries its numbers. On a yes, pass `userGrantedRound:
+true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the same argument on
+`forge.work.start` — which raises the cap by exactly one. The grant is spent by that round, so the
+round after it needs a fresh answer, and never pass the argument without having asked.
 
 Link the drafts, do not paste them. Every round writes the draft you passed to `<runPath>/PLAN.md`
 before the critic starts, so the user can watch the plan change while the rounds run — surface that

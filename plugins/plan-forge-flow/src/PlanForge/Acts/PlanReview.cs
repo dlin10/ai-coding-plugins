@@ -32,16 +32,23 @@ internal sealed class PlanReview
     /// Required from the second round on — see <see cref="RequireRevision"/>.
     /// </param>
     /// <param name="deferred">What it decided not to change, and why. Optional in every round.</param>
+    /// <param name="userGrantedRound">
+    /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
+    /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
+    /// and, per docs/adr/0003, one no code here can check.
+    /// </param>
     public async Task<Critique> ReviewAsync(RunDirectory run,
                                             string planDraft,
                                             Selection selection,
                                             string? revision,
                                             string? deferred,
+                                            bool userGrantedRound,
                                             CancellationToken ct)
     {
         var state = run.ReadState();
-        if (state.ReviewRounds >= state.ReviewRoundCap)
+        if (state.ReviewRounds >= state.ReviewRoundCap && !userGrantedRound)
             throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap);
+        var granted = state.ReviewRounds >= state.ReviewRoundCap;
         RequireRevision(state.ReviewRounds, revision);
 
         // The draft lands on disk before the critic starts rather than after it finishes: a round
@@ -70,14 +77,20 @@ internal sealed class PlanReview
 
         // Written after the critique rather than before it, so an act that died — a vendor timeout,
         // a restarted server — and was retried with the same arguments records the revision once.
+        // The grant is spent the same way: recording it here rather than at the cap check means a
+        // retried call with the same arguments spends no grant.
         if (revision is { Length: > 0 })
             run.AppendFlowRevision(state.ReviewRounds, revision, deferred);
         if (deferred is { Length: > 0 })
             run.AppendReviewDeferral(state.ReviewRounds, deferred);
 
         run.AppendReviewRound(round, critique);
+        if (granted) run.AppendFlowGrantedRound("Plan review", round);
         run.AppendFlowCritique("Plan review", round, critique);
-        run.WriteState(state with { ReviewRounds = round });
+        run.WriteState(granted
+            ? state with { ReviewRounds = round, ReviewRoundCap = state.ReviewRoundCap + 1,
+                           GrantedReviewRounds = state.GrantedReviewRounds + 1 }
+            : state with { ReviewRounds = round });
         return critique;
     }
 
@@ -132,7 +145,8 @@ internal sealed class PlanReview
 }
 
 internal sealed class ReviewCapReachedException(int rounds, int cap)
-    : Exception($"plan review already ran {rounds} rounds, and the cap is {cap}");
+    : Exception($"plan review already ran {rounds} rounds, and the cap is {cap}. Ask the user "
+                + "whether to run another round, and pass `userGrantedRound: true` if they say yes.");
 
 internal sealed class RevisionMissingException(int round)
     : Exception($"round {round} has already run: pass `revision` saying what you changed in the plan "
