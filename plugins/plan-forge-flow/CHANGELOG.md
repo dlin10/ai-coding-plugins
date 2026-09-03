@@ -1,5 +1,35 @@
 # Plan Forge Flow releases
 
+## 0.22.4
+
+The claude vendor could not run the builder role at all. Every `forge.review.fix` and
+`forge.build.next` on `vendor: claude` died the moment the builder called a tool, and the two
+things that made it expensive were not the crash.
+
+- `ClaudeCliSession.Observe` read `message.content` without checking that `message` was an object.
+  It is on every event the session parses, but not on every event the CLI emits, and the one that
+  carries it as a string threw `InvalidOperationException` straight out through `RunAsync`. Both
+  that read and the three like it one frame deeper — the first property read of a `content`
+  element — now survive a value of the wrong kind, and a `message` that is not an object reaches
+  the log as `vendor.skipped-message` with its payload. Which events carry the other shape is
+  still unmeasured: two captures of a builder calling `Bash` did not produce one, so the next
+  occurrence is meant to name itself rather than cost a second post-mortem.
+- A builder writes files and then reports what it wrote, so a turn that died while reporting left
+  work on disk that no caller heard about, and the orchestrator reasonably read a failed act as an
+  act that changed nothing. Both builder acts now run through `BuilderTurn`, which takes the tree
+  as it stands going in and, when the turn does not come back, names the files the turn had
+  already written. The whole diff rather than the file list, because a fix round edits files
+  earlier rounds already changed and a name-only comparison calls that no change at all.
+- That failure now reaches the caller as a `VendorException`, so the orchestrator is told what
+  went wrong and what is on disk instead of `An error occurred invoking 'forge.review.fix'` and a
+  trip to the run log. The SDK only passes through the message of an exception this assembly
+  declared, which is why the fix is to stop letting a foreign one escape the vendor seam rather
+  than to widen what `ToolErrors` will surface.
+- Vendor stdio is now read and written as UTF-8 explicitly. Left unset, those streams follow the
+  console code page, and a server an MCP host starts has no console to speak of: the same run
+  decoded every vendor's output as CP437, so an em dash reached the run log, the critic's findings
+  and the builder's evidence as `ΓÇö`. ASCII survived it; Cyrillic did not survive it at all.
+
 ## 0.22.3
 
 The interview offered claude's four model aliases and could not say what any of them stood for. The

@@ -40,7 +40,7 @@ internal sealed class Build
             new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder)),
             selection, resumeToken, ct);
 
-        var result = await session.RunAsync(prompt, Schemas.BuildResult, ct);
+        var result = await BuilderTurn.RunAsync(session, state.WorkspaceRoot, prompt, ct);
 
         run.AppendFlowBuild(task.Number, tasks.Count, result);
         run.WriteState(state with
