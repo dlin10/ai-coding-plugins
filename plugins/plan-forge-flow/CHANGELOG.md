@@ -25,6 +25,10 @@ things that made it expensive were not the crash.
   trip to the run log. The SDK only passes through the message of an exception this assembly
   declared, which is why the fix is to stop letting a foreign one escape the vendor seam rather
   than to widen what `ToolErrors` will surface.
+- Vendor stdio is now read and written as UTF-8 explicitly. Left unset, those streams follow the
+  console code page, and a server an MCP host starts has no console to speak of: the same run
+  decoded every vendor's output as CP437, so an em dash reached the run log, the critic's findings
+  and the builder's evidence as `ΓÇö`. ASCII survived it; Cyrillic did not survive it at all.
 
 ## 0.22.3
 

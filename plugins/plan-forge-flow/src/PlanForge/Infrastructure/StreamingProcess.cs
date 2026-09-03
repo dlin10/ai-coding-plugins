@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using PlanForge.Diagnostics;
 using PlanForge.Vendors;
 
@@ -18,6 +19,9 @@ internal static class StreamingProcess
 {
     private const int MaxOutputBytes = 8 * 1024 * 1024;
     private const string Source = "process";
+
+    // No BOM: a byte-order mark on stdin is a stray character at the head of the prompt.
+    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     /// How long a pipe is still read once the process behind it is gone. Everything the vendor
@@ -193,7 +197,17 @@ internal static class StreamingProcess
             CreateNoWindow = true,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+
+            // Every vendor CLI here is a Node process and writes UTF-8 both ways. Left unset these
+            // follow the console code page, and a server started by an MCP host has no console to
+            // speak of: run 20260902-224201-7bf03b decoded vendor output as CP437, so every em
+            // dash reached the run log, the critic's findings and the builder's evidence as three
+            // characters of mojibake. ASCII survives that; a plan or a finding written in anything
+            // else does not.
+            StandardOutputEncoding = Utf8,
+            StandardErrorEncoding = Utf8,
+            StandardInputEncoding = Utf8
         };
 
         if (!string.IsNullOrWhiteSpace(spec.WorkingDirectory)) info.WorkingDirectory = spec.WorkingDirectory;
