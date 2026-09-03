@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlanForge.Acts;
+using PlanForge.Infrastructure;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Run;
@@ -263,8 +264,8 @@ public sealed class WorkToolsTests : IDisposable
             "not-a-job", CancellationToken.None));
 
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
-        Assert.Contains("forge.work.poll", File.ReadAllText(run.DiagnosticLogPath), StringComparison.Ordinal);
-        Assert.Contains("forge.work.fetch", File.ReadAllText(run.DiagnosticLogPath), StringComparison.Ordinal);
+        Assert.Contains("forge.work.poll", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
+        Assert.Contains("forge.work.fetch", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
     private RunDirectory NewRun(string runId)

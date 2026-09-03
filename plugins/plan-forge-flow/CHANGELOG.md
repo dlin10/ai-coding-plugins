@@ -1,6 +1,6 @@
 # Plan Forge Flow releases
 
-## 0.23.0
+## 0.23.1
 
 `PLAN.md` is the run's most-read document and it was landing where the user could not click it. On a
 monorepo the orchestrator correctly names the repository root as `workspaceRoot` — the plan touches
@@ -32,6 +32,21 @@ to a backticked absolute path that renders as plain text.
   declaring the capability the fallback restores today's layout: the removal costs the link, not the
   run. Existing runs are unaffected either way — a run folder under `workspaceRoot` is still found
   by workspace root and run id.
+
+Two flaky tests came with it, and 0.23.0 never shipped because of them: the release workflow died
+before packaging while the identical suite passed, on the same commit, in the build workflow beside
+it. Nothing in the server was wrong, and both are fixed here rather than re-run.
+
+- Four tests read a run's `forge.log` with `File.ReadAllLines` or `File.ReadAllText`, which cannot
+  open a file an `AtomicFile.Append` handle is holding: the append shares `Read`, and a reader
+  sharing only `Read` refuses to coexist with the writer's `Write` access. The appender is a
+  *different* test class — `RunLog.Current` falls back to the last log any tool call served, so a
+  parallel class spawning a process writes into whichever run folder that was. They now read through
+  `AtomicFile.Read`, which asks for `ReadWrite | Delete` and retries, and is the reader the run
+  folder has had all along.
+- `JobRegistryTests.Wait_returns_on_completion_without_waiting_for_the_timeout` gave a wait a
+  one-second budget to prove it had ended on the completion rather than on its ten-second timeout.
+  Five seconds proves the same thing and does not lose to a loaded runner.
 
 ## 0.22.4
 

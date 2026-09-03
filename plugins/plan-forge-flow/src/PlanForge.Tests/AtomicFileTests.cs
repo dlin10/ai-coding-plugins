@@ -86,4 +86,24 @@ public sealed class AtomicFileTests : IDisposable
 
         Assert.Equal("## Round 1\n## Round 2\n", File.ReadAllText(path));
     }
+
+    /// <summary>
+    /// The property four tests were leaning on without asking for it. An append shares
+    /// <see cref="FileShare.Read"/>, and an ordinary read shares only <c>Read</c> — which is not
+    /// enough to coexist with the writer's <c>Write</c> access, so <c>File.ReadAllText</c> throws
+    /// while the handle is open. <see cref="AtomicFile.Read"/> asks for <c>ReadWrite | Delete</c>
+    /// and does not. It matters because <c>RunLog.Current</c> falls back to the last log any tool
+    /// call served, so the appender to a run's `forge.log` can be a wholly unrelated flow.
+    /// </summary>
+    [Fact]
+    public void A_reader_gets_in_while_an_append_holds_the_file_and_an_ordinary_one_does_not()
+    {
+        var path = Path.Combine(_root, "forge.log");
+        AtomicFile.Append(path, "{\"event\":\"first\"}\n");
+
+        using var append = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+
+        Assert.Equal("{\"event\":\"first\"}\n", AtomicFile.Read(path));
+        Assert.ThrowsAny<IOException>(() => File.ReadAllText(path));
+    }
 }
