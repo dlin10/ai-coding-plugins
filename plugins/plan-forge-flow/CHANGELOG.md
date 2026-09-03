@@ -1,5 +1,25 @@
 # Plan Forge Flow releases
 
+## 0.24.0
+
+A reached review cap used to be a dead end: the tool refused, and the only way past it was to start
+a new run. That was wrong whenever the user had actually read the critique and decided the remaining
+risk was one they would accept — the refusal gave the orchestrator nothing to do with that answer.
+
+- The refusal now names the way out. `ReviewCapReachedException` and `CodeReviewCapReachedException`
+  say to ask the user whether to run another round and to pass `userGrantedRound: true` if they say
+  yes.
+- `forge.plan.review`, `forge.review.code`, and `forge.work.start` (for `plan.review` and
+  `review.code` only) take a new `userGrantedRound` argument. At the cap it raises this run's cap by
+  exactly one and runs the round past it; below the cap it does nothing. It is spent by the call that
+  carries it, so the round after it needs a fresh answer — `build.next` and `review.fix` have no cap
+  and refuse the argument outright.
+- A granted round is recorded in `flow_log.md` as an "extra round granted" entry, ahead of that
+  round's critique, and counted in the run state — `grantedReviewRounds` and
+  `grantedCodeReviewRounds` — which `forge.status` reports beside the caps they raised.
+- `skills/forge/SKILL.md` now tells the orchestrator to check `forge.status` before asking, so the
+  question carries the round count, the cap, and the last verdict.
+
 ## 0.23.1
 
 `PLAN.md` is the run's most-read document and it was landing where the user could not click it. On a

@@ -280,6 +280,19 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    /// <summary>
+    /// Records that a round ran past its cap because the user granted it, so a reader of
+    /// <c>flow_log.md</c> sees the round as bought rather than budgeted.
+    /// </summary>
+    public void AppendFlowGrantedRound(string act, int round) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).AppendLine(" — extra round granted")
+                               .AppendLine()
+                               .Append("Round ").Append(round)
+                               .AppendLine(" runs because the user granted it past the cap.")
+                               .AppendLine()
+                               .ToString());
+
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
         var entry = new StringBuilder().Append("## Task ").Append(number).Append(" of ").Append(total).AppendLine()
@@ -345,7 +358,8 @@ internal sealed class RunDirectory
 }
 
 // The code-review defaults keep state files written before the counters existed readable; the cap
-// default matches what forge.begin writes today.
+// default matches what forge.begin writes today. The granted-round defaults do the same for state
+// files written before the user could buy a round past either cap.
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -358,7 +372,9 @@ internal sealed record RunState(string RunId,
                                 string BuilderSessionId = "",
                                 string BuilderVendor = "",
                                 int CodeReviewRounds = 0,
-                                int CodeReviewRoundCap = 3);
+                                int CodeReviewRoundCap = 3,
+                                int GrantedReviewRounds = 0,
+                                int GrantedCodeReviewRounds = 0);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

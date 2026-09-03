@@ -35,7 +35,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
         Assert.Equal("running", JsonNode.Parse(start)!["state"]!.GetValue<string>());
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
@@ -63,7 +63,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
@@ -118,7 +118,7 @@ public sealed class WorkToolsTests : IDisposable
 
         await Assert.ThrowsAsync<RevisionMissingException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace,
             run.RunId, "plan.review", "critic", null, "claude", "## draft", null, null, null,
-            CancellationToken.None, factory));
+            false, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Null(registry.Get(run.Path));
@@ -132,7 +132,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
         var running = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
@@ -162,9 +162,9 @@ public sealed class WorkToolsTests : IDisposable
         };
 
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
+            "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
+            "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Null(registry.Get(run.Path));
@@ -178,7 +178,7 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
         var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review",
-            "critic", null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
+            "critic", null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var calls = 0;
         Func<IVendor> factory = () =>
@@ -188,9 +188,9 @@ public sealed class WorkToolsTests : IDisposable
         };
 
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
+            "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
+            "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Equal(jobId, registry.Get(run.Path)?.Id);
@@ -207,7 +207,7 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
@@ -226,10 +226,10 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
 
         var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
+            null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var second = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
+            null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
 
         Assert.False(second["started"]!.GetValue<bool>());
         Assert.Equal(jobId, second["jobId"]!.GetValue<string>());

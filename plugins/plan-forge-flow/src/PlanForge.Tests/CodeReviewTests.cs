@@ -40,7 +40,7 @@ public sealed class CodeReviewTests : IDisposable
         critic.Enqueue(new Critique("approve", [], "looks good"));
         var run = NewRun();
 
-        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", "high"), ct);
+        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", "high"), false, ct);
 
         var session = Assert.Single(critic.Sessions);
         Assert.Equal("approve", critique.Verdict);
@@ -62,7 +62,7 @@ public sealed class CodeReviewTests : IDisposable
         var critic = new RecordingVendor("claude");
         critic.Enqueue(new Critique("approve", [], "looks good"));
 
-        await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct);
+        await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct);
 
         var session = Assert.Single(critic.Sessions);
         Assert.Contains("judging a diff against the approved plan", session.Role.SystemPrompt,
@@ -80,7 +80,7 @@ public sealed class CodeReviewTests : IDisposable
         var critic = new RecordingVendor("claude");
         var run = NewRun();
 
-        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
+        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
         Assert.Equal("approve", critique.Verdict);
         Assert.Equal("nothing to review", critique.Summary);
@@ -99,7 +99,7 @@ public sealed class CodeReviewTests : IDisposable
         critic.Enqueue(new Critique("revise", [], "fix it"));
         var run = NewRun(reviewRounds: 5);
 
-        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
+        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
         // Plan review used rounds 1-5, so the first code-review round is 6: the log the next critic
         // reads never carries two rounds under the same number.
@@ -116,10 +116,93 @@ public sealed class CodeReviewTests : IDisposable
         var critic = new RecordingVendor("claude");
         var run = NewRun(codeReviewRounds: 3);
 
-        await Assert.ThrowsAsync<CodeReviewCapReachedException>(() =>
-            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct));
+        var rejection = await Assert.ThrowsAsync<CodeReviewCapReachedException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct));
 
+        Assert.Contains("userGrantedRound", rejection.Message, StringComparison.Ordinal);
         Assert.Empty(critic.Sessions);
+    }
+
+    /// <summary>
+    /// The counters are only half of what a grant has to prove: "exactly one higher" on both
+    /// <c>CodeReviewRounds</c> and <c>CodeReviewRoundCap</c> is what stops a single grant from
+    /// raising the cap twice, and the flow-log entry is the half the counters do not cover — a
+    /// reader has to see the round as bought, not budgeted.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_round_runs_past_the_cap_and_raises_it_by_one()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+        var run = NewRun(codeReviewRounds: 3);
+
+        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), true, ct);
+
+        var state = run.ReadState();
+        Assert.Equal(4, state.CodeReviewRounds);
+        Assert.Equal(4, state.CodeReviewRoundCap);
+        Assert.Equal(1, state.GrantedCodeReviewRounds);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Code review — extra round granted", flow, StringComparison.Ordinal);
+        Assert.True(flow.IndexOf("## Code review — extra round granted", StringComparison.Ordinal)
+                    < flow.IndexOf("## Code review — round 4", StringComparison.Ordinal),
+                    "the grant must read before the critique it unlocked");
+    }
+
+    /// <summary>
+    /// A grant is spent by the call that used it, not carried by the run: once it raises the cap, a
+    /// further round past the new cap is refused again unless it brings its own grant. That is what
+    /// makes "ask every time" fall out of the mechanism instead of depending on the orchestrator to
+    /// remember.
+    /// </summary>
+    [Fact]
+    public async Task A_round_past_the_raised_cap_is_refused_without_a_new_grant()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+        var run = NewRun(codeReviewRounds: 3);
+        var act = NewReview(critic);
+
+        await act.ReviewAsync(run, new Selection("critic-model", null), true, ct);
+
+        var rejection = await Assert.ThrowsAsync<CodeReviewCapReachedException>(() =>
+            act.ReviewAsync(run, new Selection("critic-model", null), false, ct));
+
+        Assert.Contains("cap is 4", rejection.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The grant is written after the critique returns, and this is the test that makes that
+    /// ordering a property rather than only a comment: a builder who moved <c>WriteState</c> ahead
+    /// of the critique would spend the grant on a round that never happened.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_rounds_dying_critique_spends_nothing()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new InvalidOperationException("vendor died mid-turn"));
+        var run = NewRun(codeReviewRounds: 3);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), true, ct));
+
+        var state = run.ReadState();
+        Assert.Equal(3, state.CodeReviewRounds);
+        Assert.Equal(3, state.CodeReviewRoundCap);
+        Assert.Equal(0, state.GrantedCodeReviewRounds);
     }
 
     [Fact]
@@ -133,7 +216,7 @@ public sealed class CodeReviewTests : IDisposable
         var run = NewRun(approved: false);
 
         await Assert.ThrowsAsync<NotApprovedException>(() =>
-            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct));
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct));
 
         Assert.Empty(critic.Sessions);
     }
@@ -149,7 +232,7 @@ public sealed class CodeReviewTests : IDisposable
         var critic = new RecordingVendor("claude");
         critic.Enqueue(new Critique("approve", [], "looks good"));
 
-        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct);
+        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct);
 
         // The name is sensitive, but the pathspec keeps the file's contents out of everything sent
         // to a vendor, so there is nothing to leak and nothing to refuse.
@@ -169,7 +252,7 @@ public sealed class CodeReviewTests : IDisposable
         var critic = new RecordingVendor("claude");
 
         await Assert.ThrowsAsync<SensitiveContentException>(() =>
-            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), ct));
+            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct));
 
         Assert.Empty(critic.Sessions);
     }
@@ -181,7 +264,7 @@ public sealed class CodeReviewTests : IDisposable
         var git = new ReviewGit(["config/password.txt"], string.Empty);
 
         await Assert.ThrowsAsync<SensitiveContentException>(() =>
-            NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), CancellationToken.None));
+            NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), false, CancellationToken.None));
 
         Assert.Empty(critic.Sessions);
     }
@@ -197,7 +280,7 @@ public sealed class CodeReviewTests : IDisposable
         critic.Enqueue(new Critique("revise", [new Finding("minor", "tracked.txt", "sloppy change")], "one nit"));
         var run = NewRun(reviewRounds: 3);
 
-        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), ct);
+        await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
         // The review log numbers rounds in one sequence across both loops; the flow log is
         // act-labelled, so its code-review rounds start at 1.

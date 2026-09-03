@@ -205,15 +205,15 @@ function Test-PublishedServer([string]$Executable) {
         if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('act', 'planDraft')) {
+        foreach ($parameter in @('act', 'planDraft', 'userGrantedRound')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred')) {
+        foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred', 'userGrantedRound')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
         }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('model', 'effort', 'vendor')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'userGrantedRound')) {
             if ($codeReviewProperties -notcontains $parameter) { throw "forge.review.code schema is missing $parameter" }
         }
         foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
@@ -228,9 +228,9 @@ function Test-PublishedServer([string]$Executable) {
         # the key is refused server-side, and at least one host drops the `null` literal while
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
-            'forge.plan.review' = @('effort', 'vendor', 'revision', 'deferred')
+            'forge.plan.review' = @('effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
-            'forge.review.code' = @('effort', 'vendor')
+            'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'deferred')
             'forge.log.append'  = @('level', 'detail')
         }
