@@ -1,0 +1,29 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <!-- Compile-only in CacheDetective.Cli (ExcludeAssets="runtime"): MSBuildLocator loads the real
+         MSBuild out of the installed SDK at runtime, so this version governs the reference surface
+         only. See docs/adr/0001. -->
+    <PackageVersion Include="Microsoft.Build.Framework" Version="17.11.48" />
+    <PackageVersion Include="Microsoft.Build.Locator" Version="1.11.2" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.9.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.0" />
+    <!-- Not referenced directly by any project: pulled in transitively by ModelContextProtocol,
+         which needs >= 10.0.10, and pinned here because transitive pinning is on. -->
+    <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <!-- Centralising exposed a split: CacheDetective.Core.Tests was on 3.0.2 and
+         CacheDetective.Cli.Tests on 2.8.2. Unified on the newer one. -->
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+  </ItemGroup>
+</Project>

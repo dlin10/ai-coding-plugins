@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="../Directory.Build.props" />
+    <File Path="../Directory.Packages.props" />
+  </Folder>
   <Project Path="CacheDetective.Cli.Tests/CacheDetective.Cli.Tests.csproj" />
   <Project Path="CacheDetective.Cli/CacheDetective.Cli.csproj" />
+  <Project Path="CacheDetective.Core.Tests/CacheDetective.Core.Tests.csproj" />
+  <Project Path="CacheDetective.Core/CacheDetective.Core.csproj" />
 </Solution>

@@ -1,0 +1,28 @@
+name: build-cache-detective
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/cache-detective/**'
+      - '.github/workflows/build-cache-detective.yml'
+  pull_request:
+    paths:
+      - 'plugins/cache-detective/**'
+      - '.github/workflows/build-cache-detective.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/cache-detective
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and test
+        shell: pwsh
+        run: ./build/package.ps1

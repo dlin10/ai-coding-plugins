@@ -1,0 +1,45 @@
+using System.Text.Json.Serialization;
+using CacheDetective.Configuration;
+using CacheDetective.Mcp;
+
+namespace CacheDetective.Serialization;
+
+[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(WorkspaceConfiguration))]
+[JsonSerializable(typeof(PageArguments))]
+[JsonSerializable(typeof(ListEnvelope<string>))]
+[JsonSerializable(typeof(ListEnvelope<SolutionStatus>))]
+[JsonSerializable(typeof(ListEnvelope<WorkspaceDiagnosticResult>))]
+[JsonSerializable(typeof(WorkspaceInitResult))]
+[JsonSerializable(typeof(SolutionStatus))]
+[JsonSerializable(typeof(WorkspaceCounts))]
+[JsonSerializable(typeof(WorkspaceStatusResult))]
+[JsonSerializable(typeof(WorkspaceDiagnosticResult))]
+[JsonSerializable(typeof(IndexSolutionResult))]
+[JsonSerializable(typeof(HandlerEdgeTrace))]
+[JsonSerializable(typeof(DependencyTrace))]
+[JsonSerializable(typeof(InvalidationTrace))]
+[JsonSerializable(typeof(DependentKeyTrace))]
+[JsonSerializable(typeof(ListEnvelope<HandlerEdgeTrace>))]
+[JsonSerializable(typeof(ListEnvelope<DependencyTrace>))]
+[JsonSerializable(typeof(ListEnvelope<InvalidationTrace>))]
+[JsonSerializable(typeof(ListEnvelope<DependentKeyTrace>))]
+[JsonSerializable(typeof(TraceKeyResult))]
+[JsonSerializable(typeof(TraceTableResult))]
+[JsonSerializable(typeof(GraphWorkspaceExport))]
+[JsonSerializable(typeof(GraphNodeExport))]
+[JsonSerializable(typeof(GraphEdgeExport))]
+[JsonSerializable(typeof(UnresolvedExport))]
+[JsonSerializable(typeof(GraphAnnotationExport))]
+[JsonSerializable(typeof(GraphExport))]
+[JsonSerializable(typeof(FindingItem))]
+[JsonSerializable(typeof(FindingEnvelope))]
+[JsonSerializable(typeof(SourceLine))]
+[JsonSerializable(typeof(UnresolvedItem))]
+[JsonSerializable(typeof(ListEnvelope<UnresolvedItem>))]
+[JsonSerializable(typeof(FindingEvidenceFragment))]
+[JsonSerializable(typeof(ListEnvelope<FindingEvidenceFragment>))]
+[JsonSerializable(typeof(EvidenceResult))]
+internal sealed partial class CacheDetectiveJsonContext : JsonSerializerContext;

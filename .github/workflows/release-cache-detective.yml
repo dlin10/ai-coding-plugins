@@ -1,0 +1,82 @@
+name: Cache Detective release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'cache-detective-v*'
+    paths:
+      - 'plugins/cache-detective/**'
+      - '.github/workflows/release-cache-detective.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cache-detective-release
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/cache-detective
+    outputs:
+      cut: ${{ steps.decide.outputs.cut }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide the version and whether to cut a release
+        id: decide
+        shell: pwsh
+        run: |
+          $version = (Get-Content .codex-plugin/plugin.json -Raw | ConvertFrom-Json).version
+          $tag = "cache-detective-v$version"
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -ne $tag) {
+              throw "Tag ${{ github.ref_name }} disagrees with manifest version $version; expected $tag"
+            }
+            $cut = $true
+          }
+          else {
+            $existing = git ls-remote --tags origin "refs/tags/$tag" | Out-String
+            $cut = [string]::IsNullOrWhiteSpace($existing)
+            if (-not $cut) { Write-Host "$tag is already released; nothing to cut." }
+            else { Write-Host "$tag does not exist yet; cutting it from ${{ github.sha }}." }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "cut=$($cut.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.cut == 'true'
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/cache-detective
+    env:
+      PLUGIN_VERSION: ${{ needs.decide.outputs.version }}
+      RELEASE_TAG: ${{ needs.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and test release executable
+        shell: pwsh
+        run: ./build/package.ps1
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $executable = 'bin/win-x64/cachedet.exe'
+          $assets = @(Get-ChildItem 'bin/win-x64' -Recurse)
+          if ($assets.Count -ne 1 -or $assets[0].FullName -ne (Resolve-Path $executable).Path) {
+            throw "Expected bin/win-x64 to contain only cachedet.exe"
+          }
+          gh release create $env:RELEASE_TAG $executable --target ${{ github.sha }} --title "Cache Detective $env:RELEASE_TAG" --generate-notes

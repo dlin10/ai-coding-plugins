@@ -13,6 +13,11 @@ plugins/plan-forge-flow/bin/planforge.exe
 plugins/plan-forge-flow/bin/win-x64/planforge.exe
 !plugins/find-files/bin/
 !plugins/find-files/bin/**
+!plugins/cache-detective/bin/
+!plugins/cache-detective/bin/**
+plugins/cache-detective/bin/win-x64/cachedet.exe
+plugins/cache-detective/bin/win-x64/BuildHost-*/
+plugins/cache-detective/bin/win-x64/BuildHost-*/**
 plugins/plan-forge-flow/artifacts/
 plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user

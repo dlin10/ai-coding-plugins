@@ -24,7 +24,7 @@ Understand code, errors, and C#/.NET concepts in plain language. Explain Code Si
 
 ### [Cache Detective](plugins/cache-detective)
 
-Find out why a value is stale instead of guessing. Cache Detective traces a cache key through every write, read, and eviction, names the layer that actually served the stale value, and points at the break in the lifecycle—so the fix addresses the cause rather than the symptom.
+Scan a complete .NET workspace for cache consistency risks. Cache Detective connects cache keys to data dependencies across solutions and reports missing invalidation, unused invalidation, and near-miss templates with confidence and source evidence.
 
 ## Choose the Right Plugin
 
@@ -34,7 +34,7 @@ Find out why a value is stale instead of guessing. Cache Detective traces a cach
 | Plan and deliver complex changes with stronger review | **Plan Forge Flow** |
 | Work confidently in C# and .NET solutions | **Roslyn MCP** |
 | Understand code and C#/.NET concepts in plain language | **Explain Code Simply** |
-| Track down a caching bug or stale data | **Cache Detective** |
+| Scan a .NET workspace for cache consistency risks | **Cache Detective** |
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 

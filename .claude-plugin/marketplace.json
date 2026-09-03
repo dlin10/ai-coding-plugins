@@ -28,7 +28,7 @@
     {
       "name": "cache-detective",
       "source": "./plugins/cache-detective",
-      "description": "Caching bug diagnosis for C# and .NET — traces one cache key through every write, read, and eviction to find key collisions, entries that never expire, and missing invalidation."
+      "description": "Whole-workspace cache consistency scanning for .NET — connects cache keys to cross-solution data dependencies and reports evidence-backed invalidation risks."
     }
   ]
 }

@@ -1,13 +1,43 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>cachedet</AssemblyName>
     <RootNamespace>CacheDetective</RootNamespace>
-    <PublishAot>false</PublishAot>
     <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- What "deployed as one file" means, and it means it only here: this is the sole published
+       project. See docs/adr/0001. SelfContained is already the SDK default, and is stated anyway
+       because getting it wrong ships a runtime nobody asked for. -->
+  <PropertyGroup>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <RollForward>latestMajor</RollForward>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <!-- DebugType only silences this project's own symbols; without this, the .pdb of every
+         referenced project is copied in beside the executable and the one-file rule breaks.
+         Referenced projects keep their symbols, so test stack traces still carry line numbers. -->
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
+    <!-- Required for ModelContextProtocol AIFunctionFactory tool parameter marshalling (for example,
+         Dictionary<string,double> budgets); without it the published server fails to start. -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="CacheDetective.Cli.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Build.Locator" />
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ModelContextProtocol" />
+    <ProjectReference Include="..\CacheDetective.Core\CacheDetective.Core.csproj" />
+  </ItemGroup>
+
 </Project>

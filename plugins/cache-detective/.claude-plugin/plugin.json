@@ -1,10 +1,22 @@
 {
   "name": "cache-detective",
   "version": "0.1.0",
-  "description": "Investigate caching bugs in C# code: keys that collide, entries that never expire, and writes with no invalidation path.",
+  "description": "Scan whole .NET workspaces for cache consistency risks with cross-solution dependencies, confidence, and evidence.",
   "author": {
     "name": "Dmitry Linetsky"
   },
   "license": "MIT",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "mcpServers": {
+    "cache-detective": {
+      "type": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${CLAUDE_PLUGIN_ROOT}\\bin\\cachedet-launcher.cmd"
+      ],
+      "timeout": 600000
+    }
+  }
 }
