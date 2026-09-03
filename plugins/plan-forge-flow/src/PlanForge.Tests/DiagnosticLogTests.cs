@@ -194,8 +194,17 @@ public sealed class DiagnosticLogTests : IDisposable
             : new ProcessSpec("/bin/sh", ["-c", $"echo done; sleep {Seconds} &"], _repo, string.Empty);
     }
 
+    /// <summary>
+    /// Through <see cref="AtomicFile.Read"/> rather than <c>File.ReadAllLines</c>, which cannot open
+    /// a file an <see cref="AtomicFile.Append"/> handle is holding: the append shares Read, and a
+    /// reader sharing only Read refuses to coexist with the writer's Write access. The appender is
+    /// not this test — <c>RunLog.Current</c> falls back to the last log any tool call served, so a
+    /// parallel test class spawning a process writes into whichever run folder that was.
+    /// </summary>
     private static IReadOnlyList<JsonElement> Read(RunDirectory run) =>
-        File.ReadAllLines(run.DiagnosticLogPath)
+        AtomicFile.Read(run.DiagnosticLogPath)
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
             .Where(line => line.Length > 0)
             .Select(line => JsonDocument.Parse(line).RootElement)
             .ToList();

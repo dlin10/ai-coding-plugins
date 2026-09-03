@@ -134,8 +134,14 @@ public sealed class OutputCapMislabelTests : IDisposable
         return path;
     }
 
+    /// <summary>
+    /// Through <see cref="AtomicFile.Read"/> for the reason <c>DiagnosticLogTests.Read</c> records:
+    /// an ordinary read cannot open a file a concurrent append is holding.
+    /// </summary>
     private static IReadOnlyList<JsonElement> Read(RunDirectory run) =>
-        File.ReadAllLines(run.DiagnosticLogPath)
+        AtomicFile.Read(run.DiagnosticLogPath)
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
             .Where(line => line.Length > 0)
             .Select(line => JsonDocument.Parse(line).RootElement)
             .ToList();
