@@ -189,6 +189,14 @@ function Test-PublishedServer([string]$Executable) {
         if ($canvas.text -notmatch 'ui/notifications/tool-result') {
             throw 'canvas resource does not listen for the tool result it renders'
         }
+        # Services a tool takes from the container are bound by type and must never reach the
+        # schema: an orchestrator asked for `roots` has nothing to send, and forge.begin is the one
+        # tool whose whole argument list is one path, so it is where the leak would show first.
+        $begin = $tools | Where-Object { $_.name -eq 'forge.begin' } | Select-Object -First 1
+        $beginProperties = @($begin.inputSchema.properties.PSObject.Properties.Name)
+        if ($beginProperties.Count -ne 1 -or $beginProperties[0] -ne 'workspaceRoot') {
+            throw "forge.begin should take workspaceRoot and nothing else, and takes: $($beginProperties -join ', ')"
+        }
         $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
         $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('workspaceRoot', 'runId', 'vendor')) {

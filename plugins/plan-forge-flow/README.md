@@ -143,7 +143,11 @@ where `cmd.exe` holds under 10 MB of working set and `powershell.exe` around 50.
 
 ## State
 
-Everything a run knows lives in the repository under one folder, isolated by run id:
+Everything a run knows lives under one folder, isolated by run id, in the directory your host says
+you are working in — so the plan and the timeline sit beside your session and your host can link
+them, even when the run is reviewing a repository root several levels above. A host that does not
+tell the server where you are (today: Codex and Cursor) gets the folder under `workspaceRoot`
+instead.
 
 ```text
 .forge/

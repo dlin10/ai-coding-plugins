@@ -124,7 +124,7 @@ public sealed class PlanCanvasTests : IDisposable
 
     private async Task<PlanViewResult> ShowAsync(string runId, CancellationToken ct)
     {
-        var json = await ForgeTools.ShowPlan(_repo, runId, Plan, ct);
+        var json = await ForgeTools.ShowPlan(SessionRoots.None, _repo, runId, Plan, ct);
         return JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanViewResult)!;
     }
 }

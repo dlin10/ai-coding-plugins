@@ -1,6 +1,6 @@
 {
   "name": "plan-forge-flow",
-  "version": "0.22.4",
+  "version": "0.23.0",
   "description": "A Windows x64-only typed .NET 10 plan hardening, implementation, and independent review workflow for Codex, exposed as an MCP server.",
   "author": {
     "name": "Dmitry Linetsky"

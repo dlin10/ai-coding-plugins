@@ -82,41 +82,69 @@ internal sealed class RunDirectory
     /// </summary>
     public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 
-    public static RunDirectory Create(string workspaceRoot, string runId)
+    /// <summary>
+    /// Starts a run in the directory the host calls its own, falling back to
+    /// <paramref name="workspaceRoot"/> when it declares none. A run's files are the ones a person
+    /// reads, so they belong beside the session rather than wherever the task under review happens
+    /// to be rooted — see <see cref="SessionRoots"/>.
+    /// </summary>
+    public static async Task<RunDirectory> CreateAsync(SessionRoots roots,
+                                                       string workspaceRoot,
+                                                       string runId,
+                                                       CancellationToken ct) =>
+        Create(await roots.DirectoryAsync(ct).ConfigureAwait(false) ?? workspaceRoot, runId);
+
+    /// <summary>
+    /// Finds a run <see cref="CreateAsync"/> started. The session root is tried first and the
+    /// workspace root second, so a run begun before the session root was consulted — or begun
+    /// against a host that declares none — is still found by the same call.
+    /// </summary>
+    public static async Task<RunDirectory> OpenAsync(SessionRoots roots,
+                                                     string workspaceRoot,
+                                                     string runId,
+                                                     CancellationToken ct) =>
+        await roots.DirectoryAsync(ct).ConfigureAwait(false) is { } sessionRoot && Exists(sessionRoot, runId)
+            ? Open(sessionRoot, runId)
+            : Open(workspaceRoot, runId);
+
+    public static RunDirectory Create(string runRoot, string runId)
     {
-        var runPath = Confine(workspaceRoot, runId);
+        var runPath = Confine(runRoot, runId);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(runPath)!);
-        AtomicFile.Write(System.IO.Path.Combine(workspaceRoot, ForgeFolder, ".gitignore"), SelfIgnore);
+        AtomicFile.Write(System.IO.Path.Combine(runRoot, ForgeFolder, ".gitignore"), SelfIgnore);
         Directory.CreateDirectory(runPath);
 
         return new RunDirectory(runId, runPath);
     }
 
-    public static RunDirectory Open(string workspaceRoot, string runId)
+    public static RunDirectory Open(string runRoot, string runId)
     {
-        var runPath = Confine(workspaceRoot, runId);
+        var runPath = Confine(runRoot, runId);
         if (!Directory.Exists(runPath)) 
             throw new RunNotFoundException(runId);
         return new RunDirectory(runId, runPath);
     }
 
+    private static bool Exists(string runRoot, string runId) => Directory.Exists(Confine(runRoot, runId));
+
     /// <summary>
     /// The second of the two surviving checks: everything this class writes is under the run folder,
-    /// so one containment test on the run id replaces the six symlink and reparse-point guards. Both
-    /// the workspace root and the run id reach us from a tool call, which makes them caller input.
+    /// so one containment test on the run id replaces the six symlink and reparse-point guards. The
+    /// run id always reaches us from a tool call, and so does the root whenever it is the workspace
+    /// root, which makes both caller input.
     /// </summary>
     /// <remarks>
     /// The root has to be absolute, and that is worth refusing rather than resolving. A relative one
     /// would be resolved against the server process's working directory, which is not the repository
     /// and differs by host — the plugin folder under Codex, whatever the host started in elsewhere.
     /// Two sessions passing a relative root would then land in the same folder, and their runs would
-    /// silently share it.
+    /// silently share it. A session root cannot trip this: it is read out of a <c>file://</c> URI.
     /// </remarks>
-    private static string Confine(string workspaceRoot, string runId)
+    private static string Confine(string runRoot, string runId)
     {
-        if (!System.IO.Path.IsPathRooted(workspaceRoot)) throw new WorkspaceNotRootedException(workspaceRoot);
+        if (!System.IO.Path.IsPathRooted(runRoot)) throw new WorkspaceNotRootedException(runRoot);
 
-        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(workspaceRoot, ForgeFolder));
+        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(runRoot, ForgeFolder));
         var runPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(forgeRoot, runId));
 
         var prefix = forgeRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;

@@ -4,9 +4,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
+using PlanForge.Run;
 using PlanForge.Vendors;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -24,6 +26,10 @@ var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? 
 builder.Services
     .AddSingleton<JobRegistry>()
     .AddSingleton<CatalogCache>()
+    // Resolved from the connection's own server, which the stdio transport registers as a singleton
+    // beside these. A tool takes it the way it takes the two above — bound from services, so it
+    // never reaches the published schema.
+    .AddSingleton(services => new SessionRoots(services.GetRequiredService<McpServer>()))
     .AddHostedService<JobRegistryHostedService>()
     .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
     .AddMcpServer(o =>

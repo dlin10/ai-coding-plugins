@@ -1,5 +1,38 @@
 # Plan Forge Flow releases
 
+## 0.23.0
+
+`PLAN.md` is the run's most-read document and it was landing where the user could not click it. On a
+monorepo the orchestrator correctly names the repository root as `workspaceRoot` — the plan touches
+files across it — and the run folder followed, two directory levels above the session. Claude Code
+linkifies a path only when it is relative to the session's working directory, so the chat fell back
+to a backticked absolute path that renders as plain text.
+
+- `workspaceRoot` was doing three unrelated jobs, and the run's own state is the one that never
+  belonged to it. The run folder now goes to the directory the **host** names through MCP's roots
+  capability, and only falls back to `workspaceRoot` when the host declares none. The git window —
+  baseline, drift, the code-review diff — and the workers' working directory stay on `workspaceRoot`,
+  so a run started against the repository root still reviews the whole repository. Passing the
+  session directory as `workspaceRoot` would have been the zero-code fix and would have silently
+  shrunk the review instead: a `.` pathspec resolves against git's own working directory. See
+  issue #53.
+- No tool changed shape. `SessionRoots` is bound from the container the way `JobRegistry` and
+  `CatalogCache` already are, so it never reaches the published schema — `forge.begin` still takes
+  `workspaceRoot` and nothing else, and `build/package.ps1` now asserts exactly that against the
+  real handshake.
+- Measured on 2026-09-03 by answering each host's handshake with a server that records it:
+  claude-code 2.1.258 declares `roots` and answers with the session's working directory;
+  codex-mcp-client 0.147.0 declares none and answers `[]`; Cursor 1.0.0 declares none and answers
+  `-32601 Method not found`. Both of the latter keep the layout they had, and neither is ever sent
+  a request it did not advertise.
+- `forge.begin` records `sessionRoot` in the run log beside `client` and `profile` — null for a host
+  that declares no roots, which is the one thing the run path alone cannot tell you.
+- Roots is deprecated by the specification of 2026-07-28 (SEP-2577) and names no successor.
+  Deprecated features stay functional for a year of spec versions, and the day a host stops
+  declaring the capability the fallback restores today's layout: the removal costs the link, not the
+  run. Existing runs are unaffected either way — a run folder under `workspaceRoot` is still found
+  by workspace root and run id.
+
 ## 0.22.4
 
 The claude vendor could not run the builder role at all. Every `forge.review.fix` and
