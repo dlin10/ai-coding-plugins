@@ -33,14 +33,14 @@ public sealed class WorkToolsTests : IDisposable
         vendor.Enqueue(critique);
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
             "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         Assert.Equal("running", JsonNode.Parse(start)!["state"]!.GetValue<string>());
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
-        var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
+        var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             CancellationToken.None))!;
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId))!;
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None))!;
 
         Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
@@ -61,12 +61,12 @@ public sealed class WorkToolsTests : IDisposable
         vendor.Enqueue(new Critique("revise", [new Finding("major", "step 1", "no gate")], "one hole"));
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
             "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
-        await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId))!;
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None))!;
 
         var documents = fetch["documents"]!;
         Assert.Equal(run.FlowLogPath, documents["flowLog"]!["path"]!.GetValue<string>());
@@ -115,7 +115,7 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<RevisionMissingException>(() => ForgeTools.StartWork(registry, _workspace,
+        await Assert.ThrowsAsync<RevisionMissingException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace,
             run.RunId, "plan.review", "critic", null, "claude", "## draft", null, null, null,
             CancellationToken.None, factory));
 
@@ -130,18 +130,18 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
             "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
-        var running = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
+        var running = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
 
         Assert.Equal("running", running["state"]!.GetValue<string>());
         Assert.Contains("forge.work.poll", running["next"]!.GetValue<string>(), StringComparison.Ordinal);
 
         vendor.Release();
-        var settled = JsonNode.Parse(await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId,
+        var settled = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             CancellationToken.None))!;
 
         Assert.Equal("succeeded", settled["state"]!.GetValue<string>());
@@ -160,9 +160,9 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
@@ -176,7 +176,7 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("invalid-active");
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review",
+        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review",
             "critic", null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var calls = 0;
@@ -186,15 +186,15 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "unknown", "critic", null, "claude", null, null, null, null, CancellationToken.None, factory));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "plan.review", "critic", null, "claude", " ", null, null, null, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Equal(jobId, registry.Get(run.Path)?.Id);
         vendor.Release();
-        await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
     }
 
     [Fact]
@@ -205,12 +205,12 @@ public sealed class WorkToolsTests : IDisposable
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "the checks ran"), "wrong schema"));
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic", null,
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
             "claude", "## draft", null, null, null, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
-        await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId))!;
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None))!;
 
         Assert.Equal("failed", fetch["state"]!.GetValue<string>());
         Assert.Null(fetch["result"]);
@@ -224,18 +224,18 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
 
-        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic",
+        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
             null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
-        var second = JsonNode.Parse(await ForgeTools.StartWork(registry, _workspace, run.RunId, "plan.review", "critic",
+        var second = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
             null, "claude", "## draft", null, null, null, CancellationToken.None, () => vendor))!;
 
         Assert.False(second["started"]!.GetValue<bool>());
         Assert.Equal(jobId, second["jobId"]!.GetValue<string>());
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.FetchWork(registry, _workspace, run.RunId, jobId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None));
 
         vendor.Release();
-        await ForgeTools.PollWork(registry, _workspace, run.RunId, jobId, CancellationToken.None);
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
     }
 
     [Fact]
@@ -245,10 +245,10 @@ public sealed class WorkToolsTests : IDisposable
         var registry = new JobRegistry();
         const string jobId = "0123456789abcdef";
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.PollWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
             jobId, CancellationToken.None));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.FetchWork(registry, _workspace, run.RunId,
-            jobId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
+            jobId, CancellationToken.None));
     }
 
     [Fact]
@@ -257,10 +257,10 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("malformed");
         var registry = new JobRegistry();
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.PollWork(registry, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
             "not-a-job", CancellationToken.None));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.FetchWork(registry, _workspace, run.RunId,
-            "not-a-job"));
+        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
+            "not-a-job", CancellationToken.None));
 
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
         Assert.Contains("forge.work.poll", File.ReadAllText(run.DiagnosticLogPath), StringComparison.Ordinal);

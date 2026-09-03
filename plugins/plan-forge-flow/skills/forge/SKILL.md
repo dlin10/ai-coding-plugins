@@ -244,6 +244,12 @@ watch. Then refresh them after every later worker act — no host watches the di
   tab refreshes itself.
 - A terminal or TUI host — give the user the paths once so they can open them in their own editor.
 
+The paths are absolute, and on a host that tells the server where the session is they sit inside it —
+even when `workspaceRoot` names a repository root several levels up. Where your host turns a path
+relative to your working directory into a link, write them that way; a backticked absolute path
+renders as text the user cannot click. If a `documents` path is not under your working directory,
+your host did not declare its roots and the absolute path is all there is.
+
 However the files are surfaced, keep one line of narration in chat per worker call: the verdict and
 finding count, or the task built and its status, so the user sees the run move without opening
 anything. When chat is all the host has, expand that line to the findings themselves — severity,

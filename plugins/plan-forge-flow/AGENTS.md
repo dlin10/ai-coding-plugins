@@ -138,8 +138,16 @@ beside the binary. Do not move it in with the prompts.
 
 ## Run state, and the absence of locks
 
-Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
-`PLAN.md`, `review-log.md`, `flow_log.md`, `forge.log`, `baseline.patch`. The flow log is the
+Everything a run knows lives under `.forge/<runId>/`: `state.json`, `PLAN.md`, `review-log.md`,
+`flow_log.md`, `forge.log`, `baseline.patch`. **Not under `workspaceRoot`** — that argument is the
+git window and the workers' working directory, and the run's own files follow the *session* instead,
+the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
+`workspaceRoot` for a host that declares none. Only Claude Code declares one today; `CONTEXT.md`
+carries the measurement and the deprecation that hangs over it, and
+[docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md) the decision. Do not
+collapse the two roots back together in either direction: pinning `workspaceRoot` to the session
+shrinks the review to the session's subtree, and pinning the run folder to `workspaceRoot` puts
+`PLAN.md` where the host cannot linkify it. The flow log is the
 user-facing timeline — every critique, build result and fix round, plus the orchestrator's own
 revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
 lets builder entries live there without shifting what the next critic judges; `review-log.md` is
@@ -203,4 +211,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the nine architecture decisions.
+decision. `docs/adr/` holds the eleven architecture decisions.

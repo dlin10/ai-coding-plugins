@@ -35,7 +35,7 @@ public sealed class CatalogTests : IDisposable
                 detail: "cursor-agent was not found on PATH")
         });
 
-        var result = JsonNode.Parse(await ForgeTools.Models(cache, _workspace, run.RunId, CancellationToken.None))!;
+        var result = JsonNode.Parse(await ForgeTools.Models(cache, SessionRoots.None, _workspace, run.RunId, CancellationToken.None))!;
 
         var vendors = result["vendors"]!.AsArray();
         Assert.Equal(["claude", "codex", "cursor"], vendors.Select(v => v!["vendor"]!.GetValue<string>()));

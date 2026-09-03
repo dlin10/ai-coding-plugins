@@ -27,7 +27,7 @@ public sealed class StatusJobTests : IDisposable
         var registry = new JobRegistry();
         var start = registry.Start(run.Path, "plan.review", _ => gate.Task);
 
-        var active = JsonNode.Parse(await ForgeTools.Status(registry, _workspace, run.RunId, ct))!;
+        var active = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
 
         Assert.Equal(start.JobId, active["activeJob"]!["jobId"]!.GetValue<string>());
         Assert.Equal("plan.review", active["activeJob"]!["act"]!.GetValue<string>());
@@ -35,7 +35,7 @@ public sealed class StatusJobTests : IDisposable
 
         gate.SetResult("done");
         await registry.WaitAsync(run.Path, start.JobId, TimeSpan.FromSeconds(1), ct);
-        var terminal = JsonNode.Parse(await ForgeTools.Status(registry, _workspace, run.RunId, ct))!;
+        var terminal = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
 
         Assert.Null(terminal["activeJob"]);
     }
@@ -74,7 +74,7 @@ public sealed class StatusJobTests : IDisposable
         var statusTask = Task.Run(async () =>
         {
             for (var index = 0; index < 10; index++)
-                observations.Add(JsonNode.Parse(await ForgeTools.Status(registry, _workspace, run.RunId, ct))!);
+                observations.Add(JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!);
         });
 
         firstRelease.SetResult("first");

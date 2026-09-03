@@ -476,3 +476,48 @@ Three limits come with that boundary, all recorded rather than fixed. A third pa
 and takes its changes out of the window — the flow already forbids committing during a run. And a
 vendor worker runs in the workspace, so nothing here stops it reading an excluded file it was not
 sent; the pathspec governs what is handed over, not what is reachable.
+
+## The session is not the workspace, and only one host says where it is
+
+`workspaceRoot` arrives as a tool argument and used to decide three unrelated things: where
+`.forge/<runId>/` lives, the git window the baseline and the code-review diff are taken over, and
+the working directory the critic and builder processes get. The orchestrator picks it from the shape
+of the task, and on a monorepo it correctly picks the repository root — which is right for the last
+two and wrong for the first. Measured on 2026-09-02, run `20260902-224201-7bf03b` on `claude-code`:
+the session's directory was `plugins/cache-detective`, the plan also rewrote the root `README.md`,
+`marketplace.json` and `.github/workflows/`, so `forge.begin` was called with the repository root and
+`PLAN.md` landed two levels above the session. Claude Code renders a file reference as a link only
+when the href is relative to the session's working directory, so the run's most-read document
+arrived as unclickable text. See issue #53.
+
+Pinning `workspaceRoot` to the session instead is the zero-code fix and silently shrinks the review.
+`GitPathspec.WithoutDocumentation` opens with `"."`, and a `.` pathspec is resolved against git's own
+working directory; `git ls-files --others` is working-directory scoped too. Measured in this
+repository, `git -C . ls-files --others` names `plugins/cache-detective/CONTEXT.md` while
+`git -C plugins/cache-detective ls-files --others` names `CONTEXT.md` — so the baseline, the drift
+shown at approval and the diff handed to the critic would all have stopped at the subdirectory, and
+the root files the same plan rewrites would have been invisible in exactly the way issue #25
+describes.
+
+So the session is asked for rather than passed in. Measured on 2026-09-03 by answering each host's
+handshake with a server that records the `initialize` params and then requests `roots/list`:
+
+| host | protocol | declares `roots` | answers `roots/list` |
+|---|---|---|---|
+| `claude-code` 2.1.258 | 2025-11-25 | `{"listChanged": true}` | the session's working directory |
+| `codex-mcp-client` 0.147.0 | 2025-06-18 | no | `{"roots": []}` |
+| `Cursor` 1.0.0 | 2025-11-25 | no | error `-32601 Method not found` |
+
+Two of the three answer a request they never advertised, one of them with an error, which is why the
+declared capability decides whether to ask at all rather than the shape of the answer. Only the host
+that declares it moves its run folder; the other two keep the layout they had.
+
+Roots is deprecated by the specification of 2026-07-28 (SEP-2577, which retires sampling and logging
+with it) on the grounds of vague semantics and low adoption, and it names no successor — after it
+goes, nothing in MCP tells a server where the user is sitting. Deprecated features stay functional
+for a year of spec versions. The fallback is what makes that survivable rather than a deadline: a
+host that stops declaring the capability reads as a host that never had one, and the run folder goes
+back under `workspaceRoot`. The cost of the removal is the clickable link, not the run.
+
+The decision that follows from all of this — and why the surface was not changed instead — is
+[docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md).

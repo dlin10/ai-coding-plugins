@@ -91,7 +91,7 @@ public sealed class ConfirmPlanTests : IDisposable
         var run = await StartRunAsync(ct);
         await File.WriteAllTextAsync(Path.Combine(_repo, "tracked.txt"), "edited after the baseline\n", ct);
 
-        var json = await ForgeTools.Status(_repo, run.RunId, ct);
+        var json = await ForgeTools.Status(SessionRoots.None, _repo, run.RunId, ct);
         var status = JsonSerializer.Deserialize(json, ForgeToolJson.Default.StatusResult)!;
 
         Assert.Equal(["tracked.txt"], status.DriftedFiles);
@@ -118,7 +118,7 @@ public sealed class ConfirmPlanTests : IDisposable
 
     private async Task<ApproveResult> ConfirmAsync(string runId, bool approved, CancellationToken ct)
     {
-        var json = await ForgeTools.ConfirmPlan(_repo, runId, Plan, approved, ct);
+        var json = await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, runId, Plan, approved, ct);
         return JsonSerializer.Deserialize(json, ForgeToolJson.Default.ApproveResult)!;
     }
 }

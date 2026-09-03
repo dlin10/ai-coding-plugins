@@ -27,17 +27,20 @@ internal sealed class ForgeTools
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
+                                           SessionRoots roots,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct)
     {
         var profile = CapabilityProfileDetector.Detect(server.ClientCapabilities);
         var runId = NewRunId();
-        var run = RunDirectory.Create(workspaceRoot, runId);
+        var run = await RunDirectory.CreateAsync(roots, workspaceRoot, runId, ct);
 
         // The run folder has to exist before anything can be logged, so this is the one tool whose
-        // record starts after its first side effect rather than before it.
+        // record starts after its first side effect rather than before it. `sessionRoot` is null
+        // for a host that declares no roots, which is the one thing the run path alone cannot say.
         return await LoggedAsync(run, "forge.begin",
-            [("workspaceRoot", workspaceRoot), ("client", ClientName(server)), ("profile", profile.ToString())],
+            [("workspaceRoot", workspaceRoot), ("sessionRoot", await roots.DirectoryAsync(ct)),
+             ("client", ClientName(server)), ("profile", profile.ToString())],
             async () =>
             {
                 // Fire-and-forget: by the time the interview reaches the vendor question,
@@ -70,12 +73,13 @@ internal sealed class ForgeTools
     /// </summary>
     [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it.")]
     public static async Task<string> Models(CatalogCache catalogs,
+                                            SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
                                             CancellationToken ct,
                                             [Description("Vendor: claude, codex or cursor. Omit for all of them.")] string? vendor = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.models", [("vendor", vendor)],
             async () =>
             {
@@ -103,6 +107,7 @@ internal sealed class ForgeTools
     /// </summary>
     [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique, plus the run's flow log and the plan it just wrote under `documents`. It writes the draft you pass to `PLAN.md` before the critic starts, so show that file to the user. A round run against an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> ReviewPlan(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The current plan draft, as markdown.")] string planDraft,
@@ -113,7 +118,7 @@ internal sealed class ForgeTools
         [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
         [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.review",
             [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft),
              ("revision", revision), ("deferred", deferred)],
@@ -142,12 +147,13 @@ internal sealed class ForgeTools
     /// </remarks>
     [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead.")]
     public static async Task<string> ShowPlan(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The plan to show, as markdown. The whole plan, not a summary of it.")] string plan,
         CancellationToken ct)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.show", [("plan", plan)],
             async () =>
             {
@@ -169,13 +175,14 @@ internal sealed class ForgeTools
     /// </summary>
     [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes.")]
     public static async Task<string> ConfirmPlan(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The plan to approve, as markdown.")] string plan,
         [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
         CancellationToken ct)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.confirm",
             [("approved", approved.ToString()), ("plan", plan)],
             async () =>
@@ -197,6 +204,7 @@ internal sealed class ForgeTools
 
     [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan.")]
     public static async Task<string> BuildNext(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Model for the builder.")] string model,
@@ -204,7 +212,7 @@ internal sealed class ForgeTools
         [Description("Optional effort level.")] string? effort = null,
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.build.next",
             [("vendor", vendor), ("model", model), ("effort", effort)],
             async () =>
@@ -225,6 +233,7 @@ internal sealed class ForgeTools
     /// </summary>
     [McpServerTool(Name = "forge.review.code"), Description("Runs one round of code review: the critic judges the working diff, excluding `CONTEXT.md` and `docs/adr/**`, against the approved plan and returns the critique. Filter the findings yourself, then pass the kept ones to forge.review.fix.")]
     public static async Task<string> ReviewCode(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Model for the critic.")] string model,
@@ -232,7 +241,7 @@ internal sealed class ForgeTools
         [Description("Optional effort level.")] string? effort = null,
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.code",
             [("vendor", vendor), ("model", model), ("effort", effort)],
             async () =>
@@ -248,6 +257,7 @@ internal sealed class ForgeTools
 
     [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled.")]
     public static async Task<string> ReviewFix(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("The findings to fix, as markdown. Compose them from the critique; keep every in-scope correctness finding, and never add work the critic did not ask for.")] string findings,
@@ -257,7 +267,7 @@ internal sealed class ForgeTools
         [Description("Optional effort level.")] string? effort = null,
         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.fix",
             [("vendor", vendor), ("model", model), ("effort", effort), ("findings", findings), ("deferred", deferred)],
             async () =>
@@ -273,6 +283,7 @@ internal sealed class ForgeTools
     [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id.")]
     public static Task<string> StartWork(
         JobRegistry registry,
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Worker act: plan.review, build.next, review.code or review.fix.")] string act,
@@ -286,12 +297,13 @@ internal sealed class ForgeTools
         [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
-        return StartWork(registry, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
+        return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
                          deferred, revision, ct, () => VendorFactory.Create(vendor, workspaceRoot));
     }
 
     internal static async Task<string> StartWork(
         JobRegistry registry,
+        SessionRoots roots,
         string workspaceRoot,
         string runId,
         string act,
@@ -305,7 +317,7 @@ internal sealed class ForgeTools
         CancellationToken ct,
         Func<IVendor> vendorFactory)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
              ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
@@ -334,21 +346,23 @@ internal sealed class ForgeTools
     [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds. A `running` result is not the end of the wait: call this again with the same job id.")]
     public static Task<string> PollWork(
         JobRegistry registry,
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("Job id returned by forge.work.start.")] string jobId,
         CancellationToken ct) =>
-        PollWork(registry, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct);
+        PollWork(registry, roots, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct);
 
     internal static async Task<string> PollWork(
         JobRegistry registry,
+        SessionRoots roots,
         string workspaceRoot,
         string runId,
         string jobId,
         TimeSpan timeout,
         CancellationToken ct)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.poll", [("jobId", jobId)],
             async () =>
             {
@@ -367,11 +381,13 @@ internal sealed class ForgeTools
     [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act.")]
     public static async Task<string> FetchWork(
         JobRegistry registry,
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
-        [Description("Job id returned by forge.work.start.")] string jobId)
+        [Description("Job id returned by forge.work.start.")] string jobId,
+        CancellationToken ct)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.fetch", [("jobId", jobId)],
             () =>
             {
@@ -392,11 +408,12 @@ internal sealed class ForgeTools
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
     public static async Task<string> Status(
         JobRegistry registry,
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         CancellationToken ct)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.status", [],
             async () =>
             {
@@ -411,8 +428,8 @@ internal sealed class ForgeTools
             });
     }
 
-    public static Task<string> Status(string workspaceRoot, string runId, CancellationToken ct) =>
-        Status(new JobRegistry(), workspaceRoot, runId, ct);
+    public static Task<string> Status(SessionRoots roots, string workspaceRoot, string runId, CancellationToken ct) =>
+        Status(new JobRegistry(), roots, workspaceRoot, runId, ct);
 
     /// <summary>
     /// The orchestrator's own entry point into the run log. Everything else here logs itself; this
@@ -424,14 +441,16 @@ internal sealed class ForgeTools
     /// per agent, and leaves the "do not hand-edit anything under `.forge/`" rule intact.
     /// </remarks>
     [McpServerTool(Name = "forge.log.append"), Description("Appends one entry to the run's diagnostic log at `.forge/<runId>/forge.log`. Use it to record what you selected, retried, or decided; never edit the file directly.")]
-    public static string AppendLog(
+    public static async Task<string> AppendLog(
+        SessionRoots roots,
         [Description("Absolute path to the workspace root.")] string workspaceRoot,
         [Description("Run id from forge.begin.")] string runId,
         [Description("What happened, in one line.")] string message,
+        CancellationToken ct,
         [Description("Optional level: info, warn or error. Defaults to info.")] string? level = null,
         [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null)
     {
-        var run = RunDirectory.Open(workspaceRoot, runId);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));
 
         return run.DiagnosticLogPath;
