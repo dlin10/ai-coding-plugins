@@ -42,7 +42,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder)),
                                                            selection, resumeToken, ct);
 
-        var result = await builder.RunAsync(prompt, Schemas.BuildResult, ct);
+        var result = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
 
         run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
         run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, result);

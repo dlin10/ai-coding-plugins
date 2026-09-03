@@ -84,8 +84,24 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _sessionId = id;
         if (!root.TryGetProperty("type", out var type)) return null;
-        if (!root.TryGetProperty("message", out var message)
-            || !message.TryGetProperty("content", out var content)
+        if (!root.TryGetProperty("message", out var message)) return null;
+
+        // `message` is an object on every event this reads, but not on every event the CLI emits,
+        // and asking one of the others for a property threw straight out through RunAsync — ending
+        // a builder that had already applied most of its edits, with only the report lost (run
+        // 20260902-224201-7bf03b). Which events carry the other shape is still unmeasured: two
+        // captures of a builder calling Bash did not produce one. So the payload is logged rather
+        // than dropped, and the next occurrence names itself instead of costing a second
+        // post-mortem.
+        if (message.ValueKind is not JsonValueKind.Object)
+        {
+            RunLog.Current?.Write("warn", "claude", "vendor.skipped-message",
+                ("type", type.GetString()),
+                ("payload", RunLog.Truncate(root.GetRawText())));
+            return null;
+        }
+
+        if (!message.TryGetProperty("content", out var content)
             || content.ValueKind is not JsonValueKind.Array)
         {
             return null;
@@ -113,7 +129,7 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         foreach (var block in content.EnumerateArray())
         {
-            var kind = block.TryGetProperty("type", out var blockType) ? blockType.GetString() : null;
+            var kind = TryRead(block, "type", out var blockType) ? blockType.GetString() : null;
             switch (kind)
             {
                 case "text" when block.TryGetProperty("text", out var text):
@@ -146,7 +162,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     {
         foreach (var block in content.EnumerateArray())
         {
-            if (!block.TryGetProperty("type", out var blockType) || blockType.GetString() is not "tool_result") continue;
+            if (!TryRead(block, "type", out var blockType) || blockType.GetString() is not "tool_result") continue;
 
             var name = block.TryGetProperty("tool_use_id", out var callId)
                        && callId.GetString() is { } call
@@ -184,7 +200,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         var pieces = new List<string>();
         foreach (var piece in content.EnumerateArray())
         {
-            if (piece.TryGetProperty("type", out var kind) && kind.GetString() is "text"
+            if (TryRead(piece, "type", out var kind) && kind.GetString() is "text"
                 && piece.TryGetProperty("text", out var text) && text.GetString() is { } value)
             {
                 pieces.Add(value);
@@ -192,6 +208,20 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
 
         return pieces.Count == 0 ? null : string.Join("\n", pieces);
+    }
+
+    /// <summary>
+    /// A property read that survives a value of the wrong kind. Every read above of something the
+    /// CLI sent rather than this session built goes through here, because
+    /// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> throws on anything that is
+    /// not an object and a shape nobody predicted should cost a skipped block, not the run.
+    /// </summary>
+    private static bool TryRead(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind is JsonValueKind.Object) return element.TryGetProperty(name, out value);
+
+        value = default;
+        return false;
     }
 
     private static bool TryParse(string line, out JsonDocument document)
