@@ -273,6 +273,30 @@ and on Windows a child does not die with its parent. For a critic that is harmle
 vendor keeps it read-only. For a builder it means edits landing in a workspace whose run is already
 gone.
 
+## The post-exit drain bounds this machine as well as the pipe
+
+`StreamingProcess` ends a stream on the process's own exit rather than on EOF, because a server the
+vendor spawned inherits the handle and can hold the pipe open for the rest of a run. What is left
+after the exit is a bounded drain, and the bound was two seconds on the reasoning that everything
+the process wrote is already in the buffer — true of the buffer, and silent about the reader.
+
+CI run 33916817192, on a runner slow enough for one test to take fifteen seconds, is where that
+showed: `git rev-parse HEAD` exited 0 and its single line never arrived inside the window, so
+`Baseline.CaptureAsync` recorded an empty head, `Assert.NotEmpty(baseline.Head)` failed, and nothing
+in the log said output had been dropped — an expired drain is indistinguishable, to the caller, from
+a stream that ended.
+
+The number is squeezed from both sides, which is the part worth keeping. Too short drops output
+already written, as above. Too long rebuilds the wait that ending the stream on the exit was written
+to remove — a spawned server holding the handle, and a critique delivered in two minutes read as a
+twenty-minute timeout — and `DiagnosticLogTests` holds that to ten seconds. The stdout bound is five
+seconds: several times any ordinary scheduling delay, and inside that guard. What makes it
+survivable rather than lucky is that its expiry writes `process.drain.timeout` to the run log, so
+the next machine slow enough to lose a line says so instead of returning a short stream. stderr
+keeps the two-second bound and stays silent when it expires: what is lost there is a tail in the
+log, not the answer, and a child holding both pipes would otherwise pay the stdout window at the end
+of every process it outlives.
+
 ## Claude Code aborts a silent call, and the manifest timeout feeds both of its clocks
 
 Measured on 2026-08-18 against Claude Code CLI 2.1.234, headless, with the same probe server:

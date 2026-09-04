@@ -1,7 +1,7 @@
 {
   "name": "plan-forge-flow",
   "displayName": "Plan Forge Flow",
-  "version": "0.26.0",
+  "version": "0.26.1",
   "description": "Harden, review, and implement plans on Windows x64 with independent review rounds and explicit approval, delegating the work to separate Claude, Codex, or Cursor processes.",
   "minClientVersions": {
     "cursor": "3.15.6"

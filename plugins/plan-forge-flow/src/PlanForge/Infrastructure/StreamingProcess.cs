@@ -25,14 +25,40 @@ internal static class StreamingProcess
     private static readonly UTF8Encoding UTF8 = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
-    /// How long a pipe is still read once the process behind it is gone. Everything the vendor
-    /// wrote is in the buffer by then, so this covers scheduling, not work.
+    /// How long a pipe is still read once the process behind it is gone. The bound is wanted for an
+    /// inherited handle holding the pipe open, since everything the process wrote is in the buffer
+    /// by the time it exits — but it lands on this machine getting round to reading that buffer
+    /// just the same, and the number is squeezed from both sides.
     /// </summary>
-    private static readonly TimeSpan _exitDrain = TimeSpan.FromSeconds(2);
+    /// <remarks>
+    /// Too short drops output that was already written: at the two seconds this used to be, CI run
+    /// 33916817192 had `git rev-parse HEAD` exit 0 with its one line never delivered, so a baseline
+    /// was captured with an empty head. Too long rebuilds the wait a spawned server imposes — the
+    /// twenty-minute timeout over a critique delivered in two that ending the stream on the exit
+    /// was written to fix, and which <c>DiagnosticLogTests</c> holds to ten seconds. Five sits
+    /// between: several times any ordinary scheduling delay, and inside that guard. What makes the
+    /// choice survivable rather than lucky is that <see cref="NextLineAsync"/> logs the expiry, so
+    /// the next machine slow enough to lose a line says so instead of returning a short stream.
+    /// </remarks>
+    private static readonly TimeSpan _exitDrain = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// The same window for stderr, and deliberately the short one it always was. What expires here
+    /// costs a tail in the log; what expires on stdout costs the answer itself, and the two are
+    /// worth waiting for in different measure — a child holding both pipes would otherwise add the
+    /// stdout window to the end of every process that leaves one behind.
+    /// </summary>
+    private static readonly TimeSpan _stderrDrain = TimeSpan.FromSeconds(2);
+
+    /// <param name="exitDrain">
+    /// Overrides <see cref="_exitDrain"/> for this call, which is how the drain is tested: a
+    /// per-call argument rather than a settable static, because this suite runs processes in
+    /// parallel and a narrowed window is exactly what drops another test's output.
+    /// </param>
     public static async IAsyncEnumerable<string> RunAsync(ProcessSpec spec,
                                                           TimeSpan timeout,
-                                                          [EnumeratorCancellation] CancellationToken ct)
+                                                          [EnumeratorCancellation] CancellationToken ct,
+                                                          TimeSpan? exitDrain = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
@@ -71,7 +97,8 @@ internal static class StreamingProcess
             await process.StandardInput.WriteAsync(spec.StandardInput.AsMemory(), token).ConfigureAwait(false);
             process.StandardInput.Close();
 
-            while (await NextLineAsync(process.StandardOutput, exited, token).ConfigureAwait(false) is { } line)
+            while (await NextLineAsync(process.StandardOutput, exited, spec.FileName,
+                                       exitDrain ?? _exitDrain, token).ConfigureAwait(false) is { } line)
             {
                 seen += line.Length;
                 if (seen > MAX_OUTPUT_BYTES)
@@ -128,10 +155,13 @@ internal static class StreamingProcess
             throw new VendorException($"{spec.FileName} exited {process.ExitCode}: {error}", process.ExitCode);
     }
 
-    public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec, TimeSpan timeout, CancellationToken ct)
+    public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec,
+                                                                 TimeSpan timeout,
+                                                                 CancellationToken ct,
+                                                                 TimeSpan? exitDrain = null)
     {
         var lines = new List<string>();
-        await foreach (var line in RunAsync(spec, timeout, ct).ConfigureAwait(false))
+        await foreach (var line in RunAsync(spec, timeout, ct, exitDrain).ConfigureAwait(false))
         {
             lines.Add(line);
         }
@@ -143,9 +173,20 @@ internal static class StreamingProcess
     /// EOF is not the vendor's alone to give: a server it spawns inherits the handle and can hold
     /// the pipe open long after the vendor is gone, and a run that waited for it read a critique
     /// delivered in two minutes as a twenty-minute timeout. Once the process has exited, only what
-    /// it already wrote can still arrive, so a short drain finishes the stream.
+    /// it already wrote can still arrive, so a bounded drain finishes the stream.
     /// </summary>
-    private static async Task<string?> NextLineAsync(StreamReader stdout, Task exited, CancellationToken ct)
+    /// <remarks>
+    /// An expired drain is a truncation: what had not been read is dropped, and the caller is
+    /// handed a short stream that looks exactly like a complete one. That is how an empty
+    /// `git rev-parse HEAD` reached a baseline as an answer, so the expiry is logged. On the
+    /// handle-holding path it is the ordinary end of a stream and nothing was lost; on a starved
+    /// machine it is the line to grep for.
+    /// </remarks>
+    private static async Task<string?> NextLineAsync(StreamReader stdout,
+                                                     Task exited,
+                                                     string exec,
+                                                     TimeSpan drain,
+                                                     CancellationToken ct)
     {
         var read = stdout.ReadLineAsync(ct).AsTask();
         if (await Task.WhenAny(read, exited).ConfigureAwait(false) == read)
@@ -153,10 +194,14 @@ internal static class StreamingProcess
 
         try
         {
-            return await read.WaitAsync(_exitDrain, ct).ConfigureAwait(false);
+            return await read.WaitAsync(drain, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
+            RunLog.Current?.Write("warn", SOURCE, "process.drain.timeout",
+                ("exec", exec),
+                ("drain", drain.ToString()));
+
             // Nothing more is coming, and nothing may read this stream again: a StreamReader
             // refuses a second read while one is pending. Observing the abandoned one keeps it from
             // resurfacing as an unobserved task exception.
@@ -169,14 +214,16 @@ internal static class StreamingProcess
     /// Reads stderr without letting the read decide the outcome. On a kill the stream is cancelled
     /// rather than closed, and the tail we wanted is the reason we were killing — losing it to the
     /// same cancellation would leave the log saying only that something stopped. The bound is the
-    /// same one <see cref="NextLineAsync"/> applies to stdout, and for the same reason: an inherited
-    /// handle can outlive the process whose output we came for.
+    /// same kind <see cref="NextLineAsync"/> applies to stdout, and for the same reason: an
+    /// inherited handle can outlive the process whose output we came for. Losing a stderr tail
+    /// costs a log line rather than an answer, so this bound is the shorter one and its expiry
+    /// stays silent.
     /// </summary>
     private static async Task<string> DrainAsync(Task<string> stderr)
     {
         try
         {
-            return await stderr.WaitAsync(_exitDrain).ConfigureAwait(false);
+            return await stderr.WaitAsync(_stderrDrain).ConfigureAwait(false);
         }
         catch (Exception error) when (error is OperationCanceledException or TimeoutException or IOException)
         {
