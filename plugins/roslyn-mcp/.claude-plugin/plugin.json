@@ -1,6 +1,6 @@
 {
   "name": "roslyn-mcp",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Roslyn MCP for Visual Studio: bundles the per-solution-port VSIX and tri-host setup guidance for Codex, Claude Code, and Cursor. Includes strict Roslyn-first routing for Claude Code and a non-blocking grep-nudge hook.",
   "hooks": "./hooks/hooks.claude.json",
   "author": {
