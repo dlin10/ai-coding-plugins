@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.26.1
+
+The 0.26.0 release did not publish: its own CI run failed on
+`BaselineTests.An_untouched_tree_has_not_drifted`, where `git rev-parse HEAD` exited 0 and returned
+nothing, so a baseline was captured with an empty head. The runner was slow enough for that one test
+to take fifteen seconds, and the post-exit drain in `StreamingProcess` allowed the pending read two.
+
+- The stdout drain after a process exits is five seconds rather than two. It exists to bound an
+  inherited handle holding the pipe open, but it bounds the machine's own scheduling too, and two
+  seconds was inside what a loaded runner can take to deliver a line that had already been written.
+  Five is the compromise: several times any ordinary scheduling delay, and still inside the ten
+  seconds `DiagnosticLogTests` allows a process whose child keeps the pipe — the guard on the
+  twenty-minute wait that ending the stream on the exit was written to remove.
+- An expired drain now writes `process.drain.timeout` to the run log. A truncated stream is
+  otherwise indistinguishable from a complete one, which is how an empty `rev-parse` reached a
+  baseline as an answer.
+- stderr keeps the two-second bound and stays silent: what expires there costs a tail in the log
+  rather than the answer, and a child holding both pipes would otherwise add the stdout window to
+  the end of every process that leaves one behind.
+- `ProcessDrainTests` runs a process that exits at once and leaves a child holding its stdout: the
+  reader still ends the stream on the bound rather than on the child, and the expiry is in the log.
+
 ## 0.26.0
 
 The plan was written before the critic started and its link arrived after the critic finished. In
