@@ -80,6 +80,16 @@ Explain what the multi-entry arrangement changes:
 - Every entry is visible from every directory in the repository, so state which server belongs to which solution.
 - Entries whose Visual Studio instance is not running report a connection failure when a session starts. That is expected rather than a fault.
 
+## Git worktrees
+
+Run this workflow in the repository's main working tree. Every file it writes is developer-local and untracked, so a linked worktree starts out with none of them, and `.git/info/exclude` is shared across worktrees, which means anything copied into one is already ignored there.
+
+- **Visual Studio** needs nothing. When a worktree carries no `.roslynmcp.json`, the extension resolves the port from the same relative folder in the main working tree — bundled extension v1.8.0 and later.
+- **Claude Code** needs nothing. Its local-scope entries are keyed by repository and resolve from a worktree as well; confirm on the machine at hand by listing the servers from inside a worktree.
+- **Codex and Cursor** read configuration from the directory tree, so a worktree carries neither `.codex/config.toml` nor `.cursor/mcp.json`. Copy each from its owning directory in the main working tree into the matching folder in the worktree, then verify with `codex mcp list` run from inside the worktree rather than assuming the copy took effect.
+
+One port serves one Visual Studio instance, so a solution can be open in the main working tree or in one worktree, not both at once. When both are needed, give the worktree its own `.roslynmcp.json` on a port no other solution claims, and point that worktree's Codex, Cursor, and Claude configuration at the same port.
+
 ## Verify and report
 
 - Report one row per solution: the solution path, the port, and the port recorded in `.roslynmcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, and the Claude entry. All five must agree.

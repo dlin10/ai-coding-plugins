@@ -82,7 +82,9 @@ When a solution opens, the extension walks upward from the solution directory an
 
 This allows several Visual Studio instances to expose different solutions simultaneously, each on its own port. Because the nearest file wins, a repository holding one solution can keep `.roslynmcp.json` at its root, while a repository holding several places one beside each solution to give each its own port. Keep `.roslynmcp.json` developer-local and configure every MCP client that works on a solution to use that solution's `http://localhost:<port>/mcp` endpoint.
 
-If no `.roslynmcp.json` is found, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
+Because the file is developer-local, a Git worktree added from a configured repository does not carry one. When the upward search comes up empty and the solution sits in a linked worktree, the extension repeats the search from the same relative folder in the repository's main working tree, so a worktree serves its solution on the port the repository already uses without any per-worktree setup. Only one Visual Studio instance can hold a port, so open the solution from the main working tree or from one worktree at a time; give a worktree its own `.roslynmcp.json` when both must be open at once.
+
+If neither search finds a `.roslynmcp.json`, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
 
 ### Transport
 
