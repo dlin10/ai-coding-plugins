@@ -68,7 +68,7 @@ internal sealed class WorkAct
                 return JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
 
             default:
-                throw new ArgumentException($"unknown work act '{act}'", nameof(act));
+                throw new ArgumentRejectedException($"unknown work act '{act}'");
         }
     }
 
@@ -84,7 +84,7 @@ internal sealed class WorkAct
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
         if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix")
-            throw new ArgumentException($"unknown work act '{act}'", nameof(act));
+            throw new ArgumentRejectedException($"unknown work act '{act}'");
 
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentException.ThrowIfNullOrWhiteSpace(selection.Model);
@@ -113,7 +113,7 @@ internal sealed class WorkAct
                 RejectProvided(revision, nameof(revision), act);
                 RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
                 if (findings is null)
-                    throw new ArgumentException($"{act} requires findings", nameof(findings));
+                    throw new ArgumentRejectedException($"{act} requires findings");
                 break;
         }
     }
@@ -121,18 +121,18 @@ internal sealed class WorkAct
     private static void Require(string? value, string argumentName, string act)
     {
         if (string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException($"{act} requires {argumentName}", argumentName);
+            throw new ArgumentRejectedException($"{act} requires {argumentName}");
     }
 
     private static void RejectProvided(string? value, string argumentName, string act)
     {
         if (!string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException($"{argumentName} is not used by {act}", argumentName);
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
 
     private static void RejectProvided(bool value, string argumentName, string act)
     {
         if (value)
-            throw new ArgumentException($"{argumentName} is not used by {act}", argumentName);
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
 }

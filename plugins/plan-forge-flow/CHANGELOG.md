@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.25.1
+
+An argument `forge.work.start` refused reached the orchestrator as `An error occurred invoking
+'forge.work.start'.` The server had written the reason — `userGrantedRound is not used by
+build.next` — and thrown it as `ArgumentException`, which is a framework type, so the SDK blanked it
+on the wire the way it blanks every exception that is not one of ours. Issue #59.
+
+- Every argument rejection now throws `ArgumentRejectedException`, a type of this assembly, so its
+  message passes through `ToolErrors` unchanged: an unknown act, an argument an act does not take, a
+  missing `planDraft` or `findings`, and a malformed `jobId` on `forge.work.poll` and
+  `forge.work.fetch`. The wording did not change; only the type did.
+- `ToolSurfaceTests` covers the trip: a `forge.work.start` rejection is asserted through the same
+  filter the server runs, naming the argument and the act. The in-process tests pin the wording as
+  before.
+- The null and whitespace guards are unchanged. They answer a programmer, not an orchestrator, and
+  a blank message there costs nobody a retry.
+
 ## 0.25.0
 
 Issue #58 opened as a machine fault: every command a Codex builder tried to run failed with
