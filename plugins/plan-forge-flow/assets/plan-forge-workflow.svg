@@ -1,15 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="760"
-     height="950"
-     viewBox="0 0 760 950"
+     height="1070"
+     viewBox="0 0 760 1070"
      role="img"
      aria-labelledby="title description">
   <title id="title">Plan Forge Flow workflow</title>
   <desc id="description">
-    A top-to-bottom workflow from opening a run through the interview, round-by-round
-    plan review, approval, task-by-task building, and final code review. Plan review
-    loops back to the orchestrator, which revises the plan; building repeats once per
-    task; code review loops internally between critic and builder.
+    A top-to-bottom workflow from opening a run through the interview, writing the
+    plan, round-by-round plan review, approval, task-by-task building, and final code
+    review. Every round writes the draft before the critic judges it. Plan review loops
+    back to the orchestrator, which revises the plan and writes it again; building
+    repeats once per task; code review loops internally between critic and builder.
   </desc>
 
   <defs>
@@ -43,7 +44,7 @@
     .arrowhead { fill: #57606a; }
   </style>
 
-  <rect class="canvas" width="760" height="950"/>
+  <rect class="canvas" width="760" height="1070"/>
   <text class="title" x="380" y="46" text-anchor="middle">Plan Forge Flow</text>
 
   <rect class="node phase" x="170" y="80" width="420" height="84" rx="14"/>
@@ -54,43 +55,48 @@
   <text class="node-title" x="380" y="234" text-anchor="middle">Act 1 — the interview</text>
   <text class="node-detail" x="380" y="260" text-anchor="middle">The orchestrator grills, then writes the plan draft</text>
 
-  <rect class="node review" x="170" y="320" width="420" height="84" rx="14"/>
-  <text class="node-title" x="380" y="354" text-anchor="middle">Act 2 — forge.plan.review</text>
-  <text class="node-detail" x="380" y="380" text-anchor="middle">One round: a fresh critic judges the draft</text>
+  <rect class="node plan" x="170" y="320" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="354" text-anchor="middle">forge.plan.write</text>
+  <text class="node-detail" x="380" y="380" text-anchor="middle">The draft lands in PLAN.md; the user reads it while the round runs</text>
 
-  <rect class="node gate" x="170" y="440" width="420" height="84" rx="14"/>
-  <text class="node-title" x="380" y="474" text-anchor="middle">forge.plan.confirm</text>
-  <text class="node-detail" x="380" y="500" text-anchor="middle">The orchestrator shows the plan and drift, records the answer</text>
+  <rect class="node review" x="170" y="440" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="474" text-anchor="middle">Act 2 — forge.plan.review</text>
+  <text class="node-detail" x="380" y="500" text-anchor="middle">One round: a fresh critic judges the written draft</text>
 
-  <rect class="node build" x="170" y="560" width="420" height="84" rx="14"/>
-  <text class="node-title" x="380" y="594" text-anchor="middle">Act 3 — forge.build.next</text>
-  <text class="node-detail" x="380" y="620" text-anchor="middle">One task per call, by a builder that keeps its session</text>
+  <rect class="node gate" x="170" y="560" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="594" text-anchor="middle">forge.plan.confirm</text>
+  <text class="node-detail" x="380" y="620" text-anchor="middle">The orchestrator shows the plan and drift, records the answer</text>
 
-  <rect class="node code-review" x="170" y="680" width="420" height="84" rx="14"/>
-  <text class="node-title" x="380" y="714" text-anchor="middle">Act 4 — forge.review.code + forge.review.fix</text>
-  <text class="node-detail" x="380" y="740" text-anchor="middle">One round per call; the orchestrator filters between critic and builder</text>
+  <rect class="node build" x="170" y="680" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="714" text-anchor="middle">Act 3 — forge.build.next</text>
+  <text class="node-detail" x="380" y="740" text-anchor="middle">One task per call, by a builder that keeps its session</text>
 
-  <rect class="node done" x="100" y="820" width="250" height="84" rx="14"/>
-  <text class="node-title" x="225" y="854" text-anchor="middle">Done</text>
-  <text class="node-detail" x="225" y="880" text-anchor="middle">Verdict: approve</text>
+  <rect class="node code-review" x="170" y="800" width="420" height="84" rx="14"/>
+  <text class="node-title" x="380" y="834" text-anchor="middle">Act 4 — forge.review.code + forge.review.fix</text>
+  <text class="node-detail" x="380" y="860" text-anchor="middle">One round per call; the orchestrator filters between critic and builder</text>
 
-  <rect class="node risk" x="410" y="820" width="250" height="84" rx="14"/>
-  <text class="node-title" x="535" y="854" text-anchor="middle">Cap reached</text>
-  <text class="node-detail" x="535" y="880" text-anchor="middle">The user accepts or stops</text>
+  <rect class="node done" x="100" y="940" width="250" height="84" rx="14"/>
+  <text class="node-title" x="225" y="974" text-anchor="middle">Done</text>
+  <text class="node-detail" x="225" y="1000" text-anchor="middle">Verdict: approve</text>
+
+  <rect class="node risk" x="410" y="940" width="250" height="84" rx="14"/>
+  <text class="node-title" x="535" y="974" text-anchor="middle">Cap reached</text>
+  <text class="node-detail" x="535" y="1000" text-anchor="middle">The user accepts or stops</text>
 
   <path class="edge" d="M 380 164 L 380 198"/>
   <path class="edge" d="M 380 284 L 380 318"/>
   <path class="edge" d="M 380 404 L 380 438"/>
   <path class="edge" d="M 380 524 L 380 558"/>
   <path class="edge" d="M 380 644 L 380 678"/>
-  <path class="edge" d="M 380 764 L 380 792 L 225 792 L 225 818"/>
-  <path class="edge" d="M 380 764 L 380 792 L 535 792 L 535 818"/>
+  <path class="edge" d="M 380 764 L 380 798"/>
+  <path class="edge" d="M 380 884 L 380 912 L 225 912 L 225 938"/>
+  <path class="edge" d="M 380 884 L 380 912 L 535 912 L 535 938"/>
 
-  <path class="loop" d="M 590 362 L 650 362 L 650 242 L 592 242"/>
-  <text class="edge-label" x="658" y="306">REVISE</text>
+  <path class="loop" d="M 590 482 L 650 482 L 650 242 L 592 242"/>
+  <text class="edge-label" x="658" y="366">REVISE</text>
 
-  <path class="loop" d="M 170 628 L 104 628 L 104 578 L 168 578"/>
-  <text class="edge-label" x="96" y="607" text-anchor="end">NEXT TASK</text>
+  <path class="loop" d="M 170 748 L 104 748 L 104 698 L 168 698"/>
+  <text class="edge-label" x="96" y="727" text-anchor="end">NEXT TASK</text>
 
-  <text class="edge-label" x="392" y="546">APPROVED</text>
+  <text class="edge-label" x="392" y="666">APPROVED</text>
 </svg>

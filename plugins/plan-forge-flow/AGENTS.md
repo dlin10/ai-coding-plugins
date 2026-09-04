@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all thirteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all fourteen `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -152,11 +152,14 @@ user-facing timeline — every critique, build result and fix round, plus the or
 revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
 lets builder entries live there without shifting what the next critic judges; `review-log.md` is
 critic input and stays free of them, carrying only the deferrals the next critic must treat as
-settled. `PLAN.md` is the run's plan *as it currently stands*, not the approved one: every plan-review
-round writes the draft it was handed, before the critic starts, so the user has a document to watch
-instead of meeting the plan once at approval. Approval is `state.json`'s `approved`, and a round run
-after it takes that flag back — see
-[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md). There are no locks and no Git refs —
+settled. `PLAN.md` is the run's plan *as it currently stands*, not the approved one: `forge.plan.write`
+puts the draft there ahead of the round that judges it — a separate call because a draft streamed
+into the review call is not on disk until that call arrives, which made the link late by the whole
+of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
+draft of its own. Approval is `state.json`'s `approved`, and a write or a round run after it takes
+that flag back — see
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
 patch.
 
@@ -211,4 +214,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the eleven architecture decisions.
+decision. `docs/adr/` holds the fourteen architecture decisions.

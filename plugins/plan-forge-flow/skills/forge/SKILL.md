@@ -23,14 +23,15 @@ an ordinary request to plan something, or an existing draft are not consent.
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
-| `forge.plan.review` | On non-Cursor hosts, once per round with the current draft. Writes that draft to `PLAN.md` before the critic starts, and returns one critique. **You** then revise the plan and call it again, saying in `revision` what you changed — required from the second round on. |
+| `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
+| `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
-| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
+| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
@@ -46,8 +47,10 @@ deferred, so the act completes without starting a builder session. If `forge.wor
 
 Every worker act answers with its own result beside a `documents` object — the critique under
 `critique`, the build under `build`, the fix under `fix`, and on Cursor the act's own payload as
-the `result` string of `forge.work.fetch`. `documents` holds `flowLog` and `plan`, each with a
-`path` and what to do with it, and each `null` until its file exists. What to do with them is below.
+the `result` string of `forge.work.fetch`. `forge.plan.write` answers with `documents` and nothing
+else, and on Cursor `forge.work.start` and every `forge.work.poll` carry it too. `documents` holds
+`flowLog` and `plan`, each with a `path` and what to do with it, and each `null` until its file
+exists. What to do with them is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
 use the three work tools above so the surviving server can rejoin a detached worker; on every other
@@ -209,17 +212,20 @@ true` on the next round tool — `forge.plan.review` or `forge.review.code`, or 
 `forge.work.start` — which raises the cap by exactly one. The grant is spent by that round, so the
 round after it needs a fresh answer, and never pass the argument without having asked.
 
-Link the drafts, do not paste them. Every round writes the draft you passed to `<runPath>/PLAN.md`
-before the critic starts, so the user can watch the plan change while the rounds run — surface that
-file the way you surface the flow log, and refresh it after each round. What stays out of the chat
-is the plan's *text*: five revisions pasted into the conversation bury the one version that matters,
-which is why the file exists.
+Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
+the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
+seconds and hands you the path, and the round then reads it from there instead of carrying it a
+second time. Surface that path in the same turn as the write, before the round starts, so the user
+reads the plan during the minutes the critic takes rather than after them; refresh it after each
+round. What stays out of the chat is the plan's *text*: five revisions pasted into the conversation
+bury the one version that matters, which is why the file exists.
 
-A round run against an already-approved plan takes the approval back: the server clears `approved`,
-resets the build progress to zero, and records it in the flow log. That is not a silent
-housekeeping detail — say it in the chat, because the next `forge.build.next` will refuse until the
-user approves again, and the builder will then start from the first task. If tasks were already
-built, tell the user how many are about to be rebuilt before you run the round.
+Rewriting an already-approved plan takes the approval back: whichever call changes the file —
+`forge.plan.write`, or a round you handed a draft to — clears `approved`, resets the build progress
+to zero, and records it in the flow log. That is not a silent housekeeping detail — say it in the
+chat, because the next `forge.build.next` will refuse until the user approves again, and the builder
+will then start from the first task. If tasks were already built, tell the user how many are about
+to be rebuilt before you write the new draft.
 
 ## Show the workers' output as you go
 
@@ -230,16 +236,18 @@ deferrals between plan-review rounds, build results with status and files change
 round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to a
 worker; it exists to be shown.
 
-The plan is the second such file. `forge.plan.review` writes the draft you hand it to
-`<runPath>/PLAN.md` before the critic starts, and rewrites it every round, so the user reads the
-current plan while the round runs rather than meeting it once at approval.
+The plan is the second such file. `forge.plan.write` puts the draft at `<runPath>/PLAN.md` before
+the round that judges it starts, and every later round rewrites it, so the user reads the current
+plan while the round runs rather than meeting it once at approval.
 
-Every act result carries both as `documents.flowLog` and `documents.plan`, each with its `path` and
-what to do with it, from the moment there is something to show — the first plan-review result,
-whether from the one-call tool or `forge.work.fetch`. Either can be `null` while its file does not
-exist yet. **Surface them in the same turn that first `documents` arrives**, not at the end of the
-run: a link handed over once the work is finished is a link to something the user could no longer
-watch. Then refresh them after every later worker act — no host watches the disk for you:
+Both travel as `documents.flowLog` and `documents.plan`, each with its `path` and what to do with
+it, on every result that has something to show — `forge.plan.write`, every worker act, and on
+Cursor the start and every poll as well. Either can be `null` while its file does not exist yet.
+**Surface the plan in the same turn as the write that created it, and the flow log in the turn its
+first critique arrives** — the flow log does not exist before that first critique, so a path to it
+handed over earlier is a dead link. Neither waits for the end of the run: a link handed over once
+the work is finished is a link to something the user could no longer watch. Then refresh both after
+every later worker act — no host watches the disk for you:
 
 - A host that renders local files (the Claude Code desktop app) — show the files, and re-send them
   after each call.
@@ -278,9 +286,10 @@ job, in four steps:
    Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
    read.
 3. Ask them to approve it or say what to change. Ask in the chat even when the canvas is up: it
-   displays and nothing more, and it says so to the user. On a change, revise the plan and go back
-   to `forge.plan.review` with `revision` saying what you changed — a plan amended after the last
-   verdict has not been reviewed — then show the revised plan again before asking a second time.
+   displays and nothing more, and it says so to the user. On a change, revise the plan, write it
+   with `forge.plan.write`, and go back to `forge.plan.review` with `revision` saying what you
+   changed — a plan amended after the last verdict has not been reviewed — then show the revised
+   plan again before asking a second time.
 4. Pass what they answered to `forge.plan.confirm`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole

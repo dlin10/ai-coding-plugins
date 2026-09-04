@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.26.0
+
+The plan was written before the critic started and its link arrived after the critic finished. In
+run `20260904-173914-9254ec` the round-1 draft reached the server at 18:19:40, and the user got the
+path at 18:26:48 — seven minutes later, with the round already over — because the path travels
+inside `documents`, which `forge.plan.review` builds after the critique. Issue #63.
+
+- `forge.plan.write` is a new tool, the fourteenth: it writes the current draft to `PLAN.md`,
+  starts no worker, and answers with `documents` alone. Call it before each round, surface the path
+  it returns, then run the round.
+- `planDraft` is now optional on `forge.plan.review` and on `forge.work.start`'s `plan.review` act.
+  Omitted, the round reviews the file `forge.plan.write` left, so a 50–90 KB draft crosses the wire
+  once per round instead of twice. A round with no draft written and none passed is refused, before
+  a background job is started rather than inside it.
+- `forge.work.start` and `forge.work.poll` results carry `documents`, so on Cursor the plan's path
+  arrives with the started job rather than with the fetch that ends the wait.
+- A write over an approved plan takes the approval back, resets `tasksCompleted` and drops the
+  builder session, exactly as a review round does — the plan file never changes under a raised
+  `approved` flag.
+- `flow_log.md` is unmoved: it is first created by the first critique, so `documents.flowLog` still
+  arrives with that critique and never earlier. The skill now says the plan when it is written, the
+  flow log with the first critique. See docs/adr/0014-writing-the-plan-is-its-own-call.md.
+
 ## 0.25.1
 
 An argument `forge.work.start` refused reached the orchestrator as `An error occurred invoking
