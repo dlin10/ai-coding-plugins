@@ -17,37 +17,54 @@ namespace PlanForge.Tests;
 public sealed class VendorEventDetailTests
 {
     [Fact]
-    public void Codex_item_detail_carries_command_exit_code_and_output()
+    public async Task Codex_item_detail_carries_command_exit_code_and_output()
     {
-        using var parameters = JsonDocument.Parse(
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
+
+        using (var completed = JsonDocument.Parse(
             """
             {
-              "threadId": "t1",
+              "type": "item.completed",
               "item": {
-                "type": "commandExecution",
+                "type": "command_execution",
                 "command": "pwsh -NoProfile -Command \"dotnet --version\"",
-                "exitCode": -1,
-                "aggregatedOutput": "windows sandbox: CreateProcessAsUserW failed: 5 (Access is denied.)",
+                "exit_code": -1,
+                "aggregated_output": "windows sandbox: CreateProcessAsUserW failed: 5 (Access is denied.)",
                 "status": "failed"
               }
             }
-            """);
+            """))
+        {
+            session.Observe(completed.RootElement);
+        }
 
-        var detail = CodexAppServerSession.ItemDetail(parameters.RootElement);
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
 
-        Assert.NotNull(detail);
-        Assert.Contains(("command", "pwsh -NoProfile -Command \"dotnet --version\""), detail);
-        Assert.Contains(("exitCode", "-1"), detail);
-        Assert.Contains(("status", "failed"), detail);
-        Assert.Contains(detail, field => field.Name == "output" && field.Value!.Contains("Access is denied"));
+        var outcome = Assert.Single(events, raised => raised.Kind is VendorEventKind.ToolResult);
+        Assert.Equal("command_execution", outcome.Text);
+        Assert.Contains(("command", "pwsh -NoProfile -Command \"dotnet --version\""), outcome.Fields!);
+        Assert.Contains(("exitCode", "-1"), outcome.Fields!);
+        Assert.Contains(("status", "failed"), outcome.Fields!);
+        Assert.Contains(outcome.Fields!, field => field.Name == "output" && field.Value!.Contains("Access is denied"));
     }
 
     [Fact]
-    public void Codex_item_detail_is_null_when_the_item_has_none_of_the_fields()
+    public async Task Codex_item_detail_is_null_when_the_item_has_none_of_the_fields()
     {
-        using var parameters = JsonDocument.Parse("""{ "threadId": "t1", "item": { "type": "webSearch" } }""");
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
 
-        Assert.Null(CodexAppServerSession.ItemDetail(parameters.RootElement));
+        using (var completed = JsonDocument.Parse("""{ "type": "item.completed", "item": { "type": "web_search" } }"""))
+        {
+            session.Observe(completed.RootElement);
+        }
+
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
+
+        Assert.DoesNotContain(events, raised => raised.Kind is VendorEventKind.ToolResult);
     }
 
     [Fact]

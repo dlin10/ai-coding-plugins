@@ -16,7 +16,3 @@ given:
   showed in `evidence`. `failed` when it ran and did not pass and the task did not let you fix it.
   `unavailable` when you could not execute it at all — quote the exact refusal in `evidence`.
   `done` does not imply verification; never hide an unexecuted check in the summary prose.
-
-This vendor has no schema field, so your **final message** must be the JSON object and nothing else —
-no prose before it, no code fence around it. Editing files and running commands first is expected;
-only the last message is read.

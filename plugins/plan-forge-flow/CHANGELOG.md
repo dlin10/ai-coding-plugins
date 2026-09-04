@@ -1,5 +1,26 @@
 # Plan Forge Flow releases
 
+## 0.25.0
+
+Issue #58 opened as a machine fault: every command a Codex builder tried to run failed with
+`CreateProcessAsUserW failed: 5`, the build reported `blocked`, and the working tree was never
+touched. Chasing it down the App Server surface turned up a second defect underneath it, and fixing
+that exposed a third that had been hiding behind every blocked attempt.
+
+- The Codex vendor now runs through `codex exec` instead of the App Server it used before: its
+  structured reply is enforced by the provider's strict output schema rather than negotiated
+  through the prompt and a retry loop, and the hand-written app-server client, its session, and its
+  vendor are gone. The catalogue and the sign-in check move to `codex debug models` and
+  `codex doctor --json`. See docs/adr/0012-reach-codex-through-exec.md.
+- On a machine where PowerShell 7 came from the Microsoft Store, codex resolved `pwsh` to an
+  execution alias that a restricted token cannot traverse, so every command it tried to run failed
+  with access denied. The PATH handed to the codex process now drops the Store alias directory, and
+  the probe reports the vendor unavailable, naming the reason, when no real PowerShell can be found
+  either way. See docs/adr/0013-strip-the-store-alias-from-the-codex-path.md.
+- A build task the builder reported `blocked` used to advance the task counter anyway, so the plan
+  moved on as if the task had been built. The counter now advances only on `done`; a blocked task
+  stays the next task, so the following call retries it.
+
 ## 0.24.0
 
 A reached review cap used to be a dead end: the tool refused, and the only way past it was to start
