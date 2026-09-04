@@ -44,7 +44,7 @@ internal sealed class WorkAct
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft!, selection, revision, deferred, userGrantedRound, ct)
+                    .ReviewAsync(run, planDraft, selection, revision, deferred, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
@@ -91,8 +91,11 @@ internal sealed class WorkAct
 
         switch (act)
         {
+            // planDraft is optional here and nowhere else: forge.plan.write puts the draft on disk
+            // ahead of the round, and the act reads it from there when the start omits it. Whether
+            // there is one to read is a question about the run, so forge.work.start asks it through
+            // PlanReview.RequireDraft rather than here.
             case "plan.review":
-                Require(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
                 break;
             case "build.next":
@@ -116,12 +119,6 @@ internal sealed class WorkAct
                     throw new ArgumentRejectedException($"{act} requires findings");
                 break;
         }
-    }
-
-    private static void Require(string? value, string argumentName, string act)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            throw new ArgumentRejectedException($"{act} requires {argumentName}");
     }
 
     private static void RejectProvided(string? value, string argumentName, string act)

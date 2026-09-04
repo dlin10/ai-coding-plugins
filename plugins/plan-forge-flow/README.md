@@ -2,7 +2,7 @@
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes thirteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes fourteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -17,7 +17,8 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
-| `forge.plan.review` | One review round: a fresh critic judges the current draft, beside the orchestrator's account of what the previous round changed |
+| `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
+| `forge.plan.review` | One review round: a fresh critic judges the written draft, beside the orchestrator's account of what the previous round changed |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
 | `forge.build.next` | Builds one task of the approved plan |
@@ -36,21 +37,23 @@ The requirements are under review beside the tasks, and only what they exclude i
 aimed at the wrong thing is a finding rather than a clean approve.
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
-revises the plan after `forge.plan.review`, and after `forge.review.code` it filters the findings
-against the approved plan before `forge.review.fix` relays them. That turn is recorded rather than
-assumed — a plan-review round after the first is refused without an account of what the previous
-one changed, and it lands in the flow log where the user reads the two loops as a conversation. The
-critic and the builder never talk directly — what the orchestrator defers is recorded in the review
-log with its reason, so the next round's critic treats it as settled and the user sees it when the
-review ends. See
+revises the plan after `forge.plan.review` and writes the new draft before the next round, and after
+`forge.review.code` it filters the findings against the approved plan before `forge.review.fix`
+relays them. That turn is recorded rather than assumed — a plan-review round after the first is
+refused without an account of what the previous one changed, and it lands in the flow log where the
+user reads the two loops as a conversation. The critic and the builder never talk directly — what
+the orchestrator defers is recorded in the review log with its reason, so the next round's critic
+treats it as settled and the user sees it when the review ends. See
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md) for why the sealed loop was
 opened.
 
-The plan itself is readable from the first round rather than at the end of them: each round writes
-the draft to `PLAN.md` before the critic starts, so what the verdicts are about is a document you
-can open while they arrive. The price is that an approval is no longer final within a run — a round
-run after one takes it back and resets the build progress. See
-[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md).
+The plan itself is readable from the first round rather than at the end of them: each round starts
+with `forge.plan.write`, which puts the draft at `PLAN.md` and hands back its path in seconds, and
+the round then reads it from there — so what the verdicts are about is a document you can open
+before the first verdict, not after it. The price is that an approval is no longer final within a
+run — a round, or a write, run after one takes it back and resets the build progress. See
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md).
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
@@ -154,7 +157,7 @@ instead.
   .gitignore            # contains "*" — the folder ignores itself
   <runId>/
     state.json
-    PLAN.md               # the plan as it currently stands, rewritten every review round
+    PLAN.md               # the plan as it currently stands, rewritten before every review round
     review-log.md
     flow_log.md           # the user-facing timeline
     forge.log

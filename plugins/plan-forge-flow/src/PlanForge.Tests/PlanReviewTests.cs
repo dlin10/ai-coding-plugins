@@ -318,6 +318,82 @@ public sealed class PlanReviewTests : IDisposable
     }
 
     /// <summary>
+    /// The write on its own, which is the whole point of splitting it out: no vendor is constructed,
+    /// nothing is asked of a critic, and the file the user is told to watch exists before the round
+    /// that judges it starts.
+    /// </summary>
+    [Fact]
+    public void The_plan_is_written_by_itself_without_a_critic()
+    {
+        var run = NewRun(rounds: 0, cap: 5);
+
+        PlanReview.Write(run, HoledPlan);
+
+        Assert.Equal(HoledPlan, run.ReadPlan());
+        Assert.False(File.Exists(run.FlowLogPath));
+        Assert.Equal(0, run.ReadState().ReviewRounds);
+    }
+
+    /// <summary>
+    /// The other half of the split: a round handed no draft judges the one already on disk, so the
+    /// 50–90 KB the orchestrator streamed into the write does not travel a second time into the
+    /// call that runs the critic.
+    /// </summary>
+    [Fact]
+    public async Task A_round_without_a_draft_reviews_the_plan_already_written()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 0, cap: 5);
+        PlanReview.Write(run, HardenedPlan);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, null, new Selection("critic-model", null), null, null, false,
+                         CancellationToken.None);
+
+        Assert.Contains("Retention window is 400 days", critic.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Equal(HardenedPlan, run.ReadPlan());
+        Assert.Equal(1, run.ReadState().ReviewRounds);
+    }
+
+    [Fact]
+    public async Task A_round_with_no_draft_anywhere_is_refused()
+    {
+        var run = NewRun(rounds: 0, cap: 5);
+
+        var rejection = await Assert.ThrowsAsync<ArgumentRejectedException>(
+            () => new PlanReview(new RecordingVendor("claude"), new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, null, new Selection("critic-model", null), null, null, false,
+                             CancellationToken.None));
+
+        Assert.Contains("forge.plan.write", rejection.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(run.PlanPath));
+    }
+
+    /// <summary>
+    /// The withdrawal moves with the write it guards. A plan rewritten by the write tool is text
+    /// nobody approved, exactly as a plan rewritten by a review round is, and leaving the flag up
+    /// over it is the hole docs/adr/0009 closed.
+    /// </summary>
+    [Fact]
+    public void A_write_over_an_approved_plan_takes_the_approval_back()
+    {
+        var run = NewRun(rounds: 1, cap: 5);
+        run.WriteState(run.ReadState() with
+        {
+            Approved = true, TasksCompleted = 3, BuilderSessionId = "builder-session"
+        });
+
+        PlanReview.Write(run, HardenedPlan);
+
+        var state = run.ReadState();
+        Assert.False(state.Approved);
+        Assert.Equal(0, state.TasksCompleted);
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Contains("## Plan reopened", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The price of writing the plan from the first round on: the file the builder reads is no
     /// longer frozen at approval, so a later round has to take the approval back rather than leave
     /// a raised flag over text nobody approved.

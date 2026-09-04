@@ -102,22 +102,45 @@ internal sealed class ForgeTools
             ]);
 
     /// <summary>
+    /// Writing the plan, split off from reviewing it. The write used to happen inside
+    /// <c>forge.plan.review</c>, which meant the file the user is told to watch appeared only once
+    /// a 50–90 KB draft had finished streaming into the call that then ran the critic for minutes:
+    /// the link arrived with the critique it was meant to precede. See docs/adr/0014.
+    /// </summary>
+    [McpServerTool(Name = "forge.plan.write"), Description("Writes the current plan draft to `PLAN.md` and returns it under `documents`, without running a critic. Call it before every review round, show the user the path it returns, and then run the round with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
+    public static async Task<string> WritePlan(SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("The current plan draft, as markdown. The whole plan, not a summary of it.")] string planDraft,
+                                               CancellationToken ct)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, "forge.plan.write", [("planDraft", planDraft)],
+            () =>
+            {
+                PlanReview.Write(run, planDraft);
+
+                return Task.FromResult(JsonSerializer.Serialize(new PlanWriteResult(run.RunId, Documents(run)),
+                                                                ForgeToolJson.Default.PlanWriteResult));
+            });
+    }
+
+    /// <summary>
     /// One round only. The critic judges the draft; revising it and calling again is the
     /// orchestrator's job, because the revision needs the interview context.
     /// </summary>
-    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique, plus the run's flow log and the plan it just wrote under `documents`. It writes the draft you pass to `PLAN.md` before the critic starts, so show that file to the user. A round run against an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
-    public static async Task<string> ReviewPlan(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("The current plan draft, as markdown.")] string planDraft,
-        [Description("Model for the critic.")] string model,
-        CancellationToken ct,
-        [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-        [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
-        [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null,
-        [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
+    [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique, plus the run's flow log and plan under `documents`. Write the draft with forge.plan.write first and omit `planDraft` here, so the user has the plan for the minutes the round runs; pass `planDraft` only to write it here instead. A round run against an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
+    public static async Task<string> ReviewPlan(SessionRoots roots,
+                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                [Description("Run id from forge.begin.")] string runId,
+                                                [Description("Model for the critic.")] string model,
+                                                CancellationToken ct,
+                                                [Description("The plan draft to review. Omit it when forge.plan.write already wrote this round's draft, which is the flow to use; passing it writes it here instead, and the round then starts only once the whole draft has reached the server.")] string? planDraft = null,
+                                                [Description("Optional effort level.")] string? effort = null,
+                                                [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                                [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
+                                                [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log and in the review log, so the next round's critic treats them as settled.")] string? deferred = null,
+                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.review",
@@ -148,12 +171,11 @@ internal sealed class ForgeTools
     /// plan they already hold, rendered by nobody. See docs/adr/0008.
     /// </remarks>
     [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead.")]
-    public static async Task<string> ShowPlan(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("The plan to show, as markdown. The whole plan, not a summary of it.")] string plan,
-        CancellationToken ct)
+    public static async Task<string> ShowPlan(SessionRoots roots,
+                                              [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                              [Description("Run id from forge.begin.")] string runId,
+                                              [Description("The plan to show, as markdown. The whole plan, not a summary of it.")] string plan,
+                                              CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.show", [("plan", plan)],
@@ -176,13 +198,12 @@ internal sealed class ForgeTools
     /// is enforced — see docs/adr/0003.
     /// </summary>
     [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes.")]
-    public static async Task<string> ConfirmPlan(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("The plan to approve, as markdown.")] string plan,
-        [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
-        CancellationToken ct)
+    public static async Task<string> ConfirmPlan(SessionRoots roots,
+                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                 [Description("Run id from forge.begin.")] string runId,
+                                                 [Description("The plan to approve, as markdown.")] string plan,
+                                                 [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
+                                                 CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.confirm",
@@ -205,14 +226,13 @@ internal sealed class ForgeTools
     }
 
     [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan.")]
-    public static async Task<string> BuildNext(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("Model for the builder.")] string model,
-        CancellationToken ct,
-        [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
+    public static async Task<string> BuildNext(SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("Model for the builder.")] string model,
+                                               CancellationToken ct,
+                                               [Description("Optional effort level.")] string? effort = null,
+                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.build.next",
@@ -234,15 +254,14 @@ internal sealed class ForgeTools
     /// see docs/adr/0005.
     /// </summary>
     [McpServerTool(Name = "forge.review.code"), Description("Runs one round of code review: the critic judges the working diff, excluding `CONTEXT.md` and `docs/adr/**`, against the approved plan and returns the critique. Filter the findings yourself, then pass the kept ones to forge.review.fix.")]
-    public static async Task<string> ReviewCode(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("Model for the critic.")] string model,
-        CancellationToken ct,
-        [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-        [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
+    public static async Task<string> ReviewCode(SessionRoots roots,
+                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                [Description("Run id from forge.begin.")] string runId,
+                                                [Description("Model for the critic.")] string model,
+                                                CancellationToken ct,
+                                                [Description("Optional effort level.")] string? effort = null,
+                                                [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                                [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.code",
@@ -260,16 +279,15 @@ internal sealed class ForgeTools
     }
 
     [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled.")]
-    public static async Task<string> ReviewFix(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("The findings to fix, as markdown. Compose them from the critique; keep every in-scope correctness finding, and never add work the critic did not ask for.")] string findings,
-        [Description("Model for the builder.")] string model,
-        CancellationToken ct,
-        [Description("Optional markdown list of findings deferred rather than fixed, each with its reason — typically that the approved plan excludes it. Recorded in the review log; report them to the user when the review settles.")] string? deferred = null,
-        [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
+    public static async Task<string> ReviewFix(SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("The findings to fix, as markdown. Compose them from the critique; keep every in-scope correctness finding, and never add work the critic did not ask for.")] string findings,
+                                               [Description("Model for the builder.")] string model,
+                                               CancellationToken ct,
+                                               [Description("Optional markdown list of findings deferred rather than fixed, each with its reason — typically that the approved plan excludes it. Recorded in the review log; report them to the user when the review settles.")] string? deferred = null,
+                                               [Description("Optional effort level.")] string? effort = null,
+                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.fix",
@@ -285,43 +303,41 @@ internal sealed class ForgeTools
     }
 
     [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id.")]
-    public static Task<string> StartWork(
-        JobRegistry registry,
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("Worker act: plan.review, build.next, review.code or review.fix.")] string act,
-        [Description("Model for the worker.")] string model,
-        CancellationToken ct,
-        [Description("Optional effort level.")] string? effort = null,
-        [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-        [Description("Plan draft, required only by plan.review.")] string? planDraft = null,
-        [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
-        [Description("Deferred findings, with reasons: for review.fix, and optionally for plan.review.")] string? deferred = null,
-        [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
-        [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
+    public static Task<string> StartWork(JobRegistry registry,
+                                         SessionRoots roots,
+                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                         [Description("Run id from forge.begin.")] string runId,
+                                         [Description("Worker act: plan.review, build.next, review.code or review.fix.")] string act,
+                                         [Description("Model for the worker.")] string model,
+                                         CancellationToken ct,
+                                         [Description("Optional effort level.")] string? effort = null,
+                                         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                         [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write has written this round's draft, which is the flow to use.")] string? planDraft = null,
+                                         [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
+                                         [Description("Deferred findings, with reasons: for review.fix, and optionally for plan.review.")] string? deferred = null,
+                                         [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
+                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
                          deferred, revision, userGrantedRound, ct, () => VendorFactory.Create(vendor, workspaceRoot));
     }
 
-    internal static async Task<string> StartWork(
-        JobRegistry registry,
-        SessionRoots roots,
-        string workspaceRoot,
-        string runId,
-        string act,
-        string model,
-        string? effort,
-        string? vendor,
-        string? planDraft,
-        string? findings,
-        string? deferred,
-        string? revision,
-        bool userGrantedRound,
-        CancellationToken ct,
-        Func<IVendor> vendorFactory)
+    internal static async Task<string> StartWork(JobRegistry registry,
+                                                 SessionRoots roots,
+                                                 string workspaceRoot,
+                                                 string runId,
+                                                 string act,
+                                                 string model,
+                                                 string? effort,
+                                                 string? vendor,
+                                                 string? planDraft,
+                                                 string? findings,
+                                                 string? deferred,
+                                                 string? revision,
+                                                 bool userGrantedRound,
+                                                 CancellationToken ct,
+                                                 Func<IVendor> vendorFactory)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.start",
@@ -333,42 +349,43 @@ internal sealed class ForgeTools
                 WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred, revision,
                                           userGrantedRound);
 
-                // The act would refuse this itself a moment later, inside the job. Refusing here
-                // instead keeps a missing revision an argument error, answered by this call rather
-                // than by a poll that reports a failure with nothing running behind it.
-                if (act == "plan.review") PlanReview.RequireRevision(run.ReadState().ReviewRounds, revision);
+                // The act would refuse these itself a moment later, inside the job. Refusing here
+                // instead keeps a missing revision — or a round with no draft anywhere — an argument
+                // error, answered by this call rather than by a poll that reports a failure with
+                // nothing running behind it.
+                if (act == "plan.review")
+                {
+                    PlanReview.RequireRevision(run.ReadState().ReviewRounds, revision);
+                    PlanReview.RequireDraft(run, planDraft);
+                }
 
                 var workAct = new WorkAct(vendorFactory(), new PromptLibrary());
                 var selection = new Selection(model, effort);
                 var started = registry.Start(run.Path, act,
-                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
-                                              userGrantedRound, jobCt));
+                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision, userGrantedRound, jobCt));
 
                 var record = started.Record;
-                return JsonSerializer.Serialize(
-                    new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started),
+                return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, Documents(run)),
                     ForgeToolJson.Default.WorkStartResult);
             });
     }
 
     [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds. A `running` result is not the end of the wait: call this again with the same job id.")]
-    public static Task<string> PollWork(
-        JobRegistry registry,
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("Job id returned by forge.work.start.")] string jobId,
-        CancellationToken ct) =>
+    public static Task<string> PollWork(JobRegistry registry,
+                                        SessionRoots roots,
+                                        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                        [Description("Run id from forge.begin.")] string runId,
+                                        [Description("Job id returned by forge.work.start.")] string jobId,
+                                        CancellationToken ct) =>
         PollWork(registry, roots, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct);
 
-    internal static async Task<string> PollWork(
-        JobRegistry registry,
-        SessionRoots roots,
-        string workspaceRoot,
-        string runId,
-        string jobId,
-        TimeSpan timeout,
-        CancellationToken ct)
+    internal static async Task<string> PollWork(JobRegistry registry,
+                                                SessionRoots roots,
+                                                string workspaceRoot,
+                                                string runId,
+                                                string jobId,
+                                                TimeSpan timeout,
+                                                CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.poll", [("jobId", jobId)],
@@ -381,19 +398,19 @@ internal sealed class ForgeTools
 
                 return JsonSerializer.Serialize(
                     new WorkPollResult(record!.Id, record.Act, StateName(record.State), ElapsedSeconds(record),
-                                       record.State == JobState.Failed ? record.Error : null, NextCall(record.State)),
+                                       record.State == JobState.Failed ? record.Error : null, NextCall(record.State),
+                                       Documents(run)),
                     ForgeToolJson.Default.WorkPollResult);
             });
     }
 
     [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act.")]
-    public static async Task<string> FetchWork(
-        JobRegistry registry,
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("Job id returned by forge.work.start.")] string jobId,
-        CancellationToken ct)
+    public static async Task<string> FetchWork(JobRegistry registry,
+                                               SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("Job id returned by forge.work.start.")] string jobId,
+                                               CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.fetch", [("jobId", jobId)],
@@ -414,12 +431,11 @@ internal sealed class ForgeTools
     }
 
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
-    public static async Task<string> Status(
-        JobRegistry registry,
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        CancellationToken ct)
+    public static async Task<string> Status(JobRegistry registry,
+                                            SessionRoots roots,
+                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                            [Description("Run id from forge.begin.")] string runId,
+                                            CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.status", [],
@@ -449,14 +465,13 @@ internal sealed class ForgeTools
     /// per agent, and leaves the "do not hand-edit anything under `.forge/`" rule intact.
     /// </remarks>
     [McpServerTool(Name = "forge.log.append"), Description("Appends one entry to the run's diagnostic log at `.forge/<runId>/forge.log`. Use it to record what you selected, retried, or decided; never edit the file directly.")]
-    public static async Task<string> AppendLog(
-        SessionRoots roots,
-        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-        [Description("Run id from forge.begin.")] string runId,
-        [Description("What happened, in one line.")] string message,
-        CancellationToken ct,
-        [Description("Optional level: info, warn or error. Defaults to info.")] string? level = null,
-        [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null)
+    public static async Task<string> AppendLog(SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("What happened, in one line.")] string message,
+                                               CancellationToken ct,
+                                               [Description("Optional level: info, warn or error. Defaults to info.")] string? level = null,
+                                               [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));
@@ -473,32 +488,30 @@ internal sealed class ForgeTools
     /// </summary>
     /// <remarks>
     /// Two files rather than one, each with its own instruction, because they change on different
-    /// rhythms: the timeline grows with every act, while the plan only moves when a review round
-    /// rewrites it. One shared instruction would have to blur that into "show these to the user".
+    /// rhythms: the timeline grows with every act, while the plan only moves when a round's draft is
+    /// written. One shared instruction would have to blur that into "show these to the user".
     /// The review log and the diagnostic log are deliberately absent — the first is critic input,
     /// the second is for the orchestrator, and neither is written to be read by a person here.
     /// </remarks>
-    private static RunDocuments Documents(RunDirectory run) =>
-        new(File.Exists(run.FlowLogPath)
-                ? new RunDocument(run.FlowLogPath,
-                                  "show this file to the user now — it is the run's user-facing timeline — "
-                                  + "and show it again after every later worker act.")
-                : null,
-            File.Exists(run.PlanPath)
-                ? new RunDocument(run.PlanPath,
-                                  "the plan as it now stands, rewritten by every review round: show this "
-                                  + "file to the user now and again after each later round, so they can "
-                                  + "watch it change. Link it; do not paste the draft into the chat.")
-                : null);
+    private static RunDocuments Documents(RunDirectory run) => new(File.Exists(run.FlowLogPath)
+                                                                       ? new RunDocument(run.FlowLogPath,
+                                                                                         "show this file to the user now — it is the run's user-facing timeline — "
+                                                                                         + "and show it again after every later worker act.")
+                                                                       : null,
+                                                                   File.Exists(run.PlanPath)
+                                                                       ? new RunDocument(run.PlanPath,
+                                                                                         "the plan as it now stands, rewritten before every review round: show this "
+                                                                                         + "file to the user now and again after each later round, so they can "
+                                                                                         + "watch it change. Link it; do not paste the draft into the chat.")
+                                                                       : null);
 
-    private static string StateName(JobState state) =>
-        state switch
-        {
-            JobState.Running => "running",
-            JobState.Completed => "succeeded",
-            JobState.Failed => "failed",
-            _ => throw new ArgumentOutOfRangeException(nameof(state))
-        };
+    private static string StateName(JobState state) => state switch
+                                                       {
+                                                           JobState.Running => "running",
+                                                           JobState.Completed => "succeeded",
+                                                           JobState.Failed => "failed",
+                                                           _ => throw new ArgumentOutOfRangeException(nameof(state))
+                                                       };
 
     /// <summary>
     /// The poll payload carries its own next call because the instruction to keep polling lives
@@ -506,18 +519,15 @@ internal sealed class ForgeTools
     /// <c>running</c> as the end of the wait: it hands the turn back and asks the user to resume a
     /// job that never needed them.
     /// </summary>
-    private static string NextCall(JobState state) =>
-        state == JobState.Running
-            ? "the job is still running: call forge.work.poll again now with this job id. Do not end your turn, and do not ask the user to continue."
-            : "call forge.work.fetch with this job id.";
+    private static string NextCall(JobState state) => state == JobState.Running
+                                                          ? "the job is still running: call forge.work.poll again now with this job id. Do not end your turn, and do not ask the user to continue."
+                                                          : "call forge.work.fetch with this job id.";
 
-    private static double ElapsedSeconds(JobRecord record) =>
-        Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
+    private static double ElapsedSeconds(JobRecord record) => Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
 
     private static void ValidateJobId(string jobId)
     {
-        if (jobId.Length != 16 || jobId.Any(character =>
-                !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))))
+        if (jobId.Length != 16 || jobId.Any(character => !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))))
             throw new ArgumentRejectedException("jobId must be 16 lowercase hexadecimal characters");
     }
 
@@ -527,13 +537,12 @@ internal sealed class ForgeTools
             throw new InvalidOperationException($"unknown jobId '{jobId}'");
     }
 
-    private static string Level(string? level) =>
-        level?.Trim().ToLowerInvariant() switch
-        {
-            "warn" or "warning" => "warn",
-            "error" => "error",
-            _ => "info"
-        };
+    private static string Level(string? level) => level?.Trim().ToLowerInvariant() switch
+                                                  {
+                                                      "warn" or "warning" => "warn",
+                                                      "error" => "error",
+                                                      _ => "info"
+                                                  };
 
     /// <summary>
     /// Wraps one tool call in its run's log: the arguments on the way in, and the result, the
@@ -575,17 +584,18 @@ internal sealed class ForgeTools
         }
     }
 
-    private static string Serialized(ApproveResult result) =>
-        JsonSerializer.Serialize(result, ForgeToolJson.Default.ApproveResult);
+    private static string Serialized(ApproveResult result) => JsonSerializer.Serialize(result, ForgeToolJson.Default.ApproveResult);
 
     // Sortable and collision-free enough for a per-workspace run folder.
-    private static string NewRunId() =>
-        $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("n")[..6]}";
+    private static string NewRunId() => $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("n")[..6]}";
 }
 
 internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead, string Client);
 
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
+
+/// <summary>What <c>forge.plan.write</c> answers with: nothing but the file it wrote and where to show it.</summary>
+internal sealed record PlanWriteResult(string RunId, RunDocuments Documents);
 
 /// <summary>
 /// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`,
@@ -608,15 +618,20 @@ internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedF
 
 internal sealed record ActiveJob(string JobId, string Act, string State, double ElapsedSeconds);
 
-internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started);
+/// <summary>
+/// A started job, and the run's files as they stand at that moment. The documents travel with the
+/// start and every poll rather than only with the fetch, because a Cursor act runs for minutes and
+/// the plan is on disk before the first of them — see docs/adr/0014.
+/// </summary>
+internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started, RunDocuments Documents);
 
 /// <param name="Next">What to do with the file: the instruction travels with the path so neither depends on the skill still being in view.</param>
 internal sealed record RunDocument(string Path, string Next);
 
 /// <summary>
 /// The files of a run that exist to be shown to a person. Both entries are optional and start out
-/// absent: the timeline appears with the first act that records one, the plan with the first review
-/// round that writes one.
+/// absent: the timeline appears with the first act that records one, the plan with the write that
+/// precedes the first round.
 /// </summary>
 internal sealed record RunDocuments(RunDocument? FlowLog, RunDocument? Plan);
 
@@ -628,11 +643,9 @@ internal sealed record BuildNextResult(BuildOutcome Build, RunDocuments Document
 internal sealed record ReviewFixResult(BuildResult Fix, RunDocuments Documents);
 
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
-internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error,
-                                      string Next);
+internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error, string Next, RunDocuments Documents);
 
-internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error,
-                                       RunDocuments Documents);
+internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error, RunDocuments Documents);
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
@@ -653,6 +666,7 @@ internal sealed record CatalogModel(string Id,
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
+[JsonSerializable(typeof(PlanWriteResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ActiveJob))]

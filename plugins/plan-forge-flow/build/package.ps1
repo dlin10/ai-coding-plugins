@@ -170,7 +170,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         # The canvas is two halves that only work together: the tool has to point at the resource,
@@ -196,6 +196,15 @@ function Test-PublishedServer([string]$Executable) {
         $beginProperties = @($begin.inputSchema.properties.PSObject.Properties.Name)
         if ($beginProperties.Count -ne 1 -or $beginProperties[0] -ne 'workspaceRoot') {
             throw "forge.begin should take workspaceRoot and nothing else, and takes: $($beginProperties -join ', ')"
+        }
+        # The cheap call the plan link depends on: a draft, and nothing that could make it slow.
+        $planWrite = $tools | Where-Object { $_.name -eq 'forge.plan.write' } | Select-Object -First 1
+        $planWriteProperties = @($planWrite.inputSchema.properties.PSObject.Properties.Name)
+        if ($planWriteProperties.Count -ne 3 -or $planWriteProperties -notcontains 'planDraft') {
+            throw "forge.plan.write should take workspaceRoot, runId and planDraft, and takes: $($planWriteProperties -join ', ')"
+        }
+        if (@($planWrite.inputSchema.required) -notcontains 'planDraft') {
+            throw 'forge.plan.write must require planDraft'
         }
         $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
         $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)
@@ -228,7 +237,7 @@ function Test-PublishedServer([string]$Executable) {
         # the key is refused server-side, and at least one host drops the `null` literal while
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
-            'forge.plan.review' = @('effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
+            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'deferred')

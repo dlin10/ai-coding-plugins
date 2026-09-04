@@ -12,9 +12,11 @@ namespace PlanForge.Acts;
 /// </summary>
 /// <remarks>
 /// This is also where <c>PLAN.md</c> is written. The file used to appear only at approval, which
-/// left the whole review act invisible to the user; now every round writes the draft it was handed,
-/// so the plan is a document they can watch change. The cost is that an approval no longer survives
-/// a later round — see <see cref="Reopen"/>.
+/// left the whole review act invisible to the user; now the draft is on disk before the critic
+/// starts, so the plan is a document they can watch change. <see cref="Write"/> is that write on
+/// its own, ahead of the round, because a draft streamed into this call is not on disk until the
+/// call arrives — see docs/adr/0014. The cost is that an approval no longer survives a later round
+/// — see <see cref="Reopen"/>.
 /// </remarks>
 internal sealed class PlanReview
 {
@@ -27,6 +29,10 @@ internal sealed class PlanReview
         _prompts = prompts;
     }
 
+    /// <param name="planDraft">
+    /// The draft to review, written to <c>PLAN.md</c> on the way past. Omitted when
+    /// <see cref="Write"/> already put it there, which is the flow the skill asks for.
+    /// </param>
     /// <param name="revision">
     /// What the orchestrator changed in the draft in answer to the previous round's findings.
     /// Required from the second round on — see <see cref="RequireRevision"/>.
@@ -38,7 +44,7 @@ internal sealed class PlanReview
     /// and, per docs/adr/0003, one no code here can check.
     /// </param>
     public async Task<Critique> ReviewAsync(RunDirectory run,
-                                            string planDraft,
+                                            string? planDraft,
                                             Selection selection,
                                             string? revision,
                                             string? deferred,
@@ -51,12 +57,12 @@ internal sealed class PlanReview
         var granted = state.ReviewRounds >= state.ReviewRoundCap;
         RequireRevision(state.ReviewRounds, revision);
 
-        // The draft lands on disk before the critic starts rather than after it finishes: a round
-        // runs for minutes, and the point of writing it here is that the user has the plan to read
-        // while it does. No guard precedes it — the same draft is already on disk in `forge.log`,
+        // The draft is on disk before the critic starts rather than after it finishes: a round runs
+        // for minutes, and those minutes are exactly when having the plan to read is worth
+        // something. No guard precedes the write — the same draft is already on disk in `forge.log`,
         // written by the tool-call record, so this adds no surface a secret could reach.
         state = Reopen(run, state);
-        run.WritePlan(planDraft);
+        var draft = TakeDraft(run, planDraft);
 
         var round = state.ReviewRounds + 1;
         var systemPrompt = _prompts.LoadPlanReviewCritic(_vendor.Id);
@@ -70,7 +76,7 @@ internal sealed class PlanReview
         await using var session = await _vendor.StartAsync(
             new RoleSpec(VendorRole.Critic, systemPrompt), selection, resumeToken: null, ct);
 
-        var prompt = Compose(planDraft, run.ReadReviewLog());
+        var prompt = Compose(draft, run.ReadReviewLog());
         SensitiveInput.Guard(prompt, "the plan under review");
 
         var critique = await session.RunAsync(prompt, Schemas.Critique, ct);
@@ -93,6 +99,59 @@ internal sealed class PlanReview
             : state with { ReviewRounds = round });
         return critique;
     }
+
+    /// <summary>
+    /// Writes the draft without reviewing it, so the plan is on disk — and its path in front of the
+    /// user — before the round that judges it rather than after. Everything a round does to the
+    /// file it does here too: the same whole-file replacement, and the same withdrawal of an
+    /// approval the new text has invalidated.
+    /// </summary>
+    /// <remarks>
+    /// No round is spent and no cap is consulted: writing a draft is not reviewing it, and a write
+    /// whose round is then refused at the cap leaves the user reading the draft they are being
+    /// asked about. See docs/adr/0014.
+    /// </remarks>
+    public static void Write(RunDirectory run, string planDraft)
+    {
+        if (string.IsNullOrWhiteSpace(planDraft))
+            throw new ArgumentRejectedException("forge.plan.write requires planDraft");
+
+        Reopen(run, run.ReadState());
+        run.WritePlan(planDraft);
+    }
+
+    /// <summary>
+    /// The draft this round judges: the one it was handed, written on the way past, or the one
+    /// already on disk when the orchestrator omitted it because <see cref="Write"/> put it there.
+    /// </summary>
+    private static string TakeDraft(RunDirectory run, string? planDraft)
+    {
+        if (!string.IsNullOrWhiteSpace(planDraft))
+        {
+            run.WritePlan(planDraft);
+            return planDraft;
+        }
+
+        return WrittenDraft(run) ?? throw MissingDraft();
+    }
+
+    /// <summary>
+    /// The same demand as <see cref="TakeDraft"/>, made before a background job is started, so a
+    /// round with no draft anywhere is an argument error answered by the call that made it rather
+    /// than a job that fails with nothing running behind it.
+    /// </summary>
+    internal static void RequireDraft(RunDirectory run, string? planDraft)
+    {
+        if (string.IsNullOrWhiteSpace(planDraft) && WrittenDraft(run) is null) throw MissingDraft();
+    }
+
+    private static string? WrittenDraft(RunDirectory run) =>
+        File.Exists(run.PlanPath) && run.ReadPlan() is { } plan && !string.IsNullOrWhiteSpace(plan)
+            ? plan
+            : null;
+
+    private static ArgumentRejectedException MissingDraft() =>
+        new("plan.review needs a draft: call forge.plan.write with the plan first, or pass planDraft");
 
     /// <summary>
     /// Takes back an approval that a new round has just invalidated, and hands back the state the

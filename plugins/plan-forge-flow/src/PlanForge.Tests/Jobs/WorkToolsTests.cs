@@ -79,6 +79,60 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     /// <summary>
+    /// The Cursor host's shape of the same lag: the act runs for minutes behind start → poll →
+    /// fetch, and the plan is on disk before the first of them, so the link has no reason to wait
+    /// for the fetch that ends the wait.
+    /// </summary>
+    [Fact]
+    public async Task A_started_job_carries_the_plan_written_before_it()
+    {
+        var run = NewRun("start-documents");
+        var vendor = new BlockingVendor();
+        var registry = new JobRegistry();
+        await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, "## draft", CancellationToken.None);
+
+        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+            "plan.review", "critic", null, "claude", null, null, null, null, false, CancellationToken.None,
+            () => vendor))!;
+        var jobId = start["jobId"]!.GetValue<string>();
+        var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+            TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
+
+        Assert.Equal(run.PlanPath, start["documents"]!["plan"]!["path"]!.GetValue<string>());
+        Assert.Null(start["documents"]!["flowLog"]);
+        Assert.Equal("running", poll["state"]!.GetValue<string>());
+        Assert.Equal(run.PlanPath, poll["documents"]!["plan"]!["path"]!.GetValue<string>());
+
+        vendor.Release();
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The draft the start omits has to be somewhere, and a run whose plan was never written is the
+    /// case the act would otherwise fail on with a job already running behind it.
+    /// </summary>
+    [Fact]
+    public async Task A_plan_review_start_with_no_draft_written_is_refused_before_the_vendor()
+    {
+        var run = NewRun("no-draft");
+        var registry = new JobRegistry();
+        var calls = 0;
+        Func<IVendor> factory = () =>
+        {
+            calls++;
+            return new RecordingVendor("claude");
+        };
+
+        var rejection = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry,
+            SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null, "claude", null, null, null,
+            null, false, CancellationToken.None, factory));
+
+        Assert.Contains("forge.plan.write", rejection.Message, StringComparison.Ordinal);
+        Assert.Equal(0, calls);
+        Assert.Null(registry.Get(run.Path));
+    }
+
+    /// <summary>
     /// Reflection-based serialization is off repo-wide, so a result shape missing from
     /// <c>ForgeToolJson</c> compiles and then throws on the first real call — and the one-call
     /// tools that return these three cannot be reached without a live vendor CLI.
@@ -97,6 +151,8 @@ public sealed class WorkToolsTests : IDisposable
             ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
         Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
+        Assert.Contains("\"documents\"", JsonSerializer.Serialize(new PlanWriteResult("run", documents),
+            ForgeToolJson.Default.PlanWriteResult), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -149,6 +205,10 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Contains("forge.work.fetch", settled["next"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A blank draft is refused only because nothing is on disk to review: the fallback
+    /// forge.plan.write leaves is a file, and this run has none.
+    /// </summary>
     [Fact]
     public async Task Invalid_act_and_blank_plan_do_not_construct_the_vendor()
     {
@@ -171,8 +231,14 @@ public sealed class WorkToolsTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
     }
 
+    /// <summary>
+    /// The arguments are read before the registry is, so a start that would have rejoined a running
+    /// job still answers for what it was called with. `findings` stands in for the blank draft this
+    /// used to pin: a draft is optional here now, since forge.plan.write may already have written
+    /// one.
+    /// </summary>
     [Fact]
-    public async Task Invalid_act_and_blank_plan_are_rejected_before_rejoining_an_active_job()
+    public async Task Invalid_arguments_are_rejected_before_rejoining_an_active_job()
     {
         var run = NewRun("invalid-active");
         var vendor = new BlockingVendor();
@@ -190,7 +256,8 @@ public sealed class WorkToolsTests : IDisposable
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
+            "plan.review", "critic", null, "claude", "## draft", "- fix it", null, null, false,
+            CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
         Assert.Equal(jobId, registry.Get(run.Path)?.Id);

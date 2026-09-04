@@ -13,7 +13,7 @@ these terms replace it.
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
-| **Plan file** | The run's plan as it currently stands, `PLAN.md`: rewritten by every plan-review round before the critic starts, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a round run after it takes the flag back. |
+| **Plan file** | The run's plan as it currently stands, `PLAN.md`: written by `forge.plan.write` before each round, rewritten by a round handed a draft of its own, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a write or a round after it takes the flag back. |
 | **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
 | **Granted round** | The user's answer to a reached cap: `userGrantedRound` on the next round call raises that cap by exactly one and runs the round past it. Spent by the call that carries it, so the round after needs a fresh answer, and counted in the run state beside the cap it moved — `grantedReviewRounds` next to `reviewRoundCap`, `grantedCodeReviewRounds` next to `codeReviewRoundCap`. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
@@ -454,6 +454,31 @@ round run *after* an approval would have left that flag raised over text nobody 
 now withdraws it, zeroing `tasksCompleted` and the builder session with it, and says so in the flow
 log. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md), including the
 two orderings inside the act that the safety of this rests on.
+
+## The link to the plan waited for the critique it was meant to precede
+
+Writing `PLAN.md` before the critic did not put it in front of anyone: the path travels only inside
+`documents`, which `forge.plan.review` builds after the critique comes back. Measured in run
+`20260904-173914-9254ec` (planforge 0.25.1, client claude-code 2.1.260, profile `Text`, critic codex
+gpt-5.6-sol/high), local time, from `.forge/<runId>/forge.log` and the session transcript:
+
+| | round 1 | round 2 |
+|---|---|---|
+| orchestrator starts streaming the draft into the tool call | ~18:14:28 | ~18:27:29 |
+| `forge.plan.review` reaches the server; `PLAN.md` written | 18:19:40 | 18:32:35 |
+| critique returned | 18:26:00 | 18:38:33 |
+| orchestrator sends both files (`SendUserFile`) | 18:26:48 | 18:39:10 |
+
+The draft was 52 KB as a tool argument in round 1 and 62 KB in round 2 — about five minutes of the
+orchestrator typing, then six of the critic, with no link to the plan for either. The round-1 link
+arrived seven minutes after the file existed.
+
+Two calls now, not one: `forge.plan.write` writes the draft and answers with `documents` in seconds,
+and `planDraft` is optional on `forge.plan.review` and on `forge.work.start`'s `plan.review`, so the
+round reads the file instead of carrying the draft a second time. `WorkStartResult` and
+`WorkPollResult` carry `documents` for the same reason. The flow log stays where it was: it is first
+created when the first critique is appended, so `documents.flowLog` cannot honestly arrive earlier
+than that critique. See [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md).
 
 ## The orchestrator's turn is an act too, and the timeline used to skip it
 
