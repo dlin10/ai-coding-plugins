@@ -46,13 +46,13 @@ internal sealed class RunDirectory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
         if (!string.Equals(jobId, System.IO.Path.GetFileName(jobId), StringComparison.Ordinal))
-            throw new ArgumentException("job id must be a file name", nameof(jobId));
+            throw new ArgumentRejectedException("job id must be a file name");
 
         var jobsPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, JobsFolder));
         var jobPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(jobsPath, jobId + ".json"));
         var prefix = jobsPath.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
         if (!jobPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("job id resolves outside the run's jobs folder", nameof(jobId));
+            throw new ArgumentRejectedException("job id resolves outside the run's jobs folder");
 
         return jobPath;
     }
@@ -383,6 +383,11 @@ internal sealed class RunEscapedException(string runId)
 
 internal sealed class WorkspaceNotRootedException(string workspaceRoot)
     : Exception($"workspaceRoot must be an absolute path, and '{workspaceRoot}' is not");
+
+// A tool argument the server refuses: an act that does not exist, an argument an act does not take,
+// a job id that is not one. A type of ours rather than ArgumentException because the SDK blanks a
+// framework exception's message on the wire, and these messages are written for the orchestrator.
+internal sealed class ArgumentRejectedException(string message) : Exception(message);
 
 // Reflection-based serialization is off repo-wide (Directory.Build.props), so every persisted
 // shape needs a source-generated contract.

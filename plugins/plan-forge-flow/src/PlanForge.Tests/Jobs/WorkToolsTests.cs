@@ -161,9 +161,9 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
@@ -187,9 +187,9 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
             "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
 
         Assert.Equal(0, calls);
@@ -258,9 +258,9 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("malformed");
         var registry = new JobRegistry();
 
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
             "not-a-job", CancellationToken.None));
-        await Assert.ThrowsAsync<ArgumentException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
             "not-a-job", CancellationToken.None));
 
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));

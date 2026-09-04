@@ -1,5 +1,6 @@
 using PlanForge.Infrastructure;
 using PlanForge.Jobs;
+using PlanForge.Run;
 using Xunit;
 
 namespace PlanForge.Tests.Jobs;
@@ -170,7 +171,7 @@ public sealed class JobRegistryTests
         using var workspace = new TestWorkspace();
         var registry = new JobRegistry();
 
-        Assert.Throws<ArgumentException>(() => registry.Get(workspace.RunPath, "../outside"));
+        Assert.Throws<ArgumentRejectedException>(() => registry.Get(workspace.RunPath, "../outside"));
         Assert.False(File.Exists(Path.Combine(workspace.RunPath, "outside.json")));
     }
 

@@ -121,7 +121,7 @@ public sealed class WorkActTests : IDisposable
     [InlineData("review.fix")]
     public async Task A_grant_is_refused_by_the_capless_acts(string act)
     {
-        var error = await Assert.ThrowsAsync<ArgumentException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
             .RunAsync(act, NewRun($"{act}-granted"), null, new Selection("model", null), null, null, null,
                 true, CancellationToken.None));
 
@@ -170,7 +170,7 @@ public sealed class WorkActTests : IDisposable
     [Fact]
     public async Task Unknown_act_is_refused()
     {
-        var error = await Assert.ThrowsAsync<ArgumentException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
             .RunAsync("unknown", NewRun("unknown"), null, new Selection("model", null), null, null, null,
                 false, CancellationToken.None));
 

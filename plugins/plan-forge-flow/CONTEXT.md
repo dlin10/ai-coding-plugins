@@ -356,13 +356,21 @@ whatever a stray exception happens to carry. Measured against SDK 2.2.0 on 2026-
 orchestrator received was `An error occurred invoking 'forge.plan.review'.` It retried, gave up, and
 found the reason only by reading the log afterwards.
 
-The eleven exception types declared in this assembly are all written for that reader — they name the
+The twelve exception types declared in this assembly are all written for that reader — they name the
 argument, the round, the cap, the path. `Mcp/ToolErrors.cs` answers those as a tool error carrying
 their message and lets everything else keep the SDK's blank. It is a `CallToolFilters` filter rather
 than a `try`/`catch` inside the tools because `RunDirectory.Open` runs before the run's log exists
 and so before anything a tool could wrap: a non-absolute `workspaceRoot` or a lost `runId` fails
 earlier than every other failure, and a wrapper inside the acts would have left exactly that class
 mute.
+
+An argument the server refuses is one of ours too, since 0.25.1. `WorkAct.ValidateArguments` and the
+job-id checks threw `ArgumentException`, which belongs to the framework, so `userGrantedRound is not
+used by build.next` was written for the orchestrator and then blanked on the wire — measured against
+0.24.0 on 2026-09-03, both refusals arriving as `An error occurred invoking 'forge.work.start'.` The
+in-process tests pinned the wording and passed, because nothing covered the trip; `ToolSurfaceTests`
+now runs the validator through the filter. The null and whitespace guards stay as they were: they
+answer a programmer, not a caller, and a blank message there costs nobody a retry.
 
 ## Required and nullable is a contract with no encoding that works
 

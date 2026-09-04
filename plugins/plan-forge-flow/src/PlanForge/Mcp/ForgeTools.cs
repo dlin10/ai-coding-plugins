@@ -518,7 +518,7 @@ internal sealed class ForgeTools
     {
         if (jobId.Length != 16 || jobId.Any(character =>
                 !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))))
-            throw new ArgumentException("jobId must be 16 lowercase hexadecimal characters", nameof(jobId));
+            throw new ArgumentRejectedException("jobId must be 16 lowercase hexadecimal characters");
     }
 
     private static void RequireJob(JobRecord? record, string jobId)

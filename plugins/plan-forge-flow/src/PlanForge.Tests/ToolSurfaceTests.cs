@@ -1,9 +1,11 @@
 using System.Reflection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
 using PlanForge.Run;
+using PlanForge.Vendors;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -60,6 +62,26 @@ public sealed class ToolSurfaceTests
 
         Assert.True(result.IsError);
         Assert.Contains("relative/path", Text(result), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rejection issue #59 measured blank on the wire: written for the orchestrator, thrown as
+    /// a framework type, and so blanked by the SDK. It runs the real validator inside the filter
+    /// rather than handing it a ready-made exception, because the in-process tests already pinned
+    /// this wording and passed while the wire said nothing.
+    /// </summary>
+    [Fact]
+    public async Task An_argument_rejection_reaches_the_caller_naming_the_argument_and_the_act()
+    {
+        var result = await ToolErrors.Surfaced((_, _) =>
+        {
+            WorkAct.ValidateArguments("build.next", null, new Selection("model", null), null, null, null, true);
+            throw new InvalidOperationException("the validator accepted an argument the act does not take");
+        })(null!, CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains("userGrantedRound", Text(result), StringComparison.Ordinal);
+        Assert.Contains("build.next", Text(result), StringComparison.Ordinal);
     }
 
     /// <summary>
