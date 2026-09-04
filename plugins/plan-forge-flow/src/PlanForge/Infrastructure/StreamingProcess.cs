@@ -9,7 +9,8 @@ namespace PlanForge.Infrastructure;
 internal sealed record ProcessSpec(string FileName,
                                    IReadOnlyList<string> Arguments,
                                    string? WorkingDirectory,
-                                   string StandardInput);
+                                   string StandardInput,
+                                   IReadOnlyDictionary<string, string>? Environment = null);
 
 /// <summary>
 /// Bounded runner for vendor processes: output cap, timeout, kill-tree. Unlike the old
@@ -17,11 +18,11 @@ internal sealed record ProcessSpec(string FileName,
 /// </summary>
 internal static class StreamingProcess
 {
-    private const int MaxOutputBytes = 8 * 1024 * 1024;
-    private const string Source = "process";
+    private const int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+    private const string SOURCE = "process";
 
     // No BOM: a byte-order mark on stdin is a stray character at the head of the prompt.
-    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+    private static readonly UTF8Encoding UTF8 = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
     /// How long a pipe is still read once the process behind it is gone. Everything the vendor
@@ -43,7 +44,7 @@ internal static class StreamingProcess
         // The launch record is the single most useful line in the log: an argument list nobody can
         // see is how a model id the vendor rejects reads as an unexplained timeout.
         var log = RunLog.Current;
-        log?.Write("info", Source, "process.start",
+        log?.Write("info", SOURCE, "process.start",
             ("exec", spec.FileName),
             ("args", string.Join(' ', spec.Arguments)),
             ("cwd", spec.WorkingDirectory),
@@ -51,11 +52,11 @@ internal static class StreamingProcess
 
         if (!process.Start())
         {
-            log?.Write("error", Source, "process.start.failed", ("exec", spec.FileName));
+            log?.Write("error", SOURCE, "process.start.failed", ("exec", spec.FileName));
             throw new VendorException($"could not start {spec.FileName}");
         }
 
-        log?.Write("info", Source, "process.started", ("exec", spec.FileName), ("pid", Pid(process)));
+        log?.Write("info", SOURCE, "process.started", ("exec", spec.FileName), ("pid", Pid(process)));
 
         var stderr = process.StandardError.ReadToEndAsync(token);
         var exited = process.WaitForExitAsync(token);
@@ -73,10 +74,10 @@ internal static class StreamingProcess
             while (await NextLineAsync(process.StandardOutput, exited, token).ConfigureAwait(false) is { } line)
             {
                 seen += line.Length;
-                if (seen > MaxOutputBytes)
+                if (seen > MAX_OUTPUT_BYTES)
                 {
                     capped = true;
-                    throw new VendorException($"{spec.FileName} exceeded {MaxOutputBytes} bytes of output");
+                    throw new VendorException($"{spec.FileName} exceeded {MAX_OUTPUT_BYTES} bytes of output");
                 }
 
                 yield return line;
@@ -99,10 +100,14 @@ internal static class StreamingProcess
                 // read, so a live process would keep it open and the drain would spend its whole
                 // bound waiting on the very process we came here to end.
                 var pid = Pid(process);
-                try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                } 
+                catch (InvalidOperationException) { }
 
                 var killed = await DrainAsync(stderr).ConfigureAwait(false);
-                log?.Write("warn", Source, "process.kill",
+                log?.Write("warn", SOURCE, "process.kill",
                     ("exec", spec.FileName),
                     ("pid", pid),
                     ("reason", reason),
@@ -113,7 +118,7 @@ internal static class StreamingProcess
         await exited.ConfigureAwait(false);
 
         var error = await DrainAsync(stderr).ConfigureAwait(false);
-        log?.Write(process.ExitCode == 0 ? "info" : "error", Source, "process.exit",
+        log?.Write(process.ExitCode == 0 ? "info" : "error", SOURCE, "process.exit",
             ("exec", spec.FileName),
             ("pid", Pid(process)),
             ("exitCode", process.ExitCode.ToString()),
@@ -126,7 +131,10 @@ internal static class StreamingProcess
     public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec, TimeSpan timeout, CancellationToken ct)
     {
         var lines = new List<string>();
-        await foreach (var line in RunAsync(spec, timeout, ct).ConfigureAwait(false)) lines.Add(line);
+        await foreach (var line in RunAsync(spec, timeout, ct).ConfigureAwait(false))
+        {
+            lines.Add(line);
+        }
         return lines;
     }
 
@@ -205,13 +213,27 @@ internal static class StreamingProcess
             // dash reached the run log, the critic's findings and the builder's evidence as three
             // characters of mojibake. ASCII survives that; a plan or a finding written in anything
             // else does not.
-            StandardOutputEncoding = Utf8,
-            StandardErrorEncoding = Utf8,
-            StandardInputEncoding = Utf8
+            StandardOutputEncoding = UTF8,
+            StandardErrorEncoding = UTF8,
+            StandardInputEncoding = UTF8
         };
 
-        if (!string.IsNullOrWhiteSpace(spec.WorkingDirectory)) info.WorkingDirectory = spec.WorkingDirectory;
-        foreach (var argument in spec.Arguments) info.ArgumentList.Add(argument);
+        if (!string.IsNullOrWhiteSpace(spec.WorkingDirectory))
+            info.WorkingDirectory = spec.WorkingDirectory;
+
+        if (spec.Environment is not null)
+        {
+            foreach (var pair in spec.Environment)
+            {
+                info.Environment[pair.Key] = pair.Value;
+            }
+        }
+
+        foreach (var argument in spec.Arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
         return info;
     }
 }

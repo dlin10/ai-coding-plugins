@@ -5,7 +5,7 @@ these terms replace it.
 
 | Term | Meaning |
 |---|---|
-| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex App Server, Cursor Agent, later Grok. Not "provider" — that word was overloaded. |
+| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex CLI, Cursor Agent, later Grok. Not "provider" — that word was overloaded. All three are reached the same way, one process per act; see `docs/adr/0012`. |
 | **Orchestrator** | The host agent: runs the interview, **revises the plan in response to critique**, calls the tools. Always an LLM, never a C# class. Strong model. |
 | **Act** | A major stage of a run. The four delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`. The interview is not an act class; it lives in the orchestrator. |
 | **Job** | One delegated act running in the background, keyed by `jobId` and started, watched and collected through `forge.work.start` / `poll` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
@@ -20,9 +20,10 @@ these terms replace it.
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported the list itself (codex, cursor); **resolved** when the list of aliases is one this repo remembers but the vendor turned each alias into the concrete model it stands for at probe time (claude). An alias the vendor did not resolve is not offered. Advisory for validation either way: the vendor CLI decides. |
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the variants observed. The chosen variant joins back onto the family id; `default` names the bare id and joins to nothing. |
-| **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
+| **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task and the builder runs it; a `## Gates` entry — `G1`…`Gn` — belongs to no single task and the orchestrator runs it after the last one. |
+| **Build status** | What the builder says it **did** with a task: `done` or `blocked`. Only `done` is progress. A `blocked` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -110,25 +111,42 @@ exactly one and lets that round run past it. It is spent by the very round it un
 makes "ask every time" fall out of the mechanism instead of depending on the skill to remember —
 there is no way to carry a grant forward, only to ask again.
 
-## The App Server spells its sandbox two different ways
+## The codex CLI's exit code answers for the API, not for the work
 
-Measured against `codex` 0.147.0 on 2026-08-15, by sending a deliberately invalid value and reading
-the variants back out of the error:
+Measured against `codex` 0.147.0 on 2026-09-03. The surface is `codex exec`; the App Server client
+it replaced is `docs/adr/0012`.
 
-- `thread/start` takes `sandbox` as a **kebab-case string**: `read-only`, `workspace-write`,
-  `danger-full-access`.
-- `turn/start` takes `sandboxPolicy` as an **object whose `type` is camelCase**: `readOnly`,
-  `workspaceWrite`, `externalSandbox`, `dangerFullAccess`.
+**The exit code is silent about the work.** `codex exec` exits `0` when a command it ran was denied
+by the sandbox, and `0` when that command exited non-zero. Only failures the API rejects — a bad
+schema, an unknown model, an unknown effort — reach the exit code, as `1`; a malformed flag is `2`.
+So the outcome of the work is read from the `--json` stream instead, where each command arrives as a
+paired `item.started` and `item.completed` carrying the resolved command line, `exit_code`,
+`aggregated_output` and a `status` of `completed` or `failed`. A vendor that trusted the exit code
+would have called the total failure of issue #58 a clean run.
 
-The old client sent `readOnly` to `thread/start`, which today's server rejects outright. Nothing
-warns about this: the two spellings are close enough to look like a typo rather than a protocol fact.
+**`--output-schema` is enforced by the API, not by the prompt.** The CLI refuses a schema without
+`additionalProperties: false` before a token is spent, and a prompt written to break the format came
+back as a valid object anyway. That is what lets the codex vendor drop the `SchemaInPrompt` retry
+loop that Cursor still needs.
 
-Two more properties of the same surface, both measured rather than documented: `effort` is *not*
-validated by the App Server — a bad level is accepted, forwarded, and fails the turn upstream, so it
-surfaces as a failed turn rather than a rejected request. And `thread/resume` needs the thread to
-have a recorded rollout, which only exists after a turn has completed; a thread that was opened but
-never used cannot be resumed. That is why a Builder's resume token is only worth storing once its
-first task is done.
+**`developer_instructions` adds; `instructions` replaces.** Both are accepted configuration keys and
+they look interchangeable. `-c developer_instructions=` prepends a block to the developer message
+and leaves codex's own prompt intact, costing the tokens of the text itself. `-c instructions=`
+goes to the API's top-level field and *displaces* codex's built-in instructions — measured as a drop
+of roughly 2,700 input tokens on an otherwise identical run, with the text never appearing in
+`codex debug prompt-input`. Only the first is the counterpart of the App Server's
+`developerInstructions`.
+
+Two properties carried over unchanged from the App Server, because `codex exec` is itself an App
+Server client. `effort` is *not* validated locally: a bad level is accepted, printed in the header,
+and rejected upstream. And resume needs the thread to have a recorded rollout, which exists only
+after a turn has completed, so a Builder's resume token is worth storing only once its first task is
+done; `--ephemeral` writes no rollout at all and makes resume impossible.
+
+**Codex picks its own shell, and no key changes it.** On Windows it wants PowerShell, resolved from
+its own process environment before `shell_environment_policy` is applied — measured, by handing it a
+sanitised `PATH` through that key and watching it resolve the old value anyway. The only lever is
+the environment of the process this server starts, which is what `docs/adr/0013` uses.
 
 ## Each vendor keeps the critic read-only by a different mechanism
 
@@ -136,8 +154,9 @@ The critic judges and must not edit what it is judging — including through any
 Nothing in this codebase enforces that; all three guarantees are the vendor's, and they are not the
 same guarantee:
 
-- **Codex** — the thread opens with `sandbox: read-only` and each turn repeats it as
-  `sandboxPolicy: readOnly`. A real sandbox.
+- **Codex** — `-c sandbox_mode="read-only"`. A real sandbox. The key rather than the `-s` flag
+  because `codex exec resume` has no `-s`, and one spelling across a builder's first turn and its
+  later ones is worth more than the flag's pre-launch validation.
 - **Claude** — `--permission-mode acceptEdits` is passed only for a Builder, so a critic's edit
   tools are simply never pre-approved.
 - **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the

@@ -17,7 +17,3 @@ You will be given either an implementation plan or a diff. Judge only what is in
   more explicit each task must be, and detail a stronger builder could infer becomes a finding.
   When no builder is named, hold the bar at a competent implementer.
 - Say what is missing, not what is present.
-
-This vendor has no schema field, so your **final message** must be the JSON object and nothing else —
-no prose before it, no code fence around it. Reading files and running commands first is fine; only
-the last message is read.

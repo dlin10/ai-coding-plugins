@@ -45,12 +45,14 @@ internal static class Schemas
                   "where": { "type": "string" },
                   "what": { "type": "string" }
                 },
-                "required": ["severity", "where", "what"]
+                "required": ["severity", "where", "what"],
+                "additionalProperties": false
               }
             },
             "summary": { "type": "string" }
           },
-          "required": ["verdict", "findings", "summary"]
+          "required": ["verdict", "findings", "summary"],
+          "additionalProperties": false
         }
         """,
         ContractJson.Default.Critique);
@@ -68,11 +70,13 @@ internal static class Schemas
                 "outcome": { "type": "string", "enum": ["passed", "failed", "unavailable"] },
                 "evidence": { "type": "string" }
               },
-              "required": ["outcome", "evidence"]
+              "required": ["outcome", "evidence"],
+              "additionalProperties": false
             },
             "summary": { "type": "string" }
           },
-          "required": ["status", "filesChanged", "verification", "summary"]
+          "required": ["status", "filesChanged", "verification", "summary"],
+          "additionalProperties": false
         }
         """,
         ContractJson.Default.BuildResult);

@@ -96,6 +96,47 @@ public sealed class BuildTests : IDisposable
         Assert.Contains("- `tracked.txt`", flow, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_blocked_builder_leaves_tasks_completed_unchanged_and_retries_the_same_task()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "needs a decision"), "stuck"),
+                        "retry-token");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
+                        "next-token");
+        var run = NewRun("codex", "");
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Equal(0, run.ReadState().TasksCompleted);
+        Assert.Equal("retry-token", run.ReadState().BuilderSessionId);
+
+        var second = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+
+        Assert.Equal(2, vendor.Sessions.Count);
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_done_builder_advances_tasks_completed_by_one()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
+                        "next-token");
+        var run = NewRun("codex", "");
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", "low"),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal(1, outcome.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+    }
+
     private RunDirectory NewRun(string builderVendor, string builderSessionId)
     {
         var run = RunDirectory.Create(_workspace, "build");
