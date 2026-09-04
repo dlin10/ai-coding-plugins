@@ -1,0 +1,11 @@
+<!-- Deliberately crooked code lives here, so this workspace is not part of src/CacheDetective.slnx:
+     a caching bug planted on purpose must never be able to break the product build. -->
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="../Directory.Build.props" />
+    <File Path="../Directory.Packages.props" />
+    <File Path="db/shop.sql" />
+  </Folder>
+  <Project Path="Catalog/Catalog.csproj" />
+  <Project Path="Pricing/Pricing.csproj" />
+</Solution>

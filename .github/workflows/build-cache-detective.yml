@@ -26,3 +26,48 @@ jobs:
       - name: Publish and test
         shell: pwsh
         run: ./build/package.ps1
+
+  # The database indexer against a real engine. It runs on Linux because the windows-latest runner image
+  # ships no SQL Server at all, and installing one would be the slowest and least reliable step in the
+  # build; CacheDetective.Core is portable and takes an open connection rather than a connection string.
+  # See docs/adr/0008, which also names what this costs: the demo-stand end-to-end run needs MSBuild and
+  # an engine in one process, so it belongs to no job here and stays a local gate.
+  database:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/cache-detective
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # Started as a step rather than a service container so the password can be generated here. A
+      # service's env is fixed in this file, which leaves only two bad options: a literal password
+      # committed to the repository, or a secret — and a secret makes the job fail for anyone who forks
+      # this repository, since forks do not inherit it. Generating it costs the readiness loop below,
+      # which a service container would have given us through --health-cmd.
+      - name: Start SQL Server
+        working-directory: .
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -base64 24 | tr -d '\n/+=')Aa1!"
+          echo "::add-mask::$password"
+          docker run -d --name mssql -p 1433:1433 \
+            -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$password" \
+            mcr.microsoft.com/mssql/server:2022-latest
+          for _ in $(seq 1 30); do
+            if docker exec mssql /opt/mssql-tools18/bin/sqlcmd \
+                 -C -S localhost -U sa -P "$password" -Q 'SELECT 1' >/dev/null 2>&1; then
+              echo "CD_TEST_SQL_CONN=Server=localhost,1433;Database=master;User Id=sa;Password=$password;Encrypt=True;TrustServerCertificate=True" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "SQL Server did not become ready" >&2
+          docker logs mssql >&2
+          exit 1
+      # Only the Core tests. CacheDetective.Cli carries a win-x64 RID and registers MSBuild, so it is
+      # not built here at all — which is also why the demo-stand run cannot happen on this job.
+      - name: Test the database indexer
+        run: dotnet test src/CacheDetective.Core.Tests/CacheDetective.Core.Tests.csproj -c Release --nologo

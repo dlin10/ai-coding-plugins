@@ -17,8 +17,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         foreach (var attribute in method.GetAttributes())
         {
             var attributeType = attribute.AttributeClass;
-            if (attributeType is null ||
-                attributeType.Name is not ("OutputCacheAttribute" or "ResponseCacheAttribute"))
+            if (attributeType is null || attributeType.Name is not ("OutputCacheAttribute" or "ResponseCacheAttribute"))
             {
                 continue;
             }
@@ -32,15 +31,12 @@ internal sealed class CacheCallAnalyzer(Solution solution)
                 continue;
             }
 
-            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, lineSpan.Path,
-                                lineSpan.StartLinePosition.Line + 1, syntax?.ToString() ?? attributeType.Name,
-                                $"{attributeType.Name} response caching is outside this analysis phase.");
+            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, lineSpan.Path, lineSpan.StartLinePosition.Line + 1,
+                                syntax?.ToString() ?? attributeType.Name, $"{attributeType.Name} response caching is outside this analysis phase.");
         }
     }
 
-    public async Task<bool> TryAnalyzeAsync(CacheGraph graph, Handler handler,
-                                            InvocationExpressionSyntax invocation,
-                                            SemanticModel semanticModel,
+    public async Task<bool> TryAnalyzeAsync(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, SemanticModel semanticModel,
                                             CancellationToken cancellationToken)
     {
         if (semanticModel.GetOperation(invocation, cancellationToken) is not IInvocationOperation operation)
@@ -56,15 +52,13 @@ internal sealed class CacheCallAnalyzer(Solution solution)
             return RecordUnknownCacheType(graph, handler, invocation, method, instanceType);
         }
 
-        var methodRecognizer = match.Value.Recognizer.Methods.FirstOrDefault(candidate =>
-            MethodNameMatches(candidate.Name, method.Name));
+        var methodRecognizer = match.Value.Recognizer.Methods.FirstOrDefault(candidate => MethodNameMatches(candidate.Name, method.Name));
         if (methodRecognizer is null)
         {
             return true;
         }
 
-        var keyExpression = GetArgumentExpression(operation, methodRecognizer.KeyArgumentIndex,
-                                                  match.Value.ArgumentOffset);
+        var keyExpression = GetArgumentExpression(operation, methodRecognizer.KeyArgumentIndex, match.Value.ArgumentOffset);
         if (keyExpression is null)
         {
             return true;
@@ -74,25 +68,21 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         if (!foldedKey.HasLiteralSegment)
         {
             var keyEvidence = CreateEvidence(keyExpression);
-            graph.AddUnresolved(UnresolvedKind.Key, handler.Solution, keyEvidence.File, keyEvidence.Line,
-                                keyExpression.ToString(), foldedKey.Reason ??
-                                "The key contains no literal segment.");
+            graph.AddUnresolved(UnresolvedKind.Key, handler.Solution, keyEvidence, keyExpression.ToString(),
+                                foldedKey.Reason ?? "The key contains no literal segment.");
             return true;
         }
 
         var ttl = methodRecognizer.TtlOrOptionsArgumentIndex is { } ttlIndex
-            ? ExtractTtl(GetArgumentExpression(operation, ttlIndex, match.Value.ArgumentOffset), semanticModel)
-            : null;
+                      ? ExtractTtl(GetArgumentExpression(operation, ttlIndex, match.Value.ArgumentOffset), semanticModel)
+                      : null;
         var tags = methodRecognizer.TagsArgumentIndex is { } tagsIndex
-            ? ExtractTags(GetArgumentExpression(operation, tagsIndex, match.Value.ArgumentOffset), semanticModel)
-            : [];
+                       ? ExtractTags(GetArgumentExpression(operation, tagsIndex, match.Value.ArgumentOffset), semanticModel)
+                       : [];
         var conditional = methodRecognizer.ConditionalSet is { } condition &&
-                          (IsConstant(GetArgumentExpression(operation, condition.ArgumentIndex,
-                               match.Value.ArgumentOffset), condition.ConstantName, semanticModel) ||
-                           IsConstant(GetArgumentExpression(operation, "when"), condition.ConstantName,
-                               semanticModel));
-        var key = new CacheKey(foldedKey.Template, match.Value.Recognizer.Store,
-                               ttl, tags, role: null);
+                          (IsConstant(GetArgumentExpression(operation, condition.ArgumentIndex, match.Value.ArgumentOffset), condition.ConstantName,
+                                      semanticModel) || IsConstant(GetArgumentExpression(operation, "when"), condition.ConstantName, semanticModel));
+        var key = new CacheKey(foldedKey.Template, match.Value.Recognizer.Store, ttl, tags, role: null);
         var evidence = CreateEvidence(invocation);
 
         graph.AddHandler(handler);
@@ -107,25 +97,21 @@ internal sealed class CacheCallAnalyzer(Solution solution)
             case CacheSemantic.Remove:
             case CacheSemantic.RemoveByTag:
             case CacheSemantic.RemoveByPrefix:
-                graph.AddEdge(new Invalidates(handler, key, Confidence.Confirmed, [evidence],
-                                              methodRecognizer.Semantic));
+                graph.AddEdge(new Invalidates(handler, key, Confidence.Confirmed, [evidence], methodRecognizer.Semantic));
                 break;
             default:
                 graph.AddCacheKeyObservation(handler.Solution, key);
                 break;
         }
 
-        graph.AddCacheOperation(new CacheOperation(handler, key, methodRecognizer.Semantic, conditional,
-                                                   [evidence]));
+        graph.AddCacheOperation(new CacheOperation(handler, key, methodRecognizer.Semantic, conditional, [evidence]));
         return true;
     }
 
-    private bool RecordUnknownCacheType(CacheGraph graph, Handler handler,
-                                        InvocationExpressionSyntax invocation, IMethodSymbol method,
+    private bool RecordUnknownCacheType(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, IMethodSymbol method,
                                         INamedTypeSymbol? instanceType)
     {
-        var type = GetApiTypes(method, instanceType).FirstOrDefault(candidate =>
-            GetFullName(candidate).Contains("Cache", StringComparison.OrdinalIgnoreCase));
+        var type = GetApiTypes(method, instanceType).FirstOrDefault(candidate => GetFullName(candidate).Contains("Cache", StringComparison.OrdinalIgnoreCase));
         if (type is null)
         {
             return false;
@@ -135,15 +121,13 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         if (_unknownTypes.Add(typeName))
         {
             var evidence = CreateEvidence(invocation);
-            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, evidence.File, evidence.Line,
-                                invocation.ToString(), $"Unknown cache API type {typeName}.");
+            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, evidence, invocation.ToString(), $"Unknown cache API type {typeName}.");
         }
 
         return true;
     }
 
-    private static (CacheRecognizer Recognizer, int ArgumentOffset)? FindRecognizer(
-        IMethodSymbol method, INamedTypeSymbol? instanceType)
+    private static (CacheRecognizer Recognizer, int ArgumentOffset)? FindRecognizer(IMethodSymbol method, INamedTypeSymbol? instanceType)
     {
         foreach (var type in GetApiTypes(method, instanceType))
         {
@@ -159,8 +143,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         return null;
     }
 
-    private static IEnumerable<INamedTypeSymbol> GetApiTypes(IMethodSymbol method,
-                                                              INamedTypeSymbol? instanceType)
+    private static IEnumerable<INamedTypeSymbol> GetApiTypes(IMethodSymbol method, INamedTypeSymbol? instanceType)
     {
         var directTypes = new List<INamedTypeSymbol>();
         if (instanceType is not null)
@@ -199,26 +182,18 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "", StringComparison.Ordinal);
 
     private static bool MethodNameMatches(string recognizedName, string methodName) =>
-        recognizedName.EndsWith('*')
-            ? methodName.StartsWith(recognizedName[..^1], StringComparison.Ordinal)
-            : methodName == recognizedName;
+        recognizedName.EndsWith('*') ? methodName.StartsWith(recognizedName[..^1], StringComparison.Ordinal) : methodName == recognizedName;
 
     private static ExpressionSyntax? GetArgumentExpression(IInvocationOperation operation, int index, int offset)
     {
-        var argument = operation.Arguments.FirstOrDefault(candidate =>
-            !candidate.IsImplicit && candidate.Parameter?.Ordinal == index + offset);
-        return argument?.Syntax is ArgumentSyntax argumentSyntax
-            ? argumentSyntax.Expression
-            : argument?.Value.Syntax as ExpressionSyntax;
+        var argument = operation.Arguments.FirstOrDefault(candidate => !candidate.IsImplicit && candidate.Parameter?.Ordinal == index + offset);
+        return argument?.Syntax is ArgumentSyntax argumentSyntax ? argumentSyntax.Expression : argument?.Value.Syntax as ExpressionSyntax;
     }
 
     private static ExpressionSyntax? GetArgumentExpression(IInvocationOperation operation, string parameterName)
     {
-        var argument = operation.Arguments.FirstOrDefault(candidate =>
-            !candidate.IsImplicit && candidate.Parameter?.Name == parameterName);
-        return argument?.Syntax is ArgumentSyntax argumentSyntax
-            ? argumentSyntax.Expression
-            : argument?.Value.Syntax as ExpressionSyntax;
+        var argument = operation.Arguments.FirstOrDefault(candidate => !candidate.IsImplicit && candidate.Parameter?.Name == parameterName);
+        return argument?.Syntax is ArgumentSyntax argumentSyntax ? argumentSyntax.Expression : argument?.Value.Syntax as ExpressionSyntax;
     }
 
     private static TimeSpan? ExtractTtl(ExpressionSyntax? expression, SemanticModel semanticModel)
@@ -231,8 +206,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         return TryExtractTimeSpan(expression, semanticModel, []) is { } ttl ? ttl : null;
     }
 
-    private static TimeSpan? TryExtractTimeSpan(ExpressionSyntax expression, SemanticModel semanticModel,
-                                                HashSet<SyntaxNode> visited)
+    private static TimeSpan? TryExtractTimeSpan(ExpressionSyntax expression, SemanticModel semanticModel, HashSet<SyntaxNode> visited)
     {
         if (!visited.Add(expression))
         {
@@ -241,8 +215,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
 
         expression = Unwrap(expression);
 
-        if (expression is MemberAccessExpressionSyntax memberAccess &&
-            memberAccess.ToString() == "TimeSpan.Zero")
+        if (expression is MemberAccessExpressionSyntax memberAccess && memberAccess.ToString() == "TimeSpan.Zero")
         {
             return TimeSpan.Zero;
         }
@@ -254,15 +227,15 @@ internal sealed class CacheCallAnalyzer(Solution solution)
                 TryGetNumber(invocation.ArgumentList.Arguments[0].Expression, semanticModel, out var value))
             {
                 return calledMethod.Name switch
-                {
-                    "FromDays" => TimeSpan.FromDays(value),
-                    "FromHours" => TimeSpan.FromHours(value),
-                    "FromMinutes" => TimeSpan.FromMinutes(value),
-                    "FromSeconds" => TimeSpan.FromSeconds(value),
-                    "FromMilliseconds" => TimeSpan.FromMilliseconds(value),
-                    "FromMicroseconds" => TimeSpan.FromMicroseconds(value),
-                    _ => null
-                };
+                       {
+                           "FromDays" => TimeSpan.FromDays(value),
+                           "FromHours" => TimeSpan.FromHours(value),
+                           "FromMinutes" => TimeSpan.FromMinutes(value),
+                           "FromSeconds" => TimeSpan.FromSeconds(value),
+                           "FromMilliseconds" => TimeSpan.FromMilliseconds(value),
+                           "FromMicroseconds" => TimeSpan.FromMicroseconds(value),
+                           _ => null
+                       };
             }
 
             if (calledMethod?.Name is "SetAbsoluteExpiration" or "SetSlidingExpiration" &&
@@ -274,41 +247,34 @@ internal sealed class CacheCallAnalyzer(Solution solution)
 
         if (expression is ObjectCreationExpressionSyntax objectCreation)
         {
-            var initializedTtls = objectCreation.Initializer?.Expressions
-                .OfType<AssignmentExpressionSyntax>()
-                .Where(assignment => assignment.Left.ToString() is "AbsoluteExpirationRelativeToNow" or
-                                                               "SlidingExpiration" or "Expiration" or
-                                                               "LocalCacheExpiration")
-                .Select(assignment => TryExtractTimeSpan(assignment.Right, semanticModel, visited))
-                .Where(ttl => ttl is not null)
-                .Cast<TimeSpan>()
-                .ToArray();
+            var initializedTtls = objectCreation.Initializer?.Expressions.OfType<AssignmentExpressionSyntax>()
+                                                .Where(assignment => assignment.Left.ToString() is "AbsoluteExpirationRelativeToNow" or "SlidingExpiration"
+                                                                         or "Expiration" or "LocalCacheExpiration")
+                                                .Select(assignment => TryExtractTimeSpan(assignment.Right, semanticModel, visited))
+                                                .Where(ttl => ttl is not null)
+                                                .Cast<TimeSpan>()
+                                                .ToArray();
             if (initializedTtls is { Length: > 0 })
             {
                 return initializedTtls.Max();
             }
 
-            if (semanticModel.GetSymbolInfo(objectCreation).Symbol is IMethodSymbol constructor &&
-                constructor.ContainingType.Name == nameof(TimeSpan))
+            if (semanticModel.GetSymbolInfo(objectCreation).Symbol is IMethodSymbol constructor && constructor.ContainingType.Name == nameof(TimeSpan))
             {
                 var values = objectCreation.ArgumentList?.Arguments
-                    .Select(argument => TryGetNumber(argument.Expression, semanticModel, out var number)
-                        ? (long?)number
-                        : null)
-                    .ToArray();
+                                           .Select(argument => TryGetNumber(argument.Expression, semanticModel, out var number) ? (long?)number : null)
+                                           .ToArray();
                 if (values is not null && values.All(value => value is not null))
                 {
                     return values.Length switch
-                    {
-                        1 => TimeSpan.FromTicks(values[0]!.Value),
-                        3 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value, (int)values[2]!.Value),
-                        4 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value,
-                                          (int)values[2]!.Value, (int)values[3]!.Value),
-                        5 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value,
-                                          (int)values[2]!.Value, (int)values[3]!.Value,
-                                          (int)values[4]!.Value),
-                        _ => null
-                    };
+                           {
+                               1 => TimeSpan.FromTicks(values[0]!.Value),
+                               3 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value, (int)values[2]!.Value),
+                               4 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value, (int)values[2]!.Value, (int)values[3]!.Value),
+                               5 => new TimeSpan((int)values[0]!.Value, (int)values[1]!.Value, (int)values[2]!.Value, (int)values[3]!.Value,
+                                                 (int)values[4]!.Value),
+                               _ => null
+                           };
                 }
             }
         }
@@ -317,9 +283,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         var initializer = symbol?.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax())
                                  .Select(GetInitializer)
                                  .FirstOrDefault(candidate => candidate is not null);
-        return initializer is null
-            ? null
-            : TryExtractTimeSpan(initializer, GetSemanticModel(semanticModel, initializer), visited);
+        return initializer is null ? null : TryExtractTimeSpan(initializer, GetSemanticModel(semanticModel, initializer), visited);
     }
 
     private static IReadOnlyList<string> ExtractTags(ExpressionSyntax? expression, SemanticModel semanticModel)
@@ -331,14 +295,14 @@ internal sealed class CacheCallAnalyzer(Solution solution)
 
         expression = Unwrap(expression);
         IEnumerable<ExpressionSyntax>? elements = expression switch
-        {
-            CollectionExpressionSyntax collection => collection.Elements.OfType<ExpressionElementSyntax>()
-                                                               .Select(element => element.Expression),
-            ArrayCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
-            ImplicitArrayCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
-            ObjectCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
-            _ => null
-        };
+                                                  {
+                                                      CollectionExpressionSyntax collection => collection.Elements.OfType<ExpressionElementSyntax>()
+                                                         .Select(element => element.Expression),
+                                                      ArrayCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
+                                                      ImplicitArrayCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
+                                                      ObjectCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions,
+                                                      _ => null
+                                                  };
         if (elements is not null)
         {
             return elements.Select(element => semanticModel.GetConstantValue(element))
@@ -351,9 +315,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         var initializerExpression = symbol?.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax())
                                            .Select(GetInitializer)
                                            .FirstOrDefault(candidate => candidate is not null);
-        return initializerExpression is null
-            ? []
-            : ExtractTags(initializerExpression, GetSemanticModel(semanticModel, initializerExpression));
+        return initializerExpression is null ? [] : ExtractTags(initializerExpression, GetSemanticModel(semanticModel, initializerExpression));
     }
 
     private static bool IsConstant(ExpressionSyntax? expression, string constantName, SemanticModel semanticModel)
@@ -403,11 +365,11 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         while (true)
         {
             expression = expression switch
-            {
-                ParenthesizedExpressionSyntax parenthesized => parenthesized.Expression,
-                CastExpressionSyntax cast => cast.Expression,
-                _ => expression
-            };
+                         {
+                             ParenthesizedExpressionSyntax parenthesized => parenthesized.Expression,
+                             CastExpressionSyntax cast => cast.Expression,
+                             _ => expression
+                         };
 
             if (expression is not (ParenthesizedExpressionSyntax or CastExpressionSyntax))
             {
@@ -417,16 +379,14 @@ internal sealed class CacheCallAnalyzer(Solution solution)
     }
 
     private static ExpressionSyntax? GetInitializer(SyntaxNode syntax) => syntax switch
-    {
-        VariableDeclaratorSyntax declarator => declarator.Initializer?.Value,
-        PropertyDeclarationSyntax property => property.Initializer?.Value,
-        _ => null
-    };
+                                                                          {
+                                                                              VariableDeclaratorSyntax declarator => declarator.Initializer?.Value,
+                                                                              PropertyDeclarationSyntax property => property.Initializer?.Value,
+                                                                              _ => null
+                                                                          };
 
     private static SemanticModel GetSemanticModel(SemanticModel current, SyntaxNode syntax) =>
-        current.SyntaxTree == syntax.SyntaxTree
-            ? current
-            : current.Compilation.GetSemanticModel(syntax.SyntaxTree);
+        current.SyntaxTree == syntax.SyntaxTree ? current : current.Compilation.GetSemanticModel(syntax.SyntaxTree);
 
     private static Evidence CreateEvidence(SyntaxNode syntax)
     {

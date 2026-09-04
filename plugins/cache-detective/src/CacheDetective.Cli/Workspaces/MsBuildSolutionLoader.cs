@@ -7,13 +7,13 @@ namespace CacheDetective.Workspaces;
 
 public sealed class MsBuildSolutionLoader
 {
-    private static readonly Lazy<VisualStudioInstance> RegisteredInstance = new(
+    private static readonly Lazy<VisualStudioInstance> REGISTERED_INSTANCE = new(
         MSBuildLocator.RegisterDefaults, LazyThreadSafetyMode.ExecutionAndPublication);
 
     public async Task<MsBuildLoadResult> LoadAsync(string path,
                                                    CancellationToken cancellationToken = default)
     {
-        _ = RegisteredInstance.Value;
+        _ = REGISTERED_INSTANCE.Value;
         var workspace = MSBuildWorkspace.Create();
         var diagnostics = new ConcurrentQueue<WorkspaceDiagnostic>();
 #pragma warning disable CS0618 // The adapter contract requires collecting the WorkspaceFailed event.
@@ -34,8 +34,7 @@ public sealed class MsBuildSolutionLoader
                     "Expected a .sln, .slnx, or .csproj path.", nameof(path))
             };
 
-            return new MsBuildLoadResult(workspace, TakeFirstTargetPerProject(solution), diagnostics,
-                OnWorkspaceFailed);
+            return new MsBuildLoadResult(workspace, TakeFirstTargetPerProject(solution), diagnostics, OnWorkspaceFailed);
         }
         catch
         {
@@ -46,8 +45,7 @@ public sealed class MsBuildSolutionLoader
             throw;
         }
 
-        void OnWorkspaceFailed(object? sender, WorkspaceDiagnosticEventArgs eventArgs) =>
-            diagnostics.Enqueue(eventArgs.Diagnostic);
+        void OnWorkspaceFailed(object? sender, WorkspaceDiagnosticEventArgs eventArgs) => diagnostics.Enqueue(eventArgs.Diagnostic);
     }
 
     private static Solution TakeFirstTargetPerProject(Solution solution)

@@ -10,10 +10,10 @@ namespace CacheDetective.Indexing;
 
 public sealed class CallGraphIndexer
 {
-    private const int MaximumDepth = 12;
-    private static readonly IEqualityComparer<IMethodSymbol> MethodComparer = new MethodSymbolComparer();
+    private const int MAXIMUM_DEPTH = 12;
+    private static readonly IEqualityComparer<IMethodSymbol> METHOD_COMPARER = new MethodSymbolComparer();
 
-    private static readonly HashSet<string> MinimalApiMethods =
+    private static readonly HashSet<string> MINIMAL_API_METHODS =
     [
         "MapGet",
         "MapPost",
@@ -23,25 +23,22 @@ public sealed class CallGraphIndexer
         "MapMethods"
     ];
 
-    public async Task<CacheGraph> IndexAsync(Solution solution, string solutionName,
-                                              CancellationToken cancellationToken = default)
+    public async Task<CacheGraph> IndexAsync(Solution solution, string solutionName, CancellationToken cancellationToken = default)
     {
         var graph = new CacheGraph();
         var cacheCallAnalyzer = new CacheCallAnalyzer(solution);
         var efReadAnalyzer = new EfReadAnalyzer(solution);
         var efWriteAnalyzer = new EfWriteAnalyzer(efReadAnalyzer);
-        var unparsedSqlAnalyzer = new UnparsedSqlAnalyzer();
+        var sqlAnalyzer = new SqlAnalyzer(solution);
         var entryPoints = await FindEntryPointsAsync(solution, cancellationToken);
-        var entryPointKinds = entryPoints
-            .GroupBy(entry => entry.Method, MethodComparer)
-            .ToDictionary(group => group.Key, group => group.First().Kind,
-                          MethodComparer);
-        var shallowestDepth = new Dictionary<IMethodSymbol, int>(MethodComparer);
+        var entryPointKinds = entryPoints.GroupBy(entry => entry.Method, METHOD_COMPARER)
+                                         .ToDictionary(group => group.Key, group => group.First().Kind, METHOD_COMPARER);
+        var shallowestDepth = new Dictionary<IMethodSymbol, int>(METHOD_COMPARER);
 
         foreach (var entryPoint in entryPoints)
         {
             graph.AddHandler(CreateHandler(entryPoint.Method, solutionName, entryPoint.Kind));
-            await WalkAsync(entryPoint.Method, 0, new HashSet<IMethodSymbol>(MethodComparer));
+            await WalkAsync(entryPoint.Method, 0, new HashSet<IMethodSymbol>(METHOD_COMPARER));
         }
 
         await efWriteAnalyzer.AddEdgesAsync(graph, cancellationToken);
@@ -67,8 +64,7 @@ public sealed class CallGraphIndexer
             cacheCallAnalyzer.RecordUnsupportedAttributes(graph, currentHandler, method);
             await efReadAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
             await efWriteAnalyzer.AnalyzeAsync(solution, currentHandler, method, cancellationToken);
-            await unparsedSqlAnalyzer.AnalyzeAsync(solution, graph, currentHandler, method,
-                cancellationToken);
+            await sqlAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
 
             foreach (var invocation in await GetInvocationsAsync(method, cancellationToken))
             {
@@ -84,16 +80,14 @@ public sealed class CallGraphIndexer
                     continue;
                 }
 
-                if (await cacheCallAnalyzer.TryAnalyzeAsync(graph, currentHandler, invocation, semanticModel,
-                                                            cancellationToken))
+                if (await cacheCallAnalyzer.TryAnalyzeAsync(graph, currentHandler, invocation, semanticModel, cancellationToken))
                 {
                     continue;
                 }
 
-                if (depth == MaximumDepth)
+                if (depth == MAXIMUM_DEPTH)
                 {
-                    AddUnresolved(graph, currentHandler, invocation,
-                        $"Maximum call depth of {MaximumDepth} reached.");
+                    AddUnresolved(graph, currentHandler, invocation, $"Maximum call depth of {MAXIMUM_DEPTH} reached.");
                     continue;
                 }
 
@@ -106,14 +100,11 @@ public sealed class CallGraphIndexer
                 var targets = await ResolveTargetsAsync(calledMethod, solution, cancellationToken);
                 if (targets.IsInterfaceCall && targets.Methods.Count == 0)
                 {
-                    AddUnresolved(graph, currentHandler, invocation,
-                        $"No implementation found for {calledMethod.ToDisplayString()}.");
+                    AddUnresolved(graph, currentHandler, invocation, $"No implementation found for {calledMethod.ToDisplayString()}.");
                     continue;
                 }
 
-                var confidence = targets.IsInterfaceCall && targets.Methods.Count > 1
-                    ? Confidence.Likely
-                    : Confidence.Confirmed;
+                var confidence = targets.IsInterfaceCall && targets.Methods.Count > 1 ? Confidence.Likely : Confidence.Confirmed;
                 var from = CreateHandler(method, solutionName, GetKind(method, entryPointKinds));
                 var evidence = CreateEvidence(invocation);
 
@@ -125,16 +116,14 @@ public sealed class CallGraphIndexer
 
                     if (!activePath.Contains(target))
                     {
-                        await WalkAsync(target, depth + 1, new HashSet<IMethodSymbol>(activePath,
-                            MethodComparer));
+                        await WalkAsync(target, depth + 1, new HashSet<IMethodSymbol>(activePath, METHOD_COMPARER));
                     }
                 }
             }
         }
     }
 
-    private static async Task<IReadOnlyList<(IMethodSymbol Method, string Kind)>> FindEntryPointsAsync(
-        Solution solution, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<(IMethodSymbol Method, string Kind)>> FindEntryPointsAsync(Solution solution, CancellationToken cancellationToken)
     {
         var entryPoints = new List<(IMethodSymbol Method, string Kind)>();
 
@@ -163,7 +152,7 @@ public sealed class CallGraphIndexer
                 foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
                 {
                     var mappedMethod = semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol as IMethodSymbol;
-                    if (mappedMethod is null || !MinimalApiMethods.Contains(mappedMethod.Name))
+                    if (mappedMethod is null || !MINIMAL_API_METHODS.Contains(mappedMethod.Name))
                     {
                         continue;
                     }
@@ -183,8 +172,7 @@ public sealed class CallGraphIndexer
         return entryPoints;
     }
 
-    private static void AddTypeEntryPoints(INamedTypeSymbol type,
-                                           ICollection<(IMethodSymbol Method, string Kind)> entryPoints)
+    private static void AddTypeEntryPoints(INamedTypeSymbol type, ICollection<(IMethodSymbol Method, string Kind)> entryPoints)
     {
         if (type.IsAbstract || type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
         {
@@ -217,15 +205,13 @@ public sealed class CallGraphIndexer
         AddHandlingMethods(type, "IJob", 0, "Execute", "job", entryPoints);
     }
 
-    private static void AddHandlingMethods(INamedTypeSymbol type, string shapeName, int arity,
-                                           string methodName, string kind,
+    private static void AddHandlingMethods(INamedTypeSymbol type, string shapeName, int arity, string methodName, string kind,
                                            ICollection<(IMethodSymbol Method, string Kind)> entryPoints)
     {
         var interfaces = type.AllInterfaces.Where(candidate => HasShape(candidate, shapeName, arity)).ToArray();
         foreach (var interfaceType in interfaces)
         {
-            foreach (var member in interfaceType.GetMembers().OfType<IMethodSymbol>()
-                                                .Where(method => method.Name == methodName))
+            foreach (var member in interfaceType.GetMembers().OfType<IMethodSymbol>().Where(method => method.Name == methodName))
             {
                 if (type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation &&
                     implementation.Locations.Any(location => location.IsInSource))
@@ -241,15 +227,13 @@ public sealed class CallGraphIndexer
         }
     }
 
-    private static void AddMethods(INamedTypeSymbol type, string methodName, string kind,
-                                   ICollection<(IMethodSymbol Method, string Kind)> entryPoints)
+    private static void AddMethods(INamedTypeSymbol type, string methodName, string kind, ICollection<(IMethodSymbol Method, string Kind)> entryPoints)
     {
         for (var current = type; current is not null; current = current.BaseType)
         {
-            var methods = current.GetMembers().OfType<IMethodSymbol>()
-                                 .Where(method => method.Name == methodName ||
-                                                  method.Name.EndsWith($".{methodName}",
-                                                      StringComparison.Ordinal))
+            var methods = current.GetMembers()
+                                 .OfType<IMethodSymbol>()
+                                 .Where(method => method.Name == methodName || method.Name.EndsWith($".{methodName}", StringComparison.Ordinal))
                                  .Where(method => method.Locations.Any(location => location.IsInSource))
                                  .ToArray();
             if (methods.Length == 0)
@@ -267,11 +251,8 @@ public sealed class CallGraphIndexer
     }
 
     private static bool IsPublicAction(IMethodSymbol method) =>
-        method.DeclaredAccessibility == Accessibility.Public &&
-        method.MethodKind == MethodKind.Ordinary &&
-        !method.IsStatic &&
-        !method.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
-                                                   HasShape(attributeType, "NonActionAttribute", 0)) &&
+        method.DeclaredAccessibility == Accessibility.Public && method.MethodKind == MethodKind.Ordinary && !method.IsStatic &&
+        !method.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType && HasShape(attributeType, "NonActionAttribute", 0)) &&
         method.Locations.Any(location => location.IsInSource);
 
     private static bool DerivesFrom(INamedTypeSymbol type, string name, int arity)
@@ -291,8 +272,7 @@ public sealed class CallGraphIndexer
     {
         for (var current = type; current is not null; current = current.BaseType)
         {
-            if (current.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType &&
-                                                          HasShape(attributeType, name, arity)))
+            if (current.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType && HasShape(attributeType, name, arity)))
             {
                 return true;
             }
@@ -339,21 +319,18 @@ public sealed class CallGraphIndexer
         }
     }
 
-    private static IMethodSymbol? GetHandlerMethod(SemanticModel semanticModel, ExpressionSyntax expression,
-                                                    CancellationToken cancellationToken)
+    private static IMethodSymbol? GetHandlerMethod(SemanticModel semanticModel, ExpressionSyntax expression, CancellationToken cancellationToken)
     {
         var operation = semanticModel.GetOperation(expression, cancellationToken);
 
         return operation switch
-        {
-            IAnonymousFunctionOperation anonymousFunction => anonymousFunction.Symbol,
-            IDelegateCreationOperation { Target: IAnonymousFunctionOperation anonymousFunction } =>
-                anonymousFunction.Symbol,
-            IDelegateCreationOperation { Target: IMethodReferenceOperation methodReference } =>
-                methodReference.Method,
-            IMethodReferenceOperation methodReference => methodReference.Method,
-            _ => semanticModel.GetSymbolInfo(expression, cancellationToken).Symbol as IMethodSymbol
-        };
+               {
+                   IAnonymousFunctionOperation anonymousFunction => anonymousFunction.Symbol,
+                   IDelegateCreationOperation { Target: IAnonymousFunctionOperation anonymousFunction } => anonymousFunction.Symbol,
+                   IDelegateCreationOperation { Target: IMethodReferenceOperation methodReference } => methodReference.Method,
+                   IMethodReferenceOperation methodReference => methodReference.Method,
+                   _ => semanticModel.GetSymbolInfo(expression, cancellationToken).Symbol as IMethodSymbol
+               };
     }
 
     private static async Task<(bool IsInterfaceCall, IReadOnlyList<IMethodSymbol> Methods)> ResolveTargetsAsync(
@@ -361,32 +338,26 @@ public sealed class CallGraphIndexer
     {
         if (calledMethod.ContainingType.TypeKind != TypeKind.Interface)
         {
-            return (false, calledMethod.Locations.Any(location => location.IsInSource)
-                ? [calledMethod]
-                : []);
+            return (false, calledMethod.Locations.Any(location => location.IsInSource) ? [calledMethod] : []);
         }
 
-        var implementations = await SymbolFinder.FindImplementationsAsync(calledMethod, solution,
-            cancellationToken: cancellationToken);
+        var implementations = await SymbolFinder.FindImplementationsAsync(calledMethod, solution, cancellationToken: cancellationToken);
         var methods = implementations.OfType<IMethodSymbol>()
                                      .Where(method => !method.IsAbstract)
                                      .Where(method => method.Locations.Any(location => location.IsInSource))
-                                     .Distinct(MethodComparer)
+                                     .Distinct(METHOD_COMPARER)
                                      .ToArray();
         return (true, methods);
     }
 
-    private static async Task<IReadOnlyList<InvocationExpressionSyntax>> GetInvocationsAsync(
-        IMethodSymbol method, CancellationToken cancellationToken)
+    private static async Task<IReadOnlyList<InvocationExpressionSyntax>> GetInvocationsAsync(IMethodSymbol method, CancellationToken cancellationToken)
     {
         var invocations = new List<InvocationExpressionSyntax>();
 
         foreach (var syntaxReference in method.DeclaringSyntaxReferences)
         {
             var root = await syntaxReference.GetSyntaxAsync(cancellationToken);
-            invocations.AddRange(root.DescendantNodes(node =>
-                                         node is not (AnonymousFunctionExpressionSyntax or
-                                             LocalFunctionStatementSyntax))
+            invocations.AddRange(root.DescendantNodes(node => node is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax))
                                      .OfType<InvocationExpressionSyntax>());
         }
 
@@ -398,17 +369,15 @@ public sealed class CallGraphIndexer
         var location = GetSourceLocation(method);
         var lineSpan = location.GetLineSpan();
         var symbol = method.MethodKind == MethodKind.AnonymousFunction
-            ? $"{method.ContainingSymbol.ToDisplayString()}::<lambda>@{lineSpan.StartLinePosition.Line + 1}:" +
-              $"{lineSpan.StartLinePosition.Character + 1}"
-            : method.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat);
+                         ? $"{method.ContainingSymbol.ToDisplayString()}::<lambda>@{lineSpan.StartLinePosition.Line + 1}:" +
+                           $"{lineSpan.StartLinePosition.Character + 1}"
+                         : method.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat);
 
-        return new Handler(solutionName, symbol, kind, lineSpan.Path,
-                           lineSpan.StartLinePosition.Line + 1);
+        return new Handler(solutionName, symbol, kind, lineSpan.Path, lineSpan.StartLinePosition.Line + 1);
     }
 
-    private static string GetKind(IMethodSymbol method,
-                                  IReadOnlyDictionary<IMethodSymbol, string> entryPointKinds) =>
-        entryPointKinds.TryGetValue(method, out var kind) ? kind : "method";
+    private static string GetKind(IMethodSymbol method, IReadOnlyDictionary<IMethodSymbol, string> entryPointKinds) =>
+        entryPointKinds.GetValueOrDefault(method, "method");
 
     private static Location GetSourceLocation(IMethodSymbol method) =>
         method.Locations.First(location => location.IsInSource);
@@ -419,12 +388,10 @@ public sealed class CallGraphIndexer
         return new Evidence(lineSpan.Path, lineSpan.StartLinePosition.Line + 1);
     }
 
-    private static void AddUnresolved(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation,
-                                      string reason)
+    private static void AddUnresolved(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, string reason)
     {
         var evidence = CreateEvidence(invocation);
-        graph.AddUnresolved(UnresolvedKind.Call, handler, evidence.File, evidence.Line,
-            invocation.ToString(), reason);
+        graph.AddUnresolved(UnresolvedKind.Call, handler, evidence, invocation.ToString(), reason);
     }
 
     private sealed class MethodSymbolComparer : IEqualityComparer<IMethodSymbol>

@@ -6,7 +6,7 @@ namespace CacheDetective.Data;
 
 internal sealed class EfWriteAnalyzer
 {
-    private static readonly HashSet<string> DirectMutationMethods =
+    private static readonly HashSet<string> DIRECT_MUTATION_METHODS =
     [
         "Add",
         "AddRange",
@@ -16,13 +16,16 @@ internal sealed class EfWriteAnalyzer
         "RemoveRange"
     ];
 
-    private static readonly HashSet<string> ExecuteMutationMethods =
+    private static readonly HashSet<string> EXECUTE_MUTATION_METHODS =
     [
         "ExecuteUpdate",
         "ExecuteUpdateAsync",
         "ExecuteDelete",
         "ExecuteDeleteAsync"
     ];
+
+    private static readonly WriteEvent[] EVERY_WRITE_EVENT =
+        [WriteEvent.Insert, WriteEvent.Update, WriteEvent.Delete];
 
     private readonly EfReadAnalyzer _tables;
     private readonly Dictionary<IMethodSymbol, MethodFacts> _facts = new(MethodSymbolComparer.Instance);
@@ -70,11 +73,11 @@ internal sealed class EfWriteAnalyzer
                     continue;
                 }
 
-                if (ExecuteMutationMethods.Contains(called.Name) &&
+                if (EXECUTE_MUTATION_METHODS.Contains(called.Name) &&
                     TryGetExecuteEntity(invocation, called, semanticModel, cancellationToken, out var executedEntity))
                 {
                     facts.AddMutation(CreateMutation(executedEntity, invocation, Confidence.Confirmed,
-                        requiresSaveChanges: false));
+                        WriteEventsFor(called.Name), requiresSaveChanges: false));
                     handledInvocations.Add(invocation.SpanStart);
                     continue;
                 }
@@ -85,10 +88,10 @@ internal sealed class EfWriteAnalyzer
                 var receiverType = semanticModel.GetTypeInfo(memberAccess.Expression, cancellationToken).Type;
                 if (TryGetDbSetEntity(receiverType, out var setEntity))
                 {
-                    if (DirectMutationMethods.Contains(called.Name))
+                    if (DIRECT_MUTATION_METHODS.Contains(called.Name))
                     {
                         facts.AddMutation(CreateMutation(setEntity, invocation, Confidence.Confirmed,
-                            requiresSaveChanges: true));
+                            WriteEventsFor(called.Name), requiresSaveChanges: true));
                         handledInvocations.Add(invocation.SpanStart);
                     }
                     else if (called.Name == "Attach" &&
@@ -96,7 +99,7 @@ internal sealed class EfWriteAnalyzer
                                                         semanticModel, cancellationToken))
                     {
                         facts.AddMutation(CreateMutation(setEntity, invocation, Confidence.Confirmed,
-                            requiresSaveChanges: true));
+                            [WriteEvent.Update], requiresSaveChanges: true));
                         handledInvocations.Add(invocation.SpanStart);
                     }
                 }
@@ -107,7 +110,7 @@ internal sealed class EfWriteAnalyzer
                     _tables.HasKnownTable(childEntity))
                 {
                     facts.AddMutation(CreateMutation(childEntity, invocation, Confidence.Confirmed,
-                        requiresSaveChanges: true));
+                        WriteEventsFor(called.Name), requiresSaveChanges: true));
                     handledInvocations.Add(invocation.SpanStart);
                 }
             }
@@ -117,7 +120,7 @@ internal sealed class EfWriteAnalyzer
                 if (TryGetEntryStateEntity(assignment, semanticModel, cancellationToken, out var entryEntity))
                 {
                     facts.AddMutation(CreateMutation(entryEntity, assignment, Confidence.Confirmed,
-                        requiresSaveChanges: true));
+                        EVERY_WRITE_EVENT, requiresSaveChanges: true));
                     continue;
                 }
 
@@ -131,7 +134,7 @@ internal sealed class EfWriteAnalyzer
                                          SameEntity(query.Entity, assignedEntity)))
                 {
                     facts.AddMutation(CreateMutation(assignedEntity, assignment, Confidence.Confirmed,
-                        requiresSaveChanges: true));
+                        [WriteEvent.Update], requiresSaveChanges: true));
                 }
             }
 
@@ -150,7 +153,7 @@ internal sealed class EfWriteAnalyzer
                 if (likelyMutation is not null)
                 {
                     facts.AddMutation(CreateMutation(query.Entity, likelyMutation, Confidence.Likely,
-                        requiresSaveChanges: true));
+                        EVERY_WRITE_EVENT, requiresSaveChanges: true));
                 }
             }
         }
@@ -211,7 +214,8 @@ internal sealed class EfWriteAnalyzer
                     ? Confidence.Confirmed
                     : Confidence.Likely;
                 var evidence = mutations.Select(mutation => mutation.Evidence).Distinct().ToArray();
-                graph.AddEdge(new Writes(handler, table, confidence, evidence));
+                var events = mutations.SelectMany(mutation => mutation.Events).Distinct().ToArray();
+                graph.AddEdge(new Writes(handler, table, confidence, evidence, events));
             }
         }
     }
@@ -400,13 +404,23 @@ internal sealed class EfWriteAnalyzer
         type.Arity == 1 && type.Name is "IQueryable" or "IEnumerable" or "ICollection" or "IList" or "List";
 
     private static MutationFact CreateMutation(INamedTypeSymbol entity, SyntaxNode site,
-                                                Confidence confidence, bool requiresSaveChanges)
+                                                Confidence confidence,
+                                                IReadOnlyList<WriteEvent> events, bool requiresSaveChanges)
     {
         var lineSpan = site.GetLocation().GetLineSpan();
-        return new MutationFact(GetEntityId(entity), entity, confidence,
+        return new MutationFact(GetEntityId(entity), entity, confidence, events,
             new Evidence(lineSpan.Path, lineSpan.StartLinePosition.Line + 1),
             requiresSaveChanges, site.SpanStart);
     }
+
+    /// <summary>The events the named EF method performs; every event where the method does not say.</summary>
+    private static IReadOnlyList<WriteEvent> WriteEventsFor(string method) => method switch
+    {
+        "Add" or "AddRange" => [WriteEvent.Insert],
+        "Update" or "UpdateRange" or "ExecuteUpdate" or "ExecuteUpdateAsync" => [WriteEvent.Update],
+        "Remove" or "RemoveRange" or "ExecuteDelete" or "ExecuteDeleteAsync" => [WriteEvent.Delete],
+        _ => EVERY_WRITE_EVENT
+    };
 
     private static bool SameEntity(INamedTypeSymbol left, INamedTypeSymbol right) =>
         GetEntityId(left) == GetEntityId(right);
@@ -417,7 +431,8 @@ internal sealed class EfWriteAnalyzer
     private sealed record EntityUse(INamedTypeSymbol Entity, int Position);
 
     private sealed record MutationFact(string EntityId, INamedTypeSymbol Entity, Confidence Confidence,
-                                       Evidence Evidence, bool RequiresSaveChanges, int SiteStart)
+                                       IReadOnlyList<WriteEvent> Events, Evidence Evidence,
+                                       bool RequiresSaveChanges, int SiteStart)
     {
         public string Key => $"{EntityId}|{Evidence.File}|{Evidence.Line}|{SiteStart}|{RequiresSaveChanges}";
     }

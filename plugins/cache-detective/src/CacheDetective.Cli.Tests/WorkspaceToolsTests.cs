@@ -1,4 +1,5 @@
 using CacheDetective.Configuration;
+using CacheDetective.Database;
 using CacheDetective.Mcp;
 using CacheDetective.Graph;
 using Xunit;
@@ -83,6 +84,112 @@ public sealed class WorkspaceToolsTests
             () => session.InitializeAsync(repository.Path, null, null));
 
         Assert.Contains("no solutions", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task WorkspaceTools_index_database_without_a_configured_database_says_so()
+    {
+        using var repository = new TemporaryRepository();
+        var session = new WorkspaceSession();
+        await session.InitializeAsync(repository.Path, ["App.csproj"], null);
+
+        var result = await session.IndexDatabaseAsync("shop");
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("No database is configured", result.Error!, StringComparison.Ordinal);
+        Assert.Contains("workspace.json", result.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkspaceTools_index_database_reports_catalogue_counts_in_status()
+    {
+        using var repository = new TemporaryRepository();
+        var session = await ConfiguredSessionAsync(repository);
+
+        var indexed = await session.IndexDatabaseAsync("shop", Catalogue);
+        var status = await session.GetStatusAsync();
+
+        Assert.True(indexed.Succeeded, indexed.Error);
+        Assert.Equal("shop", indexed.Database);
+        Assert.Equal(1, indexed.Added.Procedures);
+        Assert.Equal(1, indexed.Added.Triggers);
+        Assert.Equal(1, indexed.Added.Views);
+        Assert.Equal(4, indexed.Added.Edges);
+        Assert.Equal(1, indexed.Added.Unresolved);
+        Assert.Equal(["dbo.NamesAGhost"], indexed.UnresolvableObjects);
+        Assert.Equal(1, status.Counts.Procedures);
+        Assert.Equal(1, status.Counts.Triggers);
+        Assert.Equal(1, status.Counts.Views);
+        Assert.Equal(1, status.Counts.Unresolved);
+    }
+
+    [Fact]
+    public async Task WorkspaceTools_index_database_twice_replaces_instead_of_doubling()
+    {
+        using var repository = new TemporaryRepository();
+        var session = await ConfiguredSessionAsync(repository);
+        AddUnguardedWrite(session.Graph);
+
+        await session.IndexDatabaseAsync("shop", Catalogue);
+        var once = await session.GetStatusAsync();
+        var findingsOnce = session.GetUnguardedWriteFindings().Count;
+        await session.IndexDatabaseAsync("shop", Catalogue);
+        var twice = await session.GetStatusAsync();
+
+        Assert.Equal(once.Counts, twice.Counts);
+        Assert.Equal(findingsOnce, session.GetUnguardedWriteFindings().Count);
+        // The code half is untouched by a database re-index.
+        Assert.Contains(session.Graph.Edges.OfType<Writes>(), edge => edge.From is Handler);
+    }
+
+    [Fact]
+    public void WorkspaceTools_read_only_intent_is_added_but_never_overridden()
+    {
+        Assert.Contains("ApplicationIntent=ReadOnly",
+            ReadOnlyIntent.Apply("Server=.;Database=Shop;Trusted_Connection=True"),
+            StringComparison.Ordinal);
+        Assert.Contains("ApplicationIntent=ReadWrite",
+            ReadOnlyIntent.Apply("Server=.;Database=Shop;ApplicationIntent=ReadWrite"),
+            StringComparison.Ordinal);
+    }
+
+    private static async Task<WorkspaceSession> ConfiguredSessionAsync(TemporaryRepository repository)
+    {
+        await WorkspaceConfigurationStore.WriteAsync(repository.Path, new WorkspaceConfiguration
+        {
+            Root = repository.Path,
+            Solutions = ["App.csproj"],
+            Databases = [new DatabaseConfiguration { Name = "shop", Connection = "env:CD_SHOP_CONN" }]
+        });
+        var session = new WorkspaceSession();
+        await session.InitializeAsync(repository.Path, null, null);
+        return session;
+    }
+
+    /// <summary>Stands in for the connect-and-read-the-catalogue step, which needs a server; the live
+    /// path is covered by the integration tests.</summary>
+    private static Task<DatabaseIndexResult> Catalogue(DatabaseConfiguration database, string name,
+                                                       CancellationToken cancellationToken)
+    {
+        var graph = new CacheGraph();
+        var products = new Table("dbo", "Products", name);
+        var procedure = new StoredProcedure("dbo", "ApplyDiscount", name);
+        var view = new View("dbo", "vw_ProductCard", name);
+        var trigger = new Trigger("dbo", "trg_Products_Audit", products.Name, [WriteEvent.Insert], name);
+
+        graph.AddEdge(new Reads(procedure, products, Confidence.Confirmed,
+            [Evidence.InDatabase("dbo.ApplyDiscount", name)]));
+        graph.AddEdge(new Writes(procedure, products, Confidence.Confirmed,
+            [Evidence.InDatabase("dbo.ApplyDiscount", name)], [WriteEvent.Update]));
+        graph.AddEdge(new Reads(view, products, Confidence.Confirmed,
+            [Evidence.InDatabase("dbo.vw_ProductCard", name)]));
+        graph.AddEdge(new Fires(products, trigger, Confidence.Confirmed,
+            [Evidence.InDatabase("dbo.trg_Products_Audit", name)]));
+        graph.AddUnresolved(UnresolvedKind.Sql, solution: null,
+            Evidence.InDatabase("dbo.NamesAGhost", name), "dbo.NamesAGhost",
+            "The catalogue could not resolve what this object references.");
+
+        return Task.FromResult(new DatabaseIndexResult(graph, ["dbo.NamesAGhost"]));
     }
 
     private static void AddUnguardedWrite(CacheGraph graph)

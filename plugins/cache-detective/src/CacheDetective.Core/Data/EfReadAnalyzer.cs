@@ -6,8 +6,8 @@ namespace CacheDetective.Data;
 
 internal sealed class EfReadAnalyzer
 {
-    private const string DefaultDatabase = "default";
-    private const string DefaultSchema = "dbo";
+    private const string DEFAULT_DATABASE = "default";
+    private const string DEFAULT_SCHEMA = "dbo";
     private readonly Solution _solution;
     private IReadOnlyDictionary<string, TableMapping>? _mappings;
 
@@ -16,8 +16,7 @@ internal sealed class EfReadAnalyzer
         _solution = solution;
     }
 
-    public async Task AnalyzeAsync(CacheGraph graph, Handler handler, IMethodSymbol method,
-                                   CancellationToken cancellationToken)
+    public async Task AnalyzeAsync(CacheGraph graph, Handler handler, IMethodSymbol method, CancellationToken cancellationToken)
     {
         await EnsureInitializedAsync(cancellationToken);
         var recordedSites = new HashSet<(SyntaxTree Tree, int Start, string Entity)>();
@@ -26,16 +25,14 @@ internal sealed class EfReadAnalyzer
         {
             var declaration = await syntaxReference.GetSyntaxAsync(cancellationToken);
             var document = _solution.GetDocument(declaration.SyntaxTree);
-            var semanticModel = document is null
-                ? null
-                : await document.GetSemanticModelAsync(cancellationToken);
+            var semanticModel = document is null ? null : await document.GetSemanticModelAsync(cancellationToken);
             if (semanticModel is null)
                 continue;
 
-            var nodes = declaration.DescendantNodes(node =>
-                node is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax));
+            var nodes = declaration.DescendantNodes(node => node is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax));
 
-            foreach (var name in nodes.OfType<SimpleNameSyntax>())
+            var syntaxNodes = nodes as SyntaxNode[] ?? nodes.ToArray();
+            foreach (var name in syntaxNodes.OfType<SimpleNameSyntax>())
             {
                 if (semanticModel.GetSymbolInfo(name, cancellationToken).Symbol is not IPropertySymbol property ||
                     !TryGetDbSetEntity(property.Type, out var entity))
@@ -46,11 +43,10 @@ internal sealed class EfReadAnalyzer
                 AddRead(graph, handler, name, entity, recordedSites);
             }
 
-            foreach (var invocation in nodes.OfType<InvocationExpressionSyntax>())
+            foreach (var invocation in syntaxNodes.OfType<InvocationExpressionSyntax>())
             {
-                if (semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol called ||
-                    called.Name != "Set" || called.Arity != 1 ||
-                    !TryGetDbSetEntity(called.ReturnType, out var entity))
+                if (semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol is not IMethodSymbol called || called.Name != "Set" ||
+                    called.Arity != 1 || !TryGetDbSetEntity(called.ReturnType, out var entity))
                 {
                     continue;
                 }
@@ -82,8 +78,8 @@ internal sealed class EfReadAnalyzer
     {
         var mapping = _mappings!.TryGetValue(GetEntityId(entity), out var configured)
             ? configured
-            : new TableMapping(DefaultSchema, entity.Name);
-        return new Table(mapping.Schema, mapping.Name, DefaultDatabase);
+            : new TableMapping(DEFAULT_SCHEMA, entity.Name);
+        return new Table(mapping.Schema, mapping.Name, DEFAULT_DATABASE);
     }
 
     internal bool HasKnownTable(INamedTypeSymbol entity) =>
@@ -111,14 +107,14 @@ internal sealed class EfReadAnalyzer
                     tableAttribute.ConstructorArguments.FirstOrDefault().Value is string tableName)
                 {
                     var schema = tableAttribute.NamedArguments.FirstOrDefault(argument =>
-                        argument.Key == "Schema").Value.Value as string ?? DefaultSchema;
+                        argument.Key == "Schema").Value.Value as string ?? DEFAULT_SCHEMA;
                     attributes.TryAdd(entityId, new TableMapping(schema, tableName));
                 }
 
                 foreach (var property in type.GetMembers().OfType<IPropertySymbol>())
                 {
                     if (TryGetDbSetEntity(property.Type, out var entity))
-                        conventions.TryAdd(GetEntityId(entity), new TableMapping(DefaultSchema, property.Name));
+                        conventions.TryAdd(GetEntityId(entity), new TableMapping(DEFAULT_SCHEMA, property.Name));
                 }
             }
 
@@ -203,7 +199,7 @@ internal sealed class EfReadAnalyzer
         if (tableName is null)
             return false;
 
-        mapping = new TableMapping(schema ?? DefaultSchema, tableName);
+        mapping = new TableMapping(schema ?? DEFAULT_SCHEMA, tableName);
         return true;
     }
 
@@ -226,12 +222,16 @@ internal sealed class EfReadAnalyzer
     private static IEnumerable<INamedTypeSymbol> GetSourceTypes(INamespaceSymbol namespaceSymbol)
     {
         foreach (var memberNamespace in namespaceSymbol.GetNamespaceMembers())
-        foreach (var type in GetSourceTypes(memberNamespace))
-            yield return type;
+        {
+            foreach (var type in GetSourceTypes(memberNamespace))
+                yield return type;
+        }
 
         foreach (var type in namespaceSymbol.GetTypeMembers())
-        foreach (var sourceType in GetSourceTypes(type))
-            yield return sourceType;
+        {
+            foreach (var sourceType in GetSourceTypes(type))
+                yield return sourceType;
+        }
     }
 
     private static IEnumerable<INamedTypeSymbol> GetSourceTypes(INamedTypeSymbol type)
@@ -240,8 +240,10 @@ internal sealed class EfReadAnalyzer
             yield return type;
 
         foreach (var nestedType in type.GetTypeMembers())
-        foreach (var sourceType in GetSourceTypes(nestedType))
-            yield return sourceType;
+        {
+            foreach (var sourceType in GetSourceTypes(nestedType))
+                yield return sourceType;
+        }
     }
 
     private sealed record TableMapping(string Schema, string Name);

@@ -9,9 +9,9 @@ namespace CacheDetective.Tests;
 
 public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 {
-    private const string RequireVariable = "CACHEDETECTIVE_REQUIRE_E2E";
-    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan IndexTimeout = TimeSpan.FromMinutes(5);
+    private const string REQUIRE_VARIABLE = "CACHEDETECTIVE_REQUIRE_E2E";
+    private static readonly TimeSpan HANDSHAKE_TIMEOUT = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan INDEX_TIMEOUT = TimeSpan.FromMinutes(5);
 
     [Fact]
     public async Task Published_server_handles_initialize_list_and_call_with_only_json_rpc_on_stdout()
@@ -27,13 +27,13 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             method = "initialize",
             @params = InitializeParameters()
         });
-        var initialize = await server.ReadResponseAsync("initialize", HandshakeTimeout);
+        var initialize = await server.ReadResponseAsync("initialize", HANDSHAKE_TIMEOUT);
         server.Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
         server.Send(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
-        var toolList = await server.ReadResponseAsync("tools/list", HandshakeTimeout);
+        var toolList = await server.ReadResponseAsync("tools/list", HANDSHAKE_TIMEOUT);
         server.Send(ToolCall(3, "workspace_status", new { }));
-        var toolCall = await server.ReadResponseAsync("tools/call", HandshakeTimeout);
-        await server.CompleteAsync(HandshakeTimeout);
+        var toolCall = await server.ReadResponseAsync("tools/call", HANDSHAKE_TIMEOUT);
+        await server.CompleteAsync(HANDSHAKE_TIMEOUT);
 
         using var initializeDocument = JsonDocument.Parse(initialize);
         Assert.Equal("2025-06-18", initializeDocument.RootElement.GetProperty("result")
@@ -72,18 +72,18 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
                 @params = InitializeParameters()
             });
             server.Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
-            _ = await server.ReadResponseAsync("initialize", HandshakeTimeout);
+            _ = await server.ReadResponseAsync("initialize", HANDSHAKE_TIMEOUT);
 
             server.Send(ToolCall(2, "workspace_init", new
             {
                 root = temporaryRoot,
                 solutions = new[] { solution }
             }));
-            var initialized = ToolPayload(await server.ReadResponseAsync("workspace_init", HandshakeTimeout));
+            var initialized = ToolPayload(await server.ReadResponseAsync("workspace_init", HANDSHAKE_TIMEOUT));
             Assert.True(initialized.GetProperty("written").GetBoolean());
 
             server.Send(ToolCall(3, "index_solution", new { path = solution }));
-            var indexed = ToolPayload(await server.ReadResponseAsync("index_solution", IndexTimeout));
+            var indexed = ToolPayload(await server.ReadResponseAsync("index_solution", INDEX_TIMEOUT));
             Assert.True(indexed.GetProperty("succeeded").GetBoolean());
             var diagnostics = indexed.GetProperty("diagnostics");
             Assert.Equal(JsonValueKind.Array, diagnostics.GetProperty("items").ValueKind);
@@ -95,11 +95,11 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             });
 
             server.Send(ToolCall(4, "export_graph", new { }));
-            var graph = ToolPayload(await server.ReadResponseAsync("export_graph", HandshakeTimeout));
+            var graph = ToolPayload(await server.ReadResponseAsync("export_graph", HANDSHAKE_TIMEOUT));
             Assert.DoesNotContain(graph.GetProperty("nodes").EnumerateArray(), node =>
                 node.GetProperty("type").GetString() == "CacheKey");
 
-            await server.CompleteAsync(HandshakeTimeout);
+            await server.CompleteAsync(HANDSHAKE_TIMEOUT);
         }
         finally
         {
@@ -122,7 +122,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 
         executable = string.Empty;
         var message = "The published bin/win-x64/cachedet.exe was not found. Run build/package.ps1 first.";
-        if (Environment.GetEnvironmentVariable(RequireVariable) == "1")
+        if (Environment.GetEnvironmentVariable(REQUIRE_VARIABLE) == "1")
             Assert.Fail(message);
         output.WriteLine($"Skipped: {message}");
         return true;

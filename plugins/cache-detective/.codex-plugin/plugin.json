@@ -1,6 +1,6 @@
 {
   "name": "cache-detective",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scan whole .NET workspaces for cache consistency risks with cross-solution dependencies, confidence, and evidence.",
   "author": {
     "name": "Dmitry Linetsky"

@@ -5,9 +5,13 @@ public sealed record KeyDependency(GraphVertex Target, Confidence Confidence,
 
 public static class CacheGraphDependencies
 {
+    /// <summary>The depth of the code call graph, so every walk in the project stops the same way.</summary>
+    private const int MAXIMUM_DEPTH = 12;
+
     public static IReadOnlyList<KeyDependency> DependsOn(this CacheGraph graph, CacheKey key)
     {
         var edges = graph.Edges.ToArray();
+        var views = graph.Views.ToDictionary(view => view.Name, StringComparer.Ordinal);
         var dependencies = new List<KeyDependency>();
         var keyPath = new HashSet<(string Template, string Store)> { GetKeyId(key) };
 
@@ -22,21 +26,34 @@ public static class CacheGraphDependencies
                 var nextPath = Append(path, caches);
                 var nextConfidence = Weaken(confidence, caches.Confidence);
                 var handler = (Handler)caches.From;
-                WalkHandler(handler, nextPath, nextConfidence,
-                    new HashSet<(string Solution, string Symbol)> { GetHandlerId(handler) }, activeKeys);
+                WalkSource(handler, nextPath, nextConfidence,
+                    new HashSet<string>(StringComparer.Ordinal) { GetSourceId(handler) }, activeKeys, 0);
             }
         }
 
-        void WalkHandler(Handler handler, IReadOnlyList<GraphEdge> path, Confidence confidence,
-                         ISet<(string Solution, string Symbol)> activeHandlers,
-                         ISet<(string Template, string Store)> activeKeys)
+        // Walks out of whatever can read: a handler, a procedure it calls, or a view it reads. A handler
+        // that calls a procedure depends on what the procedure reads, and one that reads a view depends
+        // on the view's tables.
+        void WalkSource(ReadSource source, IReadOnlyList<GraphEdge> path, Confidence confidence,
+                        ISet<string> activeSources, ISet<(string Template, string Store)> activeKeys,
+                        int depth)
         {
-            foreach (var read in edges.OfType<Reads>().Where(edge => IsHandler(edge.From, handler)))
+            foreach (var read in edges.OfType<Reads>().Where(edge => IsSource(edge.From, source)))
             {
                 var nextPath = Append(path, read);
                 var nextConfidence = Weaken(confidence, read.Confidence);
                 if (read.To is Table table)
                 {
+                    // A view of the same name displaces the table: neither half of the graph can tell a
+                    // view from a table by name alone, so the read continues into the view's own reads.
+                    // With no database indexed the name stays a plain table and the chain ends here,
+                    // which is what phase 1 did.
+                    if (views.TryGetValue(table.Name, out var view))
+                    {
+                        Descend(view, nextPath, nextConfidence, activeSources, activeKeys, depth);
+                        continue;
+                    }
+
                     dependencies.Add(new KeyDependency(table, nextConfidence, nextPath));
                     continue;
                 }
@@ -51,17 +68,26 @@ public static class CacheGraphDependencies
                 activeKeys.Remove(dependencyId);
             }
 
-            foreach (var call in edges.OfType<Calls>().Where(edge => IsHandler(edge.From, handler)))
+            foreach (var call in edges.OfType<Calls>().Where(edge => IsSource(edge.From, source)))
             {
-                var target = (Handler)call.To;
-                var targetId = GetHandlerId(target);
-                if (!activeHandlers.Add(targetId))
-                    continue;
-
-                WalkHandler(target, Append(path, call), Weaken(confidence, call.Confidence),
-                    activeHandlers, activeKeys);
-                activeHandlers.Remove(targetId);
+                if (call.To is ReadSource target)
+                {
+                    Descend(target, Append(path, call), Weaken(confidence, call.Confidence),
+                        activeSources, activeKeys, depth);
+                }
             }
+        }
+
+        void Descend(ReadSource target, IReadOnlyList<GraphEdge> path, Confidence confidence,
+                     ISet<string> activeSources, ISet<(string Template, string Store)> activeKeys,
+                     int depth)
+        {
+            var id = GetSourceId(target);
+            if (depth >= MAXIMUM_DEPTH || !activeSources.Add(id))
+                return;
+
+            WalkSource(target, path, confidence, activeSources, activeKeys, depth + 1);
+            activeSources.Remove(id);
         }
     }
 
@@ -80,12 +106,18 @@ public static class CacheGraphDependencies
     private static bool IsKey(GraphVertex candidate, CacheKey key) =>
         candidate is CacheKey candidateKey && GetKeyId(candidateKey) == GetKeyId(key);
 
-    private static bool IsHandler(GraphVertex candidate, Handler handler) =>
-        candidate is Handler candidateHandler && GetHandlerId(candidateHandler) == GetHandlerId(handler);
+    private static bool IsSource(GraphVertex candidate, ReadSource source) =>
+        candidate is ReadSource candidateSource && GetSourceId(candidateSource) == GetSourceId(source);
 
     private static (string Template, string Store) GetKeyId(CacheKey key) =>
         (key.Template, key.Store);
 
-    private static (string Solution, string Symbol) GetHandlerId(Handler handler) =>
-        (handler.Solution, handler.Symbol);
+    private static string GetSourceId(ReadSource source) => source switch
+    {
+        Handler handler => $"handler:{handler.Solution}/{handler.Symbol}",
+        StoredProcedure procedure => $"procedure:{procedure.Name}",
+        Trigger trigger => $"trigger:{trigger.Name}",
+        View view => $"view:{view.Name}",
+        _ => throw new ArgumentOutOfRangeException(nameof(source))
+    };
 }

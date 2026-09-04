@@ -9,7 +9,7 @@ namespace CacheDetective;
 
 internal static class Program
 {
-    private const string Usage = """
+    private const string USAGE = """
         cachedet — inspect cache and data dependencies in .NET solutions.
 
         Usage:
@@ -22,7 +22,7 @@ internal static class Program
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine(Usage);
+            Console.Error.WriteLine(USAGE);
             return ExitCode.UsageError;
         }
 
@@ -34,13 +34,13 @@ internal static class Program
                 return ExitCode.Ok;
             case "--help":
             case "-h":
-                Console.Out.WriteLine(Usage);
+                Console.Out.WriteLine(USAGE);
                 return ExitCode.Ok;
             case "mcp":
                 return await RunMcpAsync().ConfigureAwait(false);
             default:
                 Console.Error.WriteLine($"Unknown command: {args[0]}");
-                Console.Error.WriteLine(Usage);
+                Console.Error.WriteLine(USAGE);
                 return ExitCode.UsageError;
         }
     }

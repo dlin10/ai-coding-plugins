@@ -22,16 +22,31 @@ before composing the report.
    guessing.
 4. Call `index_solution` once for every selected solution path. Continue after a load or indexing
    failure. Retain every failure and workspace diagnostic for the report.
-5. Call `find_issues` with `include_suppressed: false`, paging until every returned finding has been
+5. Call `index_database` once with the `name` of the configured database, and retain its counts and
+   its list of objects the catalogue could not answer for.
+   - A configuration with no database is **not an error**. The call says so; treat it as a skipped
+     step, not a failure, and record it in the report — without the catalogue, a chain that runs
+     through a stored procedure, a trigger, or a view stops where the code stops, and the reader has
+     to know that is why.
+   - Order does not matter. `index_database` may run before or after `index_solution`; both halves
+     pour into one graph. Calling it twice is safe: it replaces that database's half rather than
+     adding to it.
+6. Call `find_issues` with `include_suppressed: false`, paging until every returned finding has been
    collected. Preserve the header's suppressed count even though suppressed findings are withheld.
-6. For every returned finding, call `get_evidence` with its `finding_id`, paging until every fragment
+7. For every returned finding, call `get_evidence` with its `finding_id`, paging until every fragment
    in the chain has been collected.
-7. Render `.cache-detective/report-<timestamp>.md` from the template, using a sortable UTC timestamp
+8. Call `get_unresolved`, paging until every row has been collected. Some rows were recorded while
+   indexing; two are derived from the graph as it stands now, and both explain why a chain stops at a
+   stored procedure. Report them as the tool words them and do not merge them, because they call for
+   different actions: *the database is not indexed* is fixed by configuring a database and running the
+   scan again, while *the procedure is not in the catalogue of `<database>`* means the code calls
+   something that database does not have.
+9. Render `.cache-detective/report-<timestamp>.md` from the template, using a sortable UTC timestamp
    such as `yyyyMMdd-HHmmss`. Group findings by confidence: `confirmed` under Confirmed findings,
-   `likely` under Likely findings, and `unknown` under Needs checking. Put load/index failures and
-   workspace diagnostics under Needs checking as well.
-8. Render each finding's evidence as one linear, top-to-bottom chain. Include a file and line for
-   every code site and a database object name for every database site. Never render a diagram and
-   never invent a missing link.
-9. Return the report path and a compact summary including the visible finding count, suppressed
-   count, and number of solutions that failed to load or index.
+   `likely` under Likely findings, and `unknown` under Needs checking. Put load/index failures,
+   workspace diagnostics, a skipped database step, and unresolved rows under Needs checking as well.
+10. Render each finding's evidence as one linear, top-to-bottom chain. A code site carries
+    `file:line`; a stored procedure, trigger, or view carries the name of the database object instead,
+    because it has no file and no line. Never render a diagram and never invent a missing link.
+11. Return the report path and a compact summary including the visible finding count, suppressed
+    count, number of solutions that failed to load or index, and whether the database step ran.

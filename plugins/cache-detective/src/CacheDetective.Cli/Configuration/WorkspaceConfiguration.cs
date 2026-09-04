@@ -22,7 +22,7 @@ public sealed class WorkspaceConfiguration
     public Dictionary<string, double> Budgets { get; init; } = new(StringComparer.Ordinal);
 
     [JsonPropertyName("databases")]
-    public JsonElement? Databases { get; init; }
+    public DatabaseConfiguration[]? Databases { get; init; }
 
     [JsonPropertyName("services")]
     public JsonElement? Services { get; init; }

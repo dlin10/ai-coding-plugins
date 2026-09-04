@@ -23,4 +23,11 @@
     <ProjectReference Include="../CacheDetective.Cli/CacheDetective.Cli.csproj" />
   </ItemGroup>
 
+  <!-- Shared with CacheDetective.Core.Tests by linking the file, not by referencing that project: one
+       file in two compilations beats a test project depending on another test project. -->
+  <ItemGroup>
+    <Compile Include="../CacheDetective.Core.Tests/Database/SqlServerHarness.cs"
+             Link="Database/SqlServerHarness.cs" />
+  </ItemGroup>
+
 </Project>
