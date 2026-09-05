@@ -1,0 +1,29 @@
+{
+  "crossServiceEvents": [
+    { "event": "ProductPriceChangedIntegrationEvent", "publisher": "Catalog.API", "consumers": [ "Basket.API", "Webhooks.API" ] },
+    { "event": "OrderStatusChangedToPaidIntegrationEvent", "publisher": "Ordering.API", "consumers": [ "Catalog.API", "Ordering.SignalrHub", "Webhooks.API" ] }
+  ],
+  "serves": {
+    "source": "external:http:WebMVC:ICatalogService:GET {purchaseurl}/c/api/{v}/catalog/catalogbrands",
+    "targetProject": "Catalog.API",
+    "targetSymbolContains": "CatalogController.CatalogBrandsAsync"
+  },
+  "unresolvedKeys": [ "customerId" ],
+  "plantedFinding": {
+    "rule": "CROSS_SERVICE_GAP",
+    "table": "dbo.Catalog",
+    "key": "catalog:items:{page}:{take}:{brand}:{type}"
+  },
+  "eventsWithoutCrossProjectConsumer": [],
+  "annotations": [
+    {
+      "kind": "call",
+      "owner": "WebMVC",
+      "clientName": "ICatalogService",
+      "method": "GET",
+      "templateEndsWith": "items{?}",
+      "targetProject": "Catalog.API",
+      "targetSymbolContains": "CatalogController.ItemsAsync"
+    }
+  ]
+}

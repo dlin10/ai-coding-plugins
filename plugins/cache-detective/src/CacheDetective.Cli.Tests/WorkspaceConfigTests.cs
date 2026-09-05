@@ -18,7 +18,7 @@ public sealed class WorkspaceConfigTests
               "solutions": ["src/App.sln", "tests/App.Tests.csproj"],
               "budgets": { "dbo.*": 90, "dbo.Products": 15 },
               "databases": [{ "name": "shop", "connection": "env:CD_SHOP_CONN" }],
-              "services": { "catalog": { "url": "https://example.invalid" } },
+              "services": { "catalog": "Catalog.API" },
               "verify": ["schema", { "enabled": true }],
               "sensitive": { "tables": ["dbo.Users"], "redact": true }
             }
@@ -36,7 +36,7 @@ public sealed class WorkspaceConfigTests
         Assert.Equal("shop", database.Name);
         Assert.Equal("env:CD_SHOP_CONN", database.Connection);
         Assert.Null(database.Provider);
-        AssertJsonEqual(configuration.Services, roundTripped.Services);
+        Assert.Equal("Catalog.API", Assert.Single(roundTripped.Services!).Value);
         AssertJsonEqual(configuration.Verify, roundTripped.Verify);
         AssertJsonEqual(configuration.Sensitive, roundTripped.Sensitive);
     }

@@ -10,6 +10,12 @@ public static class CacheGraphDependencies
 
     public static IReadOnlyList<KeyDependency> DependsOn(this CacheGraph graph, CacheKey key)
     {
+        ArgumentNullException.ThrowIfNull(graph);
+        return graph.GetDependencies(key);
+    }
+
+    internal static IReadOnlyList<KeyDependency> Build(CacheGraph graph, CacheKey key)
+    {
         var edges = graph.Edges.ToArray();
         var views = graph.Views.ToDictionary(view => view.Name, StringComparer.Ordinal);
         var dependencies = new List<KeyDependency>();
@@ -55,6 +61,21 @@ public static class CacheGraphDependencies
                     }
 
                     dependencies.Add(new KeyDependency(table, nextConfidence, nextPath));
+                    continue;
+                }
+
+                if (read.To is ExternalSource external)
+                {
+                    var joins = edges.OfType<Serves>().Where(edge => edge.From is ExternalSource candidate && candidate == external).ToArray();
+                    if (joins.Length == 0)
+                    {
+                        dependencies.Add(new KeyDependency(external, nextConfidence, nextPath));
+                        continue;
+                    }
+
+                    foreach (var serves in joins)
+                        Descend((Handler)serves.To, Append(nextPath, serves), Weaken(nextConfidence, serves.Confidence),
+                            activeSources, activeKeys, depth);
                     continue;
                 }
 

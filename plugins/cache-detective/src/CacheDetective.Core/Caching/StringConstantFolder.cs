@@ -266,10 +266,45 @@ internal sealed class StringConstantFolder(Solution solution, FoldedPlaceholders
 
                 return Substitution(parameter.Name);
             case ILocalSymbol local:
-                return Substitution(local.Name);
+                var localPath = new HashSet<ISymbol>(visiting, SymbolEqualityComparer.Default);
+                if (!localPath.Add(local))
+                {
+                    return Unknown("The local string value contains an initialization cycle.");
+                }
+
+                var values = local.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax())
+                                  .OfType<VariableDeclaratorSyntax>().Select(declarator => declarator.Initializer?.Value)
+                                  .Where(value => value is not null).Cast<ExpressionSyntax>()
+                                  .Concat(local.ContainingSymbol.DeclaringSyntaxReferences.SelectMany(reference => reference.GetSyntax()
+                                      .DescendantNodes().OfType<AssignmentExpressionSyntax>().Where(assignment =>
+                                          assignment.IsKind(SyntaxKind.SimpleAssignmentExpression) &&
+                                          SymbolEqualityComparer.Default.Equals(bound.SemanticModel.Compilation.GetSemanticModel(assignment.Left.SyntaxTree)
+                                              .GetSymbolInfo(assignment.Left, cancellationToken).Symbol, local)).Select(assignment => assignment.Right)))
+                                  .ToArray();
+                if (values.Length == 0)
+                {
+                    return Substitution(local.Name);
+                }
+                if (values.Length == 1 && bound.SemanticModel.GetSymbolInfo(values[0], cancellationToken).Symbol is IParameterSymbol localParameter &&
+                    !bound.Bindings.ContainsKey(localParameter))
+                {
+                    return Substitution(local.Name);
+                }
+
+                var folded = new List<FoldedString>();
+                foreach (var value in values)
+                {
+                    var valueModel = await GetSemanticModelAsync(value, bound.SemanticModel, cancellationToken);
+                    if (valueModel is not null)
+                        folded.Add(await FoldAsync(new BoundExpression(value, valueModel, bound.Bindings), helperHops, localPath, cancellationToken));
+                }
+
+                if (folded.Count > 0 && folded.All(candidate => candidate.Value == folded[0].Value))
+                    return folded[0];
+                return Unknown($"assigned differently in {values.Length} places");
             case IPropertySymbol property:
                 return Substitution(property.Name);
-            case IFieldSymbol { IsStatic: true, IsReadOnly: true } field:
+            case IFieldSymbol { IsReadOnly: true } field:
                 var fieldPath = new HashSet<ISymbol>(visiting, SymbolEqualityComparer.Default);
                 if (!fieldPath.Add(field))
                 {
@@ -277,8 +312,17 @@ internal sealed class StringConstantFolder(Solution solution, FoldedPlaceholders
                 }
 
                 var initializer = field.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax())
-                                       .Select(GetInitializer)
-                                       .FirstOrDefault(candidate => candidate is not null);
+                                       .Select(GetInitializer).FirstOrDefault(candidate => candidate is not null);
+                if (initializer is null && !field.IsStatic)
+                {
+                    var assignments = field.ContainingType.InstanceConstructors.SelectMany(constructor => constructor.DeclaringSyntaxReferences)
+                                           .SelectMany(reference => reference.GetSyntax().DescendantNodes().OfType<AssignmentExpressionSyntax>())
+                                           .Where(assignment => assignment.IsKind(SyntaxKind.SimpleAssignmentExpression) &&
+                                               SymbolEqualityComparer.Default.Equals(bound.SemanticModel.Compilation.GetSemanticModel(assignment.Left.SyntaxTree)
+                                                   .GetSymbolInfo(assignment.Left, cancellationToken).Symbol, field))
+                                           .Select(assignment => assignment.Right).Take(2).ToArray();
+                    initializer = assignments.Length == 1 ? assignments[0] : null;
+                }
                 if (initializer is null)
                 {
                     return Unknown("The static readonly key field has no source initializer.");

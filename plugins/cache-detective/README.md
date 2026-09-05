@@ -102,6 +102,22 @@ created or changed. The scan skill separately writes the requested Markdown repo
 - `StackExchange.Redis.IDatabase`, including string/hash operations, deletion, increment, expiration,
   and conditional sets
 
+## Events and services
+
+Cache Detective recognizes MediatR, MassTransit, Rebus, and NServiceBus publishers and consumers. Add
+other buses with an `events` entry in `.cache-detective/workspace.json`, naming its publisher type,
+publish methods, event argument, consumer interface, and handler method. registration with the bus is not checked.
+
+External HTTP and gRPC reads can join a service endpoint through `services`, a mapping from client name
+to project or solution. The join first uses an explicit `services` mapping, then a normalized client
+name, then an unambiguous route or gRPC contract. Gateway configuration files are not read, so record
+an explicit mapping or annotation when they are the only destination evidence.
+
+Use `annotate` to record a proven key, SQL, call, event, role, or API fact without changing source.
+The scan workflow delegates bounded unresolved review to the `static-analyst` subagent; it reports
+each applied annotation and each safe refusal. The eShopOnContainers eval is documented in
+[skills/scan/evals/eshop/README.md](skills/scan/evals/eshop/README.md).
+
 ## What it reads
 
 Alongside EF Core table access and tracked writes, raw SQL is now parsed. Dapper calls, ADO.NET
@@ -122,7 +138,14 @@ calls produces no finding at all.
 
 Dynamic SQL built at run time (`sp_executesql`, `EXEC(@sql)`) is recorded as unresolved, not followed.
 Column-level dependencies are not modelled: a key depends on tables. Cache Detective does not analyze
-response or output caching, follow external service calls, or verify findings at runtime. It reports
+response or output caching, follow a call out of the workspace, or verify findings at runtime. It reports
 one reading of orphan invalidation — a `Remove` of a key nothing caches — and deliberately not the
 other, because it cannot yet see every writer of a table. Configuration fields reserved for services,
 verification, and sensitive data are preserved for later phases but are not interpreted yet.
+
+Two limits are known and deliberate for now, both visible on eShopOnContainers. A value that depends
+on a branch — a local assigned differently in two places, so a URL or a key differs per path — folds
+to one unknown template rather than to the several templates it can take, which is sound but coarse:
+the site becomes an unresolved row for the agent instead of several sources. And an event published
+through a shared helper is attributed to the helper, so every type that helper can publish appears
+in the event chain of a finding headed by one of its callers.

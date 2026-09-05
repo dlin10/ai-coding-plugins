@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using StackExchange.Redis;
+using MassTransit;
+using Contracts;
 
 namespace Catalog;
 
@@ -18,12 +20,14 @@ public sealed class ProductsController : ControllerBase
     private readonly ShopContext _context;
     private readonly IMemoryCache _memory;
     private readonly IDatabase _redis;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public ProductsController(ShopContext context, IMemoryCache memory, IDatabase redis)
+    public ProductsController(ShopContext context, IMemoryCache memory, IDatabase redis, IPublishEndpoint publishEndpoint)
     {
         _context = context;
         _memory = memory;
         _redis = redis;
+        _publishEndpoint = publishEndpoint;
     }
 
     /// <summary>
@@ -102,6 +106,17 @@ public sealed class ProductsController : ControllerBase
         var level = await _context.Inventory.FirstAsync(candidate => candidate.ProductId == id);
         level.OnHand += delta;
         await _context.SaveChangesAsync();
+    }
+
+    /// <summary>Case I: the event leaves this service, but Notifications does not invalidate product cards.
+    /// Expected: CROSS_SERVICE_GAP for <c>product:{id}</c>.</summary>
+    [HttpPost("{id:int}/rename")]
+    public async Task Rename(int id, string name)
+    {
+        var product = await _context.Products.FirstAsync(candidate => candidate.Id == id);
+        product.Name = name;
+        await _context.SaveChangesAsync();
+        await _publishEndpoint.Publish(new ProductRenamed(id));
     }
 
     /// <summary>

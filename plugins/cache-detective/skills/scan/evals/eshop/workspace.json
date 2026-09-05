@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "root": ".",
+  "solutions": [ "src/eShopOnContainers-ServicesAndWebApps.sln" ],
+  "events": [
+    {
+      "name": "eshop",
+      "publisher": "Microsoft.eShopOnContainers.BuildingBlocks.EventBus.Abstractions.IEventBus",
+      "methods": [ "Publish" ],
+      "event_argument": 0,
+      "consumer": "IIntegrationEventHandler",
+      "arity": 1,
+      "handle": "Handle",
+      "handler_kind": "integration_event_handler"
+    },
+    {
+      "name": "eshop-ordering-outbox",
+      "publisher": "Microsoft.eShopOnContainers.Services.Ordering.API.Application.IntegrationEvents.IOrderingIntegrationEventService",
+      "methods": [ "AddAndSaveEventAsync" ],
+      "event_argument": 0
+    }
+  ]
+}

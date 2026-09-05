@@ -41,6 +41,21 @@ public sealed class ProcedureGapTests
     }
 
     [Fact]
+    public void An_indexed_but_empty_catalogue_gives_reason_b()
+    {
+        var graph = BuildCodeHalf();
+        var catalogue = new CacheGraph();
+        catalogue.AddIndexedDatabase(DATABASE);
+        graph.ReplaceDatabase(DATABASE, catalogue);
+
+        var gap = Assert.Single(ProcedureGaps.Derive(graph));
+
+        Assert.Contains("dbo.ApplyDiscount", gap.Unresolved.Reason, StringComparison.Ordinal);
+        Assert.Contains(DATABASE, gap.Unresolved.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("no database is indexed", gap.Unresolved.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Says_nothing_once_the_catalogue_answers_for_the_procedure()
     {
         foreach (var graph in BothIndexingOrders(catalogueHoldsTheProcedure: true))

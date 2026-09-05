@@ -21,7 +21,8 @@ public sealed record CacheMethodRecognizer(string Name, CacheSemantic Semantic, 
                                            ConditionalSet? ConditionalSet = null);
 
 public sealed record CacheRecognizer(string TypeName, string Store,
-                                     IReadOnlyList<CacheMethodRecognizer> Methods);
+                                     IReadOnlyList<CacheMethodRecognizer> Methods,
+                                     Confidence Confidence = Confidence.Confirmed, int? AnnotationId = null);
 
 public sealed record CacheOperation(Handler Handler, CacheKey Key, CacheSemantic Semantic,
                                     bool IsConditionalSet, IReadOnlyList<Evidence> Evidence);

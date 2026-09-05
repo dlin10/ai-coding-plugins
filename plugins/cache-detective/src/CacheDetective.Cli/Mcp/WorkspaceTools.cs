@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using CacheDetective.Serialization;
+using CacheDetective.Configuration;
 using ModelContextProtocol.Server;
 
 namespace CacheDetective.Mcp;
@@ -16,9 +17,13 @@ internal sealed class WorkspaceTools
                                                 [Description("Solution or project paths relative to root. Omit to retain existing paths.")]
                                                 string[]? solutions = null,
                                                 [Description("Table staleness budgets in seconds. Omit to retain existing budgets.")]
-                                                Dictionary<string, double>? budgets = null)
+                                                Dictionary<string, double>? budgets = null,
+                                                [Description("Client-name to solution/project service mappings. Omit to retain existing mappings.")]
+                                                Dictionary<string, string>? services = null,
+                                                [Description("Additional event bus recognizers. Omit to retain existing recognizers.")]
+                                                EventRecognizerConfiguration[]? events = null)
     {
-        var result = await session.InitializeAsync(root, solutions, budgets, cancellationToken)
+        var result = await session.InitializeAsync(root, solutions, budgets, cancellationToken, services, events)
                                   .ConfigureAwait(false);
         return JsonSerializer.Serialize(result, CacheDetectiveJsonContext.Default.WorkspaceInitResult);
     }

@@ -3,6 +3,8 @@ using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Caching.Memory;
+using MassTransit;
+using Contracts;
 
 namespace Pricing;
 
@@ -17,11 +19,13 @@ public sealed class DiscountsController : ControllerBase
 {
     private readonly IDbConnection _connection;
     private readonly IMemoryCache _memory;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public DiscountsController(IDbConnection connection, IMemoryCache memory)
+    public DiscountsController(IDbConnection connection, IMemoryCache memory, IPublishEndpoint publishEndpoint)
     {
         _connection = connection;
         _memory = memory;
+        _publishEndpoint = publishEndpoint;
     }
 
     /// <summary>
@@ -89,6 +93,14 @@ public sealed class DiscountsController : ControllerBase
         var affected = _connection.Execute("EXEC dbo.ApplyLoyaltyDiscount @Id", new { Id = id });
         _memory.Remove($"price:{id}");
         return affected;
+    }
+
+    /// <summary>Case H: a confirmed event transition reaches Notifications, which invalidates price cache.</summary>
+    [HttpPost("prices/{id:int}/change")]
+    public async Task PublishPriceChange(int id, decimal amount)
+    {
+        _connection.Execute("UPDATE dbo.Prices SET Amount = @Amount WHERE ProductId = @Id", new { Amount = amount, Id = id });
+        await _publishEndpoint.Publish(new PriceChanged(id));
     }
 }
 

@@ -29,7 +29,7 @@ internal sealed class FindingTools
     [McpServerTool(Name = "find_issues"),
      Description("Returns all cache findings, optionally filtered by rule or confidence.")]
     public static async Task<string> FindIssues(WorkspaceSession session, CancellationToken cancellationToken,
-                                                [Description("UNGUARDED_WRITE, ORPHAN_INVALIDATION or PATTERN_MISMATCH.")] string? rule = null,
+                                                [Description("UNGUARDED_WRITE, CROSS_SERVICE_GAP, EXTERNAL_NO_TTL, STALE_PARENT_KEY, ORPHAN_INVALIDATION or PATTERN_MISMATCH.")] string? rule = null,
                                                 [Description("confirmed, likely or unknown.")] string? confidence = null,
                                                 [Description("Include findings suppressed by their TTL budget. Defaults to false.")]
                                                 bool includeSuppressed = false,
@@ -46,7 +46,7 @@ internal sealed class FindingTools
     [McpServerTool(Name = "get_unresolved"),
      Description("Returns unresolved analysis entries with ten source lines before and after each site.")]
     public static async Task<string> GetUnresolved(WorkspaceSession session, CancellationToken cancellationToken,
-                                                   [Description("key, sql, call, cache_api or role.")] string? kind = null,
+                                                   [Description("key, sql, call, cache_api, role, event or event_api.")] string? kind = null,
                                                    [Description("One-based page. Defaults to 1.")] int page = PageArguments.DefaultPage,
                                                    [Description("Entries per page. Defaults to 50.")] int pageSize = PageArguments.DefaultPageSize)
     {

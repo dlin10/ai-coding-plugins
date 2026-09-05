@@ -23,3 +23,4 @@ plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user
 .codex/config.toml
 /.codex/config.toml
+/plugins/cache-detective/docs/cache-detective-spec.md

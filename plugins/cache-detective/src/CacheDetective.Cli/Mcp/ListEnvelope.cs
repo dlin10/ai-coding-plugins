@@ -40,17 +40,18 @@ internal static class ResponseEnvelope
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedPage);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedPageSize);
 
-        for (var pageSize = requestedPageSize; pageSize > 0; pageSize--)
-        {
-            var candidate = Build(source, requestedPage, pageSize, requestedPageSize);
-            if (JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <= MaximumSerializedBytes)
-            {
-                return candidate;
-            }
-        }
+        var regularPages = source.Count == 0 ? 0 : (int)Math.Ceiling((double)source.Count / requestedPageSize);
+        if (Enumerable.Range(1, regularPages).All(page => Fits(Build(source, page, requestedPageSize, requestedPageSize), typeInfo)))
+            return Build(source, requestedPage, requestedPageSize, requestedPageSize);
 
-        var notice = $"Page omitted because one item exceeds the {MaximumSerializedBytes}-byte response limit.";
-        return new ListEnvelope<T>(source.Count, requestedPage, source.Count == 0 ? 0 : source.Count, [], notice);
+        const string notice = "Page size was reduced to stay under the response limit.";
+        var partitions = Partition(source, requestedPageSize, notice, typeInfo);
+        if (partitions is null)
+            return new ListEnvelope<T>(source.Count, requestedPage, source.Count == 0 ? 0 : source.Count, [],
+                $"Page omitted because one item exceeds the {MaximumSerializedBytes}-byte response limit.");
+
+        var items = requestedPage <= partitions.Count ? partitions[requestedPage - 1] : [];
+        return new ListEnvelope<T>(source.Count, requestedPage, partitions.Count, items, notice);
     }
 
     private static ListEnvelope<T> Build<T>(IReadOnlyList<T> source,
@@ -70,4 +71,25 @@ internal static class ResponseEnvelope
 
         return new ListEnvelope<T>(source.Count, page, pages, items, notice);
     }
+
+    private static List<List<T>>? Partition<T>(IReadOnlyList<T> source, int requestedPageSize, string notice,
+                                               JsonTypeInfo<ListEnvelope<T>> typeInfo)
+    {
+        var partitions = new List<List<T>>();
+        var offset = 0;
+        while (offset < source.Count)
+        {
+            var count = Math.Min(requestedPageSize, source.Count - offset);
+            while (count > 0 && !Fits(new ListEnvelope<T>(source.Count, source.Count, source.Count,
+                                                           source.Skip(offset).Take(count).ToList(), notice), typeInfo))
+                count--;
+            if (count == 0) return null;
+            partitions.Add(source.Skip(offset).Take(count).ToList());
+            offset += count;
+        }
+        return partitions;
+    }
+
+    private static bool Fits<T>(ListEnvelope<T> candidate, JsonTypeInfo<ListEnvelope<T>> typeInfo) =>
+        JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <= MaximumSerializedBytes;
 }

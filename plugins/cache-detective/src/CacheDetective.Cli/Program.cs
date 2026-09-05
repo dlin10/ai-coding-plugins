@@ -61,7 +61,8 @@ internal static class Program
         }).WithStdioServerTransport()
           .WithTools<WorkspaceTools>()
           .WithTools<TraceTools>()
-          .WithTools<FindingTools>();
+          .WithTools<FindingTools>()
+          .WithTools<AnnotationTools>();
 
         await builder.Build().RunAsync().ConfigureAwait(false);
         return ExitCode.Ok;

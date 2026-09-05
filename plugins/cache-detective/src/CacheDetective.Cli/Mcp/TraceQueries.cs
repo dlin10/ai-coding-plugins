@@ -1,9 +1,11 @@
 using System.Text.Json;
+using System.Collections;
 using System.Text.Json.Serialization.Metadata;
 using CacheDetective.Caching;
 using CacheDetective.Configuration;
 using CacheDetective.Serialization;
 using CacheDetective.Graph;
+using CacheDetective.Rules;
 
 namespace CacheDetective.Mcp;
 
@@ -11,7 +13,7 @@ internal static class TraceQueries
 {
     /// <summary>Raised from 1 for phase 2: the export now carries procedure, view and trigger nodes and
     /// the <c>fires</c> edge, so a graph captured under phase 1 is no longer directly comparable.</summary>
-    private const int GRAPH_EXPORT_VERSION = 2;
+    private const int GRAPH_EXPORT_VERSION = 3;
 
     internal static TraceKeyResult TraceKey(CacheGraph graph, string template, string? store, PageArguments page)
     {
@@ -49,6 +51,8 @@ internal static class TraceQueries
                          .Concat(graph.StoredProcedures.Select(ProcedureNode))
                          .Concat(graph.Views.Select(ViewNode))
                          .Concat(graph.Triggers.Select(TriggerNode))
+                         .Concat(graph.Events.Select(EventNode))
+                         .Concat(graph.ExternalSources.Select(ExternalNode))
                          .OrderBy(node => node.Id, StringComparer.Ordinal)
                          .ToArray();
 
@@ -69,6 +73,11 @@ internal static class TraceQueries
                                                                               item.Reason))
                               .ToArray();
 
+        var hops = graph.EventHops().Select(hop => new EventHopExport(NodeId(hop.Publish.From), NodeId(hop.Publish.To),
+            NodeId(hop.Consume.From), NodeId(hop.Consume.To), ConfidenceName(hop.Confidence), hop.Reason)).ToArray();
+        var annotations = graph.Annotations.Select(annotation => new GraphAnnotationExport(annotation.Id, annotation.UnresolvedId,
+            Kind(annotation.Kind), annotation.Solution, annotation.Site.Describe(), annotation.Snippet,
+            JsonDocument.Parse(annotation.Resolution).RootElement.Clone(), annotation.Note)).ToArray();
         if (!string.IsNullOrWhiteSpace(filter))
         {
             var selectedIds = nodes.Where(node => Matches(node, filter)).Select(node => node.Id).ToHashSet(StringComparer.Ordinal);
@@ -82,6 +91,10 @@ internal static class TraceQueries
             nodes = nodes.Where(node => selectedIds.Contains(node.Id)).ToArray();
             edges = selectedEdges;
             unresolved = unresolved.Where(item => Matches(item, filter)).ToArray();
+            hops = hops.Where(hop => selectedIds.Contains(hop.Publisher) || selectedIds.Contains(hop.Consumer) ||
+                                     selectedIds.Contains(hop.PublishedEvent) || selectedIds.Contains(hop.ConsumedEvent)).ToArray();
+            annotations = annotations.Where(annotation => Contains(annotation.Kind, filter) || Contains(annotation.Site, filter) ||
+                                              Contains(annotation.Snippet, filter) || Contains(annotation.Note, filter)).ToArray();
         }
 
         return new GraphExport(GRAPH_EXPORT_VERSION,
@@ -89,7 +102,8 @@ internal static class TraceQueries
                                nodes,
                                edges,
                                unresolved,
-                               []);
+                               hops,
+                               annotations);
     }
 
     private static TraceKeyResult BuildKeyTrace(CacheGraph graph, CacheKey key, PageArguments page, string? notice)
@@ -108,7 +122,7 @@ internal static class TraceQueries
                                 .ToArray();
         var invalidatedBy = graph.Edges.OfType<Invalidates>()
                                  .Where(edge => CacheKeyCovering.Covers(edge, key, key.TagsAny))
-                                 .Select(edge => InvalidationTrace(edge, key))
+                                 .Select(edge => InvalidationTrace(edge, key, graph, cachedBy))
                                  .OrderBy(invalidation => invalidation.Handler.Solution, StringComparer.Ordinal)
                                  .ThenBy(invalidation => invalidation.Handler.Symbol, StringComparer.Ordinal)
                                  .ToArray();
@@ -175,14 +189,33 @@ internal static class TraceQueries
                              ? null
                              : $"Page size was reduced from {requested.PageSize} to {pageSize} to stay under " +
                                $"the {ResponseEnvelope.MaximumSerializedBytes}-byte response limit.";
-            var result = build(new PageArguments { Page = requested.Page, PageSize = pageSize }, notice);
-            if (JsonSerializer.SerializeToUtf8Bytes(result, typeInfo).Length <= ResponseEnvelope.MaximumSerializedBytes)
-            {
-                return result;
-            }
+            var first = build(new PageArguments { Page = 1, PageSize = pageSize }, notice);
+            var pages = PageCount(first);
+            if (Enumerable.Range(1, Math.Max(1, pages)).All(currentPage =>
+                    JsonSerializer.SerializeToUtf8Bytes(build(new PageArguments { Page = currentPage, PageSize = pageSize }, notice), typeInfo).Length <=
+                    ResponseEnvelope.MaximumSerializedBytes))
+                return build(new PageArguments { Page = requested.Page, PageSize = pageSize }, notice);
         }
 
         throw new InvalidOperationException($"The trace response cannot fit within {ResponseEnvelope.MaximumSerializedBytes} bytes.");
+    }
+
+    private static int PageCount(object? value)
+    {
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        return PageCount(value, visited);
+    }
+
+    private static int PageCount(object? value, ISet<object> visited)
+    {
+        if (value is null or string) return 0;
+        var type = value.GetType();
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ListEnvelope<>))
+            return (int)type.GetProperty(nameof(ListEnvelope<object>.Pages))!.GetValue(value)!;
+        if (type.IsPrimitive || type.IsEnum || type.IsValueType) return 0;
+        if (!visited.Add(value) || value is IEnumerable) return 0;
+        return type.GetProperties().Where(property => property.CanRead && property.GetIndexParameters().Length == 0)
+                   .Select(property => PageCount(property.GetValue(value), visited)).DefaultIfEmpty().Max();
     }
 
     internal static ListEnvelope<T> Page<T>(IReadOnlyList<T> items, PageArguments page) =>
@@ -197,7 +230,7 @@ internal static class TraceQueries
                                     handler.File,
                                     handler.Line,
                                     ConfidenceName(edge.Confidence),
-                                    Evidence(edge.Evidence));
+                                    Evidence(edge.Evidence), handler.Project);
     }
 
     /// <summary>One line of a table's readers or writers. A handler names a file and a line; a procedure,
@@ -216,7 +249,8 @@ internal static class TraceQueries
                                                            handler.Line,
                                                            null,
                                                            confidence,
-                                                           evidence),
+                                                           evidence,
+                                                           handler.Project),
                    StoredProcedure procedure => new TableAccessTrace("procedure",
                                                                      procedure.Name,
                                                                      null,
@@ -252,15 +286,24 @@ internal static class TraceQueries
                                                        key.Store,
                                                        ConfidenceName(dependency.Confidence),
                                                        dependency.Path.Select(ExportEdge).ToArray()),
+                   ExternalSource source => new DependencyTrace("ExternalSource", NodeId(source), source.Template, null,
+                                                               ConfidenceName(dependency.Confidence), dependency.Path.Select(ExportEdge).ToArray()),
                    _ => throw new ArgumentOutOfRangeException(nameof(dependency))
                };
     }
 
-    private static InvalidationTrace InvalidationTrace(Invalidates edge, CacheKey key) => new(HandlerTrace(edge),
-                                                                                              SemanticName(edge.Semantic),
-                                                                                              ((CacheKey)edge.To).Template,
-                                                                                              ((CacheKey)edge.To).Store,
-                                                                                              CacheKeyCovering.Covers(edge, key, key.TagsAll));
+    private static InvalidationTrace InvalidationTrace(Invalidates edge, CacheKey key, CacheGraph graph,
+                                                       IReadOnlyList<HandlerEdgeTrace> cachedBy)
+    {
+        var target = (Handler)edge.From;
+        var reach = cachedBy.Select(item => graph.Handlers.Single(handler => handler.Solution == item.Solution && handler.Symbol == item.Symbol))
+                             .Select(handler => Reachability.From(handler, graph.Edges, graph).Handlers.GetValueOrDefault((target.Solution, target.Symbol)))
+                             .Where(item => item is not null).Cast<ReachedHandler>()
+                             .OrderBy(item => item.Confidence).ThenBy(item => item.Path.Count).FirstOrDefault();
+        return new InvalidationTrace(HandlerTrace(edge), SemanticName(edge.Semantic), ((CacheKey)edge.To).Template,
+            ((CacheKey)edge.To).Store, CacheKeyCovering.Covers(edge, key, key.TagsAll),
+            reach is null ? "none" : reach.ViaEvent ? "event" : "calls", reach is null ? "confirmed" : ConfidenceName(reach.Confidence));
+    }
 
     private static GraphNodeExport KeyNode(CacheKey key) => new(NodeId(key),
                                                                 "CacheKey",
@@ -299,7 +342,9 @@ internal static class TraceQueries
                                                                        handler.File,
                                                                        handler.Line,
                                                                        null,
-                                                                       null);
+                                                                       null,
+                                                                       handler.Project,
+                                                                       handler.Routes.Select(route => $"{route.Method} {route.Template}").ToArray());
 
     private static GraphNodeExport ProcedureNode(StoredProcedure procedure) => new(NodeId(procedure),
                                                                                    "StoredProcedure",
@@ -340,13 +385,19 @@ internal static class TraceQueries
                                                                        trigger.Table,
                                                                        trigger.Events.Select(EventName).Order(StringComparer.Ordinal).ToArray());
 
+    private static GraphNodeExport EventNode(Event @event) => new(NodeId(@event), "Event", null, @event.Name, null, null, null, null, null,
+                                                                     null, null, null, null, null, null, null, null);
+    private static GraphNodeExport ExternalNode(ExternalSource source) => new(NodeId(source), "ExternalSource", null, null, null, null, null,
+        null, null, null, null, null, null, null, null, null, null, Method: source.Method, ClientName: source.ClientName, Owner: source.Owner);
+
     private static GraphEdgeExport ExportEdge(GraphEdge edge) => new(NodeId(edge.From),
                                                                      NodeId(edge.To),
                                                                      EdgeType(edge),
                                                                      ConfidenceName(edge.Confidence),
                                                                      Evidence(edge.Evidence),
                                                                      edge is Invalidates invalidates ? SemanticName(invalidates.Semantic) : null,
-                                                                     edge is Caches caches ? caches.IsConditionalSet : null);
+                                                                     edge is Caches caches ? caches.IsConditionalSet : null,
+                                                                     edge is Serves serves ? serves.Level : null, edge.AnnotationId, edge.Reason);
 
     internal static string NodeId(GraphVertex vertex) => vertex switch
                                                          {
@@ -356,6 +407,8 @@ internal static class TraceQueries
                                                              StoredProcedure procedure => $"procedure:{procedure.Name}",
                                                              View view => $"view:{view.Name}",
                                                              Trigger trigger => $"trigger:{trigger.Name}",
+                                                             Event @event => $"event:{@event.FullName}",
+                                                             ExternalSource source => $"external:{source.Kind}:{source.Owner}:{source.ClientName ?? "-"}:{source.Method} {source.Template}",
                                                              _ => throw new ArgumentOutOfRangeException(nameof(vertex))
                                                          };
 
@@ -367,6 +420,9 @@ internal static class TraceQueries
                                                            Invalidates => "invalidates",
                                                            Calls => "calls",
                                                            Fires => "fires",
+                                                           Publishes => "publishes",
+                                                           Consumes => "consumes",
+                                                           Serves => "serves",
                                                            _ => throw new ArgumentOutOfRangeException(nameof(edge))
                                                        };
 
@@ -394,6 +450,8 @@ internal static class TraceQueries
                                                            UnresolvedKind.Call => "call",
                                                            UnresolvedKind.CacheApi => "cache_api",
                                                            UnresolvedKind.Role => "role",
+                                                           UnresolvedKind.Event => "event",
+                                                           UnresolvedKind.EventApi => "event_api",
                                                            _ => throw new ArgumentOutOfRangeException(nameof(kind))
                                                        };
 
@@ -404,10 +462,13 @@ internal static class TraceQueries
 
     private static bool Matches(GraphNodeExport node, string filter) =>
         Contains(node.Id, filter) || Contains(node.Type, filter) || Contains(node.Template, filter) || Contains(node.Name, filter) ||
-        Contains(node.Store, filter) || Contains(node.Solution, filter) || Contains(node.Symbol, filter);
+        Contains(node.Store, filter) || Contains(node.Solution, filter) || Contains(node.Symbol, filter) || Contains(node.Project, filter) ||
+        Contains(node.Method, filter) || Contains(node.ClientName, filter) || Contains(node.Owner, filter) ||
+        node.Routes?.Any(route => Contains(route, filter)) is true;
 
     private static bool Matches(GraphEdgeExport edge, string filter) =>
-        Contains(edge.From, filter) || Contains(edge.To, filter) || Contains(edge.Type, filter) || Contains(edge.Semantic, filter);
+        Contains(edge.From, filter) || Contains(edge.To, filter) || Contains(edge.Type, filter) || Contains(edge.Semantic, filter) ||
+        Contains(edge.Level, filter) || Contains(edge.Reason, filter);
 
     private static bool Matches(UnresolvedExport unresolved, string filter) =>
         Contains(unresolved.Id, filter) || Contains(unresolved.Kind, filter) || Contains(unresolved.Solution, filter) || Contains(unresolved.File, filter) ||
@@ -420,11 +481,11 @@ internal static class TraceQueries
 }
 
 internal sealed record HandlerEdgeTrace(string Solution, string Symbol, string Kind, string File, int Line,
-                                        string Confidence, IReadOnlyList<string> Evidence);
+                                        string Confidence, IReadOnlyList<string> Evidence, string? Project = null);
 internal sealed record DependencyTrace(string Type, string Id, string Name, string? Store, string Confidence,
                                        IReadOnlyList<GraphEdgeExport> Path);
 internal sealed record InvalidationTrace(HandlerEdgeTrace Handler, string Semantic, string Template,
-                                         string Store, bool CoversAll);
+                                         string Store, bool CoversAll, string Via = "none", string Confidence = "confirmed");
 internal sealed record DependentKeyTrace(string Template, string Store, string Confidence,
                                          IReadOnlyList<GraphEdgeExport> Path);
 internal sealed record TraceKeyResult(string Template, string Store, double? Ttl, string? Role,
@@ -434,7 +495,7 @@ internal sealed record TraceKeyResult(string Template, string Store, double? Ttl
                                       string? Notice);
 internal sealed record TableAccessTrace(string Type, string Name, string? Solution, string? Kind,
                                         string? File, int? Line, string? Database, string Confidence,
-                                        IReadOnlyList<string> Evidence);
+                                        IReadOnlyList<string> Evidence, string? Project = null);
 internal sealed record TriggerTrace(string Name, string Table, string? Database,
                                     IReadOnlyList<string> Events);
 internal sealed record TraceTableResult(string Name, string? Database,
@@ -445,21 +506,26 @@ internal sealed record TraceTableResult(string Name, string? Database,
                                         string? Notice);
 internal sealed record GraphWorkspaceExport(IReadOnlyList<string> Solutions,
                                             IReadOnlyList<DatabaseConfiguration>? Databases,
-                                            JsonElement? Services);
+                                            IReadOnlyDictionary<string, string>? Services);
 internal sealed record GraphNodeExport(string Id, string Type, string? Template, string? Name, string? Store,
                                        double? Ttl, IReadOnlyList<string>? Tags,
                                        IReadOnlyList<string>? TagsAny, string? Role, string? Database,
                                        string? Solution, string? Symbol, string? Kind, string? File, int? Line,
-                                       string? Table, IReadOnlyList<string>? Events);
+                                       string? Table, IReadOnlyList<string>? Events, string? Project = null,
+                                       IReadOnlyList<string>? Routes = null, string? Method = null, string? ClientName = null, string? Owner = null);
 internal sealed record GraphEdgeExport(string From, string To, string Type, string Confidence,
-                                       IReadOnlyList<string> Evidence, string? Semantic, bool? Conditional);
+                                       IReadOnlyList<string> Evidence, string? Semantic, bool? Conditional, string? Level = null,
+                                       int? AnnotationId = null, string? Reason = null);
 internal sealed record UnresolvedExport(string Id, string Kind, string? Solution, string? File, int? Line,
                                         string? Database, string? ObjectName,
                                         string Snippet, string Reason);
-internal sealed record GraphAnnotationExport(string UnresolvedId, string Kind, JsonElement Resolution,
-                                              string? Note);
+internal sealed record GraphAnnotationExport(int Id, int UnresolvedId, string Kind, string? Solution, string Site,
+                                              string Snippet, JsonElement Resolution, string? Note);
+internal sealed record EventHopExport(string Publisher, string PublishedEvent, string ConsumedEvent, string Consumer,
+                                      string Confidence, string? Reason);
 internal sealed record GraphExport(int Version, GraphWorkspaceExport Workspace,
                                    IReadOnlyList<GraphNodeExport> Nodes,
                                    IReadOnlyList<GraphEdgeExport> Edges,
                                    IReadOnlyList<UnresolvedExport> Unresolved,
+                                   IReadOnlyList<EventHopExport> EventHops,
                                    IReadOnlyList<GraphAnnotationExport> Annotations);

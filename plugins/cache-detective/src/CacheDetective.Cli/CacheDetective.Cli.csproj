@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>cachedet</AssemblyName>
     <RootNamespace>CacheDetective</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
   </PropertyGroup>
 
   <!-- What "deployed as one file" means, and it means it only here: this is the sole published

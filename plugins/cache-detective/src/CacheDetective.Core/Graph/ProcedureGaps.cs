@@ -23,8 +23,13 @@ public static class ProcedureGaps
     public static IReadOnlyList<ProcedureGap> Derive(CacheGraph graph)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        return graph.GetProcedureGaps();
+    }
+
+    internal static IReadOnlyList<ProcedureGap> Build(CacheGraph graph)
+    {
         var edges = graph.Edges.ToArray();
-        var databases = GetIndexedDatabases(graph);
+        var databases = graph.IndexedDatabases;
         var answered = edges.Select(edge => edge.From).OfType<StoredProcedure>().Select(procedure => procedure.Name).ToHashSet(StringComparer.Ordinal);
         var recorded = new HashSet<string>(StringComparer.Ordinal);
         var gaps = new List<ProcedureGap>();
@@ -81,15 +86,4 @@ public static class ProcedureGaps
                    : null;
     }
 
-    /// <summary>The databases the graph has been told about. Only the catalogue half creates a view, a
-    /// trigger, or a procedure that knows which database it lives in, so these are its footprint — a
-    /// table's database is not a witness, because the code half stamps one on every table it maps.</summary>
-    private static IReadOnlyList<string> GetIndexedDatabases(CacheGraph graph) =>
-        graph.StoredProcedures.Select(procedure => procedure.Database)
-             .Concat(graph.Views.Select(view => view.Database))
-             .Concat(graph.Triggers.Select(trigger => trigger.Database))
-             .OfType<string>()
-             .Distinct(StringComparer.Ordinal)
-             .Order(StringComparer.Ordinal)
-             .ToArray();
 }

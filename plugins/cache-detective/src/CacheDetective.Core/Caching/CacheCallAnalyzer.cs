@@ -6,11 +6,18 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace CacheDetective.Caching;
 
-internal sealed class CacheCallAnalyzer(Solution solution)
+internal sealed class CacheCallAnalyzer
 {
+    private readonly IReadOnlyList<CacheRecognizer> _recognizers;
     private readonly HashSet<string> _unknownTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unsupportedAttributes = new(StringComparer.Ordinal);
-    private readonly KeyTemplateFolder _keyTemplateFolder = new(solution);
+    private readonly KeyTemplateFolder _keyTemplateFolder;
+
+    public CacheCallAnalyzer(Solution solution, IReadOnlyList<CacheRecognizer> recognizers)
+    {
+        _recognizers = recognizers;
+        _keyTemplateFolder = new KeyTemplateFolder(solution);
+    }
 
     public void RecordUnsupportedAttributes(CacheGraph graph, Handler handler, IMethodSymbol method)
     {
@@ -31,7 +38,7 @@ internal sealed class CacheCallAnalyzer(Solution solution)
                 continue;
             }
 
-            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, lineSpan.Path, lineSpan.StartLinePosition.Line + 1,
+            graph.AddUnresolved(UnresolvedKind.CacheApi, handler, lineSpan.Path, lineSpan.StartLinePosition.Line + 1,
                                 syntax?.ToString() ?? attributeType.Name, $"{attributeType.Name} response caching is outside this analysis phase.");
         }
     }
@@ -65,14 +72,6 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         }
 
         var foldedKey = await _keyTemplateFolder.FoldAsync(keyExpression, semanticModel, cancellationToken);
-        if (!foldedKey.HasLiteralSegment)
-        {
-            var keyEvidence = CreateEvidence(keyExpression);
-            graph.AddUnresolved(UnresolvedKind.Key, handler.Solution, keyEvidence, keyExpression.ToString(),
-                                foldedKey.Reason ?? "The key contains no literal segment.");
-            return true;
-        }
-
         var ttl = methodRecognizer.TtlOrOptionsArgumentIndex is { } ttlIndex
                       ? ExtractTtl(GetArgumentExpression(operation, ttlIndex, match.Value.ArgumentOffset), semanticModel)
                       : null;
@@ -82,22 +81,40 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         var conditional = methodRecognizer.ConditionalSet is { } condition &&
                           (IsConstant(GetArgumentExpression(operation, condition.ArgumentIndex, match.Value.ArgumentOffset), condition.ConstantName,
                                       semanticModel) || IsConstant(GetArgumentExpression(operation, "when"), condition.ConstantName, semanticModel));
-        var key = new CacheKey(foldedKey.Template, match.Value.Recognizer.Store, ttl, tags, role: null);
         var evidence = CreateEvidence(invocation);
+        if (!foldedKey.HasLiteralSegment)
+        {
+            var keyEvidence = CreateEvidence(keyExpression);
+            var unresolved = graph.AddUnresolved(UnresolvedKind.Key, handler, keyEvidence, keyExpression.ToString(),
+                                                 foldedKey.Reason ?? "The key contains no literal segment.");
+            graph.AddPendingCacheOperation(new PendingCacheOperation(unresolved.Id, handler, match.Value.Recognizer.Store,
+                                                                      methodRecognizer.Semantic, ttl, tags, conditional, [evidence]));
+            return true;
+        }
+        var key = new CacheKey(foldedKey.Template, match.Value.Recognizer.Store, ttl, tags, role: null);
 
         graph.AddHandler(handler);
         switch (methodRecognizer.Semantic)
         {
             case CacheSemantic.Get:
-                graph.AddEdge(new Reads(handler, key, Confidence.Confirmed, [evidence]));
+                graph.AddEdge(new Reads(handler, key, match.Value.Recognizer.Confidence, [evidence])
+                {
+                    AnnotationId = match.Value.Recognizer.AnnotationId
+                });
                 break;
             case CacheSemantic.Set:
-                graph.AddEdge(new Caches(handler, key, Confidence.Confirmed, [evidence], conditional));
+                graph.AddEdge(new Caches(handler, key, match.Value.Recognizer.Confidence, [evidence], conditional)
+                {
+                    AnnotationId = match.Value.Recognizer.AnnotationId
+                });
                 break;
             case CacheSemantic.Remove:
             case CacheSemantic.RemoveByTag:
             case CacheSemantic.RemoveByPrefix:
-                graph.AddEdge(new Invalidates(handler, key, Confidence.Confirmed, [evidence], methodRecognizer.Semantic));
+                graph.AddEdge(new Invalidates(handler, key, match.Value.Recognizer.Confidence, [evidence], methodRecognizer.Semantic)
+                {
+                    AnnotationId = match.Value.Recognizer.AnnotationId
+                });
                 break;
             default:
                 graph.AddCacheKeyObservation(handler.Solution, key);
@@ -111,7 +128,11 @@ internal sealed class CacheCallAnalyzer(Solution solution)
     private bool RecordUnknownCacheType(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, IMethodSymbol method,
                                         INamedTypeSymbol? instanceType)
     {
-        var type = GetApiTypes(method, instanceType).FirstOrDefault(candidate => GetFullName(candidate).Contains("Cache", StringComparison.OrdinalIgnoreCase));
+        var type = new[] { instanceType, method.ContainingType }
+            .Where(candidate => candidate is not null)
+            .Select(candidate => candidate!.OriginalDefinition)
+            .FirstOrDefault(candidate => candidate.Name.Contains("Cache", StringComparison.OrdinalIgnoreCase) &&
+                                         !candidate.ContainingNamespace.ToDisplayString().Split('.').Contains("Internal", StringComparer.Ordinal));
         if (type is null)
         {
             return false;
@@ -121,18 +142,18 @@ internal sealed class CacheCallAnalyzer(Solution solution)
         if (_unknownTypes.Add(typeName))
         {
             var evidence = CreateEvidence(invocation);
-            graph.AddUnresolved(UnresolvedKind.CacheApi, handler.Solution, evidence, invocation.ToString(), $"Unknown cache API type {typeName}.");
+            graph.AddUnresolved(UnresolvedKind.CacheApi, handler, evidence, invocation.ToString(), $"Unknown cache API type {typeName}.");
         }
 
         return true;
     }
 
-    private static (CacheRecognizer Recognizer, int ArgumentOffset)? FindRecognizer(IMethodSymbol method, INamedTypeSymbol? instanceType)
+    private (CacheRecognizer Recognizer, int ArgumentOffset)? FindRecognizer(IMethodSymbol method, INamedTypeSymbol? instanceType)
     {
         foreach (var type in GetApiTypes(method, instanceType))
         {
             var typeName = GetFullName(type);
-            var recognizer = CacheRecognizers.All.FirstOrDefault(candidate => candidate.TypeName == typeName);
+            var recognizer = _recognizers.FirstOrDefault(candidate => candidate.TypeName == typeName);
             if (recognizer is not null)
             {
                 var argumentOffset = method.IsExtensionMethod && method.ReducedFrom is null ? 1 : 0;

@@ -2,13 +2,16 @@
 Chain line forms. A chain is one linear top-to-bottom path and every line names where it came from.
 Code has a file and a line; a database object has neither, so it carries its own name instead:
 
-    writes    Pricing/DiscountsController.cs:44   ApplyDiscount calls dbo.ApplyDiscount
+    writes    Pricing.API/Pricing/DiscountsController.cs:44   ApplyDiscount calls dbo.ApplyDiscount
     writes    shop.dbo.ApplyDiscount              -> dbo.Discounts
     fires     shop.dbo.trg_Discounts_Audit        on dbo.Discounts (insert, update)
     writes    shop.dbo.trg_Discounts_Audit        -> dbo.PriceHistory
     reads     shop.dbo.vw_ProductCard             -> dbo.PriceHistory
-    reads     Catalog/ProductsController.cs:12    product card
-    caches    Catalog/ProductsController.cs:14    product:{id} (no TTL)
+    publishes Catalog.API/CatalogController.cs:44 -> Contracts.PriceChanged
+    consumes  Notifications/PriceChangedConsumer.cs:18 <- Contracts.PriceChanged
+    serves    Notifications/DigestController.cs:31 -> Catalog.API/CatalogController.cs:76
+    reads     Catalog.API/Catalog/ProductsController.cs:12    product card
+    caches    Catalog.API/Catalog/ProductsController.cs:14    product:{id} (no TTL)
 
 Use `<database>.<schema>.<object>` for a procedure, a trigger, or a view. Never invent a file and a
 line for one, and never leave a line without either form.
@@ -50,6 +53,10 @@ Chain:
 
 {{linear_chain}}
 
+{{#invalidationSearchedIn}}
+invalidation: not found in {{invalidationSearchedIn}}
+{{/invalidationSearchedIn}}
+
 {{/confirmed}}
 {{^confirmed}}None.{{/confirmed}}
 
@@ -67,6 +74,13 @@ Chain:
 Chain:
 
 {{linear_chain}}
+
+Assumption: {{annotation_fragment}}
+Reason: {{reason}}
+
+{{#invalidationSearchedIn}}
+invalidation: not found in {{invalidationSearchedIn}}
+{{/invalidationSearchedIn}}
 
 {{/likely}}
 {{^likely}}None.{{/likely}}
@@ -104,3 +118,10 @@ ways a chain can stop at a stored procedure, and they call for different actions
 - `{{kind}}` at {{site}} — {{reason}}
 {{/unresolved}}
 {{^unresolved}}None.{{/unresolved}}
+
+## Annotations this run
+
+{{#annotations}}
+- `{{id}}` `{{kind}}`: {{resolution}}{{#note}} — {{note}}{{/note}}
+{{/annotations}}
+{{^annotations}}None.{{/annotations}}

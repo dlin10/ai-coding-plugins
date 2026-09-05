@@ -16,7 +16,9 @@ public enum UnresolvedKind
     Sql,
     Call,
     CacheApi,
-    Role
+    Role,
+    Event,
+    EventApi
 }
 
 public enum WriteEvent
@@ -61,19 +63,24 @@ public sealed record Evidence
 /// <summary>Where a site came from: the solution the code half indexed, or the database the catalogue half read.</summary>
 public sealed record GraphOrigin
 {
-    private GraphOrigin(string? solution, string? database)
+    private GraphOrigin(string? solution, string? database, bool annotation)
     {
         Solution = solution;
         Database = database;
+        Annotation = annotation;
     }
 
-    public static GraphOrigin ForSolution(string solution) => new(solution, null);
+    public static GraphOrigin ForSolution(string solution) => new(solution, null, false);
 
-    public static GraphOrigin ForDatabase(string? database) => new(null, database);
+    public static GraphOrigin ForDatabase(string? database) => new(null, database, false);
+
+    public static GraphOrigin ForAnnotation() => new(null, null, true);
 
     public string? Solution { get; }
 
     public string? Database { get; }
+
+    public bool Annotation { get; }
 }
 
 public abstract record GraphVertex;
@@ -127,7 +134,27 @@ public sealed record Table(string Name, string? Database = null) : GraphVertex
     }
 }
 
-public sealed record Handler(string Solution, string Symbol, string Kind, string File, int Line) : WriteSource;
+public sealed record Handler(string Solution, string Symbol, string Kind, string File, int Line) : WriteSource
+{
+    public string? Project { get; init; }
+
+    public IReadOnlyList<HandlerRoute> Routes { get; init; } = [];
+
+    public bool Equals(Handler? other) => other is not null && Solution == other.Solution && Symbol == other.Symbol;
+
+    public override int GetHashCode() => HashCode.Combine(Solution, Symbol);
+
+    public string ServiceId() => Project ?? Solution;
+}
+
+public sealed record HandlerRoute(string Kind, string Method, string Template);
+
+public sealed record Event(string FullName) : GraphVertex
+{
+    public string Name => FullName[(FullName.LastIndexOf('.') + 1)..];
+}
+
+public sealed record ExternalSource(string Kind, string Method, string Template, string? ClientName, string Owner) : GraphVertex;
 
 public sealed record StoredProcedure(string Name, string? Database = null) : WriteSource
 {
@@ -185,7 +212,11 @@ public abstract record GraphEdge
 
     public GraphVertex To { get; init; }
 
-    public Confidence Confidence { get; }
+    public Confidence Confidence { get; init; }
+
+    public int? AnnotationId { get; init; }
+
+    public string? Reason { get; init; }
 
     public IReadOnlyList<Evidence> Evidence { get; }
 }
@@ -201,7 +232,42 @@ public sealed record Reads : GraphEdge
         : base(from, to, confidence, evidence)
     {
     }
+
+    public Reads(Handler from, ExternalSource to, Confidence confidence, IEnumerable<Evidence>? evidence = null)
+        : base(from, to, confidence, evidence)
+    {
+    }
 }
+
+public sealed record Publishes(Handler from, Event to, Confidence confidence,
+                               IEnumerable<Evidence>? evidence = null)
+    : GraphEdge(from, to, confidence, evidence);
+
+public sealed record Consumes(Event from, Handler to, Confidence confidence,
+                              IEnumerable<Evidence>? evidence = null)
+    : GraphEdge(from, to, confidence, evidence);
+
+public sealed record Serves(ExternalSource from, Handler to, Confidence confidence,
+                            IEnumerable<Evidence>? evidence, string level)
+    : GraphEdge(from, to, confidence, evidence)
+{
+    public string Level { get; } = level;
+}
+
+public sealed record EventHop(Publishes Publish, Consumes Consume, Confidence Confidence, string? Reason);
+
+public sealed record PendingCacheOperation(int UnresolvedId, Handler Handler, string Store, CacheSemantic Semantic,
+                                           TimeSpan? Ttl, IReadOnlyList<string> Tags, bool IsConditionalSet,
+                                           IReadOnlyList<Evidence> Evidence);
+
+public enum EventSiteRole
+{
+    Publish,
+    Consume
+}
+
+public sealed record Annotation(int Id, int UnresolvedId, UnresolvedKind Kind, string? Solution, Evidence Site,
+                                string Snippet, string Resolution, string? Note);
 
 public sealed record Writes : GraphEdge
 {

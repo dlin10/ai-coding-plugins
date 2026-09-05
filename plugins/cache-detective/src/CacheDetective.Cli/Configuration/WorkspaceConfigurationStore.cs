@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CacheDetective.Serialization;
+using CacheDetective.Graph;
 
 namespace CacheDetective.Configuration;
 
@@ -22,13 +23,26 @@ public static class WorkspaceConfigurationStore
 
     public static async Task<WorkspaceConfiguration> ReadAsync(string repositoryRoot, CancellationToken cancellationToken = default)
     {
-        var path = GetPath(repositoryRoot);
+        return await ReadFileAsync(GetPath(repositoryRoot), cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<WorkspaceConfiguration> ReadFileAsync(string path, CancellationToken cancellationToken = default)
+    {
         await using var stream = File.OpenRead(path);
-        var configuration = await JsonSerializer.DeserializeAsync(stream, SERIALIZER_CONTEXT.WorkspaceConfiguration, cancellationToken).ConfigureAwait(false) ??
+        WorkspaceConfiguration configuration;
+        try
+        {
+            configuration = await JsonSerializer.DeserializeAsync(stream, SERIALIZER_CONTEXT.WorkspaceConfiguration, cancellationToken).ConfigureAwait(false) ??
                             throw new InvalidDataException($"Workspace configuration '{path}' is empty.");
+        }
+        catch (JsonException error) when (error.Path?.StartsWith("$.services", StringComparison.Ordinal) == true)
+        {
+            throw new InvalidDataException("services maps a client name to a solution or project name, as in \"catalog\": \"Catalog.API\"", error);
+        }
 
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
+        EnsureSupportedEvents(configuration);
         return configuration;
     }
 
@@ -37,6 +51,7 @@ public static class WorkspaceConfigurationStore
         ArgumentNullException.ThrowIfNull(configuration);
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
+        EnsureSupportedEvents(configuration);
 
         var path = GetPath(repositoryRoot);
         var json = JsonSerializer.Serialize(configuration, SERIALIZER_CONTEXT.WorkspaceConfiguration);
@@ -82,5 +97,11 @@ public static class WorkspaceConfigurationStore
         {
             database.EnsureSupported();
         }
+    }
+
+    private static void EnsureSupportedEvents(WorkspaceConfiguration configuration)
+    {
+        foreach (var @event in configuration.Events ?? [])
+            @event.ToRecognizer(Confidence.Confirmed, null);
     }
 }

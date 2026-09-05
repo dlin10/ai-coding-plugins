@@ -8,6 +8,11 @@
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="MassTransit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Contracts.csproj" />
   </ItemGroup>
 
   <!-- Carries ControllerBase, so the scanner sees entry points, and IMemoryCache. -->

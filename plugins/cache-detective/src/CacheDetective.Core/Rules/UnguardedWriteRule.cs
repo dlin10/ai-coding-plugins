@@ -7,9 +7,11 @@ namespace CacheDetective.Rules;
 /// is hidden.</summary>
 public sealed record UnguardedWriteFinding(Handler Handler, Writes Write, Table Table, CacheKey Key,
                                           Confidence Confidence, IReadOnlyList<GraphEdge> Chain,
-                                          double? TtlSeconds, double BudgetSeconds, bool Suppressed)
+                                          double? TtlSeconds, double BudgetSeconds, bool Suppressed,
+                                          string RuleName, IReadOnlyList<GraphEdge> EventChain, IReadOnlyList<string> SearchedProjects)
 {
     public const string Rule = "UNGUARDED_WRITE";
+    public const string CrossServiceGapRule = "CROSS_SERVICE_GAP";
 }
 
 public sealed class UnguardedWriteRule
@@ -27,7 +29,6 @@ public sealed class UnguardedWriteRule
         // through the handler that calls it, exactly as a stored unresolved of kind Sql does — which is
         // why the derived rows carry that kind. Derived here, at the point of use, and never stored: see
         // ProcedureGaps.
-        var gapHandlers = ProcedureGaps.Derive(graph).Select(gap => gap.Caller).OfType<Handler>().Select(GetHandlerId).ToHashSet();
 
         foreach (var write in edges.OfType<Writes>())
         {
@@ -42,7 +43,7 @@ public sealed class UnguardedWriteRule
                 // writer of a hidden write is a procedure or a trigger, and anchoring there would turn the
                 // commonest correct pattern — a handler calls a procedure that writes, and invalidates the
                 // key itself — into a false finding.
-                var invalidationSearch = FindReachableHandlers(head.Handler, edges);
+                var invalidationSearch = Reachability.From(head.Handler, edges, graph);
 
                 foreach (var key in cacheKeys)
                 {
@@ -61,14 +62,18 @@ public sealed class UnguardedWriteRule
                     var chain = BuildChain(head.Path, write, dependency.Path);
 
                     var confidence = Weaken(write.Confidence, dependency.Confidence);
-                    var chainHandlers = GetHandlers(chain).Concat(invalidationSearch.Handlers.Values).ToArray();
-                    if (graph.GetUnresolvedForHandlers(chainHandlers, UnresolvedKind.Call, UnresolvedKind.Sql).Count > 0 ||
-                        chainHandlers.Any(handler => gapHandlers.Contains(GetHandlerId(handler))))
+                    var chainHandlers = GetHandlers(chain).ToArray();
+                    if (ConfidenceGaps.Touches(graph, chainHandlers, GapScope.Data) ||
+                        ConfidenceGaps.Touches(graph, invalidationSearch.Handlers.Values.Select(item => item.Handler), GapScope.Coverage))
                     {
                         confidence = Confidence.Unknown;
                     }
 
-                    findings.Add(new UnguardedWriteFinding(head.Handler, write, table, key, confidence, chain, ttlSeconds, budgetSeconds, suppressed));
+                    var eventChain = invalidationSearch.PublishedHops.SelectMany(hop => new GraphEdge[] { hop.Publish,
+                        hop.Consume with { Confidence = hop.Confidence, Reason = hop.Reason } }).ToArray();
+                    findings.Add(new UnguardedWriteFinding(head.Handler, write, table, key, confidence, chain, ttlSeconds, budgetSeconds, suppressed,
+                        invalidationSearch.PublishedHops.Count > 0 ? UnguardedWriteFinding.CrossServiceGapRule : UnguardedWriteFinding.Rule,
+                        eventChain, invalidationSearch.Projects));
                 }
             }
         }
@@ -186,37 +191,12 @@ public sealed class UnguardedWriteRule
     private static bool Activates(IReadOnlySet<WriteEvent> writeEvents, IReadOnlySet<WriteEvent> triggerEvents) =>
         writeEvents.Count == 0 || writeEvents.Any(triggerEvents.Contains);
 
-    private static bool HasCoveringInvalidation(CacheKey key, IReadOnlyDictionary<(string Solution, string Symbol), Handler> reachableHandlers,
+    private static bool HasCoveringInvalidation(CacheKey key, IReadOnlyDictionary<(string Solution, string Symbol), ReachedHandler> reachableHandlers,
                                                 IEnumerable<GraphEdge> edges) =>
         edges.OfType<Invalidates>()
              .Any(invalidation => reachableHandlers.ContainsKey(GetHandlerId((Handler)invalidation.From)) &&
                                   CacheKeyCovering.Covers(invalidation, key, key.TagsAll));
 
-    private static Reachability FindReachableHandlers(Handler start, IReadOnlyList<GraphEdge> edges)
-    {
-        var calls = edges.OfType<Calls>()
-                         .Where(call => call.From is Handler && call.To is Handler)
-                         .GroupBy(call => GetHandlerId((Handler)call.From))
-                         .ToDictionary(group => group.Key, group => group.ToArray());
-        var handlers = new Dictionary<(string Solution, string Symbol), Handler>();
-        var pending = new Queue<Handler>();
-        pending.Enqueue(start);
-
-        while (pending.TryDequeue(out var handler))
-        {
-            var id = GetHandlerId(handler);
-            if (!handlers.TryAdd(id, handler))
-                continue;
-
-            if (!calls.TryGetValue(id, out var outgoing))
-                continue;
-
-            foreach (var call in outgoing)
-                pending.Enqueue((Handler)call.To);
-        }
-
-        return new Reachability(handlers);
-    }
 
     private static IEnumerable<Handler> GetHandlers(IEnumerable<GraphEdge> chain)
     {
@@ -244,5 +224,4 @@ public sealed class UnguardedWriteRule
 
     private sealed record WriteChain(Handler Handler, IReadOnlyList<GraphEdge> Path);
 
-    private sealed record Reachability(IReadOnlyDictionary<(string Solution, string Symbol), Handler> Handlers);
 }

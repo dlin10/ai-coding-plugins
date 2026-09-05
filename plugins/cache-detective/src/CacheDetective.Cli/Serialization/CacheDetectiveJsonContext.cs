@@ -51,4 +51,7 @@ namespace CacheDetective.Serialization;
 [JsonSerializable(typeof(FindingEvidenceFragment))]
 [JsonSerializable(typeof(ListEnvelope<FindingEvidenceFragment>))]
 [JsonSerializable(typeof(EvidenceResult))]
+[JsonSerializable(typeof(AnnotateResult))]
+[JsonSerializable(typeof(AffectedKey))]
+[JsonSerializable(typeof(AffectedFinding))]
 internal sealed partial class CacheDetectiveJsonContext : JsonSerializerContext;

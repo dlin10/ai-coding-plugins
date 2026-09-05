@@ -7,7 +7,13 @@ using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Caching.Memory;
 using StackExchange.Redis;
 
-namespace RecognizerFixture;
+namespace Some.Internal
+{
+    public interface IDbSetCache { }
+}
+
+namespace RecognizerFixture
+{
 
 public sealed class CacheController : ControllerBase
 {
@@ -70,9 +76,17 @@ public sealed class CacheController : ControllerBase
 
     [OutputCache]
     public void AlsoOutputCached() { }
+
+    public void Save(DbLike context) => context.SaveChangesAsync();
+}
+
+public sealed class DbLike : Some.Internal.IDbSetCache
+{
+    public void SaveChangesAsync() { }
 }
 
 public sealed class MysteryCache
 {
     public void Fetch(string key) { }
+}
 }

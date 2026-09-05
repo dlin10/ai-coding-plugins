@@ -40,4 +40,24 @@ public sealed class EnvelopeTests
         Assert.Contains("reduced", envelope.Notice, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(source.Take(envelope.Items.Count), envelope.Items);
     }
+
+    [Fact]
+    public void Envelope_partitions_oversized_rows_without_overlapping_pages()
+    {
+        var source = Enumerable.Range(1, 12).Select(value => $"{value:D2}:{new string('x', 3_000)}").ToList();
+        var pages = Enumerable.Range(1, 12)
+                              .Select(page => ResponseEnvelope.Create(source, new PageArguments { Page = page, PageSize = 5 },
+                                  CacheDetectiveJsonContext.Default.ListEnvelopeString))
+                              .TakeWhile(envelope => envelope.Page <= envelope.Pages)
+                              .ToArray();
+
+        var first = Assert.IsType<ListEnvelope<string>>(pages[0]);
+        Assert.True(first.Pages > 3);
+        Assert.All(pages, page =>
+        {
+            Assert.Equal(source.Count, page.Total);
+            Assert.Equal(first.Pages, page.Pages);
+        });
+        Assert.Equal(source, pages.SelectMany(page => page.Items));
+    }
 }

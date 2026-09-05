@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using CacheDetective.Caching;
+using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Rules;
 
@@ -19,7 +21,7 @@ internal sealed class FindingCatalog
             // The subject is the handler at the head of the chain, which the rule names: a hidden write's
             // Write.From is the procedure or the trigger that performed it, not the handler to fix.
             var handler = finding.Handler;
-            var identity = Identity(UnguardedWriteFinding.Rule,
+            var identity = Identity(finding.RuleName,
                                     handler.Solution,
                                     handler.Symbol,
                                     finding.Table.Name,
@@ -27,7 +29,7 @@ internal sealed class FindingCatalog
                                     finding.Key.Store,
                                     EvidenceIdentity(finding.Write));
             snapshots.Add(Add(identity,
-                              UnguardedWriteFinding.Rule,
+                              finding.RuleName,
                               finding.Confidence,
                               handler.Solution,
                               finding.Table.Name,
@@ -38,7 +40,29 @@ internal sealed class FindingCatalog
                               finding.BudgetSeconds,
                               null,
                               null,
-                              finding.Chain));
+                              finding.Chain, handler.Project, null, null, finding.EventChain, finding.SearchedProjects,
+                              Array.IndexOf(finding.Chain.ToArray(), finding.Write)));
+        }
+
+        foreach (var finding in new ExternalNoTtlRule().Evaluate(graph))
+        {
+            snapshots.Add(Add(Identity(ExternalNoTtlFinding.Rule, finding.Handler.Solution, finding.Handler.Symbol,
+                                       finding.Key.Template, finding.Key.Store, finding.Source.Kind, finding.Source.Method,
+                                       finding.Source.Template, finding.Source.ClientName, finding.Source.Owner),
+                              ExternalNoTtlFinding.Rule, finding.Confidence, finding.Handler.Solution, null,
+                              finding.Key.Template, finding.Key.Store, finding.Suppressed, finding.TtlSeconds,
+                              finding.BudgetSeconds, null, null, finding.Chain, finding.Handler.Project,
+                              TraceQueries.NodeId(finding.Source)));
+        }
+
+        foreach (var finding in new StaleParentKeyRule().Evaluate(graph))
+        {
+            snapshots.Add(Add(Identity(StaleParentKeyFinding.Rule, finding.Handler.Solution, finding.Handler.Symbol,
+                                       finding.Parent.Template, finding.Parent.Store, finding.Child.Template, finding.Child.Store),
+                              StaleParentKeyFinding.Rule, finding.Confidence, finding.Handler.Solution, null,
+                              finding.Child.Template, finding.Child.Store, false, finding.ParentTtlSeconds, null,
+                              finding.Parent.Template, null, finding.Chain, finding.Handler.Project, null, finding.Parent.Template,
+                              null, finding.SearchedProjects));
         }
 
         var invalidations = new OrphanInvalidationRule().Evaluate(graph);
@@ -66,7 +90,7 @@ internal sealed class FindingCatalog
                               null,
                               null,
                               null,
-                              [edge]));
+                              [edge], handler.Project));
         }
 
         foreach (var finding in invalidations.PatternMismatches)
@@ -94,7 +118,7 @@ internal sealed class FindingCatalog
                               null,
                               finding.CachedKey.Template,
                               finding.Distance,
-                              [edge]));
+                              [edge], handler.Project));
         }
 
         return snapshots.OrderBy(snapshot => snapshot.Item.Rule, StringComparer.Ordinal)
@@ -117,7 +141,10 @@ internal sealed class FindingCatalog
     }
 
     private FindingSnapshot Add(string identity, string rule, Confidence confidence, string solution, string? table, string? keyTemplate, string? store,
-                                bool suppressed, double? ttl, double? budget, string? expectedTemplate, int? distance, IReadOnlyList<GraphEdge> chain)
+                                bool suppressed, double? ttl, double? budget, string? expectedTemplate, int? distance, IReadOnlyList<GraphEdge> chain,
+                                string? project = null, string? external = null, string? parentTemplate = null,
+                                IReadOnlyList<GraphEdge>? eventChain = null, IReadOnlyList<string>? searchedProjects = null,
+                                int writeIndex = -1)
     {
         if (!_ids.TryGetValue(identity, out var id))
         {
@@ -136,8 +163,8 @@ internal sealed class FindingCatalog
                                    ttl,
                                    budget,
                                    expectedTemplate,
-                                   distance);
-        var snapshot = new FindingSnapshot(item, chain);
+                                   distance, project, external, parentTemplate);
+        var snapshot = new FindingSnapshot(item, chain, eventChain ?? [], searchedProjects ?? [], writeIndex);
         _snapshots[id] = snapshot;
         return snapshot;
     }
@@ -151,6 +178,7 @@ internal sealed class FindingCatalog
 
 internal static class FindingQueries
 {
+    internal static string KindName(UnresolvedKind kind) => Kind(kind);
     internal static FindingEnvelope FindUnguardedWrites(CacheGraph graph, IReadOnlyDictionary<string, double>? budgets, FindingCatalog catalog,
                                                         string? confidence, string? table, string? solution, bool includeSuppressed, PageArguments page)
     {
@@ -183,8 +211,10 @@ internal static class FindingQueries
         var normalizedKind = ValidateKind(kind);
         // The gaps are derived here rather than stored, because which reason holds depends on whether a
         // database is indexed now; see ProcedureGaps.
-        var items = graph.Unresolved.Concat(ProcedureGaps.Derive(graph)
-                                                         .Select(gap => gap.Unresolved))
+        var serviceGaps = ServiceJoins.Derive(graph).Gaps;
+        var items = graph.Unresolved.Concat(ProcedureGaps.Derive(graph).Select(gap => gap.Unresolved))
+                         .Concat(EventGaps.Derive(graph).Select(gap => gap.Unresolved))
+                         .Concat(serviceGaps.Select(gap => gap.Unresolved))
                          .Where(item => normalizedKind is null || Kind(item.Kind) == normalizedKind)
                          .OrderBy(item => item.Id)
                          .Select(item => new UnresolvedItem($"u:{item.Id}",
@@ -196,7 +226,9 @@ internal static class FindingQueries
                                                             item.Site.ObjectName,
                                                             item.Snippet,
                                                             item.Reason,
-                                                            SourceContext.Read(item.File, item.Line, repositoryRoot)))
+                                                            SourceContext.Read(item.File, item.Line, repositoryRoot),
+                                                            graph.TryGetExternalSource(item.Id, out var source) ? TraceQueries.NodeId(source) :
+                                                            serviceGaps.FirstOrDefault(gap => gap.Unresolved.Id == item.Id) is { } gap ? TraceQueries.NodeId(gap.Source) : null))
                          .ToArray();
         return TraceQueries.Page(items, page);
     }
@@ -210,18 +242,22 @@ internal static class FindingQueries
         return TraceQueries.Bounded(page,
                                     (effectivePage, notice) =>
                                     {
-                                        var fragments = BuildFragments(snapshot, repositoryRoot);
-                                        return new EvidenceResult(snapshot.Item.Id, snapshot.Item.Rule, TraceQueries.Page(fragments, effectivePage), notice);
+                                        var fragments = BuildFragments(graph, snapshot, repositoryRoot);
+                                        return new EvidenceResult(snapshot.Item.Id, snapshot.Item.Rule, TraceQueries.Page(fragments, effectivePage),
+                                                                  snapshot.SearchedProjects, notice);
                                     },
                                     TraceQueries.TypeInfo<EvidenceResult>());
     }
 
-    private static FindingEvidenceFragment[] BuildFragments(FindingSnapshot snapshot, string? repositoryRoot)
+    private static FindingEvidenceFragment[] BuildFragments(CacheGraph graph, FindingSnapshot snapshot, string? repositoryRoot)
     {
         var fragments = new List<FindingEvidenceFragment>();
-        for (var edgeIndex = 0; edgeIndex < snapshot.Chain.Count; edgeIndex++)
+        var edges = snapshot.Chain.Concat(snapshot.EventChain).ToArray();
+        for (var edgeIndex = 0; edgeIndex < edges.Length; edgeIndex++)
         {
-            var edge = snapshot.Chain[edgeIndex];
+            var edge = edges[edgeIndex];
+            var project = ProjectOf(edges, edgeIndex, snapshot);
+            var annotation = edge.AnnotationId is { } id ? graph.Annotations.FirstOrDefault(item => item.Id == id)?.Note : null;
             if (edge.Evidence.Count == 0)
             {
                 fragments.Add(new FindingEvidenceFragment(edgeIndex + 1,
@@ -233,7 +269,7 @@ internal static class FindingQueries
                                                           null,
                                                           null,
                                                           null,
-                                                          []));
+                                                          [], project, annotation, edge.Reason));
                 continue;
             }
 
@@ -248,11 +284,29 @@ internal static class FindingQueries
                                                           evidence.Line,
                                                           evidence.Database,
                                                           evidence.ObjectName,
-                                                          SourceContext.Read(evidence.File, evidence.Line, repositoryRoot)));
+                                                          SourceContext.Read(evidence.File, evidence.Line, repositoryRoot), project, annotation, edge.Reason));
             }
         }
 
         return fragments.ToArray();
+    }
+
+    private static string ProjectOf(IReadOnlyList<GraphEdge> edges, int index, FindingSnapshot snapshot)
+    {
+        var edge = edges[index];
+        if (edge.From is Handler from) return from.Project ?? from.Solution;
+        if (edge.To is Handler to) return to.Project ?? to.Solution;
+        var fallback = snapshot.Item.Project ?? snapshot.Item.Solution;
+        if (snapshot.WriteIndex < 0) return fallback;
+        var positions = index <= snapshot.WriteIndex
+                            ? Enumerable.Range(0, index).Select(offset => index - offset - 1)
+                            : Enumerable.Range(index + 1, edges.Count - index - 1);
+        foreach (var position in positions)
+        {
+            if (edges[position].From is Handler before) return before.Project ?? before.Solution;
+            if (edges[position].To is Handler after) return after.Project ?? after.Solution;
+        }
+        return fallback;
     }
 
     private static string? ValidateConfidence(string? confidence)
@@ -279,9 +333,10 @@ internal static class FindingQueries
         }
 
         var normalized = rule.Trim().ToUpperInvariant();
-        if (normalized is not (UnguardedWriteFinding.Rule or OrphanInvalidationFinding.Rule or PatternMismatchFinding.Rule))
+        if (normalized is not (UnguardedWriteFinding.Rule or UnguardedWriteFinding.CrossServiceGapRule or ExternalNoTtlFinding.Rule or
+                               StaleParentKeyFinding.Rule or OrphanInvalidationFinding.Rule or PatternMismatchFinding.Rule))
         {
-            throw new ArgumentException("rule must be UNGUARDED_WRITE, ORPHAN_INVALIDATION or PATTERN_MISMATCH", nameof(rule));
+            throw new ArgumentException("rule must be UNGUARDED_WRITE, CROSS_SERVICE_GAP, EXTERNAL_NO_TTL, STALE_PARENT_KEY, ORPHAN_INVALIDATION or PATTERN_MISMATCH", nameof(rule));
         }
 
         return normalized;
@@ -296,9 +351,9 @@ internal static class FindingQueries
 
         var normalized = kind.Trim()
                              .ToLowerInvariant();
-        if (normalized is not ("key" or "sql" or "call" or "cache_api" or "role"))
+        if (normalized is not ("key" or "sql" or "call" or "cache_api" or "role" or "event" or "event_api"))
         {
-            throw new ArgumentException("kind must be key, sql, call, cache_api or role", nameof(kind));
+            throw new ArgumentException("kind must be key, sql, call, cache_api, role, event or event_api", nameof(kind));
         }
 
         return normalized;
@@ -311,6 +366,8 @@ internal static class FindingQueries
                                                            UnresolvedKind.Call => "call",
                                                            UnresolvedKind.CacheApi => "cache_api",
                                                            UnresolvedKind.Role => "role",
+                                                           UnresolvedKind.Event => "event",
+                                                           UnresolvedKind.EventApi => "event_api",
                                                            _ => throw new ArgumentOutOfRangeException(nameof(kind))
                                                        };
 }
@@ -348,20 +405,22 @@ internal static class SourceContext
     }
 }
 
-internal sealed record FindingSnapshot(FindingItem Item, IReadOnlyList<GraphEdge> Chain);
+internal sealed record FindingSnapshot(FindingItem Item, IReadOnlyList<GraphEdge> Chain,
+                                       IReadOnlyList<GraphEdge> EventChain, IReadOnlyList<string> SearchedProjects, int WriteIndex);
 internal sealed record FindingItem(string Id, string Rule, string Confidence, string Solution,
                                    string? Table, string? KeyTemplate, string? Store, bool Suppressed,
-                                   double? Ttl, double? Budget, string? ExpectedTemplate, int? Distance);
+                                   double? Ttl, double? Budget, string? ExpectedTemplate, int? Distance,
+                                   string? Project, string? External, string? ParentTemplate);
 internal sealed record SourceLine(int Line, string Text);
 internal sealed record UnresolvedItem(string Id, string Kind, string? Solution, string? File, int? Line,
                                       string? Database, string? ObjectName,
-                                      string Snippet, string Reason, IReadOnlyList<SourceLine> Context);
+                                      string Snippet, string Reason, IReadOnlyList<SourceLine> Context, string? External);
 internal sealed record FindingEvidenceFragment(int Order, string Edge, string From, string To,
                                                string Confidence, string? File, int? Line,
                                                string? Database, string? ObjectName,
-                                               IReadOnlyList<SourceLine> Context);
+                                               IReadOnlyList<SourceLine> Context, string Project, string? Annotation, string? Reason);
 internal sealed record EvidenceResult(string FindingId, string Rule,
-                                      ListEnvelope<FindingEvidenceFragment> Fragments, string? Notice);
+                                      ListEnvelope<FindingEvidenceFragment> Fragments, IReadOnlyList<string> InvalidationSearchedIn, string? Notice);
 
 internal sealed record FindingEnvelope(int Total, int Page, int Pages, int Suppressed,
                                        List<FindingItem> Items, string? Notice)
@@ -376,18 +435,18 @@ internal sealed record FindingEnvelope(int Total, int Page, int Pages, int Suppr
             ? source
             : source.Where(item => !item.Suppressed).ToArray();
         var typeInfo = TraceQueries.TypeInfo<FindingEnvelope>();
-        for (var pageSize = arguments.PageSize; pageSize > 0; pageSize--)
-        {
-            var candidate = Build(visible, suppressed, arguments.Page, pageSize, arguments.PageSize);
-            if (JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <=
-                ResponseEnvelope.MaximumSerializedBytes)
-            {
-                return candidate;
-            }
-        }
-        return new FindingEnvelope(visible.Count, arguments.Page,
-            visible.Count == 0 ? 0 : visible.Count, suppressed, [],
-            $"Page omitted because one item exceeds the {ResponseEnvelope.MaximumSerializedBytes}-byte response limit.");
+        var regularPages = visible.Count == 0 ? 0 : (int)Math.Ceiling((double)visible.Count / arguments.PageSize);
+        if (Enumerable.Range(1, regularPages).All(page => Fits(Build(visible, suppressed, page, arguments.PageSize, arguments.PageSize), typeInfo)))
+            return Build(visible, suppressed, arguments.Page, arguments.PageSize, arguments.PageSize);
+
+        const string notice = "Page size was reduced to stay under the response limit.";
+        var partitions = Partition(visible, suppressed, arguments.PageSize, notice, typeInfo);
+        if (partitions is null)
+            return new FindingEnvelope(visible.Count, arguments.Page,
+                visible.Count == 0 ? 0 : visible.Count, suppressed, [],
+                $"Page omitted because one item exceeds the {ResponseEnvelope.MaximumSerializedBytes}-byte response limit.");
+        var items = arguments.Page <= partitions.Count ? partitions[arguments.Page - 1] : [];
+        return new FindingEnvelope(visible.Count, arguments.Page, partitions.Count, suppressed, items, notice);
     }
 
     private static FindingEnvelope Build(IReadOnlyList<FindingItem> source, int suppressed, int page,
@@ -403,4 +462,26 @@ internal sealed record FindingEnvelope(int Total, int Page, int Pages, int Suppr
               + $"the {ResponseEnvelope.MaximumSerializedBytes}-byte response limit.";
         return new FindingEnvelope(source.Count, page, pages, suppressed, items, notice);
     }
+
+    private static List<List<FindingItem>>? Partition(IReadOnlyList<FindingItem> source, int suppressed,
+                                                        int requestedPageSize, string notice,
+                                                        JsonTypeInfo<FindingEnvelope> typeInfo)
+    {
+        var partitions = new List<List<FindingItem>>();
+        var offset = 0;
+        while (offset < source.Count)
+        {
+            var count = Math.Min(requestedPageSize, source.Count - offset);
+            while (count > 0 && !Fits(new FindingEnvelope(source.Count, source.Count, source.Count, suppressed,
+                                                           source.Skip(offset).Take(count).ToList(), notice), typeInfo))
+                count--;
+            if (count == 0) return null;
+            partitions.Add(source.Skip(offset).Take(count).ToList());
+            offset += count;
+        }
+        return partitions;
+    }
+
+    private static bool Fits(FindingEnvelope candidate, JsonTypeInfo<FindingEnvelope> typeInfo) =>
+        JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <= ResponseEnvelope.MaximumSerializedBytes;
 }

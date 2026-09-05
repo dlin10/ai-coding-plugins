@@ -2,7 +2,7 @@
 
 This plugin exposes MCP tools for configuring a scan workspace, indexing `.sln`, `.slnx`, and
 `.csproj` inputs, tracing cache keys and tables, querying findings and unresolved analysis, retrieving
-evidence, and exporting the graph. Use `/cache-detective:scan` when the user explicitly requests a
+evidence, exporting the graph, and annotating unresolved analysis with `annotate`. Use `/cache-detective:scan` when the user explicitly requests a
 whole-workspace cache scan and report; read `skills/scan/SKILL.md` for the required tool order and
 `skills/scan/report-template.md` before writing the report.
 

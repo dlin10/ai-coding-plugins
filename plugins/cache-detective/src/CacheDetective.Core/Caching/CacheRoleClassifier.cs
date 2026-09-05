@@ -2,7 +2,7 @@ using CacheDetective.Graph;
 
 namespace CacheDetective.Caching;
 
-internal sealed class CacheRoleClassifier
+public sealed class CacheRoleClassifier
 {
     private static readonly string[] STORE_PREFIXES =
     [
@@ -16,41 +16,53 @@ internal sealed class CacheRoleClassifier
     public void Classify(CacheGraph graph, string solutionName)
     {
         var keys = graph.CacheKeys.ToArray();
-        var edges = graph.Edges.ToArray();
-        var operations = graph.CacheOperations.ToArray();
-
         foreach (var key in keys)
         {
-            if (HasStoreSignal(key, operations, edges))
+            var classification = ClassifyKey(graph, key);
+            if (classification.Blockers.Count == 0)
             {
-                graph.SetCacheKeyRole(key.Template, key.Store, "store");
                 continue;
             }
 
-            var cachingHandlers = edges.OfType<Caches>().Where(edge => IsKey(edge.To, key)).Select(edge => (Handler)edge.From);
-            var reachableHandlers = FindReachableHandlers(cachingHandlers, edges);
-            var hasReachableRead = HasReachableDataAccess(edges, reachableHandlers);
-
-            if (hasReachableRead)
-            {
-                graph.SetCacheKeyRole(key.Template, key.Store, "cache");
-                continue;
-            }
-
-            var blockers = graph.GetUnresolvedForHandlers(reachableHandlers.Values, UnresolvedKind.Call, UnresolvedKind.Sql);
-            if (blockers.Count == 0)
-            {
-                graph.SetCacheKeyRole(key.Template, key.Store, "store");
-                continue;
-            }
-
-            graph.SetCacheKeyRole(key.Template, key.Store, "unknown");
-            var blocker = blockers[0];
+            var blocker = classification.Blockers[0];
             var reasons =
-                string.Join("; ", blockers.Select(item => $"{item.Kind.ToString().ToLowerInvariant()}: {item.Reason}").Distinct(StringComparer.Ordinal));
-            graph.AddUnresolved(UnresolvedKind.Role, solutionName, blocker.Site, key.Template,
-                                $"Role classification was blocked by incomplete analysis: {reasons}");
+                string.Join("; ", classification.Blockers.Select(item => $"{item.Kind.ToString().ToLowerInvariant()}: {item.Reason}")
+                                                   .Distinct(StringComparer.Ordinal));
+            var role = graph.AddUnresolved(UnresolvedKind.Role, solutionName, blocker.Site, key.Template,
+                                           $"Role classification was blocked by incomplete analysis: {reasons}");
+            graph.AddRoleBlockers(role.Id, key.Template, key.Store, classification.Blockers.Select(item => item.Id).ToArray());
         }
+    }
+
+    public (string Role, IReadOnlyList<Unresolved> Blockers) ClassifyKey(CacheGraph graph, CacheKey key)
+    {
+        var edges = graph.Edges;
+        var operations = graph.CacheOperations;
+        if (HasStoreSignal(key, operations, edges))
+        {
+            graph.SetCacheKeyRole(key.Template, key.Store, "store");
+            return ("store", []);
+        }
+
+        var cachingHandlers = edges.OfType<Caches>().Where(edge => IsKey(edge.To, key)).Select(edge => (Handler)edge.From);
+        var reachableHandlers = FindReachableHandlers(cachingHandlers, edges);
+        var hasReachableRead = HasReachableDataAccess(edges, reachableHandlers);
+
+        if (hasReachableRead)
+        {
+            graph.SetCacheKeyRole(key.Template, key.Store, "cache");
+            return ("cache", []);
+        }
+
+        var blockers = graph.GetUnresolvedForHandlers(reachableHandlers.Values, UnresolvedKind.Call, UnresolvedKind.Sql);
+        if (blockers.Count == 0)
+        {
+            graph.SetCacheKeyRole(key.Template, key.Store, "store");
+            return ("store", []);
+        }
+
+        graph.SetCacheKeyRole(key.Template, key.Store, "unknown");
+        return ("unknown", blockers);
     }
 
     private static bool HasStoreSignal(CacheKey key, IEnumerable<CacheOperation> operations, IEnumerable<GraphEdge> edges)
@@ -75,7 +87,7 @@ internal sealed class CacheRoleClassifier
     /// is why the role does not have to be recomputed after <c>index_database</c>.</summary>
     private static bool HasReachableDataAccess(IReadOnlyList<GraphEdge> edges, IReadOnlyDictionary<(string Solution, string Symbol), Handler> reachableHandlers)
     {
-        return edges.OfType<Reads>().Any(edge => IsReachable(edge.From)) ||
+        return edges.OfType<Reads>().Any(edge => edge.To is Table or ExternalSource && IsReachable(edge.From)) ||
                edges.OfType<Calls>().Any(edge => edge.To is StoredProcedure && IsReachable(edge.From));
 
         bool IsReachable(GraphVertex from) =>

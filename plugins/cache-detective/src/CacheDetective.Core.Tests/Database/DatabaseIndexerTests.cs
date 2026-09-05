@@ -95,6 +95,40 @@ public sealed class DatabaseIndexerTests
     }
 
     [Fact]
+    public async Task Records_a_view_that_references_nothing()
+    {
+        var catalogue = new FakeCatalogue();
+        catalogue.Views.Add(("dbo", "vw_Empty"));
+
+        var graph = await IndexAsync(catalogue);
+
+        var view = Assert.Single(graph.Views);
+        Assert.Equal("dbo.vw_Empty", view.Name);
+        Assert.Equal(DATABASE, view.Database);
+        Assert.DoesNotContain(graph.Edges, edge => edge.From is View source && source.Name == view.Name);
+    }
+
+    [Fact]
+    public async Task A_catalogue_view_and_a_view_met_from_code_are_one_vertex_and_reach_its_tables()
+    {
+        var catalogue = new FakeCatalogue();
+        catalogue.Views.Add(("dbo", "vw_ProductCard"));
+        catalogue.References["dbo.vw_ProductCard"] = [("dbo", "Products", true, false)];
+        var graph = await IndexAsync(catalogue);
+        var handler = new Handler("Catalog", "Products.Get", "controller", "Products.cs", 1);
+        var key = new CacheKey("product:{id}", "memory", null, [], "cache");
+
+        graph.AddEdge(new Caches(handler, key, Confidence.Confirmed, [new Evidence("Products.cs", 1)]));
+        graph.AddEdge(new Reads(handler, new Table("dbo", "vw_ProductCard", DATABASE), Confidence.Confirmed,
+            [new Evidence("Products.cs", 2)]));
+
+        Assert.Single(graph.Views, view => view.Name == "dbo.vw_ProductCard");
+        var dependency = Assert.Single(graph.DependsOn(key));
+        Assert.Equal("dbo.Products", Assert.IsType<Table>(dependency.Target).Name);
+        Assert.Contains(dependency.Path, edge => edge.From is View { Name: "dbo.vw_ProductCard" });
+    }
+
+    [Fact]
     public async Task Every_issued_command_touches_only_sys_objects()
     {
         var catalogue = new FakeCatalogue();

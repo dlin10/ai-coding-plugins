@@ -7,5 +7,7 @@
     <File Path="db/shop.sql" />
   </Folder>
   <Project Path="Catalog/Catalog.csproj" />
+  <Project Path="Contracts/Contracts.csproj" />
+  <Project Path="Notifications/Notifications.csproj" />
   <Project Path="Pricing/Pricing.csproj" />
 </Solution>

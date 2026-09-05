@@ -58,6 +58,8 @@ public sealed class DemoStandEndToEndTests(ITestOutputHelper output)
 
         var findings = new UnguardedWriteRule().Evaluate(graph).ToArray();
         var reported = findings.Where(finding => !finding.Suppressed).ToArray();
+        var externalNoTtl = new ExternalNoTtlRule().Evaluate(graph);
+        var staleParents = new StaleParentKeyRule().Evaluate(graph);
         var gaps = ProcedureGaps.Derive(graph);
         foreach (var finding in findings)
         {
@@ -72,6 +74,11 @@ public sealed class DemoStandEndToEndTests(ITestOutputHelper output)
         AssertCaseE(gaps);
         AssertCaseF(reported, graph);
         AssertCaseG(findings, reported);
+        AssertCaseH(reported, graph);
+        AssertCaseI(reported);
+        AssertCaseJ(reported);
+        AssertCaseK(externalNoTtl);
+        Assert.Empty(staleParents);
     }
 
     /// <summary>Case A: procedure writes Discounts, trigger writes PriceHistory, view reads it, and the
@@ -159,11 +166,53 @@ public sealed class DemoStandEndToEndTests(ITestOutputHelper output)
     private static void AssertCaseG(IReadOnlyList<UnguardedWriteFinding> findings,
                                     IReadOnlyList<UnguardedWriteFinding> reported)
     {
-        var suppressed = Assert.Single(findings, finding => finding.Table.Name == "dbo.Inventory");
+        var suppressed = Assert.Single(findings, finding => finding.Table.Name == "dbo.Inventory" &&
+                                                          finding.Key.Template == "inventory:{id}");
 
         Assert.True(suppressed.Suppressed);
         Assert.Equal(30, suppressed.TtlSeconds);
         Assert.Equal(60, suppressed.BudgetSeconds);
-        Assert.DoesNotContain(reported, finding => finding.Table.Name == "dbo.Inventory");
+        Assert.DoesNotContain(reported, finding => finding.Table.Name == "dbo.Inventory" &&
+                                                        finding.Key.Template == "inventory:{id}");
+    }
+
+    /// <summary>Case H: the shared contract gives a confirmed event hop to the cache invalidation.</summary>
+    private static void AssertCaseH(IReadOnlyList<UnguardedWriteFinding> reported, CacheGraph graph)
+    {
+        Assert.Contains(graph.EventHops(), hop => hop.Publish.To is Event { FullName: "Contracts.PriceChanged" } &&
+                                                  hop.Confidence == Confidence.Confirmed);
+        Assert.DoesNotContain(reported, finding => finding.Handler.Symbol.Contains("PublishPriceChange", StringComparison.Ordinal));
+    }
+
+    /// <summary>Case I: an observed, but unhandled, cross-service event is a confirmed coverage gap.</summary>
+    private static void AssertCaseI(IReadOnlyList<UnguardedWriteFinding> reported)
+    {
+        var finding = Assert.Single(reported, finding => finding.Table.Name == "dbo.Products" &&
+                                                       finding.Key.Template == "product:{id}");
+        Assert.Equal(UnguardedWriteFinding.CrossServiceGapRule, finding.RuleName);
+        Assert.Equal(Confidence.Confirmed, finding.Confidence);
+        Assert.Collection(finding.EventChain, edge => Assert.IsType<Publishes>(edge), edge => Assert.IsType<Consumes>(edge));
+    }
+
+    /// <summary>Case J: the typed client joins Notifications to Catalog and exposes the missing invalidation.</summary>
+    private static void AssertCaseJ(IReadOnlyList<UnguardedWriteFinding> reported)
+    {
+        var finding = Assert.Single(reported, finding => finding.Table.Name == "dbo.Inventory" &&
+                                                       finding.Key.Template == "digest:{id}");
+        Assert.Equal(UnguardedWriteFinding.Rule, finding.RuleName);
+        Assert.Equal(Confidence.Likely, finding.Confidence);
+        Assert.Contains(finding.Chain, edge => edge is Serves { Level: "client_name" });
+    }
+
+    /// <summary>Case K: an unexpired weather response remains an external source dependency.</summary>
+    private static void AssertCaseK(IReadOnlyList<ExternalNoTtlFinding> findings)
+    {
+        var finding = Assert.Single(findings, finding => finding.Key.Template == "weather:today");
+        Assert.Equal("http", finding.Source.Kind);
+        Assert.Equal("Notifications", finding.Source.Owner);
+        Assert.Equal("GET", finding.Source.Method);
+        Assert.Equal("today", finding.Source.Template);
+        Assert.False(finding.Suppressed);
+        Assert.Equal(Confidence.Confirmed, finding.Confidence);
     }
 }

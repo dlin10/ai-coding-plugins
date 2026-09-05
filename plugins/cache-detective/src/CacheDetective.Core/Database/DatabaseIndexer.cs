@@ -45,6 +45,12 @@ public sealed class DatabaseIndexer
         var views = await catalogue.ReadViewsAsync(cancellationToken);
         var triggers = await catalogue.ReadTriggersAsync(cancellationToken);
         var calls = await ReadProcedureCallsAsync(catalogue, procedures, cancellationToken);
+        graph.AddIndexedDatabase(database);
+
+        foreach (var view in views)
+        {
+            graph.AddView(database, new View(view.Schema, view.Name, database));
+        }
 
         // A login without VIEW DEFINITION at database scope reads an empty
         // sys.sql_expression_dependencies and loses every procedure-to-procedure call without an error

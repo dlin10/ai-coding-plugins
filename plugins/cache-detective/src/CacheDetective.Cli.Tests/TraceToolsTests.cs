@@ -64,7 +64,7 @@ public sealed class TraceToolsTests
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
-        Assert.Equal(2, root.GetProperty("version").GetInt32());
+        Assert.Equal(3, root.GetProperty("version").GetInt32());
         Assert.Equal(JsonValueKind.Object, root.GetProperty("workspace").ValueKind);
         Assert.Equal(JsonValueKind.Array, root.GetProperty("nodes").ValueKind);
         Assert.Equal(JsonValueKind.Array, root.GetProperty("edges").ValueKind);
@@ -122,6 +122,96 @@ public sealed class TraceToolsTests
                                             edge.To == "trigger:dbo.trg_Products_Audit");
     }
 
+    [Fact]
+    public void TraceTools_export_graph_carries_phase_three_events_sources_hops_and_annotations()
+    {
+        var graph = new CacheGraph();
+        var publisher = Handler("Shop.slnx", "Catalog.Publish", "Catalog.API");
+        var consumer = Handler("Notify.slnx", "Notifications.Handle", "Notifications.API");
+        var foreignPublisher = Handler("Other.slnx", "Other.Publish", "Other.API");
+        var foreignConsumer = Handler("Else.slnx", "Else.Handle", "Else.API");
+        var published = new Event("Catalog.Contracts.ProductChanged");
+        var consumed = new Event("Notifications.Contracts.ProductChanged");
+        var source = new ExternalSource("http", "GET", "products", "ICatalogClient", "Catalog.API");
+
+        graph.AddEdge(new Publishes(publisher, published, Confidence.Confirmed, [new Evidence("Catalog.cs", 10)]));
+        graph.AddEdge(new Consumes(consumed, consumer, Confidence.Confirmed, [new Evidence("Notifications.cs", 20)]));
+        graph.AddEdge(new Reads(publisher, source, Confidence.Confirmed, [new Evidence("Catalog.cs", 11)]));
+        graph.AddEdge(new Serves(source, consumer, Confidence.Likely, [new Evidence("Catalog.cs", 12)], "client_name"));
+        graph.AddEdge(new Publishes(foreignPublisher, new Event("Other.Contracts.Changed"), Confidence.Confirmed,
+            [new Evidence("Other.cs", 30)]));
+        graph.AddEdge(new Consumes(new Event("Else.Contracts.Changed"), foreignConsumer, Confidence.Confirmed,
+            [new Evidence("Else.cs", 40)]));
+        graph.AddAnnotation(new Annotation(7, 42, UnresolvedKind.Key, "Shop.slnx", new Evidence("Catalog.cs", 13),
+            "product:{id}", "{\"template\":\"product:{id}\"}", "named by reviewer"));
+
+        var export = TraceQueries.ExportGraph(graph, null, null);
+        var filtered = TraceQueries.ExportGraph(graph, null, "Catalog.Contracts.ProductChanged");
+
+        var eventNodes = export.Nodes.Where(node => node.Type == "Event" && node.Name == "ProductChanged").ToArray();
+        Assert.Equal(2, eventNodes.Length);
+        Assert.Contains(eventNodes, node => node.Id == "event:Catalog.Contracts.ProductChanged");
+        Assert.Contains(eventNodes, node => node.Id == "event:Notifications.Contracts.ProductChanged");
+        var external = Assert.Single(export.Nodes, node => node.Type == "ExternalSource");
+        Assert.Equal("Catalog.API", external.Owner);
+        Assert.Equal("ICatalogClient", external.ClientName);
+        Assert.Contains(export.Edges, edge => edge.Type == "serves" && edge.Level == "client_name");
+        Assert.Contains(export.Edges, edge => edge.Type == "consumes" && edge.Confidence == "confirmed" && edge.Reason is null);
+        var hop = Assert.Single(export.EventHops, item => item.PublishedEvent == "event:Catalog.Contracts.ProductChanged");
+        Assert.Equal("likely", hop.Confidence);
+        Assert.Contains("contract duplicated across services", hop.Reason, StringComparison.Ordinal);
+        var annotation = Assert.Single(export.Annotations);
+        Assert.Equal(7, annotation.Id);
+        Assert.Equal(42, annotation.UnresolvedId);
+        Assert.Equal("key", annotation.Kind);
+        Assert.Equal("named by reviewer", annotation.Note);
+        Assert.Single(filtered.EventHops);
+        Assert.DoesNotContain(filtered.EventHops, item => item.Publisher == "handler:Other.slnx/Other.Publish");
+    }
+
+    [Fact]
+    public void TraceTools_trace_key_reports_serves_paths_best_invalidation_route_and_projects()
+    {
+        var graph = new CacheGraph();
+        var firstCache = Handler("A.slnx", "First.Get", "A.API");
+        var secondCache = Handler("B.slnx", "Second.Get", "B.API");
+        var reader = Handler("Catalog.slnx", "Products.Read", "Catalog.API");
+        var callAndEvent = Handler("A.slnx", "Invalidate.Best", "A.API");
+        var eventOnly = Handler("B.slnx", "Invalidate.Event", "B.API");
+        var unreachable = Handler("C.slnx", "Invalidate.None", "C.API");
+        var key = new CacheKey("product:{id}", "memory", null, [], "cache");
+        var products = new Table("dbo.Products", "shop");
+        var source = new ExternalSource("http", "GET", "products", "ICatalogClient", "A.API");
+        var changed = new Event("Contracts.Changed");
+        var eventOnlyChanged = new Event("Contracts.EventOnlyChanged");
+
+        graph.AddEdge(new Caches(firstCache, key, Confidence.Confirmed, [new Evidence("A.cs", 1)]));
+        graph.AddEdge(new Caches(secondCache, key, Confidence.Confirmed, [new Evidence("B.cs", 1)]));
+        graph.AddEdge(new Reads(firstCache, source, Confidence.Confirmed, [new Evidence("A.cs", 2)]));
+        graph.AddEdge(new Serves(source, reader, Confidence.Likely, [new Evidence("A.cs", 3)], "client_name"));
+        graph.AddEdge(new Reads(reader, products, Confidence.Confirmed, [new Evidence("Catalog.cs", 4)]));
+        graph.AddEdge(new Calls(firstCache, callAndEvent, Confidence.Confirmed, [new Evidence("A.cs", 5)]));
+        graph.AddEdge(new Publishes(secondCache, changed, Confidence.Confirmed, [new Evidence("B.cs", 5)]));
+        graph.AddEdge(new Consumes(changed, callAndEvent, Confidence.Likely, [new Evidence("A.cs", 6)]));
+        graph.AddEdge(new Publishes(secondCache, eventOnlyChanged, Confidence.Confirmed, [new Evidence("B.cs", 7)]));
+        graph.AddEdge(new Consumes(eventOnlyChanged, eventOnly, Confidence.Likely, [new Evidence("B.cs", 8)]));
+        graph.AddEdge(new Invalidates(callAndEvent, key, Confidence.Confirmed, [new Evidence("A.cs", 9)], CacheSemantic.Remove));
+        graph.AddEdge(new Invalidates(eventOnly, key, Confidence.Confirmed, [new Evidence("B.cs", 9)], CacheSemantic.Remove));
+        graph.AddEdge(new Invalidates(unreachable, key, Confidence.Confirmed, [new Evidence("C.cs", 9)], CacheSemantic.Remove));
+
+        var keyTrace = TraceQueries.TraceKey(graph, key.Template, key.Store, new PageArguments());
+        var tableTrace = TraceQueries.TraceTable(graph, products.Name, new PageArguments());
+
+        var dependency = Assert.Single(keyTrace.Dependencies.Items, item => item.Type == "Table");
+        Assert.Contains(dependency.Path, edge => edge.Type == "serves" && edge.Level == "client_name");
+        Assert.Equal("Catalog.API", Assert.Single(tableTrace.ReadBy.Items).Project);
+        Assert.Equal(("calls", "confirmed"), keyTrace.InvalidatedBy.Items.Single(item => item.Handler.Symbol == "Invalidate.Best") is { } best
+            ? (best.Via, best.Confidence) : throw new InvalidOperationException());
+        Assert.Equal(("event", "likely"), keyTrace.InvalidatedBy.Items.Single(item => item.Handler.Symbol == "Invalidate.Event") is { } viaEvent
+            ? (viaEvent.Via, viaEvent.Confidence) : throw new InvalidOperationException());
+        Assert.Equal("none", keyTrace.InvalidatedBy.Items.Single(item => item.Handler.Symbol == "Invalidate.None").Via);
+    }
+
     private static CacheGraph BuildDatabaseGraph()
     {
         var graph = new CacheGraph();
@@ -141,6 +231,9 @@ public sealed class TraceToolsTests
             [Evidence.InDatabase("dbo.trg_Products_Audit", "shop")]));
         return graph;
     }
+
+    private static Handler Handler(string solution, string symbol, string project) =>
+        new(solution, symbol, "controller", $"{project}.cs", 1) { Project = project };
 
     private static CacheGraph BuildGraph()
     {

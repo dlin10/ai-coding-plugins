@@ -3,6 +3,7 @@ using CacheDetective.Caching;
 using CacheDetective.Mcp;
 using CacheDetective.Serialization;
 using CacheDetective.Graph;
+using CacheDetective.Rules;
 using Xunit;
 
 namespace CacheDetective.Tests;
@@ -84,6 +85,44 @@ public sealed class FindingToolsTests
     }
 
     [Fact]
+    public void FindingTools_get_unresolved_partitions_a_kind_filter_stably()
+    {
+        var graph = new CacheGraph();
+        for (var index = 1; index <= 12; index++)
+            graph.AddUnresolved(UnresolvedKind.Call, "App", "Handler.cs", index, $"call-{index:D2}", "unresolved");
+
+        var pages = Enumerable.Range(1, 3).Select(page => FindingQueries.GetUnresolved(graph, null, "call",
+            new PageArguments { Page = page, PageSize = 5 })).ToArray();
+
+        Assert.All(pages, page =>
+        {
+            Assert.Equal(12, page.Total);
+            Assert.Equal(3, page.Pages);
+        });
+        Assert.Equal(Enumerable.Range(1, 12).Select(index => $"u:{index}"), pages.SelectMany(page => page.Items).Select(item => item.Id));
+    }
+
+    [Fact]
+    public void FindingTools_get_unresolved_keeps_byte_limited_pages_stable()
+    {
+        var graph = new CacheGraph();
+        for (var index = 1; index <= 12; index++)
+            graph.AddUnresolved(UnresolvedKind.Call, "App", "Handler.cs", index, new string('x', 3_000), "unresolved");
+
+        var first = FindingQueries.GetUnresolved(graph, null, "call", new PageArguments { Page = 1, PageSize = 5 });
+        var pages = Enumerable.Range(1, first.Pages).Select(page => FindingQueries.GetUnresolved(graph, null, "call",
+            new PageArguments { Page = page, PageSize = 5 })).ToArray();
+
+        Assert.True(first.Pages > 3);
+        Assert.All(pages, page =>
+        {
+            Assert.Equal(12, page.Total);
+            Assert.Equal(first.Pages, page.Pages);
+        });
+        Assert.Equal(Enumerable.Range(1, 12).Select(index => $"u:{index}"), pages.SelectMany(page => page.Items).Select(item => item.Id));
+    }
+
+    [Fact]
     public void FindingTools_get_evidence_pages_a_finding_chain()
     {
         using var fixture = new FindingFixture();
@@ -104,6 +143,93 @@ public sealed class FindingToolsTests
         Assert.NotEqual(first.Fragments.Items[0].Order, second.Fragments.Items[0].Order);
         Assert.All(first.Fragments.Items, fragment => Assert.NotEmpty(fragment.Context));
     }
+
+    [Fact]
+    public void FindingTools_exposes_cross_service_and_new_rule_evidence_shapes()
+    {
+        var graph = new CacheGraph();
+        var writer = Handler("Catalog", "Products.Put", "Catalog.API");
+        var cacher = Handler("Catalog", "Products.Get", "Catalog.API");
+        var consumer = Handler("Notifications", "Products.Consume", "Notifications.API");
+        var invalidator = Handler("Catalog", "Prices.Invalidate", "Catalog.API");
+        var table = new Table("dbo.Products", "shop");
+        var key = new CacheKey("product:{id}", "memory", null, [], "cache");
+        var parent = new CacheKey("products", "memory", TimeSpan.FromSeconds(120), [], "cache");
+        var child = new CacheKey("product:{id}", "redis", TimeSpan.FromSeconds(30), [], "cache");
+        var published = new Event("Catalog.Contracts.ProductChanged");
+        var consumed = new Event("Notifications.Contracts.ProductChanged");
+        var external = new ExternalSource("http", "GET", "weather", null, "Catalog.API");
+
+        graph.AddEdge(new Writes(writer, table, Confidence.Confirmed, [new Evidence("Catalog.cs", 1)]));
+        graph.AddEdge(new Caches(cacher, key, Confidence.Confirmed, [new Evidence("Catalog.cs", 2)]));
+        graph.AddEdge(new Reads(cacher, table, Confidence.Confirmed, [new Evidence("Catalog.cs", 3)]));
+        graph.AddEdge(new Publishes(writer, published, Confidence.Confirmed, [new Evidence("Catalog.cs", 4)]));
+        graph.AddEdge(new Consumes(consumed, consumer, Confidence.Confirmed, [new Evidence("Notifications.cs", 5)]));
+        graph.AddEdge(new Caches(cacher, new CacheKey("weather", "memory", null, [], "cache"), Confidence.Confirmed,
+            [new Evidence("Catalog.cs", 6)]));
+        graph.AddEdge(new Reads(cacher, external, Confidence.Confirmed, [new Evidence("Catalog.cs", 7)]));
+        graph.AddEdge(new Caches(cacher, parent, Confidence.Confirmed, [new Evidence("Catalog.cs", 8)]));
+        graph.AddEdge(new Reads(cacher, child, Confidence.Confirmed, [new Evidence("Catalog.cs", 9)]));
+        graph.AddEdge(new Caches(cacher, child, Confidence.Confirmed, [new Evidence("Catalog.cs", 10)]));
+        graph.AddEdge(new Invalidates(invalidator, child, Confidence.Confirmed, [new Evidence("Catalog.cs", 11)], CacheSemantic.Remove));
+
+        var catalog = new FindingCatalog();
+        var findings = FindingQueries.FindIssues(graph, null, catalog, null, null, true, new PageArguments());
+        var crossService = Assert.Single(findings.Items, item => item.Rule == UnguardedWriteFinding.CrossServiceGapRule &&
+                                                               item.KeyTemplate == key.Template && item.Store == key.Store);
+        var externalFinding = Assert.Single(findings.Items, item => item.Rule == ExternalNoTtlFinding.Rule &&
+                                                                   item.KeyTemplate == "weather");
+        var stale = Assert.Single(findings.Items, item => item.Rule == StaleParentKeyFinding.Rule &&
+                                                         item.ParentTemplate == parent.Template);
+        var crossEvidence = FindingQueries.GetEvidence(graph, null, null, catalog, crossService.Id, new PageArguments());
+        var externalEvidence = FindingQueries.GetEvidence(graph, null, null, catalog, externalFinding.Id, new PageArguments());
+        var staleEvidence = FindingQueries.GetEvidence(graph, null, null, catalog, stale.Id, new PageArguments());
+
+        Assert.Equal("Catalog.API", crossService.Project);
+        Assert.Contains("Notifications.API", crossEvidence.InvalidationSearchedIn);
+        Assert.Collection(crossEvidence.Fragments.Items.Where(item => item.Edge is "publishes" or "consumes"),
+            publish => Assert.Equal("publishes", publish.Edge),
+            consume =>
+            {
+                Assert.Equal("consumes", consume.Edge);
+                Assert.Equal("likely", consume.Confidence);
+                Assert.Contains("contract duplicated across services", consume.Reason, StringComparison.Ordinal);
+            });
+        Assert.Equal("external:http:Catalog.API:-:GET weather", externalFinding.External);
+        Assert.NotEmpty(externalEvidence.Fragments.Items);
+        Assert.Equal("products", stale.ParentTemplate);
+        Assert.Equal("product:{id}", stale.KeyTemplate);
+        Assert.Contains("Catalog.API", staleEvidence.InvalidationSearchedIn);
+    }
+
+    [Fact]
+    public void FindingTools_lists_event_and_service_join_gaps_and_validates_event_kinds()
+    {
+        var graph = new CacheGraph();
+        var publisher = Handler("Catalog", "Products.Publish", "Catalog.API");
+        var reader = Handler("Web", "Products.Get", "WebMVC");
+        var source = new ExternalSource("http", "GET", "items", "ICatalogClient", "WebMVC");
+        graph.AddUnresolved(UnresolvedKind.Sql, "Catalog", "Catalog.cs", 1, "sql", "stored row");
+        graph.AddEdge(new Publishes(publisher, new Event("Catalog.Contracts.Changed"), Confidence.Confirmed,
+            [new Evidence("Catalog.cs", 2)]));
+        graph.AddEdge(new Reads(reader, source, Confidence.Confirmed, [new Evidence("Web.cs", 3)]));
+        graph.SetServiceMap(new Dictionary<string, string> { ["ICatalogClient"] = "Catalog.API" });
+
+        var all = FindingQueries.GetUnresolved(graph, null, null, new PageArguments());
+        var events = FindingQueries.GetUnresolved(graph, null, "event", new PageArguments());
+        var calls = FindingQueries.GetUnresolved(graph, null, "call", new PageArguments());
+
+        Assert.Contains(all.Items, item => item.Kind == "sql");
+        Assert.Single(events.Items);
+        var serviceGap = Assert.Single(calls.Items);
+        Assert.Equal(TraceQueries.NodeId(source), serviceGap.External);
+        Assert.Empty(FindingQueries.GetUnresolved(graph, null, "event_api", new PageArguments()).Items);
+        var error = Assert.Throws<ArgumentException>(() => FindingQueries.GetUnresolved(graph, null, "not_a_kind", new PageArguments()));
+        Assert.Contains("kind must be", error.Message, StringComparison.Ordinal);
+    }
+
+    private static Handler Handler(string solution, string symbol, string project) =>
+        new(solution, symbol, "controller", $"{project}.cs", 1) { Project = project };
 
     private sealed class FindingFixture : IDisposable
     {
