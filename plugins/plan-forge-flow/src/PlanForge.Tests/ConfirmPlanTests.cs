@@ -98,6 +98,46 @@ public sealed class ConfirmPlanTests : IDisposable
         Assert.False(status.Run.Approved);
     }
 
+    /// <summary>
+    /// The gate settings arrive with the approval because that is when the gates are known: the
+    /// plan they belong to did not exist at <c>forge.begin</c>. A re-approval replaces them, so a
+    /// plan whose gates stopped needing a database stops carrying its connection string.
+    /// </summary>
+    [Fact]
+    public async Task The_approval_records_the_gate_environment_and_the_builder_roots_and_a_re_approval_replaces_them()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        var root = Path.GetFullPath(Path.Combine(_repo, "..", "eShop"));
+
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct,
+                                     new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." }, [root]);
+
+        var state = run.ReadState();
+        Assert.True(state.Approved);
+        Assert.Equal("Server=.", state.GateEnvironment!["CD_TEST_SQL_CONN"]);
+        Assert.Equal([root], state.BuilderRoots);
+
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct);
+
+        state = run.ReadState();
+        Assert.Null(state.GateEnvironment);
+        Assert.Null(state.BuilderRoots);
+    }
+
+    [Fact]
+    public async Task A_relative_builder_root_is_refused_before_anything_is_written()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
+            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct, null, ["../eShop"]));
+
+        Assert.False(run.ReadState().Approved);
+        Assert.False(File.Exists(run.PlanPath));
+    }
+
     private async Task<RunDirectory> StartRunAsync(CancellationToken ct)
     {
         await _git.OutputAsync(["init", "-q"], ct);

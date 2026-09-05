@@ -185,6 +185,69 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Contains("fixed the guard", flow, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The run-wide gates are the fix round's gates, so the fix is judged by them the way a task is
+    /// judged by its own: a failing one rewrites the status, withholds nothing (there is no task
+    /// count to withhold) and is put in front of the next fix.
+    /// </summary>
+    [Fact]
+    public async Task A_fix_round_runs_the_executable_run_wide_gates_and_a_failing_one_marks_the_fix_gate_failed()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed again"));
+        var run = NewRun(plan: "## Gates\n\n1. **G1.** `Write-Output g1` passes.\n2. **G2.** `cmd /c exit 3` passes.\n\n## Approach\n\n1. Task.\n");
+        var fix = NewFix(builder);
+
+        var first = await fix.FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        Assert.Equal("gate_failed", first.Status);
+        Assert.Equal("failed", first.Gate?.Outcome);
+        Assert.Equal("G1, G2", first.Gate?.Label);
+        Assert.Equal(3, first.Gate?.ExitCode);
+        Assert.Contains("cmd /c exit 3", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("Status: gate_failed", flow, StringComparison.Ordinal);
+        Assert.Contains("Gates G1, G2: failed", flow, StringComparison.Ordinal);
+
+        await fix.FixAsync(run, new Selection("builder-model", null), "- fix it again", null, ct);
+
+        Assert.Contains("did not pass its gate", builder.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("exited 3", builder.Sessions[1].PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_fix_round_whose_run_wide_gates_all_pass_keeps_the_builder_status()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("unavailable", "sandbox"), "fixed"));
+        var run = NewRun(plan: "## Gates\n\n1. **G1.** `Write-Output g1` passes.\n\n## Approach\n\n1. Task.\n");
+
+        var result = await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        Assert.Equal("done", result.Status);
+        Assert.Equal("passed", result.Gate?.Outcome);
+        Assert.Equal("G1", result.Gate?.Label);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    [Fact]
+    public async Task A_plan_without_run_wide_gates_leaves_the_fix_on_the_builder_s_word()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun();
+
+        var result = await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        Assert.Equal("done", result.Status);
+        Assert.Equal("not_executable", result.Gate?.Outcome);
+        Assert.Contains("Gate: not executable — the plan states no gate", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
     private ReviewFix NewFix(RecordingVendor builder) =>
         new(builder, new PromptLibrary(RepositoryPrompts()));
 
@@ -192,9 +255,11 @@ public sealed class ReviewFixTests : IDisposable
                                 int reviewRounds = 0,
                                 int codeReviewRounds = 0,
                                 string builderVendor = "",
-                                string builderSessionId = "")
+                                string builderSessionId = "",
+                                string plan = "## Approach\n\n1. Task.\n")
     {
         var run = RunDirectory.Create(_workspace, "review-fix");
+        run.WritePlan(plan);
         run.WriteState(new RunState("review-fix", _workspace, "Text", DateTimeOffset.Now, reviewRounds, 5,
             Approved: approved, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor,
             CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));

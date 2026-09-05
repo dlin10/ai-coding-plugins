@@ -38,7 +38,9 @@ builder.Services
         o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
     })
     .WithStdioServerTransport()
-    .WithTools<ForgeTools>()
+    // The SDK's own options plus this assembly's contract for the two structured arguments of
+    // forge.begin; without it the server fails at startup describing a Dictionary it cannot see.
+    .WithTools<ForgeTools>(ToolArgumentJson.ArgumentOptions)
     .WithResources<PlanCanvas>()
     // Reads the [McpAppUi] attributes the tools already carry and turns them into _meta.ui, so it
     // has to come after WithTools. Only forge.plan.show carries one; every other tool is untouched,

@@ -20,10 +20,10 @@ are separate model processes, and neither ever revises the plan.
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | One review round: a fresh critic judges the written draft, beside the orchestrator's account of what the previous round changed |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
-| `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes |
-| `forge.build.next` | Builds one task of the approved plan |
+| `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes, with the environment and extra writable roots the gates and the builder need |
+| `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
-| `forge.review.fix` | Hands the findings the orchestrator kept to the builder, and logs the deferred ones with reasons |
+| `forge.review.fix` | Hands the findings the orchestrator kept to the builder, logs the deferred ones with reasons, then runs the plan's executable `## Gates` on the host |
 | `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
 | `forge.work.start` | On Cursor hosts, starts one worker act as a background job |
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call |
@@ -183,8 +183,14 @@ Two checks survive, both against irreversible harm:
   filtered diff; see [`docs/adr/0004`](docs/adr/0004-documentation-written-during-the-interview.md).
 - **Writes staying inside the run.** One containment test on the run id, instead of six guards.
 
-Everything else is observable rather than prevented. There are no hooks and no gates, so an
-orchestrator can abandon a run midway or start editing during the interview. Filtered drift since
+- **A task's gate, where it is a command.** After every builder turn the server runs the command
+  that follows `**Gate:**` on the host — with the environment the approval carried — and a non-zero
+  exit withholds the task as `gate_failed` and hands the output to the builder's retry. The
+  builder's own `verification` decides only where the gate is a condition rather than a command.
+  See [`docs/adr/0015`](docs/adr/0015-the-host-runs-the-gate.md).
+
+Everything else is observable rather than prevented. There are no hooks, so an orchestrator can
+abandon a run midway or start editing during the interview. Filtered drift since
 `forge.begin` is reported by `forge.status`, excluding `CONTEXT.md` and `docs/adr/**`, so it is
 visible to whoever looks — and approval itself is an assertion by the orchestrator that it asked.
 These are deliberate trades, recorded in

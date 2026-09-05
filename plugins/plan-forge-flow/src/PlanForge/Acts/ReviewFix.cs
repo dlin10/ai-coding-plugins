@@ -23,7 +23,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
-        var prompt = Compose(findings);
+        var prompt = Compose(findings, state.PendingGateFailure);
         SensitiveInput.Guard(prompt, "the code-review fixes");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
 
@@ -39,15 +39,21 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
-        await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder)),
+        await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder), state.BuilderRoots),
                                                            selection, resumeToken, ct);
 
-        var result = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
+        var reported = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
+
+        // A fix round belongs to no single task, so the gates it answers to are the run-wide ones
+        // under `## Gates` — the checks that span the whole change, which is what a fix touches.
+        var plan = run.ReadPlan();
+        var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan), PlanGates.HasRunWideGates(plan), state, ct);
 
         run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
         run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, result);
         run.WriteState(state with
         {
+            PendingGateFailure = Gatekeeper.PendingFailure(result, state.PendingGateFailure),
             BuilderSessionId = sameVendor
                                    ? builder.ResumeToken ?? state.BuilderSessionId
                                    : builder.ResumeToken ?? string.Empty,
@@ -57,8 +63,12 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         return result;
     }
 
-    private static string Compose(string findings) => new StringBuilder().AppendLine("# Fix these review findings")
-                                                                         .AppendLine()
-                                                                         .AppendLine(findings)
-                                                                         .ToString();
+    private static string Compose(string findings, string? pendingGateFailure)
+    {
+        var prompt = new StringBuilder().AppendLine("# Fix these review findings")
+                                        .AppendLine()
+                                        .AppendLine(findings);
+        Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
+        return prompt.ToString();
+    }
 }

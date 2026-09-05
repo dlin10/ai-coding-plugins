@@ -28,31 +28,36 @@ internal sealed class Build
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
         var tasks = PlanTasks.Parse(run.ReadPlan());
-        if (state.TasksCompleted >= tasks.Count) 
+        if (state.TasksCompleted >= tasks.Count)
             return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
         var task = tasks[state.TasksCompleted];
-        var prompt = Compose(task, tasks.Count);
+        var prompt = Compose(task, tasks.Count, state.PendingGateFailure);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
 
         var sameVendor = string.Equals(state.BuilderVendor, _vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
-        await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder)),
+        await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder), state.BuilderRoots),
                                                            selection,
                                                            resumeToken,
                                                            ct);
 
-        var result = await BuilderTurn.RunAsync(session, state.WorkspaceRoot, prompt, ct);
+        var reported = await BuilderTurn.RunAsync(session, state.WorkspaceRoot, prompt, ct);
 
-        // A task the builder could not do stays the next task, so the following call retries it
-        // instead of stepping over it as if it had been built.
-        var done = string.Equals(result.Status, "done", StringComparison.Ordinal);
-        var tasksCompleted = done ? state.TasksCompleted + 1 : state.TasksCompleted;
+        // The host's run of the task's gate, where the gate is a command, is what decides the task
+        // — not the builder's account of the checks it ran. See docs/adr/0015.
+        var gate = PlanGates.TaskGate(task.Text);
+        var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), state, ct);
+
+        // A task the builder could not do, or whose gate failed, stays the next task, so the
+        // following call retries it instead of stepping over it as if it had been built.
+        var tasksCompleted = Gatekeeper.IsDone(result) ? state.TasksCompleted + 1 : state.TasksCompleted;
 
         run.AppendFlowBuild(task.Number, tasks.Count, result);
         run.WriteState(state with
         {
             TasksCompleted = tasksCompleted,
+            PendingGateFailure = Gatekeeper.PendingFailure(result, state.PendingGateFailure),
             BuilderSessionId = sameVendor
                 ? session.ResumeToken ?? state.BuilderSessionId
                 : session.ResumeToken ?? string.Empty,
@@ -62,11 +67,14 @@ internal sealed class Build
         return new BuildOutcome(result, tasksCompleted, tasks.Count);
     }
 
-    private static string Compose(PlanTask task, int total) => new StringBuilder()
-                                                              .Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
-                                                              .AppendLine()
-                                                              .AppendLine(task.Text)
-                                                              .ToString();
+    private static string Compose(PlanTask task, int total, string? pendingGateFailure)
+    {
+        var prompt = new StringBuilder().Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
+                                        .AppendLine()
+                                        .AppendLine(task.Text);
+        Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
+        return prompt.ToString();
+    }
 }
 
 internal sealed record BuildOutcome(BuildResult? Result, int TasksCompleted, int TaskCount);

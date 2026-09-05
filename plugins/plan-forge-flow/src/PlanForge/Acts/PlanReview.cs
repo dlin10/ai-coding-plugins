@@ -168,7 +168,8 @@ internal sealed class PlanReview
     {
         if (!state.Approved) return state;
 
-        var reopened = state with { Approved = false, TasksCompleted = 0, BuilderSessionId = string.Empty };
+        // A gate failure owed to a task of the old plan is owed to nobody once the tasks restart.
+        var reopened = state with { Approved = false, TasksCompleted = 0, BuilderSessionId = string.Empty, PendingGateFailure = null };
         run.WriteState(reopened);
         run.AppendFlowReopened(state.TasksCompleted);
         return reopened;

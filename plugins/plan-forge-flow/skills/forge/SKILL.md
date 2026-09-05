@@ -26,10 +26,10 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
-| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer. |
-| `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer, and with a yes the `gateEnvironment` and `builderRoots` the plan's gates and builder need on this host. |
+| `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. |
+| `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. The server then runs the plan's executable `## Gates` entries. |
 | `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
 | `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
@@ -134,12 +134,34 @@ interview's answers, not the implementation — what must become true, what must
 would be observed — so no file names, no symbols, no "how". The exclusions carry as much weight as
 the requirements: they are what stops the critic demanding work the user already ruled out.
 
-Every task ends with a **Gate** — the command or the observable condition that would show that task
-done — and cites the requirements it serves. A check that belongs to no single task goes under
-`## Gates` instead, numbered `G1` to `Gn`, each citing what it discharges: the test suite, a
-warnings-clean build, an invariant spanning the whole change. Leave that section out when the task
-gates already cover everything; a ceremonial gate is worse than none. Its entries are yours to run
-after the last task — see the code-review loop below.
+Every task ends with a **Gate** — the command that would show that task done — and cites the
+requirements it serves. A check that belongs to no single task goes under `## Gates` instead,
+numbered `G1` to `Gn`, each citing what it discharges: the test suite, a warnings-clean build, an
+invariant spanning the whole change. Leave that section out when the task gates already cover
+everything; a ceremonial gate is worse than none.
+
+**The server runs the gates, so write them to be run.** After every `forge.build.next` the server
+executes the task's gate on the host — from `workspaceRoot`, in PowerShell, with the
+`gateEnvironment` you pass at approval — and its exit code, not the builder's report, decides whether
+the task counts. After every `forge.review.fix` it does the same with the `## Gates` entries. A gate
+is executable only when the code comes **first** after the label: `**Gate:** `dotnet test …` …`.
+Prose before the backticks makes the gate a condition — the server records it as `not executable`
+and the builder's self-report is all you have, as it was before. So:
+
+- One PowerShell command line, placed immediately after `**Gate:**` (or `**G1.**`). Chain with
+  `;` — a native command exiting non-zero ends the script with that code — and make a condition
+  fail explicitly: `if (…) { exit 1 }`. Several commands may go in a fenced block right after the
+  label, one per line; it runs as one script and stops at the first failing line.
+- Reference the environment as `$env:NAME` and name every variable the gate needs; you will be
+  asked for them at approval. Never write a value into the plan.
+- A task that adds tests must prove they **exist**, not that the suite is green: a green suite at
+  the old count is exactly what a builder that wrote no tests reports. Filter to the new class and
+  count the names —
+  `if ((dotnet test src/X.slnx --list-tests --filter "FullyQualifiedName~FooTests" | Select-String "FooTests\.").Count -lt 14) { exit 1 }; dotnet test src/X.slnx --filter "FullyQualifiedName~FooTests"`
+  — with the count the task demands. Then say what to name them, so the count is checkable.
+- A gate that needs something outside the workspace — a sibling checkout, a database — needs the
+  path or the connection string in `gateEnvironment`, and if the builder must *write* there, the
+  path in `builderRoots` too.
 
 ```markdown
 Builder: cursor / gpt-5.3-codex / high
@@ -153,12 +175,12 @@ Builder: cursor / gpt-5.3-codex / high
 
 ## Gates
 
-1. **G1.** `dotnet test …` passes. (R1, R2)
+1. **G1.** `dotnet test src/X.slnx --nologo` passes. (R1, R2)
 
 ## Approach
 
-1. **First task.** What to change. **Gate:** the command or condition showing it done. (R1)
-2. **Second task.** … (R2)
+1. **First task.** What to change. **Gate:** `dotnet test src/X.slnx --filter "FullyQualifiedName~FooTests"` (R1)
+2. **Second task.** … **Gate:** `if ($env:CD_TEST_SQL_CONN) { dotnet test … } else { exit 1 }` (R2)
 ```
 
 Write every task to be read alone. The builder receives `# Task N of M` and the task's own text —
@@ -170,8 +192,8 @@ starts from nothing.
 Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
 goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
 task must be: name the files and the symbols, decide the edge cases and the error paths yourself,
-and make each task's `Gate` an exact command rather than a condition to interpret — leave nothing to
-the builder's judgement, because the builder you chose has less of it. Judge strength from the
+and make each task's `Gate` count what the task must produce rather than only run what already
+exists — leave nothing to the builder's judgement, because the builder you chose has less of it. Judge strength from the
 vendor's own catalogue — the position in its newest-first list and the chosen effort — not from a
 remembered model name.
 
@@ -290,7 +312,12 @@ job, in four steps:
    with `forge.plan.write`, and go back to `forge.plan.review` with `revision` saying what you
    changed — a plan amended after the last verdict has not been reviewed — then show the revised
    plan again before asking a second time.
-4. Pass what they answered to `forge.plan.confirm`.
+4. With a yes, ask once for what the gates need on this host: the value of every `$env:NAME` the
+   plan's gates reference, and any path outside the workspace the builder has to write to. Collect
+   them in the chat — never write a value into the plan, and never guess one.
+5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and the
+   paths as `builderRoots`. Both are kept for the run and replaced by any later approval; only the
+   variable names reach the log.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
@@ -298,33 +325,46 @@ state, and unlocks the builder. No code anywhere checks whether anyone was actua
 plan you showed them, not the last draft a round reviewed — those differ whenever step 3 sent you
 back to revise, and it is the confirmed text the builder walks.
 
-## The builder's verification is self-reported — reacting to it is yours
+## The gate decides the task; the builder's verification is its own word
 
-Every build and fix result carries a `verification` object beside its `status`: `outcome` is
-`passed`, `failed` or `unavailable`, and `evidence` says what ran and what it showed — or quotes
-the refusal when nothing could run. The server records it and moves on; nothing downstream
-re-checks it, and the code review reads the diff, not the test results.
+Every build and fix result carries two accounts beside its `status`. `verification` is the
+builder's: `outcome` is `passed`, `failed` or `unavailable`, and `evidence` says what it ran and what
+it showed — or quotes the refusal when nothing could run. `gate` is the server's: it ran the task's
+gate command on the host after the builder's turn, and reports `outcome`, the `command`, its
+`exitCode`, the tail of its `output`, and `seconds`. The code review reads the diff, not either of
+them.
 
-So when `outcome` is anything but `passed`, the verification step is yours before the run
-advances:
+Read `gate.outcome` first:
 
-- **`unavailable`** — the builder implemented the task but could not execute its verification
-  (a broken sandbox, a denied spawn). Run the task's verification step yourself, in your own
-  environment. Record what you ran and the outcome through `forge.log.append` before starting the
-  next worker act, whichever tool your host reaches it through.
-- **`failed`** — the check ran and did not pass. Do not advance past it: verify yourself, and
-  either fix forward through the flow or stop and ask the user.
+- **`passed`** — the task counts, whatever the builder said about its own verification. A builder
+  that reported `unavailable` because its sandbox could not run the gate has been checked for you.
+- **`failed`** or **`timeout`** — the `status` is `gate_failed`, `tasksCompleted` did not move, and
+  the next `forge.build.next` retries the same task with the gate's command, exit code and output in
+  front of the builder. Call it again. If the same gate fails twice more, stop and show the user the
+  output rather than spending a fourth turn: the gate may be wrong, the environment may be missing
+  a variable, or the task may be beyond the builder. A `## Gates` failure after `forge.review.fix`
+  is the same signal with no task to withhold — the next fix carries it — so do not start the next
+  `forge.review.code` round on a `gate_failed` fix without deciding what to do about it.
+- **`not_executable`** — the gate is a condition rather than a command, or the task states none.
+  Only here does the builder's `verification` decide, and only here does the old rule apply: on
+  `unavailable`, run the check yourself and record what you ran and saw through `forge.log.append`
+  before the next act; on `failed`, do not advance past it — verify yourself, and either fix forward
+  or stop and ask the user.
+- **`not_run`** — the builder reported `blocked`, so there was nothing to gate, or the host has no
+  PowerShell. The second case is the environment's fault, not the task's: say so and treat the task
+  as `not_executable`.
 
-Say the outcome in your one line of narration either way — a task whose verification the builder
-could not run must never read like a clean `done` in the chat.
+Say the gate's outcome in your one line of narration — a task whose gate failed, or whose gate
+nobody could run, must never read like a clean `done` in the chat.
 
 ## The code-review loop
 
 After the last task and before the first review round, run the plan's `## Gates` entries yourself,
-in your own environment. Nobody else will: they are the checks no single task owned, so no builder
-ran them, and the critic must not — it judges the diff, and a build writes into the very tree it is
-reading. Record what you ran and what it showed with `forge.log.append`. A failing gate is not a
-code-review finding: stop there and decide with the user, exactly as with a task whose verification
+in your own environment — all of them, conditions included. The server runs the executable ones
+only after a fix round, so at this point nobody has: they are the checks no single task owned, no
+builder ran them, and the critic must not — it judges the diff, and a build writes into the very
+tree it is reading. Record what you ran and what it showed with `forge.log.append`. A failing gate
+is not a code-review finding: stop there and decide with the user, exactly as with a task whose gate
 failed.
 
 Then the loop is yours to run, exactly as with plan review: on non-Cursor hosts, `forge.review.code`
@@ -401,7 +441,8 @@ nearer the strong end.
 ## What is not enforced
 
 Nothing stops you from abandoning a run halfway, or from editing code during Act 1. There are no
-hooks and no gates in this version — the trade is deliberate. The consequences to hold yourself to:
+hooks — the trade is deliberate, and the one thing the server checks is a task's gate command. The
+consequences to hold yourself to:
 
 - Before approval, the orchestrator may write only `CONTEXT.md` and files under `docs/adr/`, and
   only in documented mode. Do not touch code or any other files. The write boundary and the

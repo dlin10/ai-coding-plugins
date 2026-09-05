@@ -22,9 +22,12 @@ these terms replace it.
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the variants observed. The chosen variant joins back onto the family id; `default` names the bare id and joins to nothing. |
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
-| **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task and the builder runs it; a `## Gates` entry — `G1`…`Gn` — belongs to no single task and the orchestrator runs it after the last one. |
-| **Build status** | What the builder says it **did** with a task: `done` or `blocked`. Only `done` is progress. A `blocked` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
-| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
+| **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label — the server then runs it on the host after the builder's turn (the task gate after `forge.build.next`, the run-wide gates after `forge.review.fix`) and its exit code decides; otherwise a **condition**, left to the builder's word and, for `## Gates`, to the orchestrator after the last task. See `docs/adr/0015`. |
+| **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` or no PowerShell was found. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
+| **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
+| **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. |
+| **Build status** | What the builder says it **did** with a task: `done` or `blocked`, plus one word the server writes over it — `gate_failed`, when the builder said `done` and the host's gate run disagreed. Only `done` is progress. A `blocked` or `gate_failed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
+| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -88,13 +91,14 @@ mid-loop rather than waiting for approval, where its answer would invalidate eve
 
 Gates apply the same idea to verification. A task already ended with how it is verified; the `Gate`
 label only makes that mandatory and findable, which is what lets the critic treat its absence as a
-finding and the orchestrator run the exact command when a builder reports `unavailable`. What had no
-home at all is a check no single task owns — a test suite, a warnings-clean build, an invariant
-spanning the change — so those go under `## Gates`, and the orchestrator runs them after the last
-task. Not the builder, whose session is per-task; and not the critic, because a build writes `bin/`
-and `obj/` into the tree it is judging, and each vendor's read-only guarantee covers the agent's own
-edits, not the side effects of a command it ran. More gates also mean more self-reported claims, so
-the rule below stands unchanged: anything but `passed` is the orchestrator's to run itself.
+finding and the server run the exact command after the builder's turn. What had no home at all is a
+check no single task owns — a test suite, a warnings-clean build, an invariant spanning the change —
+so those go under `## Gates`; the server runs the executable ones after each fix round, and the
+orchestrator runs them all after the last task. Not the builder, whose session is per-task; and not
+the critic, because a build writes `bin/` and `obj/` into the tree it is judging, and each vendor's
+read-only guarantee covers the agent's own edits, not the side effects of a command it ran. A gate
+that is a condition rather than a command is still a self-reported claim, so for those the rule below
+stands: anything but `passed` is the orchestrator's to run itself.
 
 None of this adds an artifact. The requirements live in the plan file, `PlanTasks` walks only what
 is under `## Approach`, and both review acts already send the whole plan — `PlanReview` the draft,
@@ -319,7 +323,7 @@ otherwise abort a worker call whose two 20-minute vendor attempts run back to ba
 measured through `--mcp-config`; the plugin manifest declares its server with the same entry
 schema, which is the one assumption not yet measured end to end.
 
-## Verification is self-reported, and the run log is its audit
+## Verification is self-reported; where the gate is a command, the host's run of it decides
 
 A builder that changed files but could not execute anything used to have no honest answer: `status`
 was `done` or `blocked`, so it answered `done` and put the caveat in prose, which only a careful
@@ -328,15 +332,30 @@ work" and "proved the work" are orthogonal, so the contract carries them on sepa
 `status` stays `done | blocked`, and a required `verification` reports `passed | failed |
 unavailable` with evidence.
 
-The report is the builder's word, deliberately. The server does not re-check it: the only signal it
-could check against — command exit codes in the vendor's event stream — exists reliably for Codex
-alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit code too,
-but it is its own shell's rather than the command's, which is the shape of the problem: a check
-built on it would pass a build that never ran. The audit trail is the run log, which records each
-tool's outcome — command, exit code, output tail — for all three vendors. Reacting to `unavailable` or
-`failed` belongs to the orchestrator — the skill directs it to run the task's verification step
-itself and record the outcome — because the server has no environment of its own to verify in, and
-blocking the flow would kill a run that can degrade gracefully.
+The report is the builder's word, and until 0.27.0 the server re-checked nothing: the only signal
+it could have checked against — command exit codes in the vendor's event stream — exists reliably
+for Codex alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit
+code too, but it is its own shell's rather than the command's, which is the shape of the problem: a
+check built on it would pass a build that never ran. That reasoning still holds, and the event
+stream is still not read for verdicts. What changed is that the server stopped needing the vendor's
+signal: run `20260904-173914-9254ec` had a builder answer `passed` for six tasks whose named tests
+it never wrote, because the suite it ran was green at the old count, so the server now runs the
+gate command **itself**, on the host, and reads its own exit code — the same answer for every
+vendor. See `docs/adr/0015`. The audit trail is still the run log, which records each vendor
+tool's outcome for all three vendors and now the gate run beside them. Reacting to a gate that is a
+condition rather than a command, and so to `unavailable` or `failed` where nothing could be run,
+still belongs to the orchestrator, for the reason it always did: a condition has no exit code, and
+blocking the flow on a self-report would kill a run that can degrade gracefully.
+
+Measured on 2026-09-05 against pwsh 7.6.5, which is what the gate runner leans on: a `trap` that
+exits swallows the record it caught unless it writes it first, so the runner's trap writes to
+stderr before exiting; `$PSNativeCommandUseErrorActionPreference = $true` under `Stop` makes a
+native non-zero exit terminate the script with `$LASTEXITCODE` still set, so a two-line gate stops
+on its first failing line and reports that line's code; and the Store install of pwsh is reachable
+only through the zero-byte execution alias that `docs/adr/0013` strips from codex's PATH — the
+runner keeps it, because this process runs as the user and the alias launches for it. Windows
+PowerShell 5.1 is the fallback and has no native-error preference, so a multi-line gate there is
+judged by its last line alone.
 
 ## A failed act used to leave no trace, so the run log is the server's own record
 

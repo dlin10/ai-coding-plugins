@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ModelContextProtocol;
 using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
@@ -197,19 +198,25 @@ internal sealed class ForgeTools
     /// saying no from a host that answered on their behalf without rendering anything. Nothing here
     /// is enforced — see docs/adr/0003.
     /// </summary>
-    [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes.")]
+    [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes. Pass with the approval what the plan's gate commands need on this host — environment variables in `gateEnvironment`, paths outside the workspace the builder must write to in `builderRoots` — because the server runs every task's gate command itself after the builder's turn. A re-approval replaces both.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
                                                  [Description("The plan to approve, as markdown.")] string plan,
                                                  [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
-                                                 CancellationToken ct)
+                                                 CancellationToken ct,
+                                                 [Description("Environment variables for the gate commands the server runs on the host after every build and fix turn, e.g. {\"CD_TEST_SQL_CONN\": \"Server=…\"}. Ask the user for what the plan's gates need before you confirm; the values are kept in the run state and only their names are logged.")] Dictionary<string, string>? gateEnvironment = null,
+                                                 [Description("Absolute paths outside the workspace the builder may write to, e.g. a sibling checkout a task edits. Passed to a codex builder as sandbox_workspace_write.writable_roots; other vendors ignore it.")] string[]? builderRoots = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        // The gate environment is logged by name only: a connection string is exactly what it holds.
         return await LoggedAsync(run, "forge.plan.confirm",
-            [("approved", approved.ToString()), ("plan", plan)],
+            [("approved", approved.ToString()), ("plan", plan),
+             ("gateEnvironment", gateEnvironment is { Count: > 0 } ? string.Join(", ", gateEnvironment.Keys) : null),
+             ("builderRoots", builderRoots is { Length: > 0 } ? string.Join(", ", builderRoots) : null)],
             async () =>
             {
+                var gates = GateSettings.Validate(gateEnvironment, builderRoots);
                 var state = run.ReadState();
                 var tasks = PlanTasks.Parse(plan);
 
@@ -219,13 +226,19 @@ internal sealed class ForgeTools
                 if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
 
                 run.WritePlan(plan);
-                run.WriteState(state with { Approved = true });
+                run.WriteState(state with
+                {
+                    Approved = true,
+                    GateEnvironment = gates.Environment,
+                    BuilderRoots = gates.BuilderRoots,
+                    PendingGateFailure = null
+                });
 
                 return Serialized(new ApproveResult(true, tasks.Count, drifted));
             });
     }
 
-    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan.")]
+    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is.")]
     public static async Task<string> BuildNext(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -278,7 +291,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled.")]
+    [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled. Afterwards the server runs the plan's executable `## Gates` entries on the host and reports them under `fix.gate`; a failure comes back as status `gate_failed` and is put in front of the builder on the next fix.")]
     public static async Task<string> ReviewFix(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -662,6 +675,31 @@ internal sealed record CatalogModel(string Id,
                                     IReadOnlyList<string> Efforts,
                                     string? DefaultEffort,
                                     bool IsDefault);
+
+/// <summary>
+/// The structured tool <em>arguments</em>, as opposed to the results above. The SDK marshals scalar
+/// arguments out of its own context, and reflection is off repo-wide, so the two non-scalar
+/// arguments of <c>forge.plan.confirm</c> need a contract of their own — chained after the SDK's in
+/// <see cref="ArgumentOptions"/>, which is what <c>WithTools</c> and the schema test are handed.
+/// </summary>
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(string[]))]
+internal sealed partial class ToolArgumentJson : JsonSerializerContext
+{
+    // Lazy rather than a field initializer: the generated half of this class initializes its own
+    // statics in its own order, and an initializer here that reads `Default` ran before them.
+    private static readonly Lazy<JsonSerializerOptions> _argumentOptions = new(Build);
+
+    public static JsonSerializerOptions ArgumentOptions => _argumentOptions.Value;
+
+    private static JsonSerializerOptions Build()
+    {
+        var options = new JsonSerializerOptions(McpJsonUtilities.DefaultOptions);
+        options.TypeInfoResolverChain.Add(Default);
+        return options;
+    }
+}
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BeginResult))]
