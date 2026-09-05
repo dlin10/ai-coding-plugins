@@ -29,7 +29,12 @@ internal enum VendorRole
 }
 
 /// <param name="SystemPrompt">Role instructions, loaded from prompts/&lt;vendor&gt;/&lt;role&gt;.md.</param>
-internal sealed record RoleSpec(VendorRole Role, string SystemPrompt);
+/// <param name="WritableRoots">
+/// Absolute paths outside the workspace a Builder may write to, from <c>forge.begin</c>. Carried
+/// on the role because it is a fact about the builder's sandbox, and only codex has a sandbox to
+/// tell; the other vendors ignore it.
+/// </param>
+internal sealed record RoleSpec(VendorRole Role, string SystemPrompt, IReadOnlyList<string>? WritableRoots = null);
 
 /// <summary>
 /// Model and effort are kept apart because vendors express effort differently — a flag for Claude,

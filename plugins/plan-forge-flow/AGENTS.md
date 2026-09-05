@@ -51,7 +51,7 @@ version, so a manifest naming a version with no release behind it breaks every f
 ```text
 src/PlanForge/            the MCP server
   Mcp/                    tool surface
-  Acts/                   PlanReview, Build, CodeReview, ReviewFix
+  Acts/                   PlanReview, Build, CodeReview, ReviewFix; the gate parser, runner and keeper
   Vendors/                IVendor and the shared contracts
     Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
   Orchestration/          capability profile
@@ -186,6 +186,15 @@ before the empty-diff return, so a documentation-only tree is still inspected. W
 does is stop a worker reading an excluded file off disk; see
 [docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
+The one thing that is *verified* rather than prevented is a task's gate. After every builder turn,
+`Acts/Gatekeeper.cs` runs the command that immediately follows `**Gate:**` in the task (or the
+executable `## Gates` entries after a fix round) on the host through `Acts/GateRunner.cs`, and a
+non-zero exit rewrites the builder's `done` to `gate_failed` and leaves `tasksCompleted` where it
+was. Only code placed *first* after the label counts as a command — `Acts/PlanGates.cs` — because a
+gate that opens with prose and names a file in backticks would otherwise be run as that file. The
+critic never runs anything; do not change that. See
+[docs/adr/0015](docs/adr/0015-the-host-runs-the-gate.md).
+
 Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
 run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
 time rather than blocked. This is deliberate — see
@@ -205,7 +214,11 @@ show it to the user before asking rather than after.
 `Directory.Build.props` sets `TreatWarningsAsErrors`, `PublishTrimmed`, `PublishSingleFile`, and —
 most consequentially — `JsonSerializerIsReflectionEnabledByDefault=false`. Every serialized type
 needs a source-generated `JsonSerializerContext`; adding a record to a tool result without adding it
-to `ForgeToolJson` compiles and then fails at runtime. `JsonObject.ToJsonString()` stays safe.
+to `ForgeToolJson` compiles and then fails at runtime. `JsonObject.ToJsonString()` stays safe. The
+same applies to a non-scalar tool *argument*: the SDK marshals scalars from its own context, and
+anything else must be in `ToolArgumentJson`, which `WithTools` is handed — otherwise the server
+fails at startup describing a type it cannot see, which is what `ToolSurfaceTests` and the
+packaging script's schema checks catch.
 
 Types are `internal` with `InternalsVisibleTo("PlanForge.Tests")`, so tests exercise the real
 classes rather than a public façade.
@@ -214,4 +227,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the fourteen architecture decisions.
+decision. `docs/adr/` holds the fifteen architecture decisions.

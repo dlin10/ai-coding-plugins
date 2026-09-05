@@ -58,4 +58,31 @@ public sealed class CodexArgumentTests
 
         Assert.DoesNotContain("resume", arguments);
     }
+
+    /// <summary>
+    /// The roots `forge.begin` was given widen the builder's sandbox as a TOML array of TOML strings,
+    /// so a Windows path's backslashes are escaped rather than eaten by the TOML parser.
+    /// </summary>
+    [Fact]
+    public void A_builder_with_writable_roots_passes_them_as_the_sandbox_array_after_the_sandbox_mode()
+    {
+        var role = new RoleSpec(VendorRole.Builder, "implement the task", [@"C:\Dev\eShopOnContainers", @"D:\other"]);
+        var selection = new Selection("gpt-5.6-sol", null);
+
+        var arguments = CodexCliSession.BuildArguments(role, selection, null, "schema.json", "result.json");
+
+        var sandbox = arguments.IndexOf("sandbox_mode=" + TomlValue.String("workspace-write"));
+        Assert.Equal("-c", arguments[sandbox + 1]);
+        Assert.Equal("sandbox_workspace_write.writable_roots=[\"C:\\\\Dev\\\\eShopOnContainers\", \"D:\\\\other\"]", arguments[sandbox + 2]);
+    }
+
+    [Fact]
+    public void A_critic_never_receives_writable_roots()
+    {
+        var role = new RoleSpec(VendorRole.Critic, "review the plan", [@"C:\Dev\eShopOnContainers"]);
+
+        var arguments = CodexCliSession.BuildArguments(role, new Selection("gpt-5.6-sol", null), null, "schema.json", "result.json");
+
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
+    }
 }

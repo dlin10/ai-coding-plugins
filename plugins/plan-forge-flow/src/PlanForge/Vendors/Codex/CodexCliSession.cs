@@ -137,6 +137,15 @@ internal sealed class CodexCliSession : IVendorSession
         arguments.Add("-c");
         arguments.Add("sandbox_mode=" + TomlValue.String(sandbox));
 
+        // The extra roots a builder may write to, as the TOML array `sandbox_workspace_write.writable_roots`
+        // takes them (config reference for codex 0.153, checked 2026-09-05). Never for a critic: its
+        // sandbox is read-only and the key would widen nothing.
+        if (role.Role is VendorRole.Builder && role.WritableRoots is { Count: > 0 } roots)
+        {
+            arguments.Add("-c");
+            arguments.Add("sandbox_workspace_write.writable_roots=[" + string.Join(", ", roots.Select(TomlValue.String)) + "]");
+        }
+
         // Sent on every turn, including a resumed one: a resumed turn keeps the instructions its
         // thread started with, so this is harmless rather than effective, and forge never changes a
         // role mid-session.

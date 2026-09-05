@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PlanForge.Jobs;
@@ -103,6 +104,30 @@ public sealed class ToolSurfaceTests
     {
         await Assert.ThrowsAsync<OperationCanceledException>(
             async () => await Surfaced(new OperationCanceledException()));
+    }
+
+    /// <summary>
+    /// The two structured arguments of <c>forge.plan.confirm</c> are the first non-scalar tool
+    /// inputs this server takes, and reflection-based serialization is off repo-wide: this proves
+    /// the SDK can still describe them in the published schema, and that neither is required. The
+    /// service the tool takes from the container is bound the way the server binds it, so it stays
+    /// out of the schema here as it does on the wire.
+    /// </summary>
+    [Fact]
+    public void Confirm_publishes_the_gate_environment_and_the_builder_roots_as_optional_arguments()
+    {
+        var services = new ServiceCollection().AddSingleton(SessionRoots.None).BuildServiceProvider();
+        var tool = McpServerTool.Create(typeof(ForgeTools).GetMethod(nameof(ForgeTools.ConfirmPlan))!,
+                                        options: new McpServerToolCreateOptions { Services = services, SerializerOptions = ToolArgumentJson.ArgumentOptions });
+
+        var schema = tool.ProtocolTool.InputSchema;
+        var properties = schema.GetProperty("properties");
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots"],
+                     properties.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+        Assert.Contains("object", properties.GetProperty("gateEnvironment").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
     private static ValueTask<CallToolResult> Surfaced(Exception error) =>

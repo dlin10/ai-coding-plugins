@@ -1,5 +1,37 @@
 # Plan Forge Flow releases
 
+## 0.27.0
+
+A builder answered `done` and `verification: passed` for six tasks whose gates named the tests each
+had to add, and wrote none of them: the suite it ran was the old suite, green at the old count. The
+gates that needed the host — a SQL Express connection string, a sibling checkout, a `NuGet.Config`
+the sandbox may not read — came back `unavailable`, and the skill's "run it yourself" ran once, after
+the last task, which is where every defect of tasks 3 to 6 surfaced (run `20260904-173914-9254ec`).
+
+- After every `forge.build.next`, the server runs the task's gate command itself: the inline span or
+  fenced block right after `**Gate:**`, in PowerShell, from `workspaceRoot`, with the environment
+  the approval carried, under a twenty-minute bound. Its exit code decides the task. A non-zero exit
+  comes back as status `gate_failed` with the command, exit code and output tail under
+  `build.result.gate`; `tasksCompleted` does not move, and the next call retries the same task with
+  the gate's own words in front of the builder. A passing gate counts the task whatever the builder
+  said about its own verification. A gate that opens with prose is a condition, not a command: the
+  builder's word stands as before and the flow log says `Gate: not executable`.
+- After every `forge.review.fix` with findings, the same happens with the executable entries of the
+  plan's `## Gates` section, run as one script in order and reported under `fix.gate`.
+- `forge.plan.confirm` takes `gateEnvironment`, the variables the gate commands need, and
+  `builderRoots`, absolute paths outside the workspace the builder may write to. Both are kept in the
+  run state — only the variable names are logged — and a re-approval replaces them. A codex builder
+  receives `builderRoots` as `-c sandbox_workspace_write.writable_roots=[…]`; claude and cursor
+  ignore it.
+- The flow log carries a `Gate:` line beside `Verification:`, with the output tail when the gate did
+  not pass; the run log carries `gate.start` and `gate.finished`.
+- The skill now writes every task gate as one PowerShell command line placed first after
+  `**Gate:**`, and asks for the gate environment and builder roots at approval. For a task that adds
+  tests it recommends proving they exist by name — `dotnet test --list-tests` piped through
+  `Select-String` with an expected count — because "the suite is green" cannot tell "the test passed"
+  from "the test was never written". See
+  [docs/adr/0015](docs/adr/0015-the-host-runs-the-gate.md).
+
 ## 0.26.1
 
 The 0.26.0 release did not publish: its own CI run failed on

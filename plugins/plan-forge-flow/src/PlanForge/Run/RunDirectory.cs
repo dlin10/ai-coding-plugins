@@ -346,8 +346,11 @@ internal sealed class RunDirectory
              .AppendLine()
              .Append("Verification: ").Append(result.Verification.Outcome)
              .Append(" — ").Append(result.Verification.Evidence).AppendLine()
-             .AppendLine()
-             .AppendLine(result.Summary)
+             .AppendLine();
+
+        if (result.Gate is { } gate) AppendGate(entry, gate);
+
+        entry.AppendLine(result.Summary)
              .AppendLine();
 
         foreach (var file in result.FilesChanged)
@@ -355,11 +358,61 @@ internal sealed class RunDirectory
 
         if (result.FilesChanged.Count > 0) entry.AppendLine();
     }
+
+    /// <summary>
+    /// The host's own line beside the builder's verification, so a reader of the timeline sees
+    /// which of the two decided the task. The output travels only when the gate did not pass:
+    /// that is when someone has to read it.
+    /// </summary>
+    private static void AppendGate(StringBuilder entry, GateRun gate)
+    {
+        var label = gate.Label == "Gate" ? "Gate" : "Gates " + gate.Label;
+        entry.Append(label).Append(": ").Append(gate.Outcome.Replace('_', ' ')).Append(" — ");
+
+        switch (gate.Outcome)
+        {
+            case "passed":
+                entry.Append(Inline(gate.Command)).Append(" exited 0 in ").Append(gate.Seconds?.ToString("0")).AppendLine(" s");
+                break;
+            case "failed":
+                entry.Append(Inline(gate.Command))
+                     .Append(gate.ExitCode is { } code ? $" exited {code}" : " did not run")
+                     .Append(" after ").Append(gate.Seconds?.ToString("0")).AppendLine(" s");
+                break;
+            case "timeout":
+                entry.Append(Inline(gate.Command)).Append(' ').AppendLine(gate.Detail);
+                break;
+            default:
+                entry.AppendLine(gate.Detail);
+                break;
+        }
+
+        entry.AppendLine();
+
+        if (gate.Outcome is "failed" or "timeout" && gate.Output is { Length: > 0 })
+            entry.AppendLine("```text")
+                 .AppendLine(gate.Output)
+                 .AppendLine("```")
+                 .AppendLine();
+    }
+
+    // A one-line command reads inline; a script keeps its lines, each in its own span.
+    private static string Inline(string? command) =>
+        command is null ? string.Empty
+        : command.Contains('\n') ? string.Join(" · ", command.Split('\n').Select(line => $"`{line}`"))
+        : $"`{command}`";
 }
 
 // The code-review defaults keep state files written before the counters existed readable; the cap
 // default matches what forge.begin writes today. The granted-round defaults do the same for state
-// files written before the user could buy a round past either cap.
+// files written before the user could buy a round past either cap, and the null gate settings for
+// runs begun before the server ran gates at all.
+/// <param name="GateEnvironment">Environment variables every gate command runs with, from <c>forge.begin</c>.</param>
+/// <param name="BuilderRoots">Paths outside the workspace the builder may write to, from <c>forge.begin</c>; codex-only today.</param>
+/// <param name="PendingGateFailure">
+/// What the last gate run said when it failed, handed to the next builder turn and cleared by the
+/// first gate that passes. Null while nothing is owed.
+/// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -374,7 +427,10 @@ internal sealed record RunState(string RunId,
                                 int CodeReviewRounds = 0,
                                 int CodeReviewRoundCap = 3,
                                 int GrantedReviewRounds = 0,
-                                int GrantedCodeReviewRounds = 0);
+                                int GrantedCodeReviewRounds = 0,
+                                IReadOnlyDictionary<string, string>? GateEnvironment = null,
+                                IReadOnlyList<string>? BuilderRoots = null,
+                                string? PendingGateFailure = null);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

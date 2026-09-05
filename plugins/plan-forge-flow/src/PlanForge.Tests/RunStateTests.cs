@@ -47,5 +47,26 @@ public sealed class RunStateTests : IDisposable
         Assert.Equal(0, state.GrantedCodeReviewRounds);
         Assert.Equal(5, state.ReviewRoundCap);
         Assert.Equal(3, state.CodeReviewRoundCap);
+
+        // Written before the server ran gates: nothing owed, nothing configured.
+        Assert.Null(state.GateEnvironment);
+        Assert.Null(state.BuilderRoots);
+        Assert.Null(state.PendingGateFailure);
+    }
+
+    [Fact]
+    public void The_gate_settings_round_trip_through_the_state_file()
+    {
+        var run = RunDirectory.Create(_workspace, "gated");
+        run.WriteState(new RunState("gated", @"C:\workspace", "Text", DateTimeOffset.Now, 0, 5,
+                                    GateEnvironment: new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." },
+                                    BuilderRoots: [@"C:\Dev\eShopOnContainers"],
+                                    PendingGateFailure: "exited 3"));
+
+        var state = run.ReadState();
+
+        Assert.Equal("Server=.", state.GateEnvironment!["CD_TEST_SQL_CONN"]);
+        Assert.Equal([@"C:\Dev\eShopOnContainers"], state.BuilderRoots);
+        Assert.Equal("exited 3", state.PendingGateFailure);
     }
 }
