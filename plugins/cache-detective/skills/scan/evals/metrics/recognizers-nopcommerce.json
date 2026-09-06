@@ -1,0 +1,12 @@
+[
+  {
+    "type": "Nop.Core.Caching.IStaticCacheManager",
+    "store": "memory",
+    "methods": [
+      { "name": "GetAsync", "semantic": "get", "key_arg": 0 },
+      { "name": "SetAsync", "semantic": "set", "key_arg": 0 },
+      { "name": "RemoveAsync", "semantic": "remove", "key_arg": 0 },
+      { "name": "RemoveByPrefixAsync", "semantic": "removebyprefix", "key_arg": 0 }
+    ]
+  }
+]

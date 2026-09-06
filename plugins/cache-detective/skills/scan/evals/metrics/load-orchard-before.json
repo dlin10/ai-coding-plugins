@@ -1,0 +1,52 @@
+{
+  "solution": "OrchardCore.slnx",
+  "loadSeconds": 79.7013861,
+  "indexSeconds": 152.6202677,
+  "totalSeconds": 232.32165379999998,
+  "vertices": 2466,
+  "edges": 15252,
+  "cacheOperations": 23,
+  "unresolved": {
+    "key": 37,
+    "sql": 7,
+    "call": 906,
+    "cache_api": 8,
+    "role": 4,
+    "event": 0,
+    "event_api": 1
+  },
+  "diagnostics": 24,
+  "projectsExpected": 227,
+  "projectsLoaded": 227,
+  "missingProjects": [],
+  "loadComplete": true,
+  "revision": "b9c4b2f23e56ef11fbdbd28603c871d1b0fc9deb",
+  "workingTreeClean": true,
+  "recognizersFile": null,
+  "recognizersHash": null,
+  "recognizersApplied": 0,
+  "cacheSiteCoverage": {
+    "value": 0.3382352941176471,
+    "status": "ok"
+  },
+  "sqlSiteCoverage": {
+    "value": 0,
+    "status": "ok"
+  },
+  "cleanWorktree": true,
+  "counts": {
+    "vertices": 2466,
+    "edges": 15252,
+    "cacheOperations": 23
+  },
+  "coverage": {
+    "cache": {
+      "value": 0.3382352941176471,
+      "status": "ok"
+    },
+    "sql": {
+      "value": 0,
+      "status": "ok"
+    }
+  }
+}

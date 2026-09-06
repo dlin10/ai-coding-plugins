@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/projects/">
+    <Project Path="Plain/Plain.csproj" />
+    <Project Path="Strict/Strict.csproj" />
+  </Folder>
+</Solution>

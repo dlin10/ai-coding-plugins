@@ -432,7 +432,8 @@ public sealed class CallGraphIndexer
     };
 
     private static string AttributeTemplate(AttributeData attribute) =>
-        attribute.ConstructorArguments.FirstOrDefault().Value as string ?? string.Empty;
+        attribute.ConstructorArguments.FirstOrDefault() is { Kind: not TypedConstantKind.Array } argument &&
+        argument.Value is string template ? template : string.Empty;
 
     private static IReadOnlyList<HandlerRoute> GetMinimalRoutes(IMethodSymbol method, InvocationExpressionSyntax invocation,
                                                                  SemanticModel semanticModel)

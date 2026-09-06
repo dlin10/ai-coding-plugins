@@ -56,32 +56,35 @@ internal sealed class SqlAnalyzer(Solution solution)
                 var folded = await _folder.FoldAsync(site.Text, semanticModel, cancellationToken);
                 if (site.IsProcedureName)
                 {
-                    AnalyzeProcedureName(graph, handler, site.Node, folded, recordedSites);
+                    if (AnalyzeProcedureName(graph, handler, site.Node, folded, recordedSites))
+                        graph.AddParsedSqlSite();
                 }
                 else
                 {
-                    AnalyzeBatch(graph, handler, site.Node, folded, recordedSites);
+                    if (AnalyzeBatch(graph, handler, site.Node, folded, recordedSites))
+                        graph.AddParsedSqlSite();
                 }
             }
         }
     }
 
     /// <summary>A command whose type is <c>StoredProcedure</c> carries a bare procedure name, not a batch.</summary>
-    private static void AnalyzeProcedureName(CacheGraph graph, Handler handler, SyntaxNode site,
+    private static bool AnalyzeProcedureName(CacheGraph graph, Handler handler, SyntaxNode site,
                                              FoldedSql folded,
                                              ISet<(SyntaxTree Tree, int Start, string Reason)> recordedSites)
     {
         if (folded.Parameters.Count > 0 || !TryParseObjectName(folded.Text, out var name))
         {
             Record(graph, handler, site, Position(UNKNOWN_PROCEDURE), recordedSites);
-            return;
+            return false;
         }
 
         graph.AddEdge(new Calls(handler, new StoredProcedure(name.Schema, name.Name, name.Database),
             Confidence.Confirmed, [SiteEvidence(site)]));
+        return true;
     }
 
-    private static void AnalyzeBatch(CacheGraph graph, Handler handler, SyntaxNode site, FoldedSql folded,
+    private static bool AnalyzeBatch(CacheGraph graph, Handler handler, SyntaxNode site, FoldedSql folded,
                                      ISet<(SyntaxTree Tree, int Start, string Reason)> recordedSites)
     {
         var parser = new TSql180Parser(initialQuotedIdentifiers: true);
@@ -89,17 +92,23 @@ internal sealed class SqlAnalyzer(Solution solution)
         if (errors.Count > 0)
         {
             Record(graph, handler, site, $"The SQL could not be parsed: {errors[0].Message}", recordedSites);
-            return;
+            return false;
         }
 
         var evidence = SiteEvidence(site);
+        var resolved = true;
         foreach (var statement in GetStatements(fragment))
         {
             var walker = new StatementWalker(folded.Parameters);
             statement.Accept(walker);
             if (walker.UnknownPosition is not null)
             {
+                // The batch goes on. Returning here abandoned every later statement, so a plain
+                // `UPDATE dbo.Products` after one statement with a dynamic identifier was never seen at
+                // all — the site was recorded as unresolved and its writes silently lost. The unknown is
+                // still recorded; what changes is that the rest of the batch is still read.
                 Record(graph, handler, site, Position(walker.UnknownPosition), recordedSites);
+                resolved = false;
                 continue;
             }
 
@@ -123,6 +132,10 @@ internal sealed class SqlAnalyzer(Solution solution)
                 graph.AddEdge(new Calls(handler, ToProcedure(procedure), Confidence.Confirmed, [evidence]));
             }
         }
+
+        // "The site was parsed" means no statement in it ran into an unknown, not that the first one did
+        // not.
+        return resolved;
     }
 
     private static IEnumerable<TSqlFragment> GetStatements(TSqlFragment fragment) =>

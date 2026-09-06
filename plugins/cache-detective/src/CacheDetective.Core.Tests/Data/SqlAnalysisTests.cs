@@ -57,6 +57,23 @@ public sealed class SqlAnalysisTests
         Assert.Equal([WriteEvent.Update], write.Events);
     }
 
+    /// <summary>
+    /// A statement that runs into an unknown ends that statement, not the batch. Returning at the first
+    /// one abandoned every later statement, so a plain <c>UPDATE dbo.Inventory</c> after a dynamically
+    /// named table was never seen at all: the site was recorded as unresolved and its write silently lost.
+    /// Both facts belong in the graph — the write, and the unresolved row beside it.
+    /// </summary>
+    [Fact]
+    public async Task AnUnknownFirstStatementDoesNotHideTheWriteInTheSecond()
+    {
+        var graph = await IndexAsync();
+
+        Assert.Single(graph.Edges.OfType<Writes>(),
+            edge => edge.To is Table { Name: "dbo.Inventory" } && InHandler(edge, "BatchWithUnknownFirstStatement"));
+        Assert.Contains(graph.Unresolved, item => item.Kind == UnresolvedKind.Sql &&
+                                                   item.Snippet.Contains("dbo.Inventory", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task CallsTheProcedureNamedByADeclaredCommandType()
     {

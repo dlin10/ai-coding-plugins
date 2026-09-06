@@ -33,6 +33,11 @@ that scoped phase 1; extended as later phases land.
 | **Unresolved** | A construct the indexer met and could not reduce, recorded with its snippet and a reason. Never a silent skip and never a guess. |
 | **Finding** | One rule firing on one path, carried with its confidence and its evidence. |
 | **Chain** | The report's only shape for a finding: a linear top-to-bottom path from the write to the key, each line carrying a file:line or a database object name. No diagrams. |
+| **Runtime verification** | The optional step that asks a live cache and database whether a finding is materialising at this moment. It is requested, never automatic, and it runs inside the server rather than through anyone else's, because a sample must be drawn, compared and redacted before it becomes a tool result — see `docs/adr/0011`. It reads and never writes, exactly as both indexers do. |
+| **Observation** | What verification produces, and the only thing it produces: `refuted`, `possible`, or `not verifiable`, attached to a finding. It is a third vocabulary beside rule and confidence, and it changes neither of them and never hides a finding — see `docs/adr/0012`. `not verifiable` is a result, not a failure: a computed value, a key with no live entry, a dependency on an `ExternalSource` with no `serves`, and every key with `role: store` are all correctly unverifiable. |
+| **Last write** | How long ago the database last recorded a write to a table, asked of the server on its own clock rather than read from a column, so that a table with no modification column can still be asked and no clock is compared with another. It is per table, never per row, and it can only suggest staleness, never rule it out — see `docs/adr/0012`. A server restart or an index rebuild resets it, and a reset reads as "not verifiable", never as "no writes". |
+| **Verification sample** | The bounded set of live keys one finding is checked against: at most twenty, found by the key template's **known tail**, because a cache library's configured prefix is not in the code the template was folded from — the same reasoning, and the same tail rule, as `serves` route matching in `docs/adr/0010`. A sample that could not be completed within its budget is reported as incomplete rather than treated as the whole. |
+| **Sensitive field** | A field of a cached value whose name matches a mask — `email`, `phone`, `*password*`, `*token*`, `*secret*` built in, and whatever the workspace adds to them, never replaces them. Verification may report that such a field differs and never what it holds; a value that is not structured data is never shown at all. |
 
 ## The cached value is opaque; only what was read matters
 
@@ -69,6 +74,27 @@ knowing whether anything reaches it, reports the tool's own incompleteness as th
 
 "A `Remove` of a key nobody writes" has two readings, and only one of them holds without a database
 in the graph. See `docs/adr/0003`.
+
+## Verification refutes better than it confirms, and only comparison refutes
+
+The strong half of runtime verification is the negative one — the half that sets a finding aside for
+now — and it is the half worth running for: a reader triaging twenty findings can start with the ones
+verification could not refute.
+
+But only one mechanism earns it. Comparing the cached value's fields against the current row refutes,
+because equality is observed rather than inferred. The **age** of an entry does not, however precisely
+it is measured: an entry's deadline may have been extended after it was written, and a handler may
+read a row, wait while the table changes, and only then write what it already had — in both cases the
+entry looks younger than the data it holds. Age therefore feeds the weak half, «staleness is
+possible», and the report's numbers, and never the strong one. See `docs/adr/0012`.
+
+Age cannot refute, but it can **withhold** a refutation: `refuted` needs the fields of the finding's own
+table to agree *and* that table not to have been written since the entry was created. A write after it
+gives `possible` with `basis: age`, because the fields compared are only some of what the value was
+built from and the write may have touched one of the others.
+
+Neither half moves the finding. A refuted finding stays visible and keeps its confidence, because a
+missing invalidation that has not bitten yet is still missing.
 
 ## The core never sees a path
 

@@ -30,7 +30,8 @@ internal static class ResponseEnvelope
 
     internal static ListEnvelope<T> Create<T>(IReadOnlyList<T> source,
                                               PageArguments? arguments,
-                                              JsonTypeInfo<ListEnvelope<T>> typeInfo)
+                                              JsonTypeInfo<ListEnvelope<T>> typeInfo,
+                                              int reserve = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(typeInfo);
@@ -41,11 +42,11 @@ internal static class ResponseEnvelope
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedPageSize);
 
         var regularPages = source.Count == 0 ? 0 : (int)Math.Ceiling((double)source.Count / requestedPageSize);
-        if (Enumerable.Range(1, regularPages).All(page => Fits(Build(source, page, requestedPageSize, requestedPageSize), typeInfo)))
+        if (Enumerable.Range(1, regularPages).All(page => Fits(Build(source, page, requestedPageSize, requestedPageSize), typeInfo, reserve)))
             return Build(source, requestedPage, requestedPageSize, requestedPageSize);
 
         const string notice = "Page size was reduced to stay under the response limit.";
-        var partitions = Partition(source, requestedPageSize, notice, typeInfo);
+        var partitions = Partition(source, requestedPageSize, notice, typeInfo, reserve);
         if (partitions is null)
             return new ListEnvelope<T>(source.Count, requestedPage, source.Count == 0 ? 0 : source.Count, [],
                 $"Page omitted because one item exceeds the {MaximumSerializedBytes}-byte response limit.");
@@ -73,7 +74,7 @@ internal static class ResponseEnvelope
     }
 
     private static List<List<T>>? Partition<T>(IReadOnlyList<T> source, int requestedPageSize, string notice,
-                                               JsonTypeInfo<ListEnvelope<T>> typeInfo)
+                                               JsonTypeInfo<ListEnvelope<T>> typeInfo, int reserve)
     {
         var partitions = new List<List<T>>();
         var offset = 0;
@@ -81,7 +82,7 @@ internal static class ResponseEnvelope
         {
             var count = Math.Min(requestedPageSize, source.Count - offset);
             while (count > 0 && !Fits(new ListEnvelope<T>(source.Count, source.Count, source.Count,
-                                                           source.Skip(offset).Take(count).ToList(), notice), typeInfo))
+                                                           source.Skip(offset).Take(count).ToList(), notice), typeInfo, reserve))
                 count--;
             if (count == 0) return null;
             partitions.Add(source.Skip(offset).Take(count).ToList());
@@ -90,6 +91,9 @@ internal static class ResponseEnvelope
         return partitions;
     }
 
-    private static bool Fits<T>(ListEnvelope<T> candidate, JsonTypeInfo<ListEnvelope<T>> typeInfo) =>
-        JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <= MaximumSerializedBytes;
+    /// <summary>Whether the envelope fits, leaving <paramref name="reserve"/> bytes for whatever wraps it.
+    /// A caller that nests this envelope inside a larger result must say how much that result weighs, or
+    /// the envelope fills the whole budget on its own and the wrapper pushes the response over it.</summary>
+    private static bool Fits<T>(ListEnvelope<T> candidate, JsonTypeInfo<ListEnvelope<T>> typeInfo, int reserve) =>
+        JsonSerializer.SerializeToUtf8Bytes(candidate, typeInfo).Length <= MaximumSerializedBytes - reserve;
 }

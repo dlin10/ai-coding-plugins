@@ -55,6 +55,16 @@ public sealed class ExternalIndexerTests
     }
 
     [Fact]
+    public async Task Reads_a_route_past_an_attribute_whose_argument_is_an_array()
+    {
+        var solution = await FixtureSolution.CreateAsync("SourceFiles/External.cs");
+        var graph = await new CallGraphIndexer().IndexAsync(solution, "fixture");
+
+        var handler = Assert.Single(graph.Handlers, handler => handler.Symbol.Contains("ArrayAttributed", StringComparison.Ordinal));
+        Assert.Equal([new HandlerRoute("http", "*", "api/{v}/catalog/verbs")], handler.Routes);
+    }
+
+    [Fact]
     public async Task Folds_an_http_url_through_a_local_and_helper_method()
     {
         var solution = await FixtureSolution.CreateAsync("SourceFiles/External.cs");

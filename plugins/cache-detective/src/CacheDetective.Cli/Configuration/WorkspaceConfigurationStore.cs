@@ -43,6 +43,7 @@ public static class WorkspaceConfigurationStore
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
         EnsureSupportedEvents(configuration);
+        EnsureSupportedVerify(configuration);
         return configuration;
     }
 
@@ -52,6 +53,7 @@ public static class WorkspaceConfigurationStore
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
         EnsureSupportedEvents(configuration);
+        EnsureSupportedVerify(configuration);
 
         var path = GetPath(repositoryRoot);
         var json = JsonSerializer.Serialize(configuration, SERIALIZER_CONTEXT.WorkspaceConfiguration);
@@ -104,4 +106,9 @@ public static class WorkspaceConfigurationStore
         foreach (var @event in configuration.Events ?? [])
             @event.ToRecognizer(Confidence.Confirmed, null);
     }
+
+    /// <summary>No <c>verify</c> section at all stays entirely legal: verification is opt-in, and a
+    /// workspace that never wants it says so by saying nothing.</summary>
+    private static void EnsureSupportedVerify(WorkspaceConfiguration configuration) =>
+        configuration.Verify?.EnsureSupported();
 }

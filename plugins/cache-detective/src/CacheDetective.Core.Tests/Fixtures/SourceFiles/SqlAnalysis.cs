@@ -39,6 +39,12 @@ public sealed class SqlAnalysisController : ControllerBase
     public int BatchWithProcedure() =>
         _connection.Execute("UPDATE dbo.Prices SET Amount = Amount * 2; EXEC dbo.ApplyDiscount;");
 
+    /// <summary>A batch whose first statement names its table dynamically and whose second is an ordinary
+    /// update. The first is unresolvable; the second is not, and abandoning the batch at the first lost
+    /// it.</summary>
+    public int BatchWithUnknownFirstStatement(string scope) =>
+        _connection.Execute($"SELECT * FROM {scope}; UPDATE dbo.Inventory SET OnHand = 0;");
+
     public void DeclaredProcedureCommand()
     {
         DbCommand command = null!;

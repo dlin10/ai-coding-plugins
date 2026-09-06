@@ -176,6 +176,22 @@ internal sealed class EfWriteAnalyzer
     public async Task AddEdgesAsync(CacheGraph graph, CancellationToken cancellationToken)
     {
         await _tables.EnsureInitializedAsync(cancellationToken);
+
+        // The sites as the heuristic saw them: one per mutation, recorded before the mutations of one
+        // entity are merged into a single Writes edge and before the facts travel to the callers below.
+        foreach (var (method, methodFacts) in _facts)
+        {
+            if (!_handlers.TryGetValue(method, out var siteHandler))
+                continue;
+
+            foreach (var mutation in methodFacts.Mutations.Values)
+            {
+                graph.AddHeuristicWriteSite(new HeuristicWriteSite(siteHandler, _tables.ResolveTable(mutation.Entity),
+                                                                   mutation.Confidence, mutation.Evidence,
+                                                                   mutation.RequiresSaveChanges));
+            }
+        }
+
         var closure = _facts.ToDictionary(pair => pair.Key, pair => pair.Value.Clone(),
             MethodSymbolComparer.Instance);
 

@@ -1,0 +1,67 @@
+{
+  "findings": [
+    {
+      "rule": "UNGUARDED_WRITE",
+      "solution": "Shop.slnx",
+      "handler": "Pricing.DiscountsController.ApplyDiscount(int, decimal)",
+      "project": "Pricing",
+      "keyTemplate": "product:{id}",
+      "store": "memory",
+      "target": "dbo.PriceHistory",
+      "confidence": "confirmed"
+    },
+    {
+      "rule": "CROSS_SERVICE_GAP",
+      "solution": "Shop.slnx",
+      "handler": "Catalog.ProductsController.Rename(int, string)",
+      "project": "Catalog",
+      "keyTemplate": "product:{id}",
+      "store": "memory",
+      "target": "dbo.Products",
+      "confidence": "confirmed"
+    },
+    {
+      "rule": "UNGUARDED_WRITE",
+      "solution": "Shop.slnx",
+      "handler": "Catalog.ProductsController.AdjustInventory(int, int)",
+      "project": "Catalog",
+      "keyTemplate": "digest:{id}",
+      "store": "memory",
+      "target": "dbo.Inventory",
+      "confidence": "likely"
+    },
+    {
+      "rule": "EXTERNAL_NO_TTL",
+      "solution": "Shop.slnx",
+      "handler": "Notifications.WeatherController.Get()",
+      "project": "Notifications",
+      "keyTemplate": "weather:today",
+      "store": "memory",
+      "target": "external:http:Notifications:-:GET today",
+      "confidence": "confirmed"
+    }
+  ],
+  "notDefects": [
+    {
+      "rule": "UNGUARDED_WRITE",
+      "solution": "Shop.slnx",
+      "handler": "Pricing.DiscountsController.ApplyLoyaltyDiscount(int)",
+      "project": "Pricing",
+      "keyTemplate": "price:{id}",
+      "store": "memory",
+      "target": "dbo.Prices"
+    }
+  ],
+  "suppressed": [
+    {
+      "rule": "UNGUARDED_WRITE",
+      "solution": "Shop.slnx",
+      "handler": "Catalog.ProductsController.AdjustInventory(int, int)",
+      "project": "Catalog",
+      "keyTemplate": "inventory:{id}",
+      "store": "memory",
+      "target": "dbo.Inventory",
+      "confidence": "confirmed"
+    }
+  ]
+}

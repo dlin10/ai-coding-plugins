@@ -55,6 +55,10 @@ namespace ExternalFixture
         [HttpGet("verbed")]
         public void VerbedGet() { }
 
+        [Route("verbs")]
+        [AcceptVerbs("GET", "POST")]
+        public void ArrayAttributed() { }
+
         public async Task Send(HttpClient client, string baseUri) => await client.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"{baseUri}/orders"));
 
         public async Task SendLocal(HttpClient client, string baseUri)

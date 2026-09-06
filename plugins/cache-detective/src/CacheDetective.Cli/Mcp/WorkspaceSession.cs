@@ -6,8 +6,12 @@ using CacheDetective.Database;
 using CacheDetective.Graph;
 using CacheDetective.Indexing;
 using CacheDetective.Rules;
+using CacheDetective.Verification;
 using CacheDetective.Workspaces;
 using Microsoft.Data.SqlClient;
+using StackExchange.Redis;
+using System.Data.Common;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace CacheDetective.Mcp;
@@ -22,6 +26,8 @@ internal sealed class WorkspaceSession
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private readonly MsBuildSolutionLoader _loader = new();
+    private readonly Dictionary<string, RememberedIndex> _lastIndex = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Workspace, string Finding, string Version), VerificationRun> _verifications = [];
     private readonly FindingCatalog _findingCatalog = new();
     private readonly Dictionary<string, DateTimeOffset> _indexedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<CacheRecognizer> _declaredCacheRecognizers = [];
@@ -465,6 +471,12 @@ internal sealed class WorkspaceSession
                 _findingCatalog.Reset();
                 _declaredCacheRecognizers.Clear();
                 _declaredEventRecognizers.Clear();
+                // The verification snapshots were readings of another repository's cache and database.
+                _verifications.Clear();
+                // And the remembered indexes were another repository's. They are keyed by the solution's
+                // name alone, so a solution of the same relative name in the new workspace would have been
+                // answered for page two out of the old workspace's diagnostics.
+                _lastIndex.Clear();
             }
 
             _repositoryRoot = repositoryRoot;
@@ -499,6 +511,14 @@ internal sealed class WorkspaceSession
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // Paging through the diagnostics of an index is reading, not indexing. Loading the solution
+            // again to answer for page two would cost minutes and could answer differently.
+            if ((diagnosticsPage?.Page ?? PageArguments.DefaultPage) > PageArguments.DefaultPage &&
+                _repositoryRoot is not null && _lastIndex.TryGetValue(SolutionNameOf(path), out var remembered))
+            {
+                return Recall(SolutionNameOf(path), remembered, diagnosticsPage);
+            }
+
             return await IndexSolutionCoreAsync(path, diagnosticsPage, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -506,6 +526,160 @@ internal sealed class WorkspaceSession
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// One page of a remembered index. The whole diagnostic list — the real ones and any missing-project
+    /// names that did not fit beside them — is assembled first and paged exactly once, with the weight of
+    /// the result around it reserved.
+    /// <para>Paging the diagnostics first and then appending to <em>that page</em> was two bugs at once:
+    /// the pages of one index stopped agreeing with each other, because each page re-partitioned a
+    /// different mixture, and diagnostics fell out of every page. The envelope also filled its own 8 KB
+    /// with no room left for the wrapper, so the result went over the limit as soon as the diagnostics
+    /// were numerous enough to fill a page.</para>
+    /// </summary>
+    internal IndexSolutionResult Recall(string solutionName, RememberedIndex remembered, PageArguments? diagnosticsPage)
+    {
+        var missing = remembered.MissingProjects ?? [];
+        var skipped = remembered.SkippedProjects ?? [];
+        var empty = remembered.EmptyProjects ?? [];
+
+        // Every candidate shell carries the hidden counts the final one will carry, so that trimming a list
+        // cannot make the result grow again by widening a number beside it.
+        IndexSolutionResult Shell(string? error, IReadOnlyList<string> shownMissing, IReadOnlyList<string> shownSkipped,
+                                  IReadOnlyList<string> shownEmpty) =>
+            new(solutionName, remembered.Succeeded, remembered.IndexedAt, CurrentCounts(), Empty(),
+                error, remembered.LoadComplete, remembered.ProjectsExpected,
+                remembered.ProjectsLoaded, shownMissing, missing.Count - shownMissing.Count, shownSkipped, shownEmpty,
+                skipped.Count - shownSkipped.Count, empty.Count - shownEmpty.Count);
+
+        // The error is settled first, against a shell with every list empty. It is the one part that cannot
+        // be carried into the diagnostics, so if it does not fit here nothing the lists do can help.
+        var fittedError = FittedError(remembered.Error, error => Shell(error, [], [], []));
+
+        // In order, each list fitted against the shell the ones before it already settled. missingProjects
+        // goes first because it is the one that says the scan was partial.
+        var fittedMissing = Fitted(missing, kept => Shell(fittedError, kept, [], []));
+        var fittedSkipped = Fitted(skipped, kept => Shell(fittedError, fittedMissing, kept, []));
+        var fittedEmpty = Fitted(empty, kept => Shell(fittedError, fittedMissing, fittedSkipped, kept));
+        var counted = Shell(fittedError, fittedMissing, fittedSkipped, fittedEmpty);
+
+        var diagnostics = remembered.Diagnostics
+                                    .Concat(Carried(remembered.Diagnostics,
+                                                    ("missingProjects", missing.Skip(fittedMissing.Count).ToArray()),
+                                                    ("skippedProjects", skipped.Skip(fittedSkipped.Count).ToArray()),
+                                                    ("emptyProjects", empty.Skip(fittedEmpty.Count).ToArray())))
+                                    .ToArray();
+        return counted with { Diagnostics = PageDiagnostics(diagnostics, diagnosticsPage, Weight(counted)) };
+    }
+
+    /// <summary>
+    /// The longest prefix of a list of project names the shell can show. Decided from the shell alone, so
+    /// every page of one index shows the same names and reports the same hidden count.
+    /// </summary>
+    private static IReadOnlyList<string> Fitted(IReadOnlyList<string> names,
+                                                Func<IReadOnlyList<string>, IndexSolutionResult> shell)
+    {
+        if (Weight(shell(names)) <= MaximumShellBytes)
+            return names;
+
+        for (var kept = names.Count / 2; kept > 0; kept /= 2)
+        {
+            var candidate = names.Take(kept).ToArray();
+            if (Weight(shell(candidate)) <= MaximumShellBytes)
+                return candidate;
+        }
+
+        return [];
+    }
+
+    /// <summary>
+    /// The one budget everything else is derived from: the most the result around the diagnostics may
+    /// weigh. What is left of <see cref="ResponseEnvelope.MaximumSerializedBytes"/> after it is what a page
+    /// of diagnostics has to live in, and <see cref="DiagnosticFragmentBytes"/> is cut from that same
+    /// remainder — so a fragment always fits beside a shell.
+    /// <para>The two used to be set apart from each other: the shell was allowed to keep all but 2048
+    /// bytes while a fragment could be 4096, so with enough project names no fragment fitted at all and
+    /// every page of diagnostics came back empty.</para>
+    /// </summary>
+    internal const int MaximumShellBytes = ResponseEnvelope.MaximumSerializedBytes / 2;
+
+    /// <summary>
+    /// What the shell may weigh once the error is in it and before any list is. The rest of the budget is
+    /// what the three project lists are fitted into, so an error can never crowd them out entirely — and,
+    /// more to the point, can never leave the shell heavier than the whole budget with every list already
+    /// empty, which is the state <see cref="Fitted"/> has no answer for.
+    /// </summary>
+    private const int MaximumErroredShellBytes = MaximumShellBytes / 2;
+
+    private const string ErrorTruncationMarker = " … (error truncated)";
+
+    /// <summary>
+    /// The error, cut to what the shell can carry. The measure is the serialized weight of the shell around
+    /// it, not the error's character count: 1024 characters of Cyrillic escape to roughly 6144 bytes of
+    /// JSON, so a count that looked modest left the shell heavier than its whole budget, the lists were
+    /// emptied for nothing, and no diagnostic fragment could fit beside it.
+    /// <para>It is the one part of the shell that is not a list and so cannot be carried into the
+    /// diagnostics. Cutting is the only thing that can be done with it, and the cut never lands between the
+    /// halves of a surrogate pair.</para>
+    /// </summary>
+    private static string? FittedError(string? error, Func<string?, IndexSolutionResult> shell)
+    {
+        if (error is null || Weight(shell(error)) <= MaximumErroredShellBytes)
+            return error;
+
+        for (var kept = error.Length / 2; kept > 0; kept /= 2)
+        {
+            var candidate = Truncate(error, kept);
+            if (Weight(shell(candidate)) <= MaximumErroredShellBytes)
+                return candidate;
+        }
+
+        return ErrorTruncationMarker.TrimStart();
+    }
+
+    private static string Truncate(string error, int characters) =>
+        string.Concat(error.AsSpan(0, WithoutSplitSurrogate(error, 0, characters)), ErrorTruncationMarker);
+
+    /// <summary>
+    /// The names that did not fit, as diagnostics of their own — one per list, each labelled with the list
+    /// it continues. Their ids continue after the last real diagnostic's, because SKILL.md tells the agent
+    /// to rejoin a long message by id and part: sharing <c>d:1</c> with a real diagnostic would splice two
+    /// different messages into one, and sharing one between two lists would splice those.
+    /// </summary>
+    private static IReadOnlyList<WorkspaceDiagnosticResult> Carried(IReadOnlyList<WorkspaceDiagnosticResult> real,
+                                                                     params (string List, IReadOnlyList<string> Hidden)[] carried)
+    {
+        var pending = carried.Where(item => item.Hidden.Count > 0).ToArray();
+        if (pending.Length == 0)
+            return [];
+
+        var used = real.Select(item => item.Id)
+                       .Where(id => id.StartsWith("d:", StringComparison.Ordinal))
+                       .Select(id => int.TryParse(id[2..], out var number) ? number : 0)
+                       .DefaultIfEmpty(0)
+                       .Max();
+        return Describe(pending.Select(item => (Microsoft.CodeAnalysis.WorkspaceDiagnostic)
+                                           new CarriedProjects(item.List, string.Join(", ", item.Hidden)))
+                               .ToArray(),
+                        used);
+    }
+
+    private static ListEnvelope<WorkspaceDiagnosticResult> Empty() =>
+        ResponseEnvelope.Create(Array.Empty<WorkspaceDiagnosticResult>(), null,
+                                CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult);
+
+    /// <summary>The names that did not fit, carried as a diagnostic so that the fragment machinery pages
+    /// them like any other long message.</summary>
+    private sealed class CarriedProjects(string list, string names)
+        : Microsoft.CodeAnalysis.WorkspaceDiagnostic(Microsoft.CodeAnalysis.WorkspaceDiagnosticKind.Warning,
+                                                     $"{list} continued: {names}");
+
+    private static int Weight(IndexSolutionResult result) =>
+        JsonSerializer.SerializeToUtf8Bytes(result, CacheDetectiveJsonContext.Default.IndexSolutionResult).Length;
+
+    private string SolutionNameOf(string path) =>
+        NormalizePath(Path.GetRelativePath(_repositoryRoot!,
+                                           Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(_repositoryRoot!, path))));
 
     private async Task<IndexSolutionResult> IndexSolutionCoreAsync(string path, PageArguments? diagnosticsPage,
                                                                     CancellationToken cancellationToken)
@@ -535,7 +709,12 @@ internal sealed class WorkspaceSession
             Graph.ReplaceSolution(solutionName, replacement);
             var indexedAt = DateTimeOffset.UtcNow;
             _indexedAt[solutionName] = indexedAt;
-            return new IndexSolutionResult(solutionName, true, indexedAt, CurrentCounts(), PageDiagnostics(loaded.Diagnostics, diagnosticsPage), null);
+            var coverage = loaded.Coverage;
+            return Remember(solutionName,
+                            new RememberedIndex(true, indexedAt, Describe(loaded.Diagnostics), null, coverage.LoadComplete,
+                                                coverage.ProjectsExpected, coverage.ProjectsLoaded, coverage.MissingProjects,
+                                                coverage.SkippedProjects, coverage.EmptyProjects),
+                            diagnosticsPage);
         }
         catch (OperationCanceledException)
         {
@@ -543,13 +722,23 @@ internal sealed class WorkspaceSession
         }
         catch (Exception error)
         {
-            return new IndexSolutionResult(solutionName, false, null, CurrentCounts(),
-                                           PageDiagnostics(loaded?.Diagnostics ?? [], diagnosticsPage), error.Message);
+            // A load that threw still knows what it had already reported, and that account is the only
+            // evidence of how far it got before it stopped.
+            var diagnostics = error is MsBuildLoadException failure ? failure.Diagnostics : loaded?.Diagnostics ?? [];
+            return Remember(solutionName,
+                            new RememberedIndex(false, null, Describe(diagnostics), error.Message, false, 0, 0, [], [], []),
+                            diagnosticsPage);
         }
         finally
         {
             loaded?.Dispose();
         }
+    }
+
+    private IndexSolutionResult Remember(string solutionName, RememberedIndex remembered, PageArguments? diagnosticsPage)
+    {
+        _lastIndex[solutionName] = remembered;
+        return Recall(solutionName, remembered, diagnosticsPage);
     }
 
     internal Task<IndexDatabaseResult> IndexDatabaseAsync(string name, CancellationToken cancellationToken = default) =>
@@ -689,6 +878,389 @@ internal sealed class WorkspaceSession
         }
     }
 
+    internal Task<VerifyFindingResult> VerifyFindingAsync(string findingId, bool refresh, PageArguments? page,
+                                                          CancellationToken cancellationToken = default) =>
+        VerifyFindingAsync(findingId, refresh, page, RunVerificationAsync, cancellationToken);
+
+    /// <summary>
+    /// Verification runs once for a finding and is remembered under the workspace it ran in, the finding,
+    /// and the graph's version. A new version means a different graph and a different answer; a new
+    /// workspace means the old answers are about somebody else's code.
+    /// </summary>
+    internal async Task<VerifyFindingResult> VerifyFindingAsync(string findingId, bool refresh, PageArguments? page,
+                                                                Func<FindingSnapshot, CancellationToken, Task<VerificationRun>> run,
+                                                                CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(findingId);
+        ArgumentNullException.ThrowIfNull(run);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _findingCatalog.GetAll(Graph, _configuration?.Budgets);
+            var snapshot = _findingCatalog.Get(findingId);
+            var id = (_repositoryRoot ?? string.Empty, findingId, Graph.VersionToken);
+            if (refresh)
+            {
+                _verifications.Remove(id);
+            }
+
+            if (!_verifications.TryGetValue(id, out var verification))
+            {
+                verification = await run(snapshot, cancellationToken).ConfigureAwait(false);
+                _verifications[id] = verification;
+            }
+
+            return VerificationQueries.Present(findingId, verification, page);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The live run. Everything that stops it before a reading is taken comes back as a successful answer
+    /// carrying <c>not_verifiable</c> and a code, because a caller asking for a verification is owed an
+    /// account of why there is none rather than an error.
+    /// </summary>
+    private async Task<VerificationRun> RunVerificationAsync(FindingSnapshot snapshot, CancellationToken cancellationToken)
+    {
+        if (_configuration?.Verify is not { } verify)
+        {
+            return Refused(VerificationFailure.NotConfigured);
+        }
+
+        if (verify.Redis is null)
+        {
+            return Refused(VerificationFailure.NotConfigured);
+        }
+
+        string connectionString;
+        try
+        {
+            connectionString = verify.ResolveRedis();
+        }
+        catch (Exception error) when (error is InvalidOperationException or InvalidDataException)
+        {
+            // The message can name an environment variable but never a connection string, so it is the
+            // fixed code that travels rather than the exception's own text.
+            return Refused(VerificationFailure.NotConfigured);
+        }
+
+        // Whether verification begins at all is settled before anything is opened. A key whose role is not
+        // cache, a store the workspace did not list, or a key that depends on no table is owed that reason
+        // and not "the cache was unreachable" — and opening a connection to find out would send the
+        // client's own housekeeping commands for a run that was never going to read anything.
+        var (key, missing) = Subject(snapshot.Item);
+        if (key is null)
+        {
+            return Refused(missing ?? "the finding names no cache key to read");
+        }
+
+        string? refusal;
+        try
+        {
+            // Refuse parses the connection string, so a malformed one throws here, before the try below.
+            refusal = RedisReader.Refuse(connectionString);
+        }
+        catch (ArgumentException)
+        {
+            return Refused(VerificationFailure.NotConfigured);
+        }
+
+        var applicability = FindingVerifier.Assess(Graph, key, verify, refusal);
+        var tables = applicability.Tables.Select(table => table.Name).Order(StringComparer.Ordinal).ToArray();
+        if (!applicability.Starts)
+        {
+            return new VerificationRun(Empty(applicability.Reason), tables);
+        }
+
+        // The database half is checked here, once the run is known to be one that would read something —
+        // both that it resolves and that what it resolves to is a connection string at all. Its only
+        // resolution used to happen deep inside the reading, where neither exception it throws is one
+        // Classify knows, so they escaped verify_finding as an error rather than an account of why there is
+        // no verification; and a malformed string was found only after the cache had been scanned, so the
+        // sample already in hand was thrown away for an empty refusal that did not even say it was partial.
+        // Both messages can quote the string or name an environment variable, so the fixed code travels.
+        try
+        {
+            _ = new SqlConnectionStringBuilder(verify.ResolveDatabase());
+        }
+        catch (Exception error) when (error is InvalidOperationException or InvalidDataException
+                                              or ArgumentException or FormatException)
+        {
+            return new VerificationRun(Empty(VerificationFailure.NotConfigured), tables);
+        }
+
+        try
+        {
+            await using var multiplexer = await ConnectionMultiplexer.ConnectAsync(connectionString).ConfigureAwait(false);
+            if (!multiplexer.IsConnected)
+            {
+                return Refused(VerificationFailure.CacheUnavailable);
+            }
+
+            if (RedisReader.UnsupportedTopology(multiplexer) is { } topology)
+            {
+                return Refused(topology);
+            }
+
+            return await ReadVerificationAsync(multiplexer, verify, key, applicability, tables, snapshot.Item.Table,
+                                               cancellationToken)
+                       .ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is RedisConnectionException or RedisTimeoutException)
+        {
+            return Refused(VerificationFailure.CacheUnavailable);
+        }
+        catch (RedisServerException)
+        {
+            // The server answered and refused — an ACL without SCAN, most often. The server's own text can
+            // quote a key, so the fixed code travels instead of the message.
+            return Refused(VerificationFailure.CacheUnavailable);
+        }
+        catch (ArgumentException)
+        {
+            // A connection string neither client would parse. Its text is the string itself, so it never
+            // leaves this method.
+            return Refused(VerificationFailure.NotConfigured);
+        }
+        catch (DbException error)
+        {
+            return Refused(VerificationReader.IsPermissionDenied(error)
+                               ? VerificationFailure.PermissionDenied
+                               : VerificationFailure.DatabaseUnavailable);
+        }
+    }
+
+    /// <summary>
+    /// The key a finding is actually about. For most rules that is the key the finding names, but a
+    /// <c>STALE_PARENT_KEY</c> finding is a claim about the <em>parent</em>: the catalogue puts the child's
+    /// template in <c>keyTemplate</c>, and reading that instead let a healthy child refute a stale parent —
+    /// a refutation through a different key, which R8 forbids outright.
+    /// <para>The parent is chosen by template. Its store is not carried in the catalogue, so a key in the
+    /// child's own store is preferred and a template that resolves to more than one key elsewhere is
+    /// refused rather than guessed at: reading the wrong one of two stores is the same mistake again.</para>
+    /// </summary>
+    private (CacheKey? Key, string? Reason) Subject(FindingItem item)
+    {
+        if (item.Rule != StaleParentKeyFinding.Rule)
+        {
+            return (Graph.CacheKeys.FirstOrDefault(candidate => candidate.Template == item.KeyTemplate &&
+                                                                candidate.Store == item.Store), null);
+        }
+
+        if (item.ParentTemplate is not { } parent)
+        {
+            return (null, "the finding is about a parent key that the catalogue does not name, so there is nothing to read");
+        }
+
+        var candidates = Graph.CacheKeys.Where(candidate => candidate.Template == parent).ToArray();
+        var chosen = candidates.FirstOrDefault(candidate => candidate.Store == item.Store)
+                     ?? (candidates.Length == 1 ? candidates[0] : null);
+        return chosen is not null
+                   ? (chosen, null)
+                   : (null, candidates.Length == 0
+                                ? $"the parent key '{parent}' this finding is about is not in the graph, so there is nothing to read"
+                                : $"the parent key '{parent}' this finding is about names {candidates.Length} keys and none of " +
+                                  "them is in the child's store, so which one to read is undecided");
+    }
+
+    /// <summary>How the cache reader is built over a live connection. An instance property rather than
+    /// shared state, so that a test can make the server refuse a command and see what this method does
+    /// with the refusal — the catch below cannot be reached through the run seam, which answers before
+    /// any of this happens.</summary>
+    internal Func<IConnectionMultiplexer, ConfigurationOptions, string, RedisReader> OpenCacheReader { get; set; } =
+        RedisReader.Create;
+
+    /// <summary>The reading itself, once both ends are reachable.</summary>
+    private async Task<VerificationRun> ReadVerificationAsync(IConnectionMultiplexer multiplexer, VerifyConfiguration verify,
+                                                              CacheKey key, Applicability applicability,
+                                                              IReadOnlyList<string> tables, string? refutingTable,
+                                                              CancellationToken cancellationToken)
+    {
+        var reader = OpenCacheReader(multiplexer, ConfigurationOptions.Parse(verify.ResolveRedis()), verify.KeyPrefix);
+        var scan = await reader.ScanAsync(key.Template).ConfigureAwait(false);
+
+        // Every database reading is a later observation than the cache reading of the key it is about, and
+        // the gap between those two moments is what brings them onto one timeline. The clock is the
+        // reader's own, still running: each entry knows when it was read against it, so the gap is measured
+        // per key rather than from the end of the whole sample.
+        if (scan.NotVerifiableReason is not null)
+        {
+            return new VerificationRun(Empty(scan.NotVerifiableReason), tables);
+        }
+
+        SqlConnection connection;
+        try
+        {
+            connection = VerificationReader.Connect(verify.ResolveDatabase());
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (FindingVerifier.Classify(error) is { } code)
+        {
+            // The cache was read and the database could not be opened. The entries are already in hand, so
+            // they are reported with the failure against them rather than discarded for an empty refusal.
+            var unread = scan.Entries
+                             .Select(entry => FindingVerifier.VerifyKey(entry.Key, [], NoTables(key, entry),
+                                                                        _configuration?.Sensitive,
+                                                                        FindingVerifier.ReadPayload(entry.Payload).Length,
+                                                                        entry.FailureCode ?? code, entry.Reason))
+                             .ToArray();
+            return new VerificationRun(FindingVerifier.Verify(unread, scan, FindingVerifier.AfterScan(applicability, scan)), tables);
+        }
+
+        await using (connection)
+        {
+            return await VerifySampleAsync(new VerificationReader(connection), verify, key, applicability, tables, scan,
+                                           () => reader.ElapsedSeconds, cancellationToken, refutingTable)
+                       .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>The sample against the database: the half of the working path that runs once both readers
+    /// are in hand, so that a test can drive it with fake ones.</summary>
+    /// <param name="now">The cache reader's clock, read afresh <em>after</em> each database reading returns.
+    /// The gap for one key is this less that key's own <see cref="CacheEntry.ObservedSeconds"/>. It is a
+    /// reading and not a stopwatch so that a test can state the moments it wants to check.</param>
+    /// <param name="refutingTable">The one table the finding is about, when it names one, so that only
+    /// agreement with that table's row can refute it.</param>
+    internal async Task<VerificationRun> VerifySampleAsync(VerificationReader database, VerifyConfiguration verify, CacheKey key,
+                                                            Applicability applicability, IReadOnlyList<string> tables,
+                                                            CacheScanResult scan, Func<double> now,
+                                                            CancellationToken cancellationToken, string? refutingTable = null)
+    {
+        // What the sample turned out to be decides the rest of the applicability: only now is it known
+        // whether the keys read could each be assigned to the template in exactly one way.
+        var afterScan = FindingVerifier.AfterScan(applicability, scan);
+        var verified = new List<KeyVerification>();
+        foreach (var entry in scan.Entries)
+        {
+            verified.Add(await VerifyEntryAsync(database, verify, key, entry, tables, now, refutingTable, cancellationToken)
+                             .ConfigureAwait(false));
+        }
+
+        return new VerificationRun(FindingVerifier.Verify(verified, scan, afterScan), tables);
+    }
+
+    /// <summary>The declared tables, looked up without regard to case. Table names reach this from the
+    /// code and the configuration is written by hand, so <c>dbo.Products</c> and <c>DBO.PRODUCTS</c> are
+    /// the same table; the configuration reader refuses two keys that differ only in case, so the
+    /// insensitive dictionary cannot lose an entry.</summary>
+    private static Dictionary<string, VerifyTableConfiguration> Declared(VerifyConfiguration verify) =>
+        new(verify.Tables ?? [], StringComparer.OrdinalIgnoreCase);
+
+    private static AgeSignal NoTables(CacheKey key, CacheEntry entry) =>
+        new(FindingVerifier.EntryAge(key, entry), null, VerificationOutcome.NotVerifiable, "the table's last write was not read");
+
+    /// <summary>
+    /// One entry against its tables. The last write is read for <em>every</em> dependent table, because
+    /// <c>sys.dm_db_index_usage_stats</c> holds no row data and needs no <c>key</c>/<c>from</c> to be
+    /// meaningful; only the row comparison is confined to the tables <c>verify.tables</c> names.
+    /// </summary>
+    private async Task<KeyVerification> VerifyEntryAsync(VerificationReader database, VerifyConfiguration verify, CacheKey key,
+                                                         CacheEntry entry, IReadOnlyList<string> tables, Func<double> now,
+                                                         string? refutingTable, CancellationToken cancellationToken)
+    {
+        var (document, length) = FindingVerifier.ReadPayload(entry.Payload);
+        using (document)
+        {
+            var comparisons = new List<TableRowComparison>();
+            var ages = new List<TableAge>();
+            var entryAge = FindingVerifier.EntryAge(key, entry);
+            var elapsed = now() - entry.ObservedSeconds;
+
+            // A key the cache reader could not read carries its own code, and it has to reach the answer:
+            // without it the run reported the reason and still called itself whole, so a sample where a key
+            // had vanished was indistinguishable from one where every key was read.
+            var code = entry.FailureCode;
+            try
+            {
+                foreach (var name in tables)
+                {
+                    var (schema, table) = Split(name);
+                    var lastWrite = await database.ReadLastWriteAsync(schema, table, cancellationToken).ConfigureAwait(false);
+
+                    // Taken after the query returns, not before it: the number the server reports was true
+                    // when it computed it, and the query's own duration is part of the gap. Reading the
+                    // clock first credited the entry with a reading it could not have had yet, and a slow
+                    // DMV query could carry a pair of readings past the clock margin without saying so.
+                    elapsed = now() - entry.ObservedSeconds;
+                    ages.Add(Age(name, lastWrite, elapsed, verify.ClockMarginSeconds));
+                    if (document is null)
+                        continue;
+
+                    // A table verify.tables does not name is a comparison that did not happen, and R7 says
+                    // a step that was skipped is recorded with its reason rather than passed over. Without
+                    // this the key came back carrying only the age signal's reason, which says something
+                    // else entirely. The lookup ignores case because a table name comes out of the code
+                    // and the configuration is written by hand.
+                    if (!Declared(verify).TryGetValue(name, out var declared))
+                    {
+                        comparisons.Add(new TableRowComparison(name,
+                            RowComparison.NotCompared($"'{name}' is not declared in verify.tables with both 'key' and 'from'")));
+                        continue;
+                    }
+
+                    comparisons.Add(new TableRowComparison(name,
+                        await database.CompareRowAsync(schema, table, declared, key.Template,
+                                                       entry.Key.Values, document.RootElement, cancellationToken)
+                                      .ConfigureAwait(false)));
+                }
+            }
+            catch (Exception error) when (FindingVerifier.Classify(error) is { } classified)
+            {
+                code = classified;
+            }
+
+            // A refused idle time is recorded beside whatever else the key has to say. It is a reason and
+            // not a code on purpose: the entry was read, its payload and TTL are in hand, and one optional
+            // observation being unavailable does not make the run partial.
+            var reported = entry.IdleReason is null || entry.Reason is null
+                               ? entry.Reason ?? entry.IdleReason
+                               : $"{entry.Reason}; {entry.IdleReason}";
+            return FindingVerifier.VerifyKey(entry.Key, comparisons, FindingVerifier.Aggregate(entryAge, ages),
+                                             _configuration?.Sensitive, length, code, reported, ages, elapsed,
+                                             verify.ClockMarginSeconds, refutingTable);
+        }
+    }
+
+    /// <summary>
+    /// One table's last write, brought onto the cache reading's timeline. The three ways that can turn out
+    /// are kept apart: the clock margin is announced only when it was actually exceeded — it used to be
+    /// announced for a write that landed between the two readings as well, which is a signal rather than a
+    /// gap, so a run forty seconds apart reported a sixty-second margin as broken.
+    /// </summary>
+    private static TableAge Age(string name, LastWrite lastWrite, double elapsed, double margin)
+    {
+        if (lastWrite.SecondsSinceLastWrite is not { } seconds)
+            return new TableAge(name, null, lastWrite.Reason);
+
+        var observed = FindingVerifier.AtObservation(seconds, elapsed, margin);
+        return observed.Placement switch
+        {
+            FindingVerifier.Placement.BeyondMargin =>
+                new TableAge(name, null,
+                             lastWrite.Reason ?? $"the database was read {elapsed:F1}s after the cache, beyond the " +
+                                                 $"{margin:F0}s clock margin, so the two readings cannot be placed on one timeline"),
+            FindingVerifier.Placement.WrittenAfterObservation =>
+                new TableAge(name, null, lastWrite.Reason ?? FindingVerifier.WrittenAfterObservationReason,
+                             WrittenAfterObservation: true),
+            _ => new TableAge(name, observed.SecondsAgo, lastWrite.Reason)
+        };
+    }
+
+    private static (string Schema, string Table) Split(string qualified)
+    {
+        var separator = qualified.IndexOf('.', StringComparison.Ordinal);
+        return separator < 0 ? ("dbo", qualified) : (qualified[..separator], qualified[(separator + 1)..]);
+    }
+
+    private static VerificationRun Refused(string reason) => new(Empty(reason), []);
+
+    private static FindingVerification Empty(string? reason) =>
+        new(VerificationOutcome.NotVerifiable, reason, [], 0, 0, 0, false, false);
+
     internal async Task<T> ReadFindingsAsync<T>(Func<CacheGraph, WorkspaceConfiguration?, string?, FindingCatalog, T> read,
                                                 CancellationToken cancellationToken = default)
     {
@@ -732,7 +1304,8 @@ internal sealed class WorkspaceSession
                                       .ToArray();
         return new WorkspaceStatusResult(PageSolutions(solutions,
                                                        page),
-                                         CurrentCounts());
+                                         CurrentCounts(),
+                                         _configuration.Verify?.Auto ?? false);
     }
 
     private WorkspaceCounts CurrentCounts()
@@ -810,16 +1383,95 @@ internal sealed class WorkspaceSession
                                 page,
                                 CacheDetectiveJsonContext.Default.ListEnvelopeSolutionStatus);
 
-    private static ListEnvelope<WorkspaceDiagnosticResult> PageDiagnostics(IReadOnlyList<Microsoft.CodeAnalysis.WorkspaceDiagnostic> diagnostics,
-                                                                           PageArguments? page)
+    /// <summary>
+    /// How much a fragment of one diagnostic message may weigh once serialized. It is what is left of the
+    /// response limit once the heaviest shell and the envelope around the fragment have both been paid
+    /// for, so a fragment that passes this fits on a page beside any shell the result can produce. Setting
+    /// it independently of the shell's budget is what made every page come back empty: a 4096-byte
+    /// fragment cannot go on a page a 6144-byte shell left 2048 bytes of.
+    /// <para>The measure is bytes of JSON rather than UTF-16 characters because the two are not the same
+    /// size: a Cyrillic message costs two bytes a character before escaping and six after (<c>\uXXXX</c>),
+    /// so 1500 characters could reach about 9000 bytes and <see cref="ResponseEnvelope"/> would answer
+    /// with an empty page and a notice — no answer at all.</para>
+    /// </summary>
+    /// <summary>
+    /// What the envelope around a single fragment costs, measured rather than estimated — and measured at
+    /// its worst, with the counts and the notice <see cref="ResponseEnvelope"/> writes when it has had to
+    /// reduce a page. It is declared before the budget it feeds, because static initialisers run in the
+    /// order they are written.
+    /// </summary>
+    private static readonly int EnvelopeOverhead =
+        JsonSerializer.SerializeToUtf8Bytes(
+            new ListEnvelope<WorkspaceDiagnosticResult>(int.MaxValue, int.MaxValue, int.MaxValue, [],
+                                                        "Page size was reduced to stay under the response limit."),
+            CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult).Length;
+
+    private static readonly int DIAGNOSTIC_FRAGMENT_BYTES =
+        ResponseEnvelope.MaximumSerializedBytes - MaximumShellBytes - EnvelopeOverhead;
+
+    /// <summary>The largest fragment tried first. Cutting is by bytes, so the character count only bounds
+    /// the search.</summary>
+    private const int DIAGNOSTIC_FRAGMENT_CHARACTERS = 1500;
+
+    internal static IReadOnlyList<WorkspaceDiagnosticResult> Describe(IReadOnlyList<Microsoft.CodeAnalysis.WorkspaceDiagnostic> diagnostics,
+                                                                      int numberedFrom = 0)
     {
-        var mapped = diagnostics.Select(diagnostic => new WorkspaceDiagnosticResult(diagnostic.Kind.ToString(),
-                                                                                    diagnostic.Message))
-                                .ToArray();
-        return ResponseEnvelope.Create(mapped,
-                                       page,
-                                       CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult);
+        var mapped = new List<WorkspaceDiagnosticResult>();
+        for (var index = 0; index < diagnostics.Count; index++)
+        {
+            var diagnostic = diagnostics[index];
+            var id = $"d:{numberedFrom + index + 1}";
+            var kind = diagnostic.Kind.ToString();
+            var fragments = Fragments(diagnostic.Message ?? string.Empty, id, kind);
+            for (var part = 0; part < fragments.Count; part++)
+                mapped.Add(new WorkspaceDiagnosticResult(id, kind, fragments[part], part + 1, fragments.Count));
+        }
+
+        return mapped;
     }
+
+    /// <summary>
+    /// Cuts a message into pieces each of which fits when serialized. A cut never lands between the two
+    /// halves of a surrogate pair, which would turn one character into two broken ones and make the
+    /// reassembled text differ from the original.
+    /// </summary>
+    private static IReadOnlyList<string> Fragments(string message, string id, string kind)
+    {
+        if (message.Length == 0)
+            return [string.Empty];
+
+        var fragments = new List<string>();
+        var start = 0;
+        while (start < message.Length)
+        {
+            var length = Math.Min(DIAGNOSTIC_FRAGMENT_CHARACTERS, message.Length - start);
+            length = WithoutSplitSurrogate(message, start, length);
+            while (length > 1 && SerializedSize(message.Substring(start, length), id, kind) > DIAGNOSTIC_FRAGMENT_BYTES)
+                length = WithoutSplitSurrogate(message, start, Math.Max(1, length / 2));
+
+            fragments.Add(message.Substring(start, length));
+            start += length;
+        }
+
+        return fragments;
+    }
+
+    /// <summary>Shortens the piece by one if it would end on a high surrogate, whose pair is the next
+    /// character.</summary>
+    private static int WithoutSplitSurrogate(string message, int start, int length) =>
+        length > 1 && start + length < message.Length && char.IsHighSurrogate(message[start + length - 1])
+            ? length - 1
+            : length;
+
+    private static int SerializedSize(string fragment, string id, string kind) =>
+        JsonSerializer.SerializeToUtf8Bytes(new WorkspaceDiagnosticResult(id, kind, fragment, 1, 1),
+                                            CacheDetectiveJsonContext.Default.WorkspaceDiagnosticResult).Length;
+
+    /// <param name="reserve">How much the result carrying this envelope weighs around it. Without it the
+    /// envelope fills the whole budget on its own and whatever wraps it pushes the response over.</param>
+    internal static ListEnvelope<WorkspaceDiagnosticResult> PageDiagnostics(IReadOnlyList<WorkspaceDiagnosticResult> diagnostics,
+                                                                            PageArguments? page, int reserve = 0) =>
+        ResponseEnvelope.Create(diagnostics, page, CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult, reserve);
 }
 
 internal sealed record WorkspaceInitResult(WorkspaceConfiguration Configuration, bool Written);
@@ -830,9 +1482,32 @@ internal sealed record DatabaseCounts(int Procedures, int Triggers, int Views, i
 internal sealed record IndexDatabaseResult(string Database, bool Succeeded, DateTimeOffset? IndexedAt,
                                            DatabaseCounts Added, WorkspaceCounts Counts,
                                            IReadOnlyList<string> UnresolvableObjects, string? Error);
-internal sealed record WorkspaceStatusResult(ListEnvelope<SolutionStatus> Solutions, WorkspaceCounts Counts);
-internal sealed record WorkspaceDiagnosticResult(string Kind, string Message);
+/// <summary><paramref name="VerifyAuto"/> is the workspace's consent to runtime verification, surfaced
+/// here so a caller can see whether it may verify without reading the configuration file itself.</summary>
+internal sealed record WorkspaceStatusResult(ListEnvelope<SolutionStatus> Solutions, WorkspaceCounts Counts,
+                                             bool VerifyAuto = false);
+/// <summary>One diagnostic, or one fragment of one whose message is too long to travel whole: the
+/// fragments of a message share an <paramref name="Id"/> and are numbered <paramref name="Part"/> of
+/// <paramref name="Parts"/>, so a reader that pages to the end can put the message back together.</summary>
+internal sealed record WorkspaceDiagnosticResult(string Id, string Kind, string Message, int Part, int Parts);
 internal sealed record IndexSolutionResult(string Path, bool Succeeded, DateTimeOffset? IndexedAt,
                                            WorkspaceCounts Counts,
                                            ListEnvelope<WorkspaceDiagnosticResult> Diagnostics,
-                                           string? Error);
+                                           string? Error,
+                                           bool LoadComplete = true,
+                                           int ProjectsExpected = 0,
+                                           int ProjectsLoaded = 0,
+                                           IReadOnlyList<string>? MissingProjects = null,
+                                           int MissingProjectsHidden = 0,
+                                           IReadOnlyList<string>? SkippedProjects = null,
+                                           IReadOnlyList<string>? EmptyProjects = null,
+                                           int SkippedProjectsHidden = 0,
+                                           int EmptyProjectsHidden = 0);
+
+/// <summary>What the last index of one solution said, so that asking for a second page of its
+/// diagnostics reads them back instead of loading and indexing the solution all over again.</summary>
+internal sealed record RememberedIndex(bool Succeeded, DateTimeOffset? IndexedAt,
+                                       IReadOnlyList<WorkspaceDiagnosticResult> Diagnostics, string? Error,
+                                       bool LoadComplete, int ProjectsExpected, int ProjectsLoaded,
+                                       IReadOnlyList<string> MissingProjects, IReadOnlyList<string> SkippedProjects,
+                                       IReadOnlyList<string> EmptyProjects);

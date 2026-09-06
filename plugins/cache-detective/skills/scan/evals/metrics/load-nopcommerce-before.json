@@ -1,0 +1,52 @@
+{
+  "solution": "src/NopCommerce.sln",
+  "loadSeconds": 20.3436758,
+  "indexSeconds": 103.6310837,
+  "totalSeconds": 123.9747595,
+  "vertices": 5747,
+  "edges": 23699,
+  "cacheOperations": 0,
+  "unresolved": {
+    "key": 3,
+    "sql": 0,
+    "call": 1397,
+    "cache_api": 5,
+    "role": 0,
+    "event": 0,
+    "event_api": 1
+  },
+  "diagnostics": 0,
+  "projectsExpected": 33,
+  "projectsLoaded": 33,
+  "missingProjects": [],
+  "loadComplete": true,
+  "revision": "918444773367deb734b93d3ad80e17325d6c147a",
+  "workingTreeClean": true,
+  "recognizersFile": null,
+  "recognizersHash": null,
+  "recognizersApplied": 0,
+  "cacheSiteCoverage": {
+    "value": 0,
+    "status": "ok"
+  },
+  "sqlSiteCoverage": {
+    "value": null,
+    "status": "not_applicable"
+  },
+  "cleanWorktree": true,
+  "counts": {
+    "vertices": 5747,
+    "edges": 23699,
+    "cacheOperations": 0
+  },
+  "coverage": {
+    "cache": {
+      "value": 0,
+      "status": "ok"
+    },
+    "sql": {
+      "value": null,
+      "status": "not_applicable"
+    }
+  }
+}

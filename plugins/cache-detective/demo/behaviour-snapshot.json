@@ -1,0 +1,14 @@
+{
+  "Corpus": "edb55bf73d018963248eca2fbfbfc9d236f6ce1b",
+  "Findings": [
+    "CROSS_SERVICE_GAP | Shop.slnx | Catalog.ProductsController.Rename(int, string) | Catalog | product:{id} | memory | dbo.Products | Confirmed | reported",
+    "EXTERNAL_NO_TTL | Shop.slnx | Notifications.WeatherController.Get() | Notifications | weather:today | memory | external:http:Notifications:-:GET today | Confirmed | reported",
+    "UNGUARDED_WRITE | Shop.slnx | Catalog.ProductsController.AdjustInventory(int, int) | Catalog | digest:{id} | memory | dbo.Inventory | Likely | reported",
+    "UNGUARDED_WRITE | Shop.slnx | Catalog.ProductsController.AdjustInventory(int, int) | Catalog | inventory:{id} | memory | dbo.Inventory | Confirmed | suppressed",
+    "UNGUARDED_WRITE | Shop.slnx | Pricing.DiscountsController.ApplyDiscount(int, decimal) | Pricing | product:{id} | memory | dbo.PriceHistory | Confirmed | reported"
+  ],
+  "Unresolved": [
+    "Sql | - | shop.dbo.RebuildReport",
+    "Sql | Shop.slnx | Pricing/DiscountsController.cs:63"
+  ]
+}

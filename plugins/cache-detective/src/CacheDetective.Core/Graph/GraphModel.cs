@@ -123,8 +123,18 @@ public sealed record CacheKey : GraphVertex
 
     public string? Role { get; }
 
+    /// <summary>Whether every site that named this key named the same TTL. A merged key carries the
+    /// longest of them, and this says whether that number was a consensus or a choice.</summary>
+    public bool TtlAgreed { get; init; } = true;
+
     private static FrozenSet<string> ToSet(IEnumerable<string>? tags) => (tags ?? []).ToFrozenSet(StringComparer.Ordinal);
 }
+
+/// <summary>One write the entity-framework heuristic saw, as it saw it: before the writes of one entity
+/// are merged into a single <see cref="Writes"/> edge, and before the facts of a method are propagated to
+/// the methods that call it.</summary>
+public sealed record HeuristicWriteSite(Handler Handler, Table Table, Confidence Confidence, Evidence Evidence,
+                                        bool RequiresSaveChanges);
 
 public sealed record Table(string Name, string? Database = null) : GraphVertex
 {

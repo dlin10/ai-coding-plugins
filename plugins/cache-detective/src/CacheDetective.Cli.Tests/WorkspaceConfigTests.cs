@@ -19,8 +19,8 @@ public sealed class WorkspaceConfigTests
               "budgets": { "dbo.*": 90, "dbo.Products": 15 },
               "databases": [{ "name": "shop", "connection": "env:CD_SHOP_CONN" }],
               "services": { "catalog": "Catalog.API" },
-              "verify": ["schema", { "enabled": true }],
-              "sensitive": { "tables": ["dbo.Users"], "redact": true }
+              "verify": { "redis": "env:CD_VERIFY_REDIS", "auto": true, "tables": { "dbo.Products": { "key": "Id", "from": "id" } } },
+              "sensitive": ["*apikey*"]
             }
             """);
 
@@ -37,8 +37,11 @@ public sealed class WorkspaceConfigTests
         Assert.Equal("env:CD_SHOP_CONN", database.Connection);
         Assert.Null(database.Provider);
         Assert.Equal("Catalog.API", Assert.Single(roundTripped.Services!).Value);
-        AssertJsonEqual(configuration.Verify, roundTripped.Verify);
-        AssertJsonEqual(configuration.Sensitive, roundTripped.Sensitive);
+        Assert.Equal("env:CD_VERIFY_REDIS", roundTripped.Verify!.Redis);
+        Assert.True(roundTripped.Verify.Auto);
+        Assert.Equal("Id", roundTripped.Verify.Tables!["dbo.Products"].Key);
+        Assert.Equal("id", roundTripped.Verify.Tables["dbo.Products"].From);
+        Assert.Equal("*apikey*", Assert.Single(roundTripped.Sensitive!));
     }
 
     [Fact]
@@ -203,13 +206,6 @@ public sealed class WorkspaceConfigTests
         var path = WorkspaceConfigurationStore.GetPath(repository.Path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, json);
-    }
-
-    private static void AssertJsonEqual(JsonElement? expected, JsonElement? actual)
-    {
-        Assert.True(expected.HasValue);
-        Assert.True(actual.HasValue);
-        Assert.True(JsonElement.DeepEquals(expected.Value, actual.Value));
     }
 
     private sealed class TemporaryRepository : IDisposable

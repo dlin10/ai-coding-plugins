@@ -14,6 +14,11 @@ internal static class Program
 
         Usage:
           cachedet mcp        Serve the Model Context Protocol over stdio.
+          cachedet metrics    Measure an index, create or compare a review sample, or score labels.
+            cachedet metrics --root <path> --solution <name> --out <file> [--recognizers <file>]
+            cachedet metrics --sample role|efwrite --count N --root <path> --solution <name> --out <file>
+            cachedet metrics --compare <file> --root <path> --solution <name>
+            cachedet metrics --score <file>
           cachedet --version  Print the version.
           cachedet --help     Print this help.
         """;
@@ -38,6 +43,8 @@ internal static class Program
                 return ExitCode.Ok;
             case "mcp":
                 return await RunMcpAsync().ConfigureAwait(false);
+            case "metrics":
+                return await MetricsCommand.RunAsync(args[1..]).ConfigureAwait(false);
             default:
                 Console.Error.WriteLine($"Unknown command: {args[0]}");
                 Console.Error.WriteLine(USAGE);
@@ -62,6 +69,7 @@ internal static class Program
           .WithTools<WorkspaceTools>()
           .WithTools<TraceTools>()
           .WithTools<FindingTools>()
+          .WithTools<VerificationTools>()
           .WithTools<AnnotationTools>();
 
         await builder.Build().RunAsync().ConfigureAwait(false);

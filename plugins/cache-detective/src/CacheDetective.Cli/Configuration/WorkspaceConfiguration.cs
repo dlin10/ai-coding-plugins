@@ -33,10 +33,12 @@ public sealed class WorkspaceConfiguration
     public EventRecognizerConfiguration[]? Events { get; init; }
 
     [JsonPropertyName("verify")]
-    public JsonElement? Verify { get; init; }
+    public VerifyConfiguration? Verify { get; init; }
 
+    /// <summary>Extra field-name masks, added to <see cref="SensitiveFields.Default"/> and never
+    /// replacing them.</summary>
     [JsonPropertyName("sensitive")]
-    public JsonElement? Sensitive { get; init; }
+    public string[]? Sensitive { get; init; }
 
     public double GetBudgetSeconds(string tableName) => StalenessBudget.GetSeconds(tableName, Budgets);
 }

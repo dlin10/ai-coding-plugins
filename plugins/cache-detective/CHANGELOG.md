@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.4.0 - 2026-09-05
+
+- Added runtime verification, built into the server rather than driven through third-party MCP servers,
+  so a cached value is sampled, compared and redacted before a byte of it becomes a tool result
+  (`docs/adr/0011`). A `runtime-verifier` subagent calls one tool of it, and a scan verifies only with a
+  `verify` section and either `--verify` or `"auto": true`.
+- Verification observes and never suppresses: it reports `refuted`, `possible` or `not_verifiable`
+  beside a finding and never changes its confidence or whether it is reported (`docs/adr/0012`).
+- Only field comparison refutes. The age of an entry never does, because `EXPIRE` extends a deadline
+  long after the value was written and a handler may read a row, wait, and only then write what it
+  already had — so age contributes the `possible` signal and nothing stronger.
+- The Redis reader sends only `SCAN`, `TYPE`, `GET`, `HGET`, `TTL` and `OBJECT IDLETIME` through a
+  single seam a test inspects, walks the keyspace with a raw `SCAN` rather than `KEYS` under a budget of
+  50 iterations or 5 seconds, and refuses a connection string that disables `INFO` because the client
+  then writes a probe key of its own.
+- **Guarded an array-valued attribute argument.** `AttributeTemplate` read the first constructor
+  argument's `Value` without checking its kind, and an array-valued argument — `[AcceptVerbs(...)]` in
+  Orchard Core, `[FormValueRequired(...)]` in nopCommerce — threw and took the whole index down with it.
+  Both repositories now index end to end.
+- Added `cachedet metrics`: load and coverage measurement, labelled `role` and `efwrite` samples with
+  accuracy and false-positive rate, `--compare` against a pinned corpus revision, and declared
+  `cache_api` recognizer files.
+- Measured the corpora. nopCommerce indexes in 124 s over 33/33 projects and Orchard Core in 232 s over
+  227/227, both complete, where both previously reached an hour of CPU time.
+- Measured the EF write heuristic on eShopOnContainers, for the reasons in `docs/adr/0013`: ten labelled
+  write sites, accuracy 1.0 and a false-positive rate of 0.0. The sample is small because the corpus
+  holds ten candidates, not because ten were chosen.
+- **The `role` classifier is not measured.** Its sample came back with zero candidates against a target
+  of thirty: eShopOnContainers' whole recognised cache surface is three `IDatabase` call sites keyed on
+  runtime variables, so no key carries a template to classify. Only the reason is recorded, not a number,
+  and phase 5 carries the debt — see `docs/cache-detective-spec.md` §12.
+
 ## 0.3.0 - 2026-09-04
 
 - Added events, external service joins, annotations, derived cross-service coverage, and the scan

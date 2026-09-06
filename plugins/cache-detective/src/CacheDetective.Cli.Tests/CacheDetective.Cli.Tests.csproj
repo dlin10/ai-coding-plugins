@@ -11,6 +11,7 @@
          (MSBL001) unless MSBuild assemblies are kept out of the output: they must come from the
          installed SDK at run time, not from bin. Mirrors CacheDetective.Cli. -->
     <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
@@ -21,6 +22,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../CacheDetective.Cli/CacheDetective.Cli.csproj" />
+  </ItemGroup>
+
+  <!-- The fixture solutions are opened by the loader under test, not compiled into it. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures\**\*.cs" />
+    <None Include="Fixtures\**\*.cs" />
   </ItemGroup>
 
   <!-- Shared with CacheDetective.Core.Tests by linking the file, not by referencing that project: one

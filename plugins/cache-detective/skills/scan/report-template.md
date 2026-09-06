@@ -101,6 +101,50 @@ Chain or diagnostic:
 {{/needs_checking}}
 {{^needs_checking}}None.{{/needs_checking}}
 
+## Runtime verification
+
+<!--
+One line per verified finding, in whichever of the three lists its observation puts it. Every line
+carries the key template, the observation, what the observation rested on, and the table with the
+duration since its last write:
+
+  - `product:{id}` — possible — a field of the cached value differs — dbo.Products, written 40s ago
+  - `brand:{id}` — refuted — 3 comparable fields agree across 12 keys — dbo.Brands, written 6h ago
+  - `digest:{id}` — not verifiable — the sample was trimmed to the match limit — dbo.Inventory, written 2m ago
+
+A real cache key never appears here: a key is its template and, where one line is not enough to tell
+two of them apart, its short hash. A cached value never appears here at all.
+-->
+
+{{verification_status}}
+
+Verification observes the running system. It does not change any finding's confidence and does not
+decide whether a finding is reported: every finding above stays in the group its confidence put it in,
+whatever was observed here.
+
+### Possible
+
+{{#verification_possible}}
+- `{{key_template}}` — possible — {{basis}} — {{table}}, written {{table_last_write}} ago
+{{/verification_possible}}
+{{^verification_possible}}None.{{/verification_possible}}
+
+### Refuted for this moment
+
+{{#verification_refuted}}
+- `{{key_template}}` — refuted — {{basis}} — {{table}}, written {{table_last_write}} ago
+{{/verification_refuted}}
+{{^verification_refuted}}None.{{/verification_refuted}}
+
+### Not verifiable
+
+{{#verification_not_verifiable}}
+- `{{key_template}}` — not verifiable — {{reason}} — {{table}}, written {{table_last_write}} ago
+{{/verification_not_verifiable}}
+{{^verification_not_verifiable}}None.{{/verification_not_verifiable}}
+
+Not verified: {{verification_skipped_count}} finding(s) — {{verification_skipped_reason}}
+
 ## Unresolved
 
 <!--

@@ -14,5 +14,13 @@ Two rules matter regardless of which host you are running in:
   what could not be reduced, its source snippet, and the reason before drawing a conclusion from an
   apparent absence.
 
-The server reads source and build metadata. It must not edit application files, contact databases or
-caches, or execute the indexed application.
+The server reads source and build metadata. It must not edit application files and must not execute the
+indexed application. Two reads of a live system are part of the design, and both are reads only:
+
+- **The catalogue indexer reads a live database's catalogue when `index_database` asks it to.** It
+  issues `SELECT`s over `sys.` catalogue objects to learn which procedures, triggers and views touch
+  which tables. It performs no DDL, no DML, and executes none of your procedures.
+- **Runtime verification reads the cache and the database only when a scan requests it**, through the
+  `verify` section of the workspace configuration and either `--verify` or `"auto": true`. It sends
+  `SCAN`, `TYPE`, `GET`, `HGET`, `TTL` and `OBJECT IDLETIME` to Redis, and `SELECT`s the rows a finding
+  depends on. It writes nothing to either.
