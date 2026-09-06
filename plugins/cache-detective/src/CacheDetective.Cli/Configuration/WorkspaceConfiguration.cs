@@ -46,15 +46,36 @@ public sealed class WorkspaceConfiguration
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class EventRecognizerConfiguration
 {
+    private const int DEFAULT_ARITY = 1;
+    private const string DEFAULT_HANDLE = "Handle";
+    private const string DEFAULT_HANDLER_KIND = "consumer";
+    private static readonly string[] DEFAULT_METHODS = ["Publish"];
+
+    // Methods, Arity, Handle and HandlerKind default through their getters rather than through a property
+    // initializer, because the source-generated deserializer builds the object without running
+    // initializers: a field absent from the file would otherwise arrive as null or zero instead of its
+    // documented default. See VerifyConfiguration, which carries the same pattern for the same reason.
+    private readonly string[]? _methods;
+    private readonly string? _handle;
+    private readonly string? _handlerKind;
+
     [JsonPropertyName("name")] public string? Name { get; init; }
     [JsonPropertyName("publisher")] public string? Publisher { get; init; }
     [JsonPropertyName("publishers")] public string[]? Publishers { get; init; }
-    [JsonPropertyName("methods")] public string[] Methods { get; init; } = ["Publish"];
+    [JsonPropertyName("methods")] public string[] Methods { get => _methods ?? DEFAULT_METHODS; init => _methods = value; }
     [JsonPropertyName("event_argument")] public int EventArgument { get; init; }
     [JsonPropertyName("consumer")] public string? Consumer { get; init; }
-    [JsonPropertyName("arity")] public int Arity { get; init; } = 1;
-    [JsonPropertyName("handle")] public string Handle { get; init; } = "Handle";
-    [JsonPropertyName("handler_kind")] public string HandlerKind { get; init; } = "consumer";
+
+    /// <summary>What the file said, if it said anything. A value type cannot carry "absent" through the
+    /// deserializer the way a reference type can — zero and unset are the same bit pattern — so the
+    /// setting and the value it produces are separate members.</summary>
+    [JsonPropertyName("arity")] public int? ConfiguredArity { get; init; }
+
+    /// <summary>How many type arguments the consumer interface takes.</summary>
+    [JsonIgnore] public int Arity => ConfiguredArity ?? DEFAULT_ARITY;
+
+    [JsonPropertyName("handle")] public string Handle { get => _handle ?? DEFAULT_HANDLE; init => _handle = value; }
+    [JsonPropertyName("handler_kind")] public string HandlerKind { get => _handlerKind ?? DEFAULT_HANDLER_KIND; init => _handlerKind = value; }
 
     public EventRecognizer ToRecognizer(Confidence confidence, int? annotationId)
     {

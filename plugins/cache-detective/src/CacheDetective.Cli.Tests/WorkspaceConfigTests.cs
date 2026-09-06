@@ -192,6 +192,29 @@ public sealed class WorkspaceConfigTests
         Assert.Contains("999", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>The four optional fields of an <c>events</c> entry are documented as defaulted, and the
+    /// source-generated deserializer builds the object without running property initializers. An entry
+    /// naming only its two ends has to come back carrying those defaults rather than null and zero.</summary>
+    [Fact]
+    public async Task WorkspaceConfig_event_omitting_its_optional_fields_reads_the_documented_defaults()
+    {
+        using var repository = new TemporaryRepository();
+        await WriteConfigAsync(repository, """
+            {
+              "version": 1, "root": ".", "solutions": [], "budgets": {},
+              "events": [{ "publisher": "Shop.Bus.IEventBus", "consumer": "Shop.Bus.IEventHandler" }]
+            }
+            """);
+
+        var configuration = await WorkspaceConfigurationStore.ReadAsync(repository.Path);
+
+        var recognizer = Assert.Single(configuration.Events!);
+        Assert.Equal("Publish", Assert.Single(recognizer.Methods));
+        Assert.Equal(1, recognizer.Arity);
+        Assert.Equal("Handle", recognizer.Handle);
+        Assert.Equal("consumer", recognizer.HandlerKind);
+    }
+
     private static async Task<InvalidDataException> AssertRejectedAsync(string json)
     {
         using var repository = new TemporaryRepository();

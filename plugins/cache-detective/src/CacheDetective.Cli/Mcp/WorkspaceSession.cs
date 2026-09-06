@@ -11,7 +11,6 @@ using CacheDetective.Workspaces;
 using Microsoft.Data.SqlClient;
 using StackExchange.Redis;
 using System.Data.Common;
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace CacheDetective.Mcp;
@@ -230,7 +229,7 @@ internal sealed class WorkspaceSession
                 Methods = configuration.Methods,
                 EventArgument = configuration.EventArgument,
                 Consumer = configuration.Consumer,
-                Arity = configuration.Arity,
+                ConfiguredArity = configuration.ConfiguredArity,
                 Handle = configuration.Handle,
                 HandlerKind = configuration.HandlerKind
             };
@@ -276,7 +275,7 @@ internal sealed class WorkspaceSession
 
     private static bool TryInt(JsonElement value, string property, out int result)
     {
-        result = default;
+        result = 0;
         return value.TryGetProperty(property, out var member) && member.TryGetInt32(out result);
     }
 
@@ -609,9 +608,9 @@ internal sealed class WorkspaceSession
     /// more to the point, can never leave the shell heavier than the whole budget with every list already
     /// empty, which is the state <see cref="Fitted"/> has no answer for.
     /// </summary>
-    private const int MaximumErroredShellBytes = MaximumShellBytes / 2;
+    private const int MAXIMUM_ERRORED_SHELL_BYTES = MaximumShellBytes / 2;
 
-    private const string ErrorTruncationMarker = " … (error truncated)";
+    private const string ERROR_TRUNCATION_MARKER = " … (error truncated)";
 
     /// <summary>
     /// The error, cut to what the shell can carry. The measure is the serialized weight of the shell around
@@ -624,21 +623,21 @@ internal sealed class WorkspaceSession
     /// </summary>
     private static string? FittedError(string? error, Func<string?, IndexSolutionResult> shell)
     {
-        if (error is null || Weight(shell(error)) <= MaximumErroredShellBytes)
+        if (error is null || Weight(shell(error)) <= MAXIMUM_ERRORED_SHELL_BYTES)
             return error;
 
         for (var kept = error.Length / 2; kept > 0; kept /= 2)
         {
             var candidate = Truncate(error, kept);
-            if (Weight(shell(candidate)) <= MaximumErroredShellBytes)
+            if (Weight(shell(candidate)) <= MAXIMUM_ERRORED_SHELL_BYTES)
                 return candidate;
         }
 
-        return ErrorTruncationMarker.TrimStart();
+        return ERROR_TRUNCATION_MARKER.TrimStart();
     }
 
     private static string Truncate(string error, int characters) =>
-        string.Concat(error.AsSpan(0, WithoutSplitSurrogate(error, 0, characters)), ErrorTruncationMarker);
+        string.Concat(error.AsSpan(0, WithoutSplitSurrogate(error, 0, characters)), ERROR_TRUNCATION_MARKER);
 
     /// <summary>
     /// The names that did not fit, as diagnostics of their own — one per list, each labelled with the list
@@ -1400,11 +1399,9 @@ internal sealed class WorkspaceSession
     /// reduce a page. It is declared before the budget it feeds, because static initialisers run in the
     /// order they are written.
     /// </summary>
-    private static readonly int EnvelopeOverhead =
-        JsonSerializer.SerializeToUtf8Bytes(
-            new ListEnvelope<WorkspaceDiagnosticResult>(int.MaxValue, int.MaxValue, int.MaxValue, [],
-                                                        "Page size was reduced to stay under the response limit."),
-            CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult).Length;
+    private static readonly int EnvelopeOverhead = JsonSerializer.SerializeToUtf8Bytes(new ListEnvelope<WorkspaceDiagnosticResult>(int.MaxValue, int.MaxValue, int.MaxValue, [],
+                                                                                            "Page size was reduced to stay under the response limit."),
+                                                                                       CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult).Length;
 
     private static readonly int DIAGNOSTIC_FRAGMENT_BYTES =
         ResponseEnvelope.MaximumSerializedBytes - MaximumShellBytes - EnvelopeOverhead;
