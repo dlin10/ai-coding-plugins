@@ -107,7 +107,12 @@ public sealed class OutputCapMislabelTests : IDisposable
         }
 
         Assert.Contains("exceeded", error.Message, StringComparison.Ordinal);
-        Assert.Equal("output-cap", Field(Single(Read(run), "process.kill"), "reason"));
+
+        // The tail of what it had written by then, kept for the same reason the stderr one is: a
+        // killed process is not around to be asked a second time.
+        var killed = Single(Read(run), "process.kill");
+        Assert.Equal("output-cap", Field(killed, "reason"));
+        Assert.NotEmpty(Field(killed, "stdoutTail"));
     }
 
     /// <summary>

@@ -21,6 +21,12 @@ internal static class StreamingProcess
     private const int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
     private const string SOURCE = "process";
 
+    /// <summary>
+    /// How much of stdout is held back for a failure report. The bound <see cref="RunLog"/> gives a
+    /// field, so a tail reaches the log and the exception message without being cut twice.
+    /// </summary>
+    private const int STDOUT_TAIL_CHARS = 2000;
+
     // No BOM: a byte-order mark on stdin is a stray character at the head of the prompt.
     private static readonly UTF8Encoding UTF8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -89,6 +95,7 @@ internal static class StreamingProcess
 
         var seen = 0L;
         var capped = false;
+        var stdout = new OutputTail();
         try
         {
             // Inside the try because a vendor that never drains its stdin blocks this write, and
@@ -101,6 +108,8 @@ internal static class StreamingProcess
                                        exitDrain ?? _exitDrain, token).ConfigureAwait(false) is { } line)
             {
                 seen += line.Length;
+                stdout.Add(line);
+
                 if (seen > MAX_OUTPUT_BYTES)
                 {
                     capped = true;
@@ -138,7 +147,8 @@ internal static class StreamingProcess
                     ("exec", spec.FileName),
                     ("pid", pid),
                     ("reason", reason),
-                    ("stderrTail", killed.Length == 0 ? null : RunLog.Tail(killed)));
+                    ("stderrTail", killed.Length == 0 ? null : RunLog.Tail(killed)),
+                    ("stdoutTail", stdout.Tail()));
             }
         }
 
@@ -149,10 +159,11 @@ internal static class StreamingProcess
             ("exec", spec.FileName),
             ("pid", Pid(process)),
             ("exitCode", process.ExitCode.ToString()),
-            ("stderrTail", error.Length == 0 ? null : RunLog.Tail(error)));
+            ("stderrTail", error.Length == 0 ? null : RunLog.Tail(error)),
+            ("stdoutTail", process.ExitCode == 0 ? null : stdout.Tail()));
 
         if (process.ExitCode != 0)
-            throw new VendorException($"{spec.FileName} exited {process.ExitCode}: {error}", process.ExitCode);
+            throw new VendorException(Failure(spec.FileName, process.ExitCode, error, stdout), process.ExitCode);
     }
 
     public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec,
@@ -231,6 +242,29 @@ internal static class StreamingProcess
         }
     }
 
+    /// <summary>
+    /// Why the process failed, in the words it left behind. A CLI that says its piece on stdout and
+    /// exits with nothing on stderr used to reach the caller as <c>claude.exe exited 1: </c> — an
+    /// exit code and an empty colon. That is the shape an individual spend limit takes, and in run
+    /// 20260905-144900-e42174 it cost a reproduction of the vendor call by hand to learn what the
+    /// CLI had already said.
+    /// </summary>
+    /// <remarks>
+    /// The stdout tail is added only where stderr is blank. Where stderr speaks it is the better
+    /// account of a failure, and <see cref="Acts.GateRunner"/> keeps a copy of stdout of its own
+    /// that the tail would only repeat. Both tails are cut: what a vendor writes while failing is
+    /// not smaller than what it writes while working, and neither belongs in an exception message
+    /// whole.
+    /// </remarks>
+    private static string Failure(string exec, int exitCode, string stderr, OutputTail stdout)
+    {
+        if (!string.IsNullOrWhiteSpace(stderr)) return $"{exec} exited {exitCode}: {RunLog.Tail(stderr)}";
+
+        return stdout.Tail() is { } tail
+            ? $"{exec} exited {exitCode} with nothing on stderr; last of stdout: {tail}"
+            : $"{exec} exited {exitCode} with no output";
+    }
+
     // The process may already be gone by the time we ask, and an unusable pid is not worth a throw.
     private static string? Pid(Process process)
     {
@@ -282,5 +316,38 @@ internal static class StreamingProcess
         }
 
         return info;
+    }
+
+    /// <summary>
+    /// The last of stdout, kept for a failure nobody can ask the process to explain a second time.
+    /// Bounded in characters rather than in lines, because one line of a vendor's JSONL can be the
+    /// size of a file; an over-long line is kept by its own tail, since the end of the output is
+    /// the whole point of holding any of it.
+    /// </summary>
+    private sealed class OutputTail
+    {
+        private readonly Queue<string> _lines = new();
+        private int _held;
+
+        public void Add(string line)
+        {
+            var kept = line.Length <= STDOUT_TAIL_CHARS ? line : line[^STDOUT_TAIL_CHARS..];
+            _lines.Enqueue(kept);
+            _held += kept.Length;
+
+            // Never below one line: whatever is left is already inside the budget, and dropping it
+            // would leave a failure with nothing at all to show.
+            while (_held > STDOUT_TAIL_CHARS && _lines.Count > 1)
+            {
+                _held -= _lines.Dequeue().Length;
+            }
+        }
+
+        /// <summary>The tail as one block, or <see langword="null"/> when the process wrote nothing.</summary>
+        public string? Tail()
+        {
+            var text = string.Join('\n', _lines).TrimEnd();
+            return text.Length == 0 ? null : RunLog.Tail(text);
+        }
     }
 }

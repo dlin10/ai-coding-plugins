@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.27.1
+
+A builder turn came back as `claude.exe exited 1: ` — an exit code and an empty colon. The claude CLI
+blocked by an individual spend limit says so on stdout and exits 1 with nothing on stderr, and
+`StreamingProcess` hands stdout to its caller line by line without keeping any of it, so the one
+sentence that explained the run was gone by the time the failure was reported. Learning it cost a
+reproduction of the vendor call by hand (run `20260905-144900-e42174`); the codex CLI had shown the
+same shape earlier.
+
+- A non-zero exit whose stderr is blank is now reported with the tail of what the process wrote on
+  stdout, and names which stream it is quoting. Where stderr speaks it still wins alone, because a
+  caller holding a copy of stdout — the gate runner — would otherwise be handed its own output a
+  second time. Both tails are bounded now; the stderr one used to reach the message whole.
+- `process.exit` and `process.kill` carry a `stdoutTail` beside `stderrTail` in `forge.log`, so a
+  builder turn killed at its timeout leaves a record of what it was writing rather than only the
+  fact that it stopped.
+- This covers all three vendors. Claude, codex and cursor reach their CLIs through the one runner
+  and none of them inspected a non-zero exit itself, so none needed a change of its own.
+
 ## 0.27.0
 
 A builder answered `done` and `verification: passed` for six tasks whose gates named the tests each
