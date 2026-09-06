@@ -336,8 +336,11 @@ them.
 
 Read `gate.outcome` first:
 
-- **`passed`** — the task counts, whatever the builder said about its own verification. A builder
-  that reported `unavailable` because its sandbox could not run the gate has been checked for you.
+- **`passed`** — the task counts, whatever the builder said about its own verification, and whatever
+  it said about its own `status`. A builder that reported `unavailable` because its sandbox could not
+  run the gate has been checked for you; a builder that reported `blocked` for the same reason has
+  had `status` rewritten to `done`, because the gate is the proof it was missing. Its `verification`
+  still says what it could not check, so read that before you narrate the task as a clean success.
 - **`failed`** or **`timeout`** — the `status` is `gate_failed`, `tasksCompleted` did not move, and
   the next `forge.build.next` retries the same task with the gate's command, exit code and output in
   front of the builder. Call it again. If the same gate fails twice more, stop and show the user the
@@ -350,9 +353,11 @@ Read `gate.outcome` first:
   `unavailable`, run the check yourself and record what you ran and saw through `forge.log.append`
   before the next act; on `failed`, do not advance past it — verify yourself, and either fix forward
   or stop and ask the user.
-- **`not_run`** — the builder reported `blocked`, so there was nothing to gate, or the host has no
+- **`not_run`** — the builder reported `blocked` after a verification that `failed`, so it ran the
+  check itself and watched it fail and there is nothing left for a gate to settle; or the host has no
   PowerShell. The second case is the environment's fault, not the task's: say so and treat the task
-  as `not_executable`.
+  as `not_executable`. A `blocked` turn whose verification was `unavailable` never lands here — the
+  host runs the gate for it, and the outcome is one of the three above.
 
 Say the gate's outcome in your one line of narration — a task whose gate failed, or whose gate
 nobody could run, must never read like a clean `done` in the chat.
