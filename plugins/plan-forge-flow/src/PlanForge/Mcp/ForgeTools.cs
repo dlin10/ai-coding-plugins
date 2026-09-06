@@ -20,10 +20,10 @@ namespace PlanForge.Mcp;
 [SuppressMessage("ReSharper", "UnusedMember.Global")]
 internal sealed class ForgeTools
 {
-    private const int DefaultReviewRoundCap = 5;
-    private const int DefaultCodeReviewCap = 3;
-    private const int WorkPollTimeoutSeconds = 45;
-    private const string Source = "server";
+    private const int DEFAULT_REVIEW_ROUND_CAP = 5;
+    private const int DEFAULT_CODE_REVIEW_CAP = 3;
+    private const int WORK_POLL_TIMEOUT_SECONDS = 45;
+    private const string SOURCE = "server";
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
     public static async Task<string> Begin(McpServer server,
@@ -51,8 +51,8 @@ internal sealed class ForgeTools
                 var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
                 run.WriteBaseline(baseline);
                 run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
-                    ReviewRounds: 0, ReviewRoundCap: DefaultReviewRoundCap, BaselineHead: baseline.Head,
-                    CodeReviewRoundCap: DefaultCodeReviewCap));
+                    ReviewRounds: 0, ReviewRoundCap: DEFAULT_REVIEW_ROUND_CAP, BaselineHead: baseline.Head,
+                    CodeReviewRoundCap: DEFAULT_CODE_REVIEW_CAP));
 
                 return JsonSerializer.Serialize(
                     new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
@@ -238,7 +238,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is.")]
+    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. The gate runs for a builder that reports `blocked` with a verification of `unavailable` too — it did the work and could not prove it — and a gate that passes then rewrites the status to `done` and counts the task; read `build.result.verification` for what the builder itself could not check. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is.")]
     public static async Task<string> BuildNext(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -390,7 +390,7 @@ internal sealed class ForgeTools
                                         [Description("Run id from forge.begin.")] string runId,
                                         [Description("Job id returned by forge.work.start.")] string jobId,
                                         CancellationToken ct) =>
-        PollWork(registry, roots, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WorkPollTimeoutSeconds), ct);
+        PollWork(registry, roots, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WORK_POLL_TIMEOUT_SECONDS), ct);
 
     internal static async Task<string> PollWork(JobRegistry registry,
                                                 SessionRoots roots,
@@ -575,23 +575,23 @@ internal sealed class ForgeTools
         var log = run.Log;
         using var scope = RunLog.Serve(log);
 
-        log.Write("info", Source, "tool.call", [("tool", tool), .. arguments]);
+        log.Write("info", SOURCE, "tool.call", [("tool", tool), .. arguments]);
         try
         {
             var result = await act().ConfigureAwait(false);
-            log.Write("info", Source, "tool.result", ("tool", tool), ("result", result));
+            log.Write("info", SOURCE, "tool.result", ("tool", tool), ("result", result));
             return result;
         }
         catch (OperationCanceledException)
         {
             // The host giving up is the failure mode with no other trace: it takes the call away
             // before any result exists, which is exactly how a timeout looks from in here.
-            log.Write("warn", Source, "tool.cancelled", ("tool", tool));
+            log.Write("warn", SOURCE, "tool.cancelled", ("tool", tool));
             throw;
         }
         catch (Exception error)
         {
-            log.Write("error", Source, "tool.failed",
+            log.Write("error", SOURCE, "tool.failed",
                 ("tool", tool), ("error", error.Message), ("stack", error.ToString()));
             throw;
         }

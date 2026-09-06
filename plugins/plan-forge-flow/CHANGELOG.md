@@ -19,6 +19,21 @@ same shape earlier.
 - This covers all three vendors. Claude, codex and cursor reach their CLIs through the one runner
   and none of them inspected a non-zero exit itself, so none needed a change of its own.
 
+The same run stalled a second way. A task could not finish once its gate had failed and its builder
+then answered `blocked`: the gate ran only for a `done` report and the stored failure cleared only on
+a gate that passed, so a builder that fixed the fault but could not prove it — the codex sandbox
+cannot reach SQL Express, and three of task 13's nine gated tests need it — was handed the superseded
+failure on every attempt and blocked again, the last time changing no files at all. The gate an
+orchestrator eventually ran by hand passed, after four turns that counted nothing.
+
+- The host now runs the gate for a `blocked` report whose `verification` is `unavailable`, and the
+  exit code decides in both directions: a gate that passes rewrites the status to `done` and counts
+  the task, a gate that fails is `gate_failed` as before, and either way the next attempt is briefed
+  from this run rather than an older one. `verification` still carries what the builder could not
+  check, and the flow log prints it beside the gate. A `blocked` report whose verification `failed`
+  is untouched — there the builder ran the check itself and watched it fail. See
+  [docs/adr/0015](docs/adr/0015-the-host-runs-the-gate.md).
+
 ## 0.27.0
 
 A builder answered `done` and `verification: passed` for six tasks whose gates named the tests each

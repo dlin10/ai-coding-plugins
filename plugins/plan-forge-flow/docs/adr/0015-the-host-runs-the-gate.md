@@ -56,9 +56,31 @@ re-approval replaces both. `builderRoots` reaches a codex builder as
 `sandbox_workspace_write.writable_roots`, so a task that edits a sibling checkout no longer needs a
 hand edit of `~/.codex/config.toml`; the other vendors ignore it. Only the variable names are logged.
 
+**A `blocked` turn the builder could not verify is gated too, and a gate that passes counts it.**
+The first cut ran the gate only for `done`, on the reading that a builder which could not finish has
+nothing to check. Run `20260905-144900-e42174` disproved it. Task 13's first attempt answered `done`
+and failed its gate on a deserialization error, so the failure was stored for the retry; its second
+attempt fixed that error but answered `blocked`, because the codex workspace-write sandbox cannot
+reach SQL Express and three of the nine gated tests need it. No gate ran for a blocked turn, and the
+stored failure clears only on a gate that passes, so every later attempt was handed the superseded
+attempt-1 evidence, reasoned — correctly — that it predated the fix and that only the host could
+verify, and answered `blocked` again, the last of them changing no files at all. An orchestrator ran
+the gate by hand and it passed; `tasksCompleted` had not moved in four turns.
+
+So the gate runs whenever the builder's `verification` is `unavailable`, whatever its `status`, and
+the exit code decides in both directions: `done` where the command exits 0, `gate_failed` where it
+does not. A `blocked` report with a verification of `failed` is still left alone — there the builder
+ran the check itself and watched it fail, and its word is not in doubt. What this rules out is the
+alternative of stamping the stored failure with the tree it was seen against and dropping it once
+those files change: by the third attempt nothing *had* changed, and such a stamp would have judged
+the stale text current. Only running the gate can tell a fixed task from a stuck one.
+
 **What is given up is the clean separation the old rule bought.** `status` is no longer purely the
-builder's word — `gate_failed` is the server overwriting `done` — and `BuildResult`, the vendor
-contract, now carries a field the vendor never fills. The critic is untouched: it still judges the
+builder's word — `gate_failed` is the server overwriting `done`, and `done` is the server overwriting
+`blocked` — and `BuildResult`, the vendor contract, now carries a field the vendor never fills. The
+overwrite is not silent: `verification` keeps the builder's account of what it could not check, and
+the flow log prints it beside the gate, so a task counted over a `blocked` report still reads as one
+the builder could not prove for itself. The critic is untouched: it still judges the
 diff and never runs a build, for the reason `CONTEXT.md` gives — a build writes into the tree it is
 reading. And nothing here reads the vendor's own event stream for exit codes, which the old rule
 rightly refused because only codex reports them reliably; the host runs the command itself, so the

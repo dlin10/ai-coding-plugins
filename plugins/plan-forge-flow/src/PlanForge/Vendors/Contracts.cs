@@ -38,7 +38,9 @@ internal sealed record Verification(string Outcome, string Evidence);
 /// <c>passed</c>, <c>failed</c> or <c>timeout</c> when the command ran; <c>not_executable</c> when
 /// the gate is a condition or the task states none, so the builder's verification stands;
 /// <c>not_run</c> when there was no point or no way to run it — the builder reported
-/// <c>blocked</c>, or no PowerShell was found.
+/// <c>blocked</c> after a verification that <c>failed</c>, so it watched the check fail itself, or
+/// no PowerShell was found. A <c>blocked</c> report whose verification was <c>unavailable</c> is run
+/// like a <c>done</c> one: see <see cref="Acts.Gatekeeper"/>.
 /// </param>
 /// <param name="Label"><c>Gate</c> for a task's own gate; the run-wide labels (<c>G1, G2</c>) after a fix round.</param>
 /// <param name="Command">The command as the plan wrote it, or <see langword="null"/> when nothing ran.</param>

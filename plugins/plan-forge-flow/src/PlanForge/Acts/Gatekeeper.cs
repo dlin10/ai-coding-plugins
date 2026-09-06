@@ -11,14 +11,15 @@ namespace PlanForge.Acts;
 /// </summary>
 internal static class Gatekeeper
 {
-    private const string GateFailed = "gate_failed";
+    private const string DONE = "done";
+    private const string GATE_FAILED = "gate_failed";
+    private const string UNAVAILABLE = "unavailable";
 
     /// <summary>
-    /// Runs <paramref name="gates"/> when the builder reported <c>done</c>, and hands back the result
-    /// with <see cref="BuildResult.Gate"/> filled in and the status rewritten to
-    /// <c>gate_failed</c> when the command did not exit 0. A builder that reported <c>blocked</c>
-    /// has nothing to gate; a gate that is a condition rather than a command leaves the self-report
-    /// standing, and says so.
+    /// Runs <paramref name="gates"/> when the turn is worth checking, and hands back the result with
+    /// <see cref="BuildResult.Gate"/> filled in and the status rewritten to what the exit code says:
+    /// <c>done</c> where the command exits 0, <c>gate_failed</c> where it does not. A gate that is a
+    /// condition rather than a command leaves the self-report standing, and says so.
     /// </summary>
     /// <param name="result"></param>
     /// <param name="gates">The executable gate commands, run in order; empty when none is executable.</param>
@@ -33,7 +34,7 @@ internal static class Gatekeeper
     {
         var label = gates.Count == 0 ? "Gate" : Label(gates);
 
-        if (!IsDone(result))
+        if (!Gatable(result))
             return result with { Gate = new GateRun("not_run", label, null, null, null, null,
                                                      $"the builder reported {result.Status}, so the gate was not run") };
 
@@ -46,13 +47,38 @@ internal static class Gatekeeper
         var run = await GateRunner.RunAsync(Joined(gates), state.WorkspaceRoot, state.GateEnvironment, ct)
                                   .ConfigureAwait(false);
 
-        return run.Outcome is "passed" or "not_run"
-            ? result with { Gate = run }
-            : result with { Gate = run, Status = GateFailed };
+        // The exit code decides the status in both directions. Upward matters as much as downward:
+        // a builder that did the work and could not prove it reported `blocked`, and the gate that
+        // passes is the proof it was missing.
+        return run.Outcome switch
+        {
+            "passed" => result with { Gate = run, Status = DONE },
+            "not_run" => result with { Gate = run },
+            _ => result with { Gate = run, Status = GATE_FAILED }
+        };
     }
 
     /// <summary>Only <c>done</c> is progress: a gate that failed leaves the task where it was.</summary>
-    public static bool IsDone(BuildResult result) => string.Equals(result.Status, "done", StringComparison.Ordinal);
+    public static bool IsDone(BuildResult result) => string.Equals(result.Status, DONE, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether the host has a reason to run the gate at all. <c>done</c> is the obvious one;
+    /// <c>blocked</c> with a verification of <c>unavailable</c> is a builder saying it did the work
+    /// and could not prove it, which is exactly what a host holding the environment can settle.
+    /// </summary>
+    /// <remarks>
+    /// Task 13 of run 20260905-144900-e42174 deadlocked on the two rules this joins. Its first
+    /// attempt failed the gate, so the failure was stored; its second fixed the cause but answered
+    /// <c>blocked</c>, because the codex sandbox cannot reach SQL Express and three of the nine
+    /// gated tests need it. No gate ran for a blocked turn, and <see cref="PendingFailure"/> clears
+    /// only on a gate that passes, so every later attempt was handed the superseded failure,
+    /// reasoned that only the host could verify, and blocked again — the last of them changing no
+    /// files at all. The gate an orchestrator eventually ran by hand passed. A verification of
+    /// <c>failed</c> is deliberately left alone: there the builder ran the check itself and watched
+    /// it fail, and nothing about its word is in doubt.
+    /// </remarks>
+    private static bool Gatable(BuildResult result) =>
+        IsDone(result) || string.Equals(result.Verification.Outcome, UNAVAILABLE, StringComparison.Ordinal);
 
     /// <summary>
     /// What the next builder turn is told about a gate that failed, so the retry works against the

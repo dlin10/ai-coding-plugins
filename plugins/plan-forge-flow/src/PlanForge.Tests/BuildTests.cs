@@ -233,10 +233,10 @@ public sealed class BuildTests : IDisposable
     }
 
     [Fact]
-    public async Task A_blocked_builder_has_its_gate_left_unrun()
+    public async Task A_blocked_builder_whose_own_check_failed_has_its_gate_left_unrun()
     {
         var vendor = new RecordingVendor("codex");
-        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "stuck"), "stuck"));
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("failed", "the suite is red"), "stuck"));
         var run = NewRun("", "", GatedPlan("cmd /c exit 1", "Write-Output second"));
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
@@ -247,6 +247,70 @@ public sealed class BuildTests : IDisposable
         Assert.Equal("not_run", outcome.Result?.Gate?.Outcome);
         Assert.Equal(0, outcome.TasksCompleted);
         Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    /// <summary>
+    /// Task 13 of run 20260905-144900-e42174, both attempts. The first answered `done` and failed
+    /// its gate, so the failure was stored; the second fixed the cause but answered `blocked`,
+    /// because the codex sandbox cannot reach the database three of the nine gated tests need. Under
+    /// the old rule no gate ran for a blocked turn, and the stored failure cleared only on a gate
+    /// that passed, so every later attempt was handed superseded evidence, reasoned that only the
+    /// host could verify, and blocked again — the last of them changing no files at all.
+    /// </summary>
+    [Fact]
+    public async Task A_blocked_builder_that_could_not_verify_is_gated_by_the_host_and_counts_when_it_passes()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "token-1");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox cannot reach SQL Express"),
+                                        "fixed the deserialization, cannot run the gated tests"), "token-2");
+        var run = NewRun("codex", "", GatedPlan("Write-Output 'deserializing'; cmd /c exit 2", "Write-Output second"));
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Equal("gate_failed", first.Result?.Status);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Contains("exited 2", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
+
+        // The gate passes now, standing in for the fix the second attempt made before reporting that
+        // it could not prove it — the same substitution A_failing_gate_withholds_the_task uses.
+        run.WritePlan(GatedPlan("Write-Output 'deserializing'", "Write-Output second"));
+        var second = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Equal("done", second.Result?.Status);
+        Assert.Equal("passed", second.Result?.Gate?.Outcome);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+
+        // The status was rewritten, not the report: what the builder could not check stays on the
+        // timeline beside the host's answer.
+        Assert.Contains("Verification: unavailable — the sandbox cannot reach SQL Express",
+                        File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same turn against a gate that does not pass. The exit code decides in both directions, so
+    /// this is `gate_failed` like any other, and what the next attempt is told comes from this run
+    /// rather than from an older one.
+    /// </summary>
+    [Fact]
+    public async Task A_blocked_builder_whose_gate_fails_on_the_host_is_gate_failed_with_this_run_s_output()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox denied dotnet"), "cannot verify"));
+        var run = NewRun("", "", GatedPlan("Write-Output 'the host tried'; cmd /c exit 4", "Write-Output second"));
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("gate_failed", outcome.Result?.Status);
+        Assert.Equal("failed", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(4, outcome.Result?.Gate?.ExitCode);
+        Assert.Equal(0, outcome.TasksCompleted);
+        Assert.Contains("the host tried", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
     }
 
     [Fact]
