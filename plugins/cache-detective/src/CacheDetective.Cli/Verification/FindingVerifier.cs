@@ -118,7 +118,7 @@ internal sealed record FindingVerification(VerificationOutcome Outcome, string? 
 
 internal static class FindingVerifier
 {
-    internal const string CacheRole = "cache";
+    private const string CACHE_ROLE = "cache";
 
     /// <summary>
     /// The whole assessment in one call, for a sample already in hand. The working path asks the two
@@ -132,7 +132,7 @@ internal static class FindingVerifier
         var applicability = Assess(graph, key, configuration, connectionRefusal);
         return !applicability.Starts || match is { Values: not null }
                    ? applicability
-                   : Withhold(applicability, [match?.Reason ?? AmbiguousMatch]);
+                   : Withhold(applicability, [match?.Reason ?? AMBIGUOUS_MATCH]);
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ internal static class FindingVerifier
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        if (!string.Equals(key.Role, CacheRole, StringComparison.Ordinal))
+        if (!string.Equals(key.Role, CACHE_ROLE, StringComparison.Ordinal))
         {
             return Applicability.DoesNotStart($"the key's role is '{key.Role ?? "unknown"}' and verification reads cache keys");
         }
@@ -207,7 +207,7 @@ internal static class FindingVerifier
         return new Applicability(true, withheld.Count == 0, withheld.Count == 0 ? null : string.Join("; ", withheld), tables);
     }
 
-    private const string AmbiguousMatch = "the key could not be matched to the template in exactly one way";
+    private const string AMBIGUOUS_MATCH = "the key could not be matched to the template in exactly one way";
 
     /// <summary>
     /// What the sample turned out to be. Only a key the reader could assign to the template in exactly one
@@ -227,7 +227,7 @@ internal static class FindingVerifier
         }
 
         var ambiguous = scan.Entries.Where(entry => entry.Key.Values is null)
-                            .Select(entry => entry.Key.Reason ?? AmbiguousMatch)
+                            .Select(entry => entry.Key.Reason ?? AMBIGUOUS_MATCH)
                             .Distinct(StringComparer.Ordinal)
                             .ToArray();
         return ambiguous.Length == 0 ? applicability : Withhold(applicability, ambiguous);
@@ -419,9 +419,11 @@ internal static class FindingVerifier
 
     /// <summary>
     /// One key's verdict, in order: a comparable field that differs makes staleness <em>possible</em>;
-    /// otherwise every comparable field agreeing <em>refutes</em>, and that direct comparison outranks
-    /// whatever the age said; otherwise the age's own signal is all there is; otherwise nothing can be
-    /// said.
+    /// then the finding's own table having been written after the entry, which is also <em>possible</em>;
+    /// then a partial failure, which leaves nothing that can be concluded; then every comparable field of
+    /// that table agreeing, which <em>refutes</em>; otherwise nothing can be said.
+    /// <para>The two <em>possible</em> branches come first because both rest on readings that were taken
+    /// and succeeded, and a later failure does not retract them.</para>
     /// </summary>
     /// <param name="refutingTable">The one dependent table this finding is about, when it names one. Only
     /// agreement with <em>that</em> table's row can refute it: a finding about a write to T2 says nothing
@@ -473,21 +475,28 @@ internal static class FindingVerifier
                              VerificationBasis.FieldDifference);
         }
 
+        // The target table's own clock comes before any verdict drawn from fields, and before the failure
+        // branch below. Another dependency's fields agreeing is not evidence about this finding — it cannot
+        // refute it, and it must not be allowed to withhold a signal the target table did give; putting the
+        // "agreement, but not from the finding's table" branch first meant an unrelated table's agreement
+        // silenced the target's own age.
+        //
+        // A failure does not silence it either. The DMV reading that produced this signal already happened
+        // and already succeeded; a row comparison failing afterwards is a step that did not happen, not a
+        // retraction of one that did, and R7 asks for the observations already taken to be kept. The key
+        // still carries its failure code and the run is still partial — Key appends both — so nothing is
+        // hidden by reporting what was in fact observed.
+        if (agePossible)
+        {
+            return Key(VerificationOutcome.Possible, targetAge.Reason, VerificationBasis.Age);
+        }
+
         if (failureCode is not null)
         {
             // What was already observed is kept: a failure halfway through is still a reading of what came
             // before it, and throwing that away would lose the only evidence the run produced. Agreement,
             // unlike difference, does not survive it — the tables left unread might have disagreed.
             return Key(VerificationOutcome.NotVerifiable, null);
-        }
-
-        // The target table's own clock comes before any verdict drawn from fields. Another dependency's
-        // fields agreeing is not evidence about this finding — it cannot refute it, and it must not be
-        // allowed to withhold a signal the target table did give. Putting the "agreement, but not from the
-        // finding's table" branch first meant an unrelated table's agreement silenced the target's own age.
-        if (agePossible)
-        {
-            return Key(VerificationOutcome.Possible, targetAge.Reason, VerificationBasis.Age);
         }
 
         // Only the fields that came from the table the finding is about may carry a refutation, and only
@@ -562,8 +571,15 @@ internal static class FindingVerifier
                           $"{possible} of {keys.Count} sampled key(s) may be stale: " + basis switch
                           {
                               VerificationBasis.FieldDifference => "a field of the cached value differs from the row it was built from",
-                              VerificationBasis.Age => "the table was written where it may matter, though no field was compared",
-                              _ => "a field differs from its row, or the table was written where it may matter"
+                              // Not "though no field was compared": a key reaches this basis with every
+                              // comparable field of its table read and agreeing, because a write after the
+                              // entry withholds refutation. Saying nothing was compared would be a plain
+                              // untruth about a run that compared and agreed.
+                              VerificationBasis.Age =>
+                                  "the table this finding is about was written after the cached entry was created, " +
+                                  "which agreement of the compared fields cannot rule out",
+                              _ => "a field differs from its row, or the table this finding is about was written " +
+                                   "after the cached entry was created"
                           },
                           basis);
         }

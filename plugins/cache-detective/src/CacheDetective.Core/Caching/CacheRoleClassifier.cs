@@ -13,7 +13,6 @@ public sealed class CacheRoleIndex
     private readonly Dictionary<(string Solution, string Symbol), List<GraphEdge>> _edgesByFrom = [];
     private readonly Dictionary<(string Solution, string Symbol), Handler[]> _calls = [];
     private readonly HashSet<(string Solution, string Symbol)> _dataAccess = [];
-    private readonly Dictionary<(string Solution, string Symbol), Dictionary<(string Solution, string Symbol), Handler>> _reachable = [];
     private readonly Dictionary<(string Template, string Store), List<CacheOperation>> _operationsByKey = [];
     private readonly Dictionary<(string Template, string Store), List<Handler>> _cachingHandlersByKey = [];
     private readonly HashSet<(string Template, string Store)> _conditionalSetKeys = [];
@@ -25,7 +24,12 @@ public sealed class CacheRoleIndex
     private readonly HashSet<(string Solution, string Symbol)> _reachesData = [];
     private readonly HashSet<(string Solution, string Symbol)> _reachesBlockers = [];
     private readonly Dictionary<(string Solution, string Symbol), Handler> _handlersById = [];
-    private readonly Dictionary<(string Solution, string Symbol), IReadOnlyList<Unresolved>> _blockers = [];
+
+    // The blocker list, held once per strongly connected component of the call graph rather than once per
+    // handler: every handler of a component reaches the same set, and a chain of them can share one list.
+    private readonly Dictionary<(string Solution, string Symbol), int> _component = [];
+    private readonly List<IReadOnlyList<Unresolved>> _componentBlockers = [];
+    private bool _blockersBuilt;
     private bool _reachabilityBuilt;
     private readonly CacheGraph _graph;
 
@@ -105,6 +109,14 @@ public sealed class CacheRoleIndex
     /// <summary>How many reachable sets have been computed. Memoisation is what keeps this at one per
     /// handler however many keys ask about it.</summary>
     public long ReachabilityWalks { get; private set; }
+
+    /// <summary>
+    /// How many blocker rows the merges have looked at. It is counted separately because
+    /// <see cref="ReachabilityVisits"/> counts handlers, and the work that grows when lists are
+    /// concatenated instead of united is in the rows: a graph whose handlers and components are both linear
+    /// can still build lists that double at every level, and nothing counting handlers would notice.
+    /// </summary>
+    public long BlockerRowsMerged { get; private set; }
 
     /// <summary>Whether anything this handler reaches touches data. Answered for every handler in one
     /// linear pass, not once per handler that asks.</summary>
@@ -193,45 +205,182 @@ public sealed class CacheRoleIndex
         _handlersById.TryGetValue(handler, out var found) &&
         _graph.GetUnresolvedForHandlers([found], UnresolvedKind.Call, UnresolvedKind.Sql).Count > 0;
 
-    /// <summary>The unresolved rows on everything this handler reaches, memoised. Asked only for a key
-    /// that <see cref="ReachesBlockers"/> already said is blocked, so the walk it needs is paid for by the
-    /// keys that report it and not by every key in the graph.</summary>
+    /// <summary>The unresolved rows on everything this handler reaches. Asked only for a key that
+    /// <see cref="ReachesBlockers"/> already said is blocked, and answered from a list computed once for
+    /// the whole call graph rather than by walking forward from this handler.</summary>
     internal IReadOnlyList<Unresolved> BlockersFrom(Handler start)
     {
-        var id = (start.Solution, start.Symbol);
-        if (_blockers.TryGetValue(id, out var cached))
-            return cached;
-
-        var blockers = _graph.GetUnresolvedForHandlers(ReachableFrom(start).Values, UnresolvedKind.Call, UnresolvedKind.Sql);
-        _blockers[id] = blockers;
-        return blockers;
+        EnsureBlockers();
+        return _component.TryGetValue((start.Solution, start.Symbol), out var component)
+                   ? _componentBlockers[component]
+                   : [];
     }
 
-    /// <summary>The handlers one handler can reach, memoised: a key with the same caching handler as
-    /// another key does not walk the call graph twice.</summary>
-    internal IReadOnlyDictionary<(string Solution, string Symbol), Handler> ReachableFrom(Handler start)
+    /// <summary>
+    /// The blocker list of every handler at once, by strongly connected component. All the handlers of one
+    /// component reach exactly the same set, and a component's answer is its members' own rows together
+    /// with the answers of the components it calls into — so the lists are built bottom-up and each
+    /// handler is looked at once.
+    /// <para>The list used to be gathered by walking forward from each caching handler and keeping the
+    /// whole reachable set. On the shape that matters — N handlers whose keys differ, all calling into one
+    /// chain of N handlers with a single unresolved call at its end — the graph, and the answer, are
+    /// linear, while the walking and the memory were Θ(N²): every start re-walked and re-stored the whole
+    /// chain. The boolean half of this question was fixed in an earlier round and the list was left behind.
+    /// </para>
+    /// <para>Tarjan is iterative because the chains here are not short: the scale tests build two thousand
+    /// handlers in a line, which recursion would not survive.</para>
+    /// </summary>
+    private void EnsureBlockers()
     {
-        var id = (start.Solution, start.Symbol);
-        if (_reachable.TryGetValue(id, out var cached))
-            return cached;
+        if (_blockersBuilt)
+            return;
 
+        _blockersBuilt = true;
         ReachabilityWalks++;
-        var reachable = new Dictionary<(string Solution, string Symbol), Handler>();
-        var pending = new Queue<Handler>();
-        pending.Enqueue(start);
-        while (pending.TryDequeue(out var handler))
+        var index = new Dictionary<(string Solution, string Symbol), int>();
+        var low = new Dictionary<(string Solution, string Symbol), int>();
+        var onStack = new HashSet<(string Solution, string Symbol)>();
+        var pending = new Stack<(string Solution, string Symbol)>();
+        var next = 0;
+
+        foreach (var root in _handlersById.Keys)
+        {
+            if (index.ContainsKey(root))
+                continue;
+
+            var work = new Stack<((string Solution, string Symbol) Node, int Child)>();
+            Discover(root);
+            work.Push((root, 0));
+            while (work.Count > 0)
+            {
+                var (node, child) = work.Pop();
+                var targets = _calls.TryGetValue(node, out var called) ? called : [];
+                if (child < targets.Length)
+                {
+                    work.Push((node, child + 1));
+                    var target = (targets[child].Solution, targets[child].Symbol);
+                    if (!index.TryGetValue(target, out var value))
+                    {
+                        Discover(target);
+                        work.Push((target, 0));
+                    }
+                    else if (onStack.Contains(target))
+                    {
+                        low[node] = Math.Min(low[node], value);
+                    }
+
+                    continue;
+                }
+
+                // The node is finished. If nothing it reached got back above it, it is the root of a
+                // component, and every component it calls into has already been popped and answered —
+                // which is what lets the answer be built here rather than in a second pass.
+                if (low[node] == index[node])
+                {
+                    var members = new List<(string Solution, string Symbol)>();
+                    (string Solution, string Symbol) member;
+                    do
+                    {
+                        member = pending.Pop();
+                        onStack.Remove(member);
+                        members.Add(member);
+                    }
+                    while (member != node);
+                    Close(members);
+                }
+
+                if (work.Count > 0)
+                {
+                    var caller = work.Peek().Node;
+                    low[caller] = Math.Min(low[caller], low[node]);
+                }
+            }
+        }
+
+        void Discover((string Solution, string Symbol) node)
         {
             ReachabilityVisits++;
-            var handlerId = (handler.Solution, handler.Symbol);
-            if (!reachable.TryAdd(handlerId, handler) || !_calls.TryGetValue(handlerId, out var targets))
+            index[node] = low[node] = next++;
+            pending.Push(node);
+            onStack.Add(node);
+        }
+    }
+
+    /// <summary>One component's answer: its members' own rows and the answers of everything they call into
+    /// outside it.</summary>
+    private void Close(List<(string Solution, string Symbol)> members)
+    {
+        var component = _componentBlockers.Count;
+        foreach (var member in members)
+            _component[member] = component;
+
+        List<Unresolved>? own = null;
+        var inherited = new List<IReadOnlyList<Unresolved>>();
+
+        // Which component's answer has already been taken, by component rather than by scanning the lists
+        // gathered so far. A handler that calls twenty different components made that scan twenty times,
+        // which is the out-degree squared for nothing.
+        var taken = new HashSet<int>();
+        foreach (var member in members)
+        {
+            ReachabilityVisits++;
+
+            // The owner index answers for one handler at a time, so the rows scanned across the whole pass
+            // stay linear in the rows rather than in handlers times rows.
+            if (_handlersById.TryGetValue(member, out var handler))
+            {
+                var rows = _graph.GetUnresolvedForHandlers([handler], UnresolvedKind.Call, UnresolvedKind.Sql);
+                if (rows.Count > 0)
+                    (own ??= []).AddRange(rows);
+            }
+
+            if (!_calls.TryGetValue(member, out var targets))
                 continue;
 
             foreach (var target in targets)
-                pending.Enqueue(target);
+            {
+                if (_component.TryGetValue((target.Solution, target.Symbol), out var reached) && reached != component &&
+                    _componentBlockers[reached].Count > 0 && taken.Add(reached))
+                {
+                    inherited.Add(_componentBlockers[reached]);
+                }
+            }
         }
 
-        _reachable[id] = reachable;
-        return reachable;
+        // A component that adds nothing of its own and inherits from one place shares that list rather than
+        // copying it. On a chain to a single blocker every link then costs a reference, which is what keeps
+        // the memory linear as well as the walking; a new list is built only where two sources actually
+        // meet.
+        _componentBlockers.Add(own is null
+                                   ? inherited.Count switch { 0 => [], 1 => inherited[0], _ => Merge(null, inherited) }
+                                   : Merge(own, inherited));
+    }
+
+    /// <summary>
+    /// The union of what a component contributes and what it inherits, taken as a <em>set</em> keyed by
+    /// row id. Concatenating instead doubled the list at every level of a chain of diamonds — two handlers
+    /// per level each calling both of the next — so twenty levels held a million entries describing two
+    /// distinct rows. <c>ClassifyKey</c> does de-duplicate, but only after all that has been allocated.
+    /// </summary>
+    private IReadOnlyList<Unresolved> Merge(List<Unresolved>? own, List<IReadOnlyList<Unresolved>> inherited)
+    {
+        var seen = new HashSet<int>();
+        var merged = new List<Unresolved>();
+        void Take(IReadOnlyList<Unresolved> rows)
+        {
+            BlockerRowsMerged += rows.Count;
+            foreach (var row in rows)
+            {
+                if (seen.Add(row.Id))
+                    merged.Add(row);
+            }
+        }
+
+        if (own is not null)
+            Take(own);
+        foreach (var list in inherited)
+            Take(list);
+        return merged;
     }
 }
 
@@ -248,8 +397,10 @@ public sealed class CacheRoleClassifier
 
     public void Classify(CacheGraph graph, string solutionName) => Classify(graph, solutionName, new CacheRoleIndex(graph));
 
+    /// <param name="solutionName"></param>
     /// <param name="index">The index to classify through, so that a caller measuring the work can read its
     /// counters afterwards.</param>
+    /// <param name="graph"></param>
     public void Classify(CacheGraph graph, string solutionName, CacheRoleIndex index)
     {
         ArgumentNullException.ThrowIfNull(graph);

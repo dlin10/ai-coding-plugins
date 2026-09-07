@@ -345,6 +345,88 @@ public sealed class VerificationPartialFailureTests
         }
     }
 
+    /// <summary>
+    /// A record that fits its own budget, and fits beside the shell, and still cannot go on a page —
+    /// because what has to fit beside the shell is the <em>envelope</em>, counts and notice included, not
+    /// the record alone. The keep-the-records branch left those bytes out while the fall-back branch
+    /// counted them, so a record landing in the hundred-odd bytes between the two measures was kept whole,
+    /// failed to fit even one to a page, and every page came back empty with a notice.
+    /// <para>The window is too narrow to hit by construction, so the shell is swept across it: the reason
+    /// grows byte by byte past the point where the envelope stops fitting, and every size along the way has
+    /// to answer with its records.</para>
+    /// </summary>
+    [Fact]
+    public void A_record_on_the_edge_of_the_shell_still_reaches_a_page()
+    {
+        // Just under the per-record budget, so the record is kept whole rather than reduced to an identity:
+        // it is the largest record the keep-them branch can pass, and it is that branch's arithmetic that
+        // has to be right.
+        for (var reason = 1000; reason <= 2000; reason += 5)
+        {
+            var keys = Enumerable.Range(0, 3)
+                                 .Select(index => new KeyVerification(new string('t', 6300), $"hash{index:D4}",
+                                                                      VerificationOutcome.Possible, [], false, null,
+                                                                      "a field differs", null))
+                                 .ToArray();
+            var run = new VerificationRun(
+                new FindingVerification(VerificationOutcome.Possible, new string('r', reason), keys, 0, keys.Length, 0,
+                                        false, false),
+                ["dbo.Products"]);
+
+            var first = VerificationQueries.Present("f:1", run, new PageArguments { Page = 1, PageSize = 7 });
+            var seen = new List<string>();
+            for (var page = 1; page <= first.Keys.Pages; page++)
+            {
+                var result = VerificationQueries.Present("f:1", run, new PageArguments { Page = page, PageSize = 7 });
+                Assert.Equal(first.Keys.Pages, result.Keys.Pages);
+                Assert.True(Size(result) <= ResponseEnvelope.MaximumSerializedBytes,
+                            $"with a {reason}-character reason, page {page} was {Size(result)} bytes");
+                Assert.True(result.Keys.Items.Count > 0,
+                            $"with a {reason}-character reason, page {page} came back with no records");
+                seen.AddRange(result.Keys.Items.Select(item => item.KeyHash));
+            }
+
+            Assert.Equal(keys.Select(key => key.KeyHash).ToHashSet(StringComparer.Ordinal),
+                         seen.ToHashSet(StringComparer.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// The heaviest shell this result can have beside the heaviest records: a reason in a script that
+    /// escapes to six bytes a character, and templates far too long to travel whole. Both bounds were
+    /// counted in characters rather than weighed — the reason at 1024 characters, an identity's template at
+    /// 256 — so a 6 KB shell was paired with a 3 KB identity, nothing fitted the 8 KB limit, and the
+    /// envelope answered with empty pages and a notice: every observation lost to a bound that was never a
+    /// bound on bytes.
+    /// </summary>
+    [Fact]
+    public void A_long_reason_and_long_templates_still_leave_every_page_with_its_records()
+    {
+        var reason = string.Concat(Enumerable.Repeat("Ключ может быть устаревшим. ", 200))[..3000];
+        var keys = Enumerable.Range(0, 6)
+                             .Select(index => new KeyVerification(new string('t', 3000), $"hash{index:D4}",
+                                                                  VerificationOutcome.Possible, [], false, null,
+                                                                  "a field differs", null))
+                             .ToArray();
+        var run = new VerificationRun(
+            new FindingVerification(VerificationOutcome.Possible, reason, keys, 0, keys.Length, 0, false, false),
+            ["dbo.Products"]);
+
+        var first = VerificationQueries.Present("f:1", run, new PageArguments { Page = 1, PageSize = 7 });
+        var seen = new List<string>();
+        for (var page = 1; page <= first.Keys.Pages; page++)
+        {
+            var result = VerificationQueries.Present("f:1", run, new PageArguments { Page = page, PageSize = 7 });
+            Assert.Equal(first.Keys.Pages, result.Keys.Pages);
+            Assert.True(Size(result) <= ResponseEnvelope.MaximumSerializedBytes, $"page {page} was {Size(result)} bytes");
+            Assert.NotEmpty(result.Keys.Items);
+            seen.AddRange(result.Keys.Items.Select(item => item.KeyHash));
+        }
+
+        Assert.Equal(keys.Select(key => key.KeyHash).ToHashSet(StringComparer.Ordinal),
+                     seen.ToHashSet(StringComparer.Ordinal));
+    }
+
     private static KeyVerification Middling(string hash) =>
         new(Template, hash, VerificationOutcome.Possible,
             Enumerable.Range(0, 8)

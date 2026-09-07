@@ -274,6 +274,142 @@ public sealed class CacheGraphScaleTests
                     $"200 callers took {single} reachability visits and 400 took {doubled}.");
     }
 
+    /// <summary>
+    /// The same shape on the other branch of the classification: N caching handlers, each with a key of its
+    /// own, all calling into one chain of N handlers with a single unresolved call at its end. The keys
+    /// come out <c>unknown</c>, so every one of them asks for the blocker list — which used to be gathered
+    /// by walking forward from each caching handler and keeping the whole reachable chain, Θ(N²) in both
+    /// walking and memory for an answer that is one row long. The shared-helper test above cannot see it:
+    /// its keys reach data and are settled before any blocker list is asked for.
+    /// </summary>
+    [Fact]
+    public void Many_handlers_sharing_one_chain_to_one_blocker_visit_the_chain_once()
+    {
+        var single = ClassificationWork(BuildSharedChainToOneBlocker(200));
+        var doubled = ClassificationWork(BuildSharedChainToOneBlocker(400));
+
+        Assert.True(single > 0, "the counter recorded no work at all, so this assertion would hold vacuously");
+        Assert.True(doubled <= 2 * single + SLACK,
+                    $"200 callers took {single} reachability visits and 400 took {doubled}.");
+
+        var graph = BuildSharedChainToOneBlocker(50);
+        new CacheRoleClassifier().Classify(graph, "big", new CacheRoleIndex(graph));
+        Assert.All(graph.CacheKeys, key => Assert.Equal("unknown", key.Role));
+        Assert.All(graph.CacheKeys,
+                   key => Assert.Single(new CacheRoleClassifier().ClassifyKey(graph, key).Blockers));
+    }
+
+    /// <summary>
+    /// Two handlers that call each other, with one unresolved call between them. A component of the call
+    /// graph is not a tree and the bottom-up walk has to close one: both keys are blocked by that row, and
+    /// the walk terminates.
+    /// </summary>
+    [Fact]
+    public void A_call_cycle_with_one_blocker_reports_it_to_every_key_on_the_cycle()
+    {
+        var graph = new CacheGraph();
+        var first = new Handler("big", "Big.A", "http", "C.cs", 1) { Project = "Big" };
+        var second = new Handler("big", "Big.B", "http", "C.cs", 2) { Project = "Big" };
+        graph.AddEdge(new Caches(first, new CacheKey("a:{id}", "memory", null, [], null), Confidence.Confirmed));
+        graph.AddEdge(new Caches(second, new CacheKey("b:{id}", "memory", null, [], null), Confidence.Confirmed));
+        graph.AddEdge(new Calls(first, second, Confidence.Confirmed));
+        graph.AddEdge(new Calls(second, first, Confidence.Confirmed));
+        graph.AddUnresolved(UnresolvedKind.Call, second, "C.cs", 2, "Unknown()", "unknown target");
+
+        new CacheRoleClassifier().Classify(graph, "big", new CacheRoleIndex(graph));
+
+        Assert.Equal(2, graph.CacheKeys.Count);
+        Assert.All(graph.CacheKeys, key => Assert.Equal("unknown", key.Role));
+        Assert.All(graph.CacheKeys, key =>
+            Assert.Equal("Unknown()", Assert.Single(new CacheRoleClassifier().ClassifyKey(graph, key).Blockers).Snippet));
+    }
+
+    /// <summary>
+    /// A chain of diamonds: two handlers at every level, each calling both handlers of the next, with one
+    /// unresolved call on each of the two at the bottom. Handlers, components and distinct blockers are all
+    /// linear — two rows, whatever the depth — but concatenating the inherited lists instead of uniting
+    /// them doubled the list at every level, so twenty levels held a million entries describing those same
+    /// two rows. <c>ClassifyKey</c> de-duplicates, but only after all of it has been allocated.
+    /// <para>Reachability visits cannot see this: they count handlers, and the handlers are linear. What
+    /// grows is the rows the merges look at, which is what <c>BlockerRowsMerged</c> counts.</para>
+    /// </summary>
+    [Fact]
+    public void A_chain_of_diamonds_to_two_blockers_merges_linearly()
+    {
+        var single = BlockerMergeWork(BuildDiamondChain(10));
+        var doubled = BlockerMergeWork(BuildDiamondChain(20));
+
+        Assert.True(single > 0, "the counter recorded no work at all, so this assertion would hold vacuously");
+        Assert.True(doubled <= 2 * single + SLACK,
+                    $"10 levels merged {single} blocker rows and 20 merged {doubled}.");
+
+        var graph = BuildDiamondChain(10);
+        new CacheRoleClassifier().Classify(graph, "big", new CacheRoleIndex(graph));
+        Assert.All(graph.CacheKeys, key => Assert.Equal("unknown", key.Role));
+        Assert.All(graph.CacheKeys,
+                   key => Assert.Equal(2, new CacheRoleClassifier().ClassifyKey(graph, key).Blockers.Count));
+    }
+
+    private static long BlockerMergeWork(CacheGraph graph)
+    {
+        var index = new CacheRoleIndex(graph);
+        new CacheRoleClassifier().Classify(graph, "big", index);
+        return index.BlockerRowsMerged;
+    }
+
+    /// <summary>Two handlers per level, every handler calling both of the next level's, one unresolved call
+    /// on each of the two at the bottom, and a key on each of the two at the top.</summary>
+    private static CacheGraph BuildDiamondChain(int levels)
+    {
+        var graph = new CacheGraph();
+        Handler At(int level, int side) =>
+            new("big", $"App.L{level}S{side}", "method", "App.cs", level * 2 + side + 1) { Project = "Big" };
+
+        for (var level = 0; level < levels - 1; level++)
+        {
+            for (var side = 0; side < 2; side++)
+            {
+                graph.AddEdge(new Calls(At(level, side), At(level + 1, 0), Confidence.Confirmed));
+                graph.AddEdge(new Calls(At(level, side), At(level + 1, 1), Confidence.Confirmed));
+            }
+        }
+
+        for (var side = 0; side < 2; side++)
+        {
+            graph.AddEdge(new Caches(At(0, side), new CacheKey($"top:{side}:{{id}}", "memory", null, [], null),
+                                     Confidence.Confirmed));
+            graph.AddUnresolved(UnresolvedKind.Call, At(levels - 1, side), "App.cs", side + 1, $"Unknown{side}()",
+                                "unknown target");
+        }
+
+        return graph;
+    }
+
+    /// <summary>N caching handlers with keys of their own, all calling into one chain of N handlers whose
+    /// last link carries a single unresolved call.</summary>
+    private static CacheGraph BuildSharedChainToOneBlocker(int count)
+    {
+        var graph = new CacheGraph();
+        var head = new Handler("big", "App.Step0", "method", "App.cs", 1) { Project = "Big" };
+        for (var index = 0; index < count; index++)
+        {
+            var caching = new Handler("big", $"App.Get{index}", "http", "App.cs", index + 2) { Project = "Big" };
+            graph.AddEdge(new Caches(caching, new CacheKey($"item:{index}:{{id}}", "memory", null, [], null), Confidence.Confirmed));
+            graph.AddEdge(new Calls(caching, head, Confidence.Confirmed));
+        }
+
+        var previous = head;
+        for (var index = 1; index < count; index++)
+        {
+            var next = new Handler("big", $"App.Step{index}", "method", "App.cs", index + 2) { Project = "Big" };
+            graph.AddEdge(new Calls(previous, next, Confidence.Confirmed));
+            previous = next;
+        }
+
+        graph.AddUnresolved(UnresolvedKind.Call, previous, "App.cs", 1, "Unknown()", "unknown target");
+        return graph;
+    }
+
     /// <summary>N caching handlers, one shared helper, and N handlers below it that each touch data.</summary>
     private static CacheGraph BuildSharedHelper(int count)
     {

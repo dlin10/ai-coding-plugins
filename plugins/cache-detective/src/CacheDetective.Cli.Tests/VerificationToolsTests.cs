@@ -88,6 +88,45 @@ public sealed class VerificationToolsTests
     }
 
     /// <summary>
+    /// The same parent template in two stores. The rule named the one in memory; the graph also holds an
+    /// unrelated key of that template in redis, which is the child's store and the only configured one.
+    /// Choosing the parent by template and preferring the child's store read that twin, and its fields
+    /// agreeing would have refuted a finding made about the other key entirely — the wrong subject again,
+    /// one store along. The store the rule named now travels with the finding, so the run stops on the
+    /// parent's own store rather than reading a stranger.
+    /// </summary>
+    [Fact]
+    public async Task A_parent_template_present_in_two_stores_is_read_from_the_store_the_rule_named()
+    {
+        using var repository = new TemporaryRepository();
+        Environment.SetEnvironmentVariable(RedisVariable, "127.0.0.1:6390,abortConnect=false,connectTimeout=200,connectRetry=1");
+        try
+        {
+            Environment.SetEnvironmentVariable("CD_TEST_VERIFY_DB", "Server=(local);Database=shop;Integrated Security=true");
+            var session = await SessionAsync(repository,
+                $$"""{ "redis": "env:{{RedisVariable}}", "database": "env:CD_TEST_VERIFY_DB", "stores": ["redis"] }""");
+            PlantStaleParent(session.Graph);
+            PlantParentTwin(session.Graph);
+            var opened = false;
+            session.OpenCacheReader = (_, _, _) =>
+            {
+                opened = true;
+                return new RedisReader((_, _) => Task.FromResult(RedisResult.Create((RedisValue)"string")));
+            };
+
+            var result = await session.VerifyFindingAsync(await FindingIdAsync(session, StaleParentKeyFinding.Rule), false, null);
+
+            Assert.Equal("not_verifiable", result.Observation);
+            Assert.Contains("memory", result.Reason, StringComparison.Ordinal);
+            Assert.False(opened, "the redis key of the same template was read instead of the parent the rule named");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(RedisVariable, null);
+        }
+    }
+
+    /// <summary>
     /// A database connection string that is not one. It used to be parsed deep inside the reading, after
     /// the cache had been scanned, and the <c>ArgumentException</c> it throws is not one the verification
     /// classifies — so it escaped past the sample already in hand to an empty refusal that did not even say
@@ -568,6 +607,13 @@ public sealed class VerificationToolsTests
         graph.AddEdge(new Caches(Handler("App.GetProduct"), child, Confidence.Confirmed));
         graph.AddEdge(new Invalidates(Handler("App.Write"), child, Confidence.Confirmed));
     }
+
+    /// <summary>The same parent template again, in the child's store, cached by a handler of its own. It
+    /// is a different key from the parent the rule named, and nothing in the graph joins the two.</summary>
+    private static void PlantParentTwin(CacheGraph graph) =>
+        graph.AddEdge(new Caches(Handler("App.GetOtherBasket"),
+                                 new CacheKey("basket:{id}", "redis", TimeSpan.FromSeconds(600), [], "cache"),
+                                 Confidence.Confirmed));
 
     private static Handler Handler(string symbol) => new("app", symbol, "http", "C.cs", 1);
 

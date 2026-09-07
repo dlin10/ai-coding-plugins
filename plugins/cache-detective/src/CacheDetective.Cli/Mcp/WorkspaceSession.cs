@@ -621,23 +621,9 @@ internal sealed class WorkspaceSession
     /// diagnostics. Cutting is the only thing that can be done with it, and the cut never lands between the
     /// halves of a surrogate pair.</para>
     /// </summary>
-    private static string? FittedError(string? error, Func<string?, IndexSolutionResult> shell)
-    {
-        if (error is null || Weight(shell(error)) <= MAXIMUM_ERRORED_SHELL_BYTES)
-            return error;
-
-        for (var kept = error.Length / 2; kept > 0; kept /= 2)
-        {
-            var candidate = Truncate(error, kept);
-            if (Weight(shell(candidate)) <= MAXIMUM_ERRORED_SHELL_BYTES)
-                return candidate;
-        }
-
-        return ERROR_TRUNCATION_MARKER.TrimStart();
-    }
-
-    private static string Truncate(string error, int characters) =>
-        string.Concat(error.AsSpan(0, WithoutSplitSurrogate(error, 0, characters)), ERROR_TRUNCATION_MARKER);
+    private static string? FittedError(string? error, Func<string?, IndexSolutionResult> shell) =>
+        ResponseText.Fitted(error, candidate => Weight(shell(candidate)), MAXIMUM_ERRORED_SHELL_BYTES,
+                            ERROR_TRUNCATION_MARKER);
 
     /// <summary>
     /// The names that did not fit, as diagnostics of their own — one per list, each labelled with the list
@@ -1037,9 +1023,13 @@ internal sealed class WorkspaceSession
     /// <c>STALE_PARENT_KEY</c> finding is a claim about the <em>parent</em>: the catalogue puts the child's
     /// template in <c>keyTemplate</c>, and reading that instead let a healthy child refute a stale parent —
     /// a refutation through a different key, which R8 forbids outright.
-    /// <para>The parent is chosen by template. Its store is not carried in the catalogue, so a key in the
-    /// child's own store is preferred and a template that resolves to more than one key elsewhere is
-    /// refused rather than guessed at: reading the wrong one of two stores is the same mistake again.</para>
+    /// <para>The parent is chosen by template <em>and</em> store, both of which the catalogue now carries.
+    /// The rule groups a key's dependencies by store and template together and never requires parent and
+    /// child to share a store, so a template on its own does not name a key: a workspace holding
+    /// <c>basket:{id}</c> in memory and again in redis has two of them. Preferring the child's store and
+    /// falling back to a lone candidate read whichever one happened to be there, and its fields agreeing
+    /// then refuted a finding made about the other — the same wrong-subject refutation, one store
+    /// along.</para>
     /// </summary>
     private (CacheKey? Key, string? Reason) Subject(FindingItem item)
     {
@@ -1049,20 +1039,17 @@ internal sealed class WorkspaceSession
                                                                 candidate.Store == item.Store), null);
         }
 
-        if (item.ParentTemplate is not { } parent)
+        if (item.ParentTemplate is not { } parent || item.ParentStore is not { } parentStore)
         {
             return (null, "the finding is about a parent key that the catalogue does not name, so there is nothing to read");
         }
 
-        var candidates = Graph.CacheKeys.Where(candidate => candidate.Template == parent).ToArray();
-        var chosen = candidates.FirstOrDefault(candidate => candidate.Store == item.Store)
-                     ?? (candidates.Length == 1 ? candidates[0] : null);
+        var chosen = Graph.CacheKeys.FirstOrDefault(candidate => candidate.Template == parent &&
+                                                                 candidate.Store == parentStore);
         return chosen is not null
                    ? (chosen, null)
-                   : (null, candidates.Length == 0
-                                ? $"the parent key '{parent}' this finding is about is not in the graph, so there is nothing to read"
-                                : $"the parent key '{parent}' this finding is about names {candidates.Length} keys and none of " +
-                                  "them is in the child's store, so which one to read is undecided");
+                   : (null, $"the parent key '{parent}' in store '{parentStore}' this finding is about is not in the graph, " +
+                            "so there is nothing to read");
     }
 
     /// <summary>How the cache reader is built over a live connection. An instance property rather than
@@ -1196,8 +1183,17 @@ internal sealed class WorkspaceSession
                     // and the configuration is written by hand.
                     if (!Declared(verify).TryGetValue(name, out var declared))
                     {
+                        // Its columns are read even so. Which names two dependent tables share is a fact
+                        // about the tables, and the workspace not saying how to look up this one's row is
+                        // not evidence that it lacks the column — the value may have been built partly from
+                        // here. Reporting no columns made a name it shares look like the declared table's
+                        // alone, and that table's agreement could then refute the finding. Only the
+                        // catalogue is read; the rows of an undeclared table stay unread.
                         comparisons.Add(new TableRowComparison(name,
-                            RowComparison.NotCompared($"'{name}' is not declared in verify.tables with both 'key' and 'from'")));
+                            RowComparison.NotCompared($"'{name}' is not declared in verify.tables with both 'key' and 'from'",
+                                                      await database.MatchedColumnsAsync(schema, table, document.RootElement,
+                                                                                         cancellationToken)
+                                                                    .ConfigureAwait(false))));
                         continue;
                     }
 
@@ -1399,12 +1395,12 @@ internal sealed class WorkspaceSession
     /// reduce a page. It is declared before the budget it feeds, because static initialisers run in the
     /// order they are written.
     /// </summary>
-    private static readonly int EnvelopeOverhead = JsonSerializer.SerializeToUtf8Bytes(new ListEnvelope<WorkspaceDiagnosticResult>(int.MaxValue, int.MaxValue, int.MaxValue, [],
+    private static readonly int ENVELOPE_OVERHEAD = JsonSerializer.SerializeToUtf8Bytes(new ListEnvelope<WorkspaceDiagnosticResult>(int.MaxValue, int.MaxValue, int.MaxValue, [],
                                                                                             "Page size was reduced to stay under the response limit."),
                                                                                        CacheDetectiveJsonContext.Default.ListEnvelopeWorkspaceDiagnosticResult).Length;
 
     private static readonly int DIAGNOSTIC_FRAGMENT_BYTES =
-        ResponseEnvelope.MaximumSerializedBytes - MaximumShellBytes - EnvelopeOverhead;
+        ResponseEnvelope.MaximumSerializedBytes - MaximumShellBytes - ENVELOPE_OVERHEAD;
 
     /// <summary>The largest fragment tried first. Cutting is by bytes, so the character count only bounds
     /// the search.</summary>
@@ -1453,12 +1449,8 @@ internal sealed class WorkspaceSession
         return fragments;
     }
 
-    /// <summary>Shortens the piece by one if it would end on a high surrogate, whose pair is the next
-    /// character.</summary>
     private static int WithoutSplitSurrogate(string message, int start, int length) =>
-        length > 1 && start + length < message.Length && char.IsHighSurrogate(message[start + length - 1])
-            ? length - 1
-            : length;
+        ResponseText.WithoutSplitSurrogate(message, start, length);
 
     private static int SerializedSize(string fragment, string id, string kind) =>
         JsonSerializer.SerializeToUtf8Bytes(new WorkspaceDiagnosticResult(id, kind, fragment, 1, 1),

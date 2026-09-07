@@ -96,6 +96,31 @@ internal sealed class VerificationReader(DbConnection connection)
     /// this class — and the comparison is refused, with its own reason, whenever the value cannot be
     /// identified beyond doubt.
     /// </summary>
+    /// <summary>
+    /// Which of the cached value's field names are columns of this table, for a table whose row will not be
+    /// read at all. Whether two dependent tables share a field name is a fact about the tables, and a table
+    /// left out of <c>verify.tables</c> is no less capable of having the column: the workspace not saying
+    /// how to look up its row is not evidence that the value was not partly built from it.
+    /// <para>This reads <c>INFORMATION_SCHEMA</c> and nothing else. The rule against reading the
+    /// <em>rows</em> of an undeclared table stands — there is no key to look one up by, and none is
+    /// invented.</para>
+    /// </summary>
+    internal async Task<IReadOnlyList<string>> MatchedColumnsAsync(string schema, string table, JsonElement cached,
+                                                                   CancellationToken cancellationToken) =>
+        MatchedColumns(await ColumnsAsync(schema, table, cancellationToken).ConfigureAwait(false), cached);
+
+    private async Task<HashSet<string>> ColumnsAsync(string schema, string table, CancellationToken cancellationToken) =>
+        (await QueryAsync(COLUMNS_QUERY, [(SCHEMA_PARAMETER, schema), (NAME_PARAMETER, table)],
+                          reader => reader.GetString(0), cancellationToken).ConfigureAwait(false))
+        .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Only the columns whose names matched a field name literally. A field the table does not
+    /// have is dropped here rather than guessed at, and never reaches a statement.</summary>
+    private static string[] MatchedColumns(HashSet<string> known, JsonElement cached) =>
+        cached.ValueKind == JsonValueKind.Object
+            ? cached.EnumerateObject().Select(field => field.Name).Where(known.Contains).ToArray()
+            : [];
+
     internal async Task<RowComparison> CompareRowAsync(string schema, string table, VerifyTableConfiguration configuration,
                                                        string template, IReadOnlyDictionary<string, string>? placeholders,
                                                        JsonElement cached, CancellationToken cancellationToken)
@@ -106,16 +131,8 @@ internal sealed class VerificationReader(DbConnection connection)
         // names two tables share. Established after the refusals, a table that bowed out early looked like
         // it owned no names at all, and a name it shares with another table could be refuted against that
         // other one — which is exactly what the ambiguity rule exists to forbid.
-        var wanted = cached.ValueKind == JsonValueKind.Object
-                         ? cached.EnumerateObject().Select(field => field.Name).ToArray()
-                         : [];
-        var known = (await QueryAsync(COLUMNS_QUERY, [(SCHEMA_PARAMETER, schema), (NAME_PARAMETER, table)],
-                                      reader => reader.GetString(0), cancellationToken).ConfigureAwait(false))
-                    .ToHashSet(StringComparer.Ordinal);
-
-        // Only the columns whose names matched a field name literally. A field the table does not have is
-        // dropped here rather than guessed at, and never reaches a statement.
-        var selected = wanted.Where(known.Contains).ToArray();
+        var known = await ColumnsAsync(schema, table, cancellationToken).ConfigureAwait(false);
+        var selected = MatchedColumns(known, cached);
 
         if (string.IsNullOrWhiteSpace(configuration.Key) || string.IsNullOrWhiteSpace(configuration.From))
         {
@@ -264,7 +281,7 @@ internal sealed class VerificationReader(DbConnection connection)
     /// <summary>Whether the text carries an offset of its own: a trailing <c>Z</c>, or a <c>+hh:mm</c> /
     /// <c>-hh:mm</c> after the time. The sign is looked for past the date, so that the dashes in
     /// <c>2026-09-05</c> are not mistaken for one.</summary>
-    internal static bool HasExplicitOffset(string text)
+    private static bool HasExplicitOffset(string text)
     {
         var trimmed = text.AsSpan().Trim();
         if (trimmed.EndsWith("Z", StringComparison.OrdinalIgnoreCase))

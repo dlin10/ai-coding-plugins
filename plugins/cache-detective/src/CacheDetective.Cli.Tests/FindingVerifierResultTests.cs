@@ -54,6 +54,43 @@ public sealed class FindingVerifierResultTests
         Assert.Equal(VerificationBasis.Age, key.Basis);
     }
 
+    /// <summary>
+    /// The account of that outcome has to describe the write, not claim there was nothing to compare. The
+    /// summary said "though no field was compared", which is a plain untruth about a run whose fields were
+    /// read and agreed — and it sends a reader looking for a comparison that did happen and did not differ.
+    /// </summary>
+    [Fact]
+    public void Agreeing_fields_with_a_later_write_explain_the_age_not_a_missing_comparison()
+    {
+        var key = FindingVerifier.VerifyKey(Match(), [Row("dbo.Products", Equal("price"))], Signalling, null);
+        var verification = FindingVerifier.Verify([key], Exhausted(), new Applicability(true, true, null, []));
+
+        Assert.Equal(VerificationBasis.Age, verification.Basis);
+        Assert.DoesNotContain("no field was compared", verification.Reason, StringComparison.Ordinal);
+        Assert.Contains("written after the cached entry was created", verification.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A DMV reading that succeeded and said the finding's own table was written after the entry, and then
+    /// a row comparison that failed. The reading already happened; the failure is a step that did not, not
+    /// a retraction of one that did. Answering <c>not_verifiable</c> threw away the only positive evidence
+    /// the run produced, which is what R7 forbids and what this method's own comment already claimed.
+    /// </summary>
+    [Fact]
+    public void An_age_signal_read_before_the_failure_survives_it()
+    {
+        var key = FindingVerifier.VerifyKey(Match(), [Row("dbo.Products", Equal("price"))], Signalling, null,
+                                            failureCode: VerificationFailure.ParameterConversion);
+        var verification = FindingVerifier.Verify([key], Exhausted(), new Applicability(true, true, null, []));
+
+        Assert.Equal(VerificationOutcome.Possible, key.Outcome);
+        Assert.Equal(VerificationBasis.Age, key.Basis);
+        Assert.Equal(VerificationFailure.ParameterConversion, key.FailureCode);
+        Assert.True(verification.Partial, "the run kept the observation but must still say it was partial");
+    }
+
+    private static CacheScanResult Exhausted() => new([], true, false, false, false, null);
+
     /// <summary>With no age signal on it, agreement is still what refutes.</summary>
     [Fact]
     public void Agreeing_fields_refute_when_the_age_says_nothing()

@@ -62,7 +62,7 @@ internal sealed class FindingCatalog
                               StaleParentKeyFinding.Rule, finding.Confidence, finding.Handler.Solution, null,
                               finding.Child.Template, finding.Child.Store, false, finding.ParentTtlSeconds, null,
                               finding.Parent.Template, null, finding.Chain, finding.Handler.Project, null, finding.Parent.Template,
-                              null, finding.SearchedProjects));
+                              null, finding.SearchedProjects, parentStore: finding.Parent.Store));
         }
 
         var invalidations = new OrphanInvalidationRule().Evaluate(graph);
@@ -144,7 +144,7 @@ internal sealed class FindingCatalog
                                 bool suppressed, double? ttl, double? budget, string? expectedTemplate, int? distance, IReadOnlyList<GraphEdge> chain,
                                 string? project = null, string? external = null, string? parentTemplate = null,
                                 IReadOnlyList<GraphEdge>? eventChain = null, IReadOnlyList<string>? searchedProjects = null,
-                                int writeIndex = -1)
+                                int writeIndex = -1, string? parentStore = null)
     {
         if (!_ids.TryGetValue(identity, out var id))
         {
@@ -163,7 +163,7 @@ internal sealed class FindingCatalog
                                    ttl,
                                    budget,
                                    expectedTemplate,
-                                   distance, project, external, parentTemplate);
+                                   distance, project, external, parentTemplate, parentStore);
         var snapshot = new FindingSnapshot(item, chain, eventChain ?? [], searchedProjects ?? [], writeIndex);
         _snapshots[id] = snapshot;
         return snapshot;
@@ -407,10 +407,16 @@ internal static class SourceContext
 
 internal sealed record FindingSnapshot(FindingItem Item, IReadOnlyList<GraphEdge> Chain,
                                        IReadOnlyList<GraphEdge> EventChain, IReadOnlyList<string> SearchedProjects, int WriteIndex);
+/// <param name="ParentStore">For <c>STALE_PARENT_KEY</c>, the store the parent key lives in. The rule
+/// groups a key's dependencies by store and template together and never requires the two keys to share a
+/// store, so the parent's template alone does not name it: a workspace with the same template in two
+/// stores has two different keys, and reading the wrong one would refute a finding made about the
+/// other.</param>
 internal sealed record FindingItem(string Id, string Rule, string Confidence, string Solution,
                                    string? Table, string? KeyTemplate, string? Store, bool Suppressed,
                                    double? Ttl, double? Budget, string? ExpectedTemplate, int? Distance,
-                                   string? Project, string? External, string? ParentTemplate);
+                                   string? Project, string? External, string? ParentTemplate,
+                                   string? ParentStore = null);
 internal sealed record SourceLine(int Line, string Text);
 internal sealed record UnresolvedItem(string Id, string Kind, string? Solution, string? File, int? Line,
                                       string? Database, string? ObjectName,

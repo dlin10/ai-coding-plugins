@@ -162,7 +162,14 @@ public sealed class VerificationWorkingPathTests
     [Fact]
     public async Task An_undeclared_table_is_recorded_as_not_compared()
     {
-        var database = new FakeDatabase { Columns = { "Id", "price" }, Row = [10m] };
+        // The undeclared table has no column of the cached value's, so it takes no part in the comparison
+        // and nothing about it is ambiguous. A_column_shared_with_an_undeclared_table_does_not_refute poses
+        // the other case, where it does hold the column and the agreement stops being decisive.
+        var database = new FakeDatabase
+        {
+            ColumnsByTable = { ["Products"] = ["Id", "price"], ["Prices"] = ["Id", "amount"] },
+            RowByTable = { ["Products"] = [10m] }
+        };
 
         var run = await VerifyAsync(database, Scan(Entry("product:42", """{ "price": 10 }""")), tables: [First, Second]);
 
@@ -326,6 +333,37 @@ public sealed class VerificationWorkingPathTests
         Assert.Equal(basis, run.Verification.Basis);
         Assert.Contains(expected, Assert.Single(run.Verification.Keys).Reason, StringComparison.Ordinal);
         Assert.Equal(basis, JsonDocument.Parse(json).RootElement.GetProperty("basis").GetString());
+    }
+
+    /// <summary>
+    /// A dependent table the workspace did not declare, holding the same column as the declared one. Its
+    /// row is not read — there is no key to look one up by — but its <em>columns</em> are, because whether
+    /// two tables share a field name is a fact about the tables. Reporting none for it made <c>price</c>
+    /// look like the declared table's alone, and that table's agreement then refuted a finding whose value
+    /// may have been built partly from the undeclared one.
+    /// </summary>
+    [Fact]
+    public async Task A_column_shared_with_an_undeclared_table_does_not_refute()
+    {
+        var database = new FakeDatabase
+        {
+            ColumnsByTable = { ["Products"] = ["Id", "price"], ["Prices"] = ["Id", "price"] },
+            RowByTable = { ["Products"] = [10m] },
+            Seconds = 3000
+        };
+
+        var run = await VerifyAsync(database, Scan(Entry("product:42", """{ "price": 10 }""")),
+                                    tables: [First, Second], declaredTables: [First]);
+
+        var key = Assert.Single(run.Verification.Keys);
+        var price = Assert.Single(key.Fields, field => field.Field == "price");
+        Assert.Equal(FieldVerdict.NotCompared, price.Verdict);
+        Assert.Contains("more than one dependent table", price.Reason, StringComparison.Ordinal);
+        Assert.NotEqual(VerificationOutcome.Refuted, run.Verification.Outcome);
+        Assert.Contains("not declared in verify.tables", key.Reason, StringComparison.Ordinal);
+
+        // The catalogue was read for the undeclared table; its rows were not.
+        Assert.DoesNotContain(database.CommandTexts, text => text.Contains("[Prices]", StringComparison.Ordinal));
     }
 
     /// <summary>A refused permission and a value the server would not convert are different things, and
