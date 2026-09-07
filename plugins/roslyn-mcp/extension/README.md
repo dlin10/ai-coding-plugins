@@ -90,6 +90,8 @@ If neither search finds a `.roslynmcp.json`, the extension falls back to the **P
 
 The HTTP MCP endpoint runs in **stateless** mode (no `Mcp-Session-Id`). Clients can keep calling tools after a server restart (solution switch / Start-Stop) without session recovery.
 
+The `initialize` response carries `instructions` naming the solution and port the server serves, and a `DocumentNotFound` error names the solution that was searched. Both exist so that a client configured with several Roslyn servers can tell a wrong server apart from a solution Visual Studio has not loaded.
+
 ### Dead Code Analysis
 
 `roslyn_find_dead_code` reports **potentially** unused methods, fields, and types from the live Visual Studio workspace. It uses Roslyn semantic references plus additional heuristics for framework-driven and runtime-driven code paths that do not always appear as normal source references.

@@ -31,7 +31,8 @@ Rule: search finds candidates; Roslyn states facts.
 
 1. Confirm the Roslyn MCP tools are available. In Codex, use tool discovery when necessary.
 2. Confirm Visual Studio has the relevant solution loaded. Roslyn MCP exposes only the live solution attached to the configured port. When the repository registers several Roslyn servers, pick the one belonging to the solution that owns the code in question; the others answer for different solutions and report nothing useful about it.
-3. If Visual Studio is closed, the wrong solution is loaded, or the server is unreachable, say so before using text search or build output as a fallback.
+3. With several servers, choose by evidence rather than by the first name that responds: match the server name to the component folder that holds the file, and read the server's `instructions` from its `initialize` response, which names the solution and port it serves (extension v1.8.2 and later). A `DocumentNotFound` error names the solution that was searched. When that solution is not the one owning the file, the server is the wrong one: retry on the sibling server before concluding that Visual Studio has not loaded the solution.
+4. If Visual Studio is closed, the wrong solution is loaded, or the server is unreachable, say so before using text search or build output as a fallback.
 
 ## Use Roslyn MCP first for
 

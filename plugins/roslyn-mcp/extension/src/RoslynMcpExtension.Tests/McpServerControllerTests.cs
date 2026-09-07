@@ -127,7 +127,7 @@ public sealed class McpServerControllerTests
 	}
 
 	private static McpServerSessionOptions Options(int port)
-		=> new(port, "Roslyn MCP Server", @"C:\repo", null);
+		=> new(port, "Roslyn MCP Server", @"C:\repo", null, @"C:\repo\Repo.sln");
 
 	// The awaited tasks belong to the code under test, which is the point of the helper.
 	#pragma warning disable VSTHRD003
