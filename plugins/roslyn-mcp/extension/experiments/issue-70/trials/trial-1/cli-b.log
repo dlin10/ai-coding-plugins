@@ -1,8 +1,0 @@
-  Issue70.Generator -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\experiments\issue-70\Fixture\Generator\bin\Debug\netstandard2.0\Issue70.Generator.dll
-  Issue70.Consumer -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\experiments\issue-70\Fixture\Consumer\bin\Debug\net8.0\Issue70.Consumer.dll
-
-Build succeeded.
-    0 Warning(s)
-    0 Error(s)
-
-Time Elapsed 00:00:00.82
