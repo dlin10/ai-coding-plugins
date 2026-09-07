@@ -51,12 +51,34 @@ public sealed class CallGraphIndexer
                                          .ToDictionary(group => group.Key, group => group.First().Kind, METHOD_COMPARER);
         var entryPointRoutes = entryPoints.GroupBy(entry => entry.Method, METHOD_COMPARER)
                                           .ToDictionary(group => group.Key, group => group.SelectMany(entry => entry.Routes).ToArray(), METHOD_COMPARER);
-        var shallowestDepth = new Dictionary<IMethodSymbol, int>(METHOD_COMPARER);
+        // The walk is breadth-first, and that is what makes it a function of the solution rather than of
+        // the order the solution arrived in. Depth-first with a "walk it again if we found it shallower"
+        // memo reached a method at whatever depth the first path happened to offer: a method first met at
+        // the depth limit recorded the cut and was then walked again from a shallower caller, recording
+        // every edge below it a second time, while the same solution enumerated the other way round
+        // recorded them once. Breadth-first expands every method exactly once, at its shortest distance
+        // from any entry point, so the limit falls on the same methods every run. See docs/adr/0014.
+        var visited = new HashSet<IMethodSymbol>(METHOD_COMPARER);
+        var frontier = new List<IMethodSymbol>();
 
         foreach (var entryPoint in entryPoints)
         {
             graph.AddHandler(CreateHandler(entryPoint.Method, solutionName, entryPoint.Kind, entryPoint.Routes));
-            await WalkAsync(entryPoint.Method, 0, new HashSet<IMethodSymbol>(METHOD_COMPARER));
+            if (visited.Add(entryPoint.Method))
+            {
+                frontier.Add(entryPoint.Method);
+            }
+        }
+
+        for (var depth = 0; frontier.Count > 0; depth++)
+        {
+            var next = new List<IMethodSymbol>();
+            foreach (var method in frontier)
+            {
+                await ExpandAsync(method, depth, next);
+            }
+
+            frontier = next;
         }
 
         await efWriteAnalyzer.AddEdgesAsync(graph, cancellationToken);
@@ -64,20 +86,8 @@ public sealed class CallGraphIndexer
 
         return graph;
 
-        async Task WalkAsync(IMethodSymbol method, int depth, HashSet<IMethodSymbol> activePath)
+        async Task ExpandAsync(IMethodSymbol method, int depth, ICollection<IMethodSymbol> next)
         {
-            if (activePath.Contains(method))
-            {
-                return;
-            }
-
-            if (shallowestDepth.TryGetValue(method, out var previousDepth) && previousDepth <= depth)
-            {
-                return;
-            }
-
-            shallowestDepth[method] = depth;
-            activePath.Add(method);
             var currentHandler = CreateHandler(method, solutionName, GetKind(method, entryPointKinds), GetRoutes(method, entryPointRoutes));
             cacheCallAnalyzer.RecordUnsupportedAttributes(graph, currentHandler, method);
             await efReadAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
@@ -133,18 +143,17 @@ public sealed class CallGraphIndexer
                 }
 
                 var confidence = targets.IsInterfaceCall && targets.Methods.Count > 1 ? Confidence.Likely : Confidence.Confirmed;
-                var from = CreateHandler(method, solutionName, GetKind(method, entryPointKinds), GetRoutes(method, entryPointRoutes));
                 var evidence = CreateEvidence(invocation);
 
                 foreach (var target in targets.Methods)
                 {
                     efWriteAnalyzer.RecordCall(method, target);
                     var to = CreateHandler(target, solutionName, GetKind(target, entryPointKinds), GetRoutes(target, entryPointRoutes));
-                    graph.AddEdge(new Calls(from, to, confidence, [evidence]));
+                    graph.AddEdge(new Calls(currentHandler, to, confidence, [evidence]));
 
-                    if (!activePath.Contains(target))
+                    if (visited.Add(target))
                     {
-                        await WalkAsync(target, depth + 1, new HashSet<IMethodSymbol>(activePath, METHOD_COMPARER));
+                        next.Add(target);
                     }
                 }
             }
@@ -158,7 +167,12 @@ public sealed class CallGraphIndexer
         var entryPoints = new List<EntryPoint>();
         var consumerForms = ConsumerForms(eventRecognizers);
 
-        foreach (var project in solution.Projects.Where(project => project.Language == LanguageNames.CSharp))
+        // Ordered by path, because Solution.Projects yields whatever order the workspace loaded them in.
+        // The set of entry points does not depend on it, but the order rows reach the graph does, and an
+        // unresolved row's id is what an annotation binds to: an id that moves between runs binds the
+        // annotation to a different site.
+        foreach (var project in solution.Projects.Where(project => project.Language == LanguageNames.CSharp)
+                                        .OrderBy(project => project.FilePath ?? project.Name, StringComparer.OrdinalIgnoreCase))
         {
             var compilation = await project.GetCompilationAsync(cancellationToken);
             if (compilation is null)
@@ -505,12 +519,22 @@ public sealed class CallGraphIndexer
         }
 
         var implementations = await SymbolFinder.FindImplementationsAsync(calledMethod, solution, cancellationToken: cancellationToken);
+        // SymbolFinder searches the projects in parallel and does not specify the order it hands the
+        // results back in. Sorting them is what keeps two runs over one solution recording the same edges
+        // in the same order.
         var methods = implementations.OfType<IMethodSymbol>()
                                      .Where(method => !method.IsAbstract)
                                      .Where(method => method.Locations.Any(location => location.IsInSource))
                                      .Distinct(METHOD_COMPARER)
+                                     .OrderBy(SortKey, StringComparer.Ordinal)
                                      .ToArray();
         return (true, methods);
+
+        static string SortKey(IMethodSymbol method)
+        {
+            var lineSpan = GetSourceLocation(method).GetLineSpan();
+            return $"{method.ToDisplayString()} {lineSpan.Path} {lineSpan.StartLinePosition.Line}";
+        }
     }
 
     private static async Task<IReadOnlyList<InvocationExpressionSyntax>> GetInvocationsAsync(IMethodSymbol method, CancellationToken cancellationToken)

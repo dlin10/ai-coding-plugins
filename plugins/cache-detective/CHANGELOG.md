@@ -19,11 +19,20 @@
   argument's `Value` without checking its kind, and an array-valued argument — `[AcceptVerbs(...)]` in
   Orchard Core, `[FormValueRequired(...)]` in nopCommerce — threw and took the whole index down with it.
   Both repositories now index end to end.
+- **The call graph walk is breadth-first, and its output no longer depends on load order**
+  (`docs/adr/0014`). The depth-first walk kept a memo of the shallowest depth each method had been seen
+  at and expanded a method again whenever a later path reached it from higher up — recording every edge
+  below it, and every cache operation and `unresolved` row in it, a second time. Neither
+  `Solution.Projects` nor `SymbolFinder.FindImplementationsAsync` specifies its order, so four runs over
+  one clean Orchard Core checkout gave four different edge counts. Every method is now expanded exactly
+  once, at its shortest distance from an entry point, and five consecutive runs agree on every count.
 - Added `cachedet metrics`: load and coverage measurement, labelled `role` and `efwrite` samples with
   accuracy and false-positive rate, `--compare` against a pinned corpus revision, and declared
   `cache_api` recognizer files.
-- Measured the corpora. nopCommerce indexes in 124 s over 33/33 projects and Orchard Core in 232 s over
-  227/227, both complete, where both previously reached an hour of CPU time.
+- Measured the corpora. nopCommerce indexes in 95 s over 33/33 projects and Orchard Core in 159 s over
+  227/227, both complete, where both previously reached an hour of CPU time. Coverage rose with the walk
+  fix, which removed sites the old numbers counted twice: Orchard 0.338 to 0.389, nopCommerce 0.013 to
+  0.023.
 - Measured the EF write heuristic on eShopOnContainers, for the reasons in `docs/adr/0013`: ten labelled
   write sites, accuracy 1.0 and a false-positive rate of 0.0. The sample is small because the corpus
   holds ten candidates, not because ten were chosen.

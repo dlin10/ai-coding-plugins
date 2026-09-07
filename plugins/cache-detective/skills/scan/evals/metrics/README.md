@@ -119,17 +119,17 @@ readers and for the gate.
 ## Load and coverage on nopCommerce and Orchard Core
 
 `docs/adr/0013` gives these two repositories the role the specification's bench table always meant for
-them — load time and coverage, not heuristic accuracy. Each was measured twice on **2026-09-05**, once
+them — load time and coverage, not heuristic accuracy. Each was measured twice on **2026-09-07**, once
 with the built-in recognizers alone and once with a declared `cache_api` file added, at a single
 revision per repository with a clean worktree. Set `CD_NOP_ROOT` and `CD_ORCHARD_ROOT` to the
 checkouts; the runs are `load-nopcommerce-{before,after}.json` and `load-orchard-{before,after}.json`.
 
 | Run | Load | Index | Total | Projects | Vertices | Cache ops | Cache coverage |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| nopCommerce before | 20.3 s | 103.6 s | **124.0 s** | 33/33 | 5747 | 0 | 0.000 |
-| nopCommerce after | 14.0 s | 93.5 s | **107.5 s** | 33/33 | 5743 | 3 | 0.013 |
-| Orchard before | 79.7 s | 152.6 s | **232.3 s** | 227/227 | 2466 | 23 | 0.338 |
-| Orchard after | 61.5 s | 139.4 s | **200.9 s** | 227/227 | 2466 | 23 | 0.338 |
+| nopCommerce before | 14.5 s | 80.8 s | **95.3 s** | 33/33 | 5747 | 0 | 0.000 |
+| nopCommerce after | 14.3 s | 83.1 s | **97.4 s** | 33/33 | 5743 | 3 | 0.023 |
+| Orchard before | 68.4 s | 90.8 s | **159.2 s** | 227/227 | 2466 | 21 | 0.389 |
+| Orchard after | 67.1 s | 92.4 s | **159.5 s** | 227/227 | 2466 | 21 | 0.389 |
 
 This is the first run at real size that the incremental loader makes possible: both repositories used
 to reach an hour of CPU time, and both now finish well inside the 20-minute budget with
@@ -138,20 +138,30 @@ nopCommerce reports no load diagnostics at all; Orchard reports 24 and still loa
 
 **Coverage after recognizers is below 0.7 in both, and `docs/adr/0013` already says why.** For
 nopCommerce the declared `Nop.Core.Caching.IStaticCacheManager` recognizer works — cache operations go
-from 0 to 3 and unresolved keys from 3 to 231 — and that jump *is* the finding: the ADR records that an
+from 0 to 3 and unresolved keys from 3 to 121 — and that jump *is* the finding: the ADR records that an
 `IStaticCacheManager` takes a `CacheKey` object built by a key service rather than a string at the call
 site, so the recognizer finds the call sites and the key folder, which reads string expressions, can
-fold almost none of them. Coverage of 0.013 measures the key folder against object-valued keys, not the
+fold almost none of them. Coverage of 0.023 measures the key folder against object-valued keys, not the
 recognizer. For Orchard the declared `OrchardCore.DynamicCache.IDynamicCacheService` recognizer changes
-nothing measurable: cache operations stay at 23, unresolved `cache_api` stays at 8 and coverage stays
-at 0.338 to the digit, because `GetCachedValueAsync`/`SetCachedValueAsync` are keyed on a `CacheContext`
+nothing measurable: cache operations stay at 21, unresolved `cache_api` stays at 8 and coverage stays
+at 0.389 to the digit, because `GetCachedValueAsync`/`SetCachedValueAsync` are keyed on a `CacheContext`
 object and the cache surface the ADR describes is a signal and tag machinery reached through
 `ITagRemovedEventHandler`, which this file does not describe. Raising either number means teaching the
 tool those APIs, which ADR 0013 rejects on purpose: these repositories were chosen to measure what
 happens against an unfamiliar cache API.
 
-One caveat on reading the deltas: edge and unresolved-`call` counts are not stable run to run on
-Orchard. Two consecutive `before` runs gave 15252/906 and 15204/888, so the 384-edge difference between
-the Orchard rows above is run-to-run variation and not an effect of the recognizer. Vertices, cache
-operations and coverage were identical across those repeats, and they are the numbers this section
-relies on.
+These rows replace a set measured on 2026-09-05, and every count in them moved. That measurement was
+taken while the call graph walk was depth-first over a memo of the shallowest depth each method had been
+seen at, which expanded a method again whenever a later path reached it from higher up and recorded
+everything below it a second time. Orchard's `before` row read 15252 edges and 906 unresolved `call`
+rows against 7433 and 336 now; nopCommerce's `after` row read 231 unresolved keys against 121. The walk
+is breadth-first since `docs/adr/0014`, every method is expanded once, and what those rows counted twice
+they now count once. Coverage rises with them — Orchard 0.338 to 0.389, nopCommerce 0.013 to 0.023 —
+because a duplicated site was inflating both sides of the fraction.
+
+The old rows also carried a caveat this one does not: Orchard's edge and unresolved-`call` counts were
+not reproducible, four runs at one revision giving 15252/906, 15204/888, 15027/871 and 14854/889, so no
+delta between the two Orchard rows could be read as an effect of the recognizer. Five consecutive runs
+of the rows above — three `before`, two `after` — agree on every count, which is the specification's
+§11 stability target. Note that reproducible was never the same as right: nopCommerce reproduced its
+1397 unresolved `call` rows exactly and they were inflated all the same.

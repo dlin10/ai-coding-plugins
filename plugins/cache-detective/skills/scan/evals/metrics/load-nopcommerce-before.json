@@ -1,15 +1,15 @@
 {
   "solution": "src/NopCommerce.sln",
-  "loadSeconds": 20.3436758,
-  "indexSeconds": 103.6310837,
-  "totalSeconds": 123.9747595,
+  "loadSeconds": 14.4794766,
+  "indexSeconds": 80.7864952,
+  "totalSeconds": 95.2659718,
   "vertices": 5747,
-  "edges": 23699,
+  "edges": 19752,
   "cacheOperations": 0,
   "unresolved": {
     "key": 3,
     "sql": 0,
-    "call": 1397,
+    "call": 1007,
     "cache_api": 5,
     "role": 0,
     "event": 0,
@@ -19,6 +19,7 @@
   "projectsExpected": 33,
   "projectsLoaded": 33,
   "missingProjects": [],
+  "emptyProjects": [],
   "loadComplete": true,
   "revision": "918444773367deb734b93d3ad80e17325d6c147a",
   "workingTreeClean": true,
@@ -36,7 +37,7 @@
   "cleanWorktree": true,
   "counts": {
     "vertices": 5747,
-    "edges": 23699,
+    "edges": 19752,
     "cacheOperations": 0
   },
   "coverage": {

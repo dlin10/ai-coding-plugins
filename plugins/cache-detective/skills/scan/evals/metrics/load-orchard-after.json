@@ -1,15 +1,15 @@
 {
   "solution": "OrchardCore.slnx",
-  "loadSeconds": 61.4946369,
-  "indexSeconds": 139.3703636,
-  "totalSeconds": 200.8650005,
+  "loadSeconds": 67.1210055,
+  "indexSeconds": 92.4032057,
+  "totalSeconds": 159.5242112,
   "vertices": 2466,
-  "edges": 14868,
-  "cacheOperations": 23,
+  "edges": 7433,
+  "cacheOperations": 21,
   "unresolved": {
-    "key": 37,
-    "sql": 7,
-    "call": 881,
+    "key": 25,
+    "sql": 4,
+    "call": 336,
     "cache_api": 8,
     "role": 4,
     "event": 0,
@@ -19,14 +19,15 @@
   "projectsExpected": 227,
   "projectsLoaded": 227,
   "missingProjects": [],
+  "emptyProjects": [],
   "loadComplete": true,
   "revision": "b9c4b2f23e56ef11fbdbd28603c871d1b0fc9deb",
   "workingTreeClean": true,
   "recognizersFile": "C:\\Dev\\CodexPlugins\\plugins\\cache-detective\\skills\\scan\\evals\\metrics\\recognizers-orchard.json",
-  "recognizersHash": "8000C3902117CCB7E6661EF033A30F5D3601A94989247316D5A12DB070818A78",
+  "recognizersHash": "EC53D40521D1118754300BF66F0338753E4D87228AA5FE2372091ED82FA93894",
   "recognizersApplied": 1,
   "cacheSiteCoverage": {
-    "value": 0.3382352941176471,
+    "value": 0.3888888888888889,
     "status": "ok"
   },
   "sqlSiteCoverage": {
@@ -36,12 +37,12 @@
   "cleanWorktree": true,
   "counts": {
     "vertices": 2466,
-    "edges": 14868,
-    "cacheOperations": 23
+    "edges": 7433,
+    "cacheOperations": 21
   },
   "coverage": {
     "cache": {
-      "value": 0.3382352941176471,
+      "value": 0.3888888888888889,
       "status": "ok"
     },
     "sql": {
