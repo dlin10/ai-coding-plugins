@@ -83,6 +83,7 @@ public class SymbolInfoResult : IToolResult
 public class ValidateFileResult : IToolResult
 {
 	public bool Success { get; set; }
+	public int? SourceGeneratedDocumentCount { get; set; }
     public string FilePath { get; set; } = string.Empty;
     public string? ProjectName { get; set; }
 	public List<DiagnosticInfo> Errors { get; set; } = [];

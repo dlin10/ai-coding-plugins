@@ -1,0 +1,4 @@
+# Preserve exact fixture and captured-evidence bytes used by SHA-256 verification.
+* -text whitespace=cr-at-eol
+# SSE messages end with a blank line by protocol.
+*.sse whitespace=cr-at-eol,-blank-at-eof

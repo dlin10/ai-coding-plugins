@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using RoslynMcpExtension.Shared;
@@ -9,6 +10,8 @@ namespace RoslynMcpExtension.Services;
 
 internal class ValidateFileService(DocumentFinder documentFinder)
 {
+	private const int OptionalBudgetSeconds = 10;
+
 	public async Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
 	{
 		var result = new ValidateFileResult { FilePath = filePath };
@@ -16,6 +19,24 @@ internal class ValidateFileService(DocumentFinder documentFinder)
 		try
 		{
 			var document = documentFinder.FindDocument(filePath);
+			return await ValidateDocumentAsync(document, includeWarnings, runAnalyzers);
+		}
+		catch (Exception ex)
+		{
+			ToolResultErrors.Set(result, ex);
+			return result;
+		}
+	}
+
+	internal static Task<ValidateFileResult> ValidateDocumentAsync(Document document, bool includeWarnings, bool runAnalyzers)
+		=> ValidateDocumentAsync(document, includeWarnings, runAnalyzers, TimeSpan.FromSeconds(OptionalBudgetSeconds));
+
+	internal static async Task<ValidateFileResult> ValidateDocumentAsync(Document document, bool includeWarnings, bool runAnalyzers,
+		TimeSpan optionalBudget, Func<CancellationToken, Task<int>>? observeGeneratedDocuments = null)
+	{
+		var result = new ValidateFileResult { FilePath = document.FilePath! };
+		try
+		{
 			result.ProjectName = document.Project.Name;
 			result.FilePath = document.FilePath!;
 			var compilation = await document.Project.GetCompilationAsync();
@@ -70,6 +91,9 @@ internal class ValidateFileService(DocumentFinder documentFinder)
 			}
 
 			result.Success = result.Errors.Count == 0;
+			result.SourceGeneratedDocumentCount = await OptionalGeneratorObservation.RunAsync(
+				observeGeneratedDocuments ?? (async cancellation =>
+					(await document.Project.GetSourceGeneratedDocumentsAsync(cancellation)).Count()), optionalBudget);
 		}
 		catch (Exception ex)
 		{
