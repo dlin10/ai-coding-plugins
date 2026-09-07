@@ -15,12 +15,21 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewGit git)
 {
-    public async Task<Critique> ReviewAsync(RunDirectory run, Selection selection, CancellationToken ct)
+    /// <param name="userGrantedRound">
+    /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
+    /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
+    /// and, per docs/adr/0003, one no code here can check.
+    /// </param>
+    public async Task<Critique> ReviewAsync(RunDirectory run,
+                                            Selection selection,
+                                            bool userGrantedRound,
+                                            CancellationToken ct)
     {
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
-        if (state.CodeReviewRounds >= state.CodeReviewRoundCap)
+        if (state.CodeReviewRounds >= state.CodeReviewRoundCap && !userGrantedRound)
             throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap);
+        var granted = state.CodeReviewRounds >= state.CodeReviewRoundCap;
 
         await GuardChangedPathsAsync(ct);
         var diff = await git.DiffAsync(GitPathspec.WithoutDocumentation, ct);
@@ -39,8 +48,12 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
         var round = state.CodeReviewRounds + 1;
         run.AppendReviewRound(state.ReviewRounds + round, critique);
+        if (granted) run.AppendFlowGrantedRound("Code review", round);
         run.AppendFlowCritique("Code review", round, critique);
-        run.WriteState(state with { CodeReviewRounds = round });
+        run.WriteState(granted
+            ? state with { CodeReviewRounds = round, CodeReviewRoundCap = state.CodeReviewRoundCap + 1,
+                           GrantedCodeReviewRounds = state.GrantedCodeReviewRounds + 1 }
+            : state with { CodeReviewRounds = round });
         return critique;
     }
 
@@ -83,4 +96,5 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 }
 
 internal sealed class CodeReviewCapReachedException(int rounds, int cap)
-    : Exception($"code review already ran {rounds} rounds, and the cap is {cap}");
+    : Exception($"code review already ran {rounds} rounds, and the cap is {cap}. Ask the user "
+                + "whether to run another round, and pass `userGrantedRound: true` if they say yes.");

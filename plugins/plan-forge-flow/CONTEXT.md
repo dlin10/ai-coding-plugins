@@ -5,7 +5,7 @@ these terms replace it.
 
 | Term | Meaning |
 |---|---|
-| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex App Server, Cursor Agent, later Grok. Not "provider" — that word was overloaded. |
+| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex CLI, Cursor Agent, later Grok. Not "provider" — that word was overloaded. All three are reached the same way, one process per act; see `docs/adr/0012`. |
 | **Orchestrator** | The host agent: runs the interview, **revises the plan in response to critique**, calls the tools. Always an LLM, never a C# class. Strong model. |
 | **Act** | A major stage of a run. The four delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`. The interview is not an act class; it lives in the orchestrator. |
 | **Job** | One delegated act running in the background, keyed by `jobId` and started, watched and collected through `forge.work.start` / `poll` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
@@ -13,16 +13,21 @@ these terms replace it.
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
-| **Plan file** | The run's plan as it currently stands, `PLAN.md`: rewritten by every plan-review round before the critic starts, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a round run after it takes the flag back. |
+| **Plan file** | The run's plan as it currently stands, `PLAN.md`: written by `forge.plan.write` before each round, rewritten by a round handed a draft of its own, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a write or a round after it takes the flag back. |
 | **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
+| **Granted round** | The user's answer to a reached cap: `userGrantedRound` on the next round call raises that cap by exactly one and runs the round past it. Spent by the call that carries it, so the round after needs a fresh answer, and counted in the run state beside the cap it moved — `grantedReviewRounds` next to `reviewRoundCap`, `grantedCodeReviewRounds` next to `codeReviewRoundCap`. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
 | **Catalogue** | The models and effort levels a vendor advertises, served to the interview by `forge.models`. **Live** when the vendor reported the list itself (codex, cursor); **resolved** when the list of aliases is one this repo remembers but the vendor turned each alias into the concrete model it stands for at probe time (claude). An alias the vendor did not resolve is not offered. Advisory for validation either way: the vendor CLI decides. |
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the variants observed. The chosen variant joins back onto the family id; `default` names the bare id and joins to nothing. |
-| **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
+| **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
-| **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task and the builder runs it; a `## Gates` entry — `G1`…`Gn` — belongs to no single task and the orchestrator runs it after the last one. |
-| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported; never re-checked by the server. |
+| **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label — the server then runs it on the host after the builder's turn (the task gate after `forge.build.next`, the run-wide gates after `forge.review.fix`) and its exit code decides; otherwise a **condition**, left to the builder's word and, for `## Gates`, to the orchestrator after the last task. See `docs/adr/0015`. |
+| **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, or no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
+| **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
+| **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. |
+| **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. Only `done` is progress. A `blocked` or `gate_failed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
+| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -86,37 +91,66 @@ mid-loop rather than waiting for approval, where its answer would invalidate eve
 
 Gates apply the same idea to verification. A task already ended with how it is verified; the `Gate`
 label only makes that mandatory and findable, which is what lets the critic treat its absence as a
-finding and the orchestrator run the exact command when a builder reports `unavailable`. What had no
-home at all is a check no single task owns — a test suite, a warnings-clean build, an invariant
-spanning the change — so those go under `## Gates`, and the orchestrator runs them after the last
-task. Not the builder, whose session is per-task; and not the critic, because a build writes `bin/`
-and `obj/` into the tree it is judging, and each vendor's read-only guarantee covers the agent's own
-edits, not the side effects of a command it ran. More gates also mean more self-reported claims, so
-the rule below stands unchanged: anything but `passed` is the orchestrator's to run itself.
+finding and the server run the exact command after the builder's turn. What had no home at all is a
+check no single task owns — a test suite, a warnings-clean build, an invariant spanning the change —
+so those go under `## Gates`; the server runs the executable ones after each fix round, and the
+orchestrator runs them all after the last task. Not the builder, whose session is per-task; and not
+the critic, because a build writes `bin/` and `obj/` into the tree it is judging, and each vendor's
+read-only guarantee covers the agent's own edits, not the side effects of a command it ran. A gate
+that is a condition rather than a command is still a self-reported claim, so for those the rule below
+stands: anything but `passed` is the orchestrator's to run itself.
 
 None of this adds an artifact. The requirements live in the plan file, `PlanTasks` walks only what
 is under `## Approach`, and both review acts already send the whole plan — `PlanReview` the draft,
 `CodeReview` the approved copy — so requirements and gates reach both critics with no plumbing.
 
-## The App Server spells its sandbox two different ways
+## A cap is a checkpoint, not a stop
 
-Measured against `codex` 0.147.0 on 2026-08-15, by sending a deliberately invalid value and reading
-the variants back out of the error:
+Review rounds and code-review rounds are both capped for the same reason: an orchestrator left to
+its own budget will keep spending it, since nothing about a `revise` verdict forces the loop to end.
+The cap exists to catch that runaway, not to overrule a user who has read the critique and decided
+the remaining risk is one they will accept — so it is the orchestrator that cannot raise it on its
+own. Only the user's answer can: `userGrantedRound: true` on the next round call raises the cap by
+exactly one and lets that round run past it. It is spent by the very round it unlocks, which is what
+makes "ask every time" fall out of the mechanism instead of depending on the skill to remember —
+there is no way to carry a grant forward, only to ask again.
 
-- `thread/start` takes `sandbox` as a **kebab-case string**: `read-only`, `workspace-write`,
-  `danger-full-access`.
-- `turn/start` takes `sandboxPolicy` as an **object whose `type` is camelCase**: `readOnly`,
-  `workspaceWrite`, `externalSandbox`, `dangerFullAccess`.
+## The codex CLI's exit code answers for the API, not for the work
 
-The old client sent `readOnly` to `thread/start`, which today's server rejects outright. Nothing
-warns about this: the two spellings are close enough to look like a typo rather than a protocol fact.
+Measured against `codex` 0.147.0 on 2026-09-03. The surface is `codex exec`; the App Server client
+it replaced is `docs/adr/0012`.
 
-Two more properties of the same surface, both measured rather than documented: `effort` is *not*
-validated by the App Server — a bad level is accepted, forwarded, and fails the turn upstream, so it
-surfaces as a failed turn rather than a rejected request. And `thread/resume` needs the thread to
-have a recorded rollout, which only exists after a turn has completed; a thread that was opened but
-never used cannot be resumed. That is why a Builder's resume token is only worth storing once its
-first task is done.
+**The exit code is silent about the work.** `codex exec` exits `0` when a command it ran was denied
+by the sandbox, and `0` when that command exited non-zero. Only failures the API rejects — a bad
+schema, an unknown model, an unknown effort — reach the exit code, as `1`; a malformed flag is `2`.
+So the outcome of the work is read from the `--json` stream instead, where each command arrives as a
+paired `item.started` and `item.completed` carrying the resolved command line, `exit_code`,
+`aggregated_output` and a `status` of `completed` or `failed`. A vendor that trusted the exit code
+would have called the total failure of issue #58 a clean run.
+
+**`--output-schema` is enforced by the API, not by the prompt.** The CLI refuses a schema without
+`additionalProperties: false` before a token is spent, and a prompt written to break the format came
+back as a valid object anyway. That is what lets the codex vendor drop the `SchemaInPrompt` retry
+loop that Cursor still needs.
+
+**`developer_instructions` adds; `instructions` replaces.** Both are accepted configuration keys and
+they look interchangeable. `-c developer_instructions=` prepends a block to the developer message
+and leaves codex's own prompt intact, costing the tokens of the text itself. `-c instructions=`
+goes to the API's top-level field and *displaces* codex's built-in instructions — measured as a drop
+of roughly 2,700 input tokens on an otherwise identical run, with the text never appearing in
+`codex debug prompt-input`. Only the first is the counterpart of the App Server's
+`developerInstructions`.
+
+Two properties carried over unchanged from the App Server, because `codex exec` is itself an App
+Server client. `effort` is *not* validated locally: a bad level is accepted, printed in the header,
+and rejected upstream. And resume needs the thread to have a recorded rollout, which exists only
+after a turn has completed, so a Builder's resume token is worth storing only once its first task is
+done; `--ephemeral` writes no rollout at all and makes resume impossible.
+
+**Codex picks its own shell, and no key changes it.** On Windows it wants PowerShell, resolved from
+its own process environment before `shell_environment_policy` is applied — measured, by handing it a
+sanitised `PATH` through that key and watching it resolve the old value anyway. The only lever is
+the environment of the process this server starts, which is what `docs/adr/0013` uses.
 
 ## Each vendor keeps the critic read-only by a different mechanism
 
@@ -124,8 +158,9 @@ The critic judges and must not edit what it is judging — including through any
 Nothing in this codebase enforces that; all three guarantees are the vendor's, and they are not the
 same guarantee:
 
-- **Codex** — the thread opens with `sandbox: read-only` and each turn repeats it as
-  `sandboxPolicy: readOnly`. A real sandbox.
+- **Codex** — `-c sandbox_mode="read-only"`. A real sandbox. The key rather than the `-s` flag
+  because `codex exec resume` has no `-s`, and one spelling across a builder's first turn and its
+  later ones is worth more than the flag's pre-launch validation.
 - **Claude** — `--permission-mode acceptEdits` is passed only for a Builder, so a critic's edit
   tools are simply never pre-approved.
 - **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the
@@ -242,6 +277,30 @@ and on Windows a child does not die with its parent. For a critic that is harmle
 vendor keeps it read-only. For a builder it means edits landing in a workspace whose run is already
 gone.
 
+## The post-exit drain bounds this machine as well as the pipe
+
+`StreamingProcess` ends a stream on the process's own exit rather than on EOF, because a server the
+vendor spawned inherits the handle and can hold the pipe open for the rest of a run. What is left
+after the exit is a bounded drain, and the bound was two seconds on the reasoning that everything
+the process wrote is already in the buffer — true of the buffer, and silent about the reader.
+
+CI run 33916817192, on a runner slow enough for one test to take fifteen seconds, is where that
+showed: `git rev-parse HEAD` exited 0 and its single line never arrived inside the window, so
+`Baseline.CaptureAsync` recorded an empty head, `Assert.NotEmpty(baseline.Head)` failed, and nothing
+in the log said output had been dropped — an expired drain is indistinguishable, to the caller, from
+a stream that ended.
+
+The number is squeezed from both sides, which is the part worth keeping. Too short drops output
+already written, as above. Too long rebuilds the wait that ending the stream on the exit was written
+to remove — a spawned server holding the handle, and a critique delivered in two minutes read as a
+twenty-minute timeout — and `DiagnosticLogTests` holds that to ten seconds. The stdout bound is five
+seconds: several times any ordinary scheduling delay, and inside that guard. What makes it
+survivable rather than lucky is that its expiry writes `process.drain.timeout` to the run log, so
+the next machine slow enough to lose a line says so instead of returning a short stream. stderr
+keeps the two-second bound and stays silent when it expires: what is lost there is a tail in the
+log, not the answer, and a child holding both pipes would otherwise pay the stdout window at the end
+of every process it outlives.
+
 ## Claude Code aborts a silent call, and the manifest timeout feeds both of its clocks
 
 Measured on 2026-08-18 against Claude Code CLI 2.1.234, headless, with the same probe server:
@@ -264,7 +323,7 @@ otherwise abort a worker call whose two 20-minute vendor attempts run back to ba
 measured through `--mcp-config`; the plugin manifest declares its server with the same entry
 schema, which is the one assumption not yet measured end to end.
 
-## Verification is self-reported, and the run log is its audit
+## Verification is self-reported; where the gate is a command, the host's run of it decides
 
 A builder that changed files but could not execute anything used to have no honest answer: `status`
 was `done` or `blocked`, so it answered `done` and put the caveat in prose, which only a careful
@@ -273,15 +332,30 @@ work" and "proved the work" are orthogonal, so the contract carries them on sepa
 `status` stays `done | blocked`, and a required `verification` reports `passed | failed |
 unavailable` with evidence.
 
-The report is the builder's word, deliberately. The server does not re-check it: the only signal it
-could check against — command exit codes in the vendor's event stream — exists reliably for Codex
-alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit code too,
-but it is its own shell's rather than the command's, which is the shape of the problem: a check
-built on it would pass a build that never ran. The audit trail is the run log, which records each
-tool's outcome — command, exit code, output tail — for all three vendors. Reacting to `unavailable` or
-`failed` belongs to the orchestrator — the skill directs it to run the task's verification step
-itself and record the outcome — because the server has no environment of its own to verify in, and
-blocking the flow would kill a run that can degrade gracefully.
+The report is the builder's word, and until 0.27.0 the server re-checked nothing: the only signal
+it could have checked against — command exit codes in the vendor's event stream — exists reliably
+for Codex alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit
+code too, but it is its own shell's rather than the command's, which is the shape of the problem: a
+check built on it would pass a build that never ran. That reasoning still holds, and the event
+stream is still not read for verdicts. What changed is that the server stopped needing the vendor's
+signal: run `20260904-173914-9254ec` had a builder answer `passed` for six tasks whose named tests
+it never wrote, because the suite it ran was green at the old count, so the server now runs the
+gate command **itself**, on the host, and reads its own exit code — the same answer for every
+vendor. See `docs/adr/0015`. The audit trail is still the run log, which records each vendor
+tool's outcome for all three vendors and now the gate run beside them. Reacting to a gate that is a
+condition rather than a command, and so to `unavailable` or `failed` where nothing could be run,
+still belongs to the orchestrator, for the reason it always did: a condition has no exit code, and
+blocking the flow on a self-report would kill a run that can degrade gracefully.
+
+Measured on 2026-09-05 against pwsh 7.6.5, which is what the gate runner leans on: a `trap` that
+exits swallows the record it caught unless it writes it first, so the runner's trap writes to
+stderr before exiting; `$PSNativeCommandUseErrorActionPreference = $true` under `Stop` makes a
+native non-zero exit terminate the script with `$LASTEXITCODE` still set, so a two-line gate stops
+on its first failing line and reports that line's code; and the Store install of pwsh is reachable
+only through the zero-byte execution alias that `docs/adr/0013` strips from codex's PATH — the
+runner keeps it, because this process runs as the user and the alias launches for it. Windows
+PowerShell 5.1 is the fallback and has no native-error preference, so a multi-line gate there is
+judged by its last line alone.
 
 ## A failed act used to leave no trace, so the run log is the server's own record
 
@@ -325,13 +399,21 @@ whatever a stray exception happens to carry. Measured against SDK 2.2.0 on 2026-
 orchestrator received was `An error occurred invoking 'forge.plan.review'.` It retried, gave up, and
 found the reason only by reading the log afterwards.
 
-The eleven exception types declared in this assembly are all written for that reader — they name the
+The twelve exception types declared in this assembly are all written for that reader — they name the
 argument, the round, the cap, the path. `Mcp/ToolErrors.cs` answers those as a tool error carrying
 their message and lets everything else keep the SDK's blank. It is a `CallToolFilters` filter rather
 than a `try`/`catch` inside the tools because `RunDirectory.Open` runs before the run's log exists
 and so before anything a tool could wrap: a non-absolute `workspaceRoot` or a lost `runId` fails
 earlier than every other failure, and a wrapper inside the acts would have left exactly that class
 mute.
+
+An argument the server refuses is one of ours too, since 0.25.1. `WorkAct.ValidateArguments` and the
+job-id checks threw `ArgumentException`, which belongs to the framework, so `userGrantedRound is not
+used by build.next` was written for the orchestrator and then blanked on the wire — measured against
+0.24.0 on 2026-09-03, both refusals arriving as `An error occurred invoking 'forge.work.start'.` The
+in-process tests pinned the wording and passed, because nothing covered the trip; `ToolSurfaceTests`
+now runs the validator through the filter. The null and whitespace guards stay as they were: they
+answer a programmer, not a caller, and a blank message there costs nobody a retry.
 
 ## Required and nullable is a contract with no encoding that works
 
@@ -416,6 +498,31 @@ now withdraws it, zeroing `tasksCompleted` and the builder session with it, and 
 log. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md), including the
 two orderings inside the act that the safety of this rests on.
 
+## The link to the plan waited for the critique it was meant to precede
+
+Writing `PLAN.md` before the critic did not put it in front of anyone: the path travels only inside
+`documents`, which `forge.plan.review` builds after the critique comes back. Measured in run
+`20260904-173914-9254ec` (planforge 0.25.1, client claude-code 2.1.260, profile `Text`, critic codex
+gpt-5.6-sol/high), local time, from `.forge/<runId>/forge.log` and the session transcript:
+
+| | round 1 | round 2 |
+|---|---|---|
+| orchestrator starts streaming the draft into the tool call | ~18:14:28 | ~18:27:29 |
+| `forge.plan.review` reaches the server; `PLAN.md` written | 18:19:40 | 18:32:35 |
+| critique returned | 18:26:00 | 18:38:33 |
+| orchestrator sends both files (`SendUserFile`) | 18:26:48 | 18:39:10 |
+
+The draft was 52 KB as a tool argument in round 1 and 62 KB in round 2 — about five minutes of the
+orchestrator typing, then six of the critic, with no link to the plan for either. The round-1 link
+arrived seven minutes after the file existed.
+
+Two calls now, not one: `forge.plan.write` writes the draft and answers with `documents` in seconds,
+and `planDraft` is optional on `forge.plan.review` and on `forge.work.start`'s `plan.review`, so the
+round reads the file instead of carrying the draft a second time. `WorkStartResult` and
+`WorkPollResult` carry `documents` for the same reason. The flow log stays where it was: it is first
+created when the first critique is appended, so `documents.flowLog` cannot honestly arrive earlier
+than that critique. See [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md).
+
 ## The orchestrator's turn is an act too, and the timeline used to skip it
 
 The same run left four plan-review verdicts in `flow_log.md` with nothing between them. Three of
@@ -476,3 +583,48 @@ Three limits come with that boundary, all recorded rather than fixed. A third pa
 and takes its changes out of the window — the flow already forbids committing during a run. And a
 vendor worker runs in the workspace, so nothing here stops it reading an excluded file it was not
 sent; the pathspec governs what is handed over, not what is reachable.
+
+## The session is not the workspace, and only one host says where it is
+
+`workspaceRoot` arrives as a tool argument and used to decide three unrelated things: where
+`.forge/<runId>/` lives, the git window the baseline and the code-review diff are taken over, and
+the working directory the critic and builder processes get. The orchestrator picks it from the shape
+of the task, and on a monorepo it correctly picks the repository root — which is right for the last
+two and wrong for the first. Measured on 2026-09-02, run `20260902-224201-7bf03b` on `claude-code`:
+the session's directory was `plugins/cache-detective`, the plan also rewrote the root `README.md`,
+`marketplace.json` and `.github/workflows/`, so `forge.begin` was called with the repository root and
+`PLAN.md` landed two levels above the session. Claude Code renders a file reference as a link only
+when the href is relative to the session's working directory, so the run's most-read document
+arrived as unclickable text. See issue #53.
+
+Pinning `workspaceRoot` to the session instead is the zero-code fix and silently shrinks the review.
+`GitPathspec.WithoutDocumentation` opens with `"."`, and a `.` pathspec is resolved against git's own
+working directory; `git ls-files --others` is working-directory scoped too. Measured in this
+repository, `git -C . ls-files --others` names `plugins/cache-detective/CONTEXT.md` while
+`git -C plugins/cache-detective ls-files --others` names `CONTEXT.md` — so the baseline, the drift
+shown at approval and the diff handed to the critic would all have stopped at the subdirectory, and
+the root files the same plan rewrites would have been invisible in exactly the way issue #25
+describes.
+
+So the session is asked for rather than passed in. Measured on 2026-09-03 by answering each host's
+handshake with a server that records the `initialize` params and then requests `roots/list`:
+
+| host | protocol | declares `roots` | answers `roots/list` |
+|---|---|---|---|
+| `claude-code` 2.1.258 | 2025-11-25 | `{"listChanged": true}` | the session's working directory |
+| `codex-mcp-client` 0.147.0 | 2025-06-18 | no | `{"roots": []}` |
+| `Cursor` 1.0.0 | 2025-11-25 | no | error `-32601 Method not found` |
+
+Two of the three answer a request they never advertised, one of them with an error, which is why the
+declared capability decides whether to ask at all rather than the shape of the answer. Only the host
+that declares it moves its run folder; the other two keep the layout they had.
+
+Roots is deprecated by the specification of 2026-07-28 (SEP-2577, which retires sampling and logging
+with it) on the grounds of vague semantics and low adoption, and it names no successor — after it
+goes, nothing in MCP tells a server where the user is sitting. Deprecated features stay functional
+for a year of spec versions. The fallback is what makes that survivable rather than a deadline: a
+host that stops declaring the capability reads as a host that never had one, and the run folder goes
+back under `workspaceRoot`. The cost of the removal is the clickable link, not the run.
+
+The decision that follows from all of this — and why the surface was not changed instead — is
+[docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md).

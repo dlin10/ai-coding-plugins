@@ -34,16 +34,17 @@ internal sealed class WorkAct
         string? findings,
         string? deferred,
         string? revision,
+        bool userGrantedRound,
         CancellationToken ct)
     {
-        ValidateArguments(act, planDraft, selection, findings, deferred, revision);
+        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft!, selection, revision, deferred, ct)
+                    .ReviewAsync(run, planDraft, selection, revision, deferred, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
@@ -56,7 +57,7 @@ internal sealed class WorkAct
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
                 var codeReview = await new CodeReview(_vendor, _prompts, git)
-                    .ReviewAsync(run, selection, ct)
+                    .ReviewAsync(run, selection, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique);
 
@@ -67,7 +68,7 @@ internal sealed class WorkAct
                 return JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
 
             default:
-                throw new ArgumentException($"unknown work act '{act}'", nameof(act));
+                throw new ArgumentRejectedException($"unknown work act '{act}'");
         }
     }
 
@@ -77,23 +78,33 @@ internal sealed class WorkAct
         Selection? selection,
         string? findings,
         string? deferred,
-        string? revision)
+        string? revision,
+        bool userGrantedRound)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
         if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix")
-            throw new ArgumentException($"unknown work act '{act}'", nameof(act));
+            throw new ArgumentRejectedException($"unknown work act '{act}'");
 
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentException.ThrowIfNullOrWhiteSpace(selection.Model);
 
         switch (act)
         {
+            // planDraft is optional here and nowhere else: forge.plan.write puts the draft on disk
+            // ahead of the round, and the act reads it from there when the start omits it. Whether
+            // there is one to read is a question about the run, so forge.work.start asks it through
+            // PlanReview.RequireDraft rather than here.
             case "plan.review":
-                Require(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
                 break;
             case "build.next":
+                RejectProvided(planDraft, nameof(planDraft), act);
+                RejectProvided(findings, nameof(findings), act);
+                RejectProvided(deferred, nameof(deferred), act);
+                RejectProvided(revision, nameof(revision), act);
+                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
+                break;
             case "review.code":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
@@ -103,21 +114,22 @@ internal sealed class WorkAct
             case "review.fix":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(revision, nameof(revision), act);
+                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
                 if (findings is null)
-                    throw new ArgumentException($"{act} requires findings", nameof(findings));
+                    throw new ArgumentRejectedException($"{act} requires findings");
                 break;
         }
-    }
-
-    private static void Require(string? value, string argumentName, string act)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException($"{act} requires {argumentName}", argumentName);
     }
 
     private static void RejectProvided(string? value, string argumentName, string act)
     {
         if (!string.IsNullOrWhiteSpace(value))
-            throw new ArgumentException($"{argumentName} is not used by {act}", argumentName);
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
+    }
+
+    private static void RejectProvided(bool value, string argumentName, string act)
+    {
+        if (value)
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
 }

@@ -81,7 +81,7 @@ public sealed class EndToEndTests : IDisposable
         var rounds = 0;
         while (true)
         {
-            var critique = await review.ReviewAsync(run, selection, ct);
+            var critique = await review.ReviewAsync(run, selection, false, ct);
             rounds++;
             _output.WriteLine($"review round {rounds}: verdict={critique.Verdict} findings={critique.Findings.Count}");
             if (critique.Verdict is "approve") break;

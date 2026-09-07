@@ -31,7 +31,8 @@ Rule: search finds candidates; Roslyn states facts.
 
 1. Confirm the Roslyn MCP tools are available. In Codex, use tool discovery when necessary.
 2. Confirm Visual Studio has the relevant solution loaded. Roslyn MCP exposes only the live solution attached to the configured port. When the repository registers several Roslyn servers, pick the one belonging to the solution that owns the code in question; the others answer for different solutions and report nothing useful about it.
-3. If Visual Studio is closed, the wrong solution is loaded, or the server is unreachable, say so before using text search or build output as a fallback.
+3. With several servers, choose by evidence rather than by the first name that responds: match the server name to the component folder that holds the file, and read the server's `instructions` from its `initialize` response, which names the solution and port it serves (extension v1.8.2 and later). A `DocumentNotFound` error names the solution that was searched. When that solution is not the one owning the file, the server is the wrong one: retry on the sibling server before concluding that Visual Studio has not loaded the solution.
+4. If Visual Studio is closed, the wrong solution is loaded, or the server is unreachable, say so before using text search or build output as a fallback.
 
 ## Use Roslyn MCP first for
 
@@ -53,3 +54,11 @@ Rule: search finds candidates; Roslyn states facts.
 - Fallback when Roslyn MCP is unavailable or inconclusive.
 
 Never delete code solely from a dead-code report. Review reflection, dependency injection, serialization, framework activation, and external API usage first.
+
+## Source-generator diagnostics
+
+Visual Studio can retain stale output from source generators in Balanced mode. `roslyn_validate_file` reports the baseline IDE compilation and adds `sourceGeneratedDocumentCount`: zero means a completed observation found no generated documents in the validated file's project; absent or null means the observation failed or exceeded its 10-second budget. This count is not a freshness signal. Requesting it can execute generators, but does not replace the diagnostics already captured for this response.
+
+An IDE build may help refresh the IDE cache, but does not guarantee immediate freshness: the experiment observed stale diagnostics even after a successful IDE build. `dotnet build` checks disk code and does not refresh that cache. Allow the workspace to update and validate again; persistence of the diagnostic still needs investigation. Automatic generator execution is a user-controlled VS option. Do not suppress genuine errors or assume every missing generated member is stale.
+
+The issue-70 experiment completed three scored live Balanced A-to-B trials without reproducing stale diagnostics in that direction. Stale MemberA diagnostics were observed during B-to-A preparation after successful IDE builds. Those preparations were excluded from the scored trials, and the candidate sequence was not measured against their stale cache. The measured `GetSourceGeneratedDocumentsAsync` then `GetCompilationAsync` sequence on the same captured project therefore did not demonstrate a refresh fix. The not-reproduced label applies only to the scored direction. It does not establish whether the candidate can repair the observed preparation failure or the reported branch-switch issue.

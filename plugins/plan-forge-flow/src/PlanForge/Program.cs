@@ -4,9 +4,11 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
+using PlanForge.Run;
 using PlanForge.Vendors;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -24,6 +26,10 @@ var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? 
 builder.Services
     .AddSingleton<JobRegistry>()
     .AddSingleton<CatalogCache>()
+    // Resolved from the connection's own server, which the stdio transport registers as a singleton
+    // beside these. A tool takes it the way it takes the two above — bound from services, so it
+    // never reaches the published schema.
+    .AddSingleton(services => new SessionRoots(services.GetRequiredService<McpServer>()))
     .AddHostedService<JobRegistryHostedService>()
     .Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(2))
     .AddMcpServer(o =>
@@ -32,7 +38,9 @@ builder.Services
         o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
     })
     .WithStdioServerTransport()
-    .WithTools<ForgeTools>()
+    // The SDK's own options plus this assembly's contract for the two structured arguments of
+    // forge.begin; without it the server fails at startup describing a Dictionary it cannot see.
+    .WithTools<ForgeTools>(ToolArgumentJson.ArgumentOptions)
     .WithResources<PlanCanvas>()
     // Reads the [McpAppUi] attributes the tools already carry and turns them into _meta.ui, so it
     // has to come after WithTools. Only forge.plan.show carries one; every other tool is untouched,

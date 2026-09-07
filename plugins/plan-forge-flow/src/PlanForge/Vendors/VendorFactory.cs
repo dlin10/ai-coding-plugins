@@ -17,13 +17,13 @@ namespace PlanForge.Vendors;
 /// </remarks>
 internal static class VendorFactory
 {
-    private const string Default = "claude";
+    private const string DEFAULT = "claude";
 
     public static IVendor Create(string? id, string workspaceRoot) =>
-        (id is { Length: > 0 } ? id.Trim() : Default).ToLowerInvariant() switch
+        (id is { Length: > 0 } ? id.Trim() : DEFAULT).ToLowerInvariant() switch
         {
             "claude" => new ClaudeCliVendor(workspaceRoot),
-            "codex" => new CodexAppServerVendor(workspaceRoot),
+            "codex" => new CodexCliVendor(workspaceRoot),
             "cursor" => new CursorAgentVendor(workspaceRoot),
             _ => throw new VendorException($"unknown vendor '{id}' — expected claude, codex or cursor")
         };

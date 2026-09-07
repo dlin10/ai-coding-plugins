@@ -1,4 +1,6 @@
+using PlanForge.Infrastructure;
 using PlanForge.Jobs;
+using PlanForge.Run;
 using Xunit;
 
 namespace PlanForge.Tests.Jobs;
@@ -47,7 +49,12 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Completed, result?.State);
         Assert.Equal("done", result?.ResultPayload);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+
+        // What this pins is that the wait ends on the completion rather than on the timeout, so the
+        // budget only has to sit well below the ten seconds asked for. A second does not: the suite
+        // runs its classes in parallel, and a loaded CI runner spent longer than that here twice
+        // over without anything being wrong.
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"waited {stopwatch.Elapsed}");
     }
 
     [Fact]
@@ -154,7 +161,7 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Completed, completed?.State);
         Assert.Equal(completed, registry.Get(workspace.RunPath, start.JobId));
-        Assert.Contains("job.persistence", File.ReadAllText(Path.Combine(workspace.RunPath, "forge.log")),
+        Assert.Contains("job.persistence", AtomicFile.Read(Path.Combine(workspace.RunPath, "forge.log")),
                         StringComparison.Ordinal);
     }
 
@@ -164,7 +171,7 @@ public sealed class JobRegistryTests
         using var workspace = new TestWorkspace();
         var registry = new JobRegistry();
 
-        Assert.Throws<ArgumentException>(() => registry.Get(workspace.RunPath, "../outside"));
+        Assert.Throws<ArgumentRejectedException>(() => registry.Get(workspace.RunPath, "../outside"));
         Assert.False(File.Exists(Path.Combine(workspace.RunPath, "outside.json")));
     }
 

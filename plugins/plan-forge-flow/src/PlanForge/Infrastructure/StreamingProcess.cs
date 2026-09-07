@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using PlanForge.Diagnostics;
 using PlanForge.Vendors;
 
@@ -8,7 +9,8 @@ namespace PlanForge.Infrastructure;
 internal sealed record ProcessSpec(string FileName,
                                    IReadOnlyList<string> Arguments,
                                    string? WorkingDirectory,
-                                   string StandardInput);
+                                   string StandardInput,
+                                   IReadOnlyDictionary<string, string>? Environment = null);
 
 /// <summary>
 /// Bounded runner for vendor processes: output cap, timeout, kill-tree. Unlike the old
@@ -16,18 +18,53 @@ internal sealed record ProcessSpec(string FileName,
 /// </summary>
 internal static class StreamingProcess
 {
-    private const int MaxOutputBytes = 8 * 1024 * 1024;
-    private const string Source = "process";
+    private const int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+    private const string SOURCE = "process";
 
     /// <summary>
-    /// How long a pipe is still read once the process behind it is gone. Everything the vendor
-    /// wrote is in the buffer by then, so this covers scheduling, not work.
+    /// How much of stdout is held back for a failure report. The bound <see cref="RunLog"/> gives a
+    /// field, so a tail reaches the log and the exception message without being cut twice.
     /// </summary>
-    private static readonly TimeSpan _exitDrain = TimeSpan.FromSeconds(2);
+    private const int STDOUT_TAIL_CHARS = 2000;
 
+    // No BOM: a byte-order mark on stdin is a stray character at the head of the prompt.
+    private static readonly UTF8Encoding UTF8 = new(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
+    /// How long a pipe is still read once the process behind it is gone. The bound is wanted for an
+    /// inherited handle holding the pipe open, since everything the process wrote is in the buffer
+    /// by the time it exits — but it lands on this machine getting round to reading that buffer
+    /// just the same, and the number is squeezed from both sides.
+    /// </summary>
+    /// <remarks>
+    /// Too short drops output that was already written: at the two seconds this used to be, CI run
+    /// 33916817192 had `git rev-parse HEAD` exit 0 with its one line never delivered, so a baseline
+    /// was captured with an empty head. Too long rebuilds the wait a spawned server imposes — the
+    /// twenty-minute timeout over a critique delivered in two that ending the stream on the exit
+    /// was written to fix, and which <c>DiagnosticLogTests</c> holds to ten seconds. Five sits
+    /// between: several times any ordinary scheduling delay, and inside that guard. What makes the
+    /// choice survivable rather than lucky is that <see cref="NextLineAsync"/> logs the expiry, so
+    /// the next machine slow enough to lose a line says so instead of returning a short stream.
+    /// </remarks>
+    private static readonly TimeSpan _exitDrain = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The same window for stderr, and deliberately the short one it always was. What expires here
+    /// costs a tail in the log; what expires on stdout costs the answer itself, and the two are
+    /// worth waiting for in different measure — a child holding both pipes would otherwise add the
+    /// stdout window to the end of every process that leaves one behind.
+    /// </summary>
+    private static readonly TimeSpan _stderrDrain = TimeSpan.FromSeconds(2);
+
+    /// <param name="exitDrain">
+    /// Overrides <see cref="_exitDrain"/> for this call, which is how the drain is tested: a
+    /// per-call argument rather than a settable static, because this suite runs processes in
+    /// parallel and a narrowed window is exactly what drops another test's output.
+    /// </param>
     public static async IAsyncEnumerable<string> RunAsync(ProcessSpec spec,
                                                           TimeSpan timeout,
-                                                          [EnumeratorCancellation] CancellationToken ct)
+                                                          [EnumeratorCancellation] CancellationToken ct,
+                                                          TimeSpan? exitDrain = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
@@ -39,7 +76,7 @@ internal static class StreamingProcess
         // The launch record is the single most useful line in the log: an argument list nobody can
         // see is how a model id the vendor rejects reads as an unexplained timeout.
         var log = RunLog.Current;
-        log?.Write("info", Source, "process.start",
+        log?.Write("info", SOURCE, "process.start",
             ("exec", spec.FileName),
             ("args", string.Join(' ', spec.Arguments)),
             ("cwd", spec.WorkingDirectory),
@@ -47,17 +84,18 @@ internal static class StreamingProcess
 
         if (!process.Start())
         {
-            log?.Write("error", Source, "process.start.failed", ("exec", spec.FileName));
+            log?.Write("error", SOURCE, "process.start.failed", ("exec", spec.FileName));
             throw new VendorException($"could not start {spec.FileName}");
         }
 
-        log?.Write("info", Source, "process.started", ("exec", spec.FileName), ("pid", Pid(process)));
+        log?.Write("info", SOURCE, "process.started", ("exec", spec.FileName), ("pid", Pid(process)));
 
         var stderr = process.StandardError.ReadToEndAsync(token);
         var exited = process.WaitForExitAsync(token);
 
         var seen = 0L;
         var capped = false;
+        var stdout = new OutputTail();
         try
         {
             // Inside the try because a vendor that never drains its stdin blocks this write, and
@@ -66,13 +104,16 @@ internal static class StreamingProcess
             await process.StandardInput.WriteAsync(spec.StandardInput.AsMemory(), token).ConfigureAwait(false);
             process.StandardInput.Close();
 
-            while (await NextLineAsync(process.StandardOutput, exited, token).ConfigureAwait(false) is { } line)
+            while (await NextLineAsync(process.StandardOutput, exited, spec.FileName,
+                                       exitDrain ?? _exitDrain, token).ConfigureAwait(false) is { } line)
             {
                 seen += line.Length;
-                if (seen > MaxOutputBytes)
+                stdout.Add(line);
+
+                if (seen > MAX_OUTPUT_BYTES)
                 {
                     capped = true;
-                    throw new VendorException($"{spec.FileName} exceeded {MaxOutputBytes} bytes of output");
+                    throw new VendorException($"{spec.FileName} exceeded {MAX_OUTPUT_BYTES} bytes of output");
                 }
 
                 yield return line;
@@ -95,34 +136,46 @@ internal static class StreamingProcess
                 // read, so a live process would keep it open and the drain would spend its whole
                 // bound waiting on the very process we came here to end.
                 var pid = Pid(process);
-                try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                } 
+                catch (InvalidOperationException) { }
 
                 var killed = await DrainAsync(stderr).ConfigureAwait(false);
-                log?.Write("warn", Source, "process.kill",
+                log?.Write("warn", SOURCE, "process.kill",
                     ("exec", spec.FileName),
                     ("pid", pid),
                     ("reason", reason),
-                    ("stderrTail", killed.Length == 0 ? null : RunLog.Tail(killed)));
+                    ("stderrTail", killed.Length == 0 ? null : RunLog.Tail(killed)),
+                    ("stdoutTail", stdout.Tail()));
             }
         }
 
         await exited.ConfigureAwait(false);
 
         var error = await DrainAsync(stderr).ConfigureAwait(false);
-        log?.Write(process.ExitCode == 0 ? "info" : "error", Source, "process.exit",
+        log?.Write(process.ExitCode == 0 ? "info" : "error", SOURCE, "process.exit",
             ("exec", spec.FileName),
             ("pid", Pid(process)),
             ("exitCode", process.ExitCode.ToString()),
-            ("stderrTail", error.Length == 0 ? null : RunLog.Tail(error)));
+            ("stderrTail", error.Length == 0 ? null : RunLog.Tail(error)),
+            ("stdoutTail", process.ExitCode == 0 ? null : stdout.Tail()));
 
         if (process.ExitCode != 0)
-            throw new VendorException($"{spec.FileName} exited {process.ExitCode}: {error}", process.ExitCode);
+            throw new VendorException(Failure(spec.FileName, process.ExitCode, error, stdout), process.ExitCode);
     }
 
-    public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec, TimeSpan timeout, CancellationToken ct)
+    public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec,
+                                                                 TimeSpan timeout,
+                                                                 CancellationToken ct,
+                                                                 TimeSpan? exitDrain = null)
     {
         var lines = new List<string>();
-        await foreach (var line in RunAsync(spec, timeout, ct).ConfigureAwait(false)) lines.Add(line);
+        await foreach (var line in RunAsync(spec, timeout, ct, exitDrain).ConfigureAwait(false))
+        {
+            lines.Add(line);
+        }
         return lines;
     }
 
@@ -131,9 +184,20 @@ internal static class StreamingProcess
     /// EOF is not the vendor's alone to give: a server it spawns inherits the handle and can hold
     /// the pipe open long after the vendor is gone, and a run that waited for it read a critique
     /// delivered in two minutes as a twenty-minute timeout. Once the process has exited, only what
-    /// it already wrote can still arrive, so a short drain finishes the stream.
+    /// it already wrote can still arrive, so a bounded drain finishes the stream.
     /// </summary>
-    private static async Task<string?> NextLineAsync(StreamReader stdout, Task exited, CancellationToken ct)
+    /// <remarks>
+    /// An expired drain is a truncation: what had not been read is dropped, and the caller is
+    /// handed a short stream that looks exactly like a complete one. That is how an empty
+    /// `git rev-parse HEAD` reached a baseline as an answer, so the expiry is logged. On the
+    /// handle-holding path it is the ordinary end of a stream and nothing was lost; on a starved
+    /// machine it is the line to grep for.
+    /// </remarks>
+    private static async Task<string?> NextLineAsync(StreamReader stdout,
+                                                     Task exited,
+                                                     string exec,
+                                                     TimeSpan drain,
+                                                     CancellationToken ct)
     {
         var read = stdout.ReadLineAsync(ct).AsTask();
         if (await Task.WhenAny(read, exited).ConfigureAwait(false) == read)
@@ -141,10 +205,14 @@ internal static class StreamingProcess
 
         try
         {
-            return await read.WaitAsync(_exitDrain, ct).ConfigureAwait(false);
+            return await read.WaitAsync(drain, ct).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
+            RunLog.Current?.Write("warn", SOURCE, "process.drain.timeout",
+                ("exec", exec),
+                ("drain", drain.ToString()));
+
             // Nothing more is coming, and nothing may read this stream again: a StreamReader
             // refuses a second read while one is pending. Observing the abandoned one keeps it from
             // resurfacing as an unobserved task exception.
@@ -157,19 +225,44 @@ internal static class StreamingProcess
     /// Reads stderr without letting the read decide the outcome. On a kill the stream is cancelled
     /// rather than closed, and the tail we wanted is the reason we were killing — losing it to the
     /// same cancellation would leave the log saying only that something stopped. The bound is the
-    /// same one <see cref="NextLineAsync"/> applies to stdout, and for the same reason: an inherited
-    /// handle can outlive the process whose output we came for.
+    /// same kind <see cref="NextLineAsync"/> applies to stdout, and for the same reason: an
+    /// inherited handle can outlive the process whose output we came for. Losing a stderr tail
+    /// costs a log line rather than an answer, so this bound is the shorter one and its expiry
+    /// stays silent.
     /// </summary>
     private static async Task<string> DrainAsync(Task<string> stderr)
     {
         try
         {
-            return await stderr.WaitAsync(_exitDrain).ConfigureAwait(false);
+            return await stderr.WaitAsync(_stderrDrain).ConfigureAwait(false);
         }
         catch (Exception error) when (error is OperationCanceledException or TimeoutException or IOException)
         {
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Why the process failed, in the words it left behind. A CLI that says its piece on stdout and
+    /// exits with nothing on stderr used to reach the caller as <c>claude.exe exited 1: </c> — an
+    /// exit code and an empty colon. That is the shape an individual spend limit takes, and in run
+    /// 20260905-144900-e42174 it cost a reproduction of the vendor call by hand to learn what the
+    /// CLI had already said.
+    /// </summary>
+    /// <remarks>
+    /// The stdout tail is added only where stderr is blank. Where stderr speaks it is the better
+    /// account of a failure, and <see cref="Acts.GateRunner"/> keeps a copy of stdout of its own
+    /// that the tail would only repeat. Both tails are cut: what a vendor writes while failing is
+    /// not smaller than what it writes while working, and neither belongs in an exception message
+    /// whole.
+    /// </remarks>
+    private static string Failure(string exec, int exitCode, string stderr, OutputTail stdout)
+    {
+        if (!string.IsNullOrWhiteSpace(stderr)) return $"{exec} exited {exitCode}: {RunLog.Tail(stderr)}";
+
+        return stdout.Tail() is { } tail
+            ? $"{exec} exited {exitCode} with nothing on stderr; last of stdout: {tail}"
+            : $"{exec} exited {exitCode} with no output";
     }
 
     // The process may already be gone by the time we ask, and an unusable pid is not worth a throw.
@@ -193,11 +286,68 @@ internal static class StreamingProcess
             CreateNoWindow = true,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+
+            // Every vendor CLI here is a Node process and writes UTF-8 both ways. Left unset these
+            // follow the console code page, and a server started by an MCP host has no console to
+            // speak of: run 20260902-224201-7bf03b decoded vendor output as CP437, so every em
+            // dash reached the run log, the critic's findings and the builder's evidence as three
+            // characters of mojibake. ASCII survives that; a plan or a finding written in anything
+            // else does not.
+            StandardOutputEncoding = UTF8,
+            StandardErrorEncoding = UTF8,
+            StandardInputEncoding = UTF8
         };
 
-        if (!string.IsNullOrWhiteSpace(spec.WorkingDirectory)) info.WorkingDirectory = spec.WorkingDirectory;
-        foreach (var argument in spec.Arguments) info.ArgumentList.Add(argument);
+        if (!string.IsNullOrWhiteSpace(spec.WorkingDirectory))
+            info.WorkingDirectory = spec.WorkingDirectory;
+
+        if (spec.Environment is not null)
+        {
+            foreach (var pair in spec.Environment)
+            {
+                info.Environment[pair.Key] = pair.Value;
+            }
+        }
+
+        foreach (var argument in spec.Arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
         return info;
+    }
+
+    /// <summary>
+    /// The last of stdout, kept for a failure nobody can ask the process to explain a second time.
+    /// Bounded in characters rather than in lines, because one line of a vendor's JSONL can be the
+    /// size of a file; an over-long line is kept by its own tail, since the end of the output is
+    /// the whole point of holding any of it.
+    /// </summary>
+    private sealed class OutputTail
+    {
+        private readonly Queue<string> _lines = new();
+        private int _held;
+
+        public void Add(string line)
+        {
+            var kept = line.Length <= STDOUT_TAIL_CHARS ? line : line[^STDOUT_TAIL_CHARS..];
+            _lines.Enqueue(kept);
+            _held += kept.Length;
+
+            // Never below one line: whatever is left is already inside the budget, and dropping it
+            // would leave a failure with nothing at all to show.
+            while (_held > STDOUT_TAIL_CHARS && _lines.Count > 1)
+            {
+                _held -= _lines.Dequeue().Length;
+            }
+        }
+
+        /// <summary>The tail as one block, or <see langword="null"/> when the process wrote nothing.</summary>
+        public string? Tail()
+        {
+            var text = string.Join('\n', _lines).TrimEnd();
+            return text.Length == 0 ? null : RunLog.Tail(text);
+        }
     }
 }

@@ -96,12 +96,250 @@ public sealed class BuildTests : IDisposable
         Assert.Contains("- `tracked.txt`", flow, StringComparison.Ordinal);
     }
 
-    private RunDirectory NewRun(string builderVendor, string builderSessionId)
+    [Fact]
+    public async Task A_blocked_builder_leaves_tasks_completed_unchanged_and_retries_the_same_task()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "needs a decision"), "stuck"),
+                        "retry-token");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
+                        "next-token");
+        var run = NewRun("codex", "");
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Equal(0, run.ReadState().TasksCompleted);
+        Assert.Equal("retry-token", run.ReadState().BuilderSessionId);
+
+        var second = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+
+        Assert.Equal(2, vendor.Sessions.Count);
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_done_builder_advances_tasks_completed_by_one()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
+                        "next-token");
+        var run = NewRun("codex", "");
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", "low"),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal(1, outcome.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+    }
+
+    /// <summary>
+    /// The run behind docs/adr/0015: a builder reporting `done` and `passed` while the tests its
+    /// gate named were never written. The host runs the gate itself, and its exit code — not the
+    /// builder's account — decides whether the task counts.
+    /// </summary>
+    [Fact]
+    public async Task A_failing_gate_withholds_the_task_marks_it_gate_failed_and_briefs_the_retry()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "110 tests passed"), "done"), "token-1");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt", "tests.txt"], new Verification("passed", "124 tests passed"), "done"), "token-2");
+        var run = NewRun("codex", "", GatedPlan("Write-Output 'suite ran'; cmd /c exit 2", "Write-Output second"));
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Equal("gate_failed", first.Result?.Status);
+        Assert.Equal("failed", first.Result?.Gate?.Outcome);
+        Assert.Equal(2, first.Result?.Gate?.ExitCode);
+        Assert.Contains("suite ran", first.Result?.Gate?.Output, StringComparison.Ordinal);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Equal(0, run.ReadState().TasksCompleted);
+        Assert.Equal("token-1", run.ReadState().BuilderSessionId);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("Status: gate_failed", flow, StringComparison.Ordinal);
+        Assert.Contains("Gate: failed — `Write-Output 'suite ran'; cmd /c exit 2` exited 2", flow, StringComparison.Ordinal);
+        Assert.Contains("suite ran", flow, StringComparison.Ordinal);
+
+        // The plan is edited between the two calls, standing in for the fix a real builder makes:
+        // the retry is the same task, with the gate's own words in front of the builder.
+        run.WritePlan(GatedPlan("Write-Output 'suite ran'", "Write-Output second"));
+        var second = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("did not pass its gate", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("exited 2", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("suite ran", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Equal("done", second.Result?.Status);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    [Fact]
+    public async Task A_passing_gate_counts_the_task_whatever_the_builder_said_about_its_own_verification()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("unavailable", "the sandbox denied dotnet"), "done"));
+        var run = NewRun("", "", GatedPlan("Write-Output green", "Write-Output second"));
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("done", outcome.Result?.Status);
+        Assert.Equal("passed", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(1, outcome.TasksCompleted);
+        Assert.DoesNotContain("did not pass its gate", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Contains("Gate: passed — `Write-Output green` exited 0", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_gate_environment_from_the_run_state_reaches_the_gate()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        var run = NewRun("", "", GatedPlan("if ($env:CD_TEST_SQL_CONN -ne 'Server=.') { exit 6 }", "Write-Output second"),
+                         new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." });
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("passed", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(1, outcome.TasksCompleted);
+    }
+
+    [Fact]
+    public async Task A_gate_that_is_a_condition_leaves_the_task_on_the_builder_s_word_and_says_so()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"));
+        var run = NewRun("", "", "## Approach\n\n1. **Task.** Do it. **Gate:** every new type carries a doc comment. (R1)\n");
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("done", outcome.Result?.Status);
+        Assert.Equal("not_executable", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(1, outcome.TasksCompleted);
+        Assert.Contains("Gate: not executable — the gate is a condition rather than a command",
+                        File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_blocked_builder_whose_own_check_failed_has_its_gate_left_unrun()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("failed", "the suite is red"), "stuck"));
+        var run = NewRun("", "", GatedPlan("cmd /c exit 1", "Write-Output second"));
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("blocked", outcome.Result?.Status);
+        Assert.Equal("not_run", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(0, outcome.TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    /// <summary>
+    /// Task 13 of run 20260905-144900-e42174, both attempts. The first answered `done` and failed
+    /// its gate, so the failure was stored; the second fixed the cause but answered `blocked`,
+    /// because the codex sandbox cannot reach the database three of the nine gated tests need. Under
+    /// the old rule no gate ran for a blocked turn, and the stored failure cleared only on a gate
+    /// that passed, so every later attempt was handed superseded evidence, reasoned that only the
+    /// host could verify, and blocked again — the last of them changing no files at all.
+    /// </summary>
+    [Fact]
+    public async Task A_blocked_builder_that_could_not_verify_is_gated_by_the_host_and_counts_when_it_passes()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "token-1");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox cannot reach SQL Express"),
+                                        "fixed the deserialization, cannot run the gated tests"), "token-2");
+        var run = NewRun("codex", "", GatedPlan("Write-Output 'deserializing'; cmd /c exit 2", "Write-Output second"));
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Equal("gate_failed", first.Result?.Status);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Contains("exited 2", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
+
+        // The gate passes now, standing in for the fix the second attempt made before reporting that
+        // it could not prove it — the same substitution A_failing_gate_withholds_the_task uses.
+        run.WritePlan(GatedPlan("Write-Output 'deserializing'", "Write-Output second"));
+        var second = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
+
+        Assert.Equal("done", second.Result?.Status);
+        Assert.Equal("passed", second.Result?.Gate?.Outcome);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+
+        // The status was rewritten, not the report: what the builder could not check stays on the
+        // timeline beside the host's answer.
+        Assert.Contains("Verification: unavailable — the sandbox cannot reach SQL Express",
+                        File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same turn against a gate that does not pass. The exit code decides in both directions, so
+    /// this is `gate_failed` like any other, and what the next attempt is told comes from this run
+    /// rather than from an older one.
+    /// </summary>
+    [Fact]
+    public async Task A_blocked_builder_whose_gate_fails_on_the_host_is_gate_failed_with_this_run_s_output()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox denied dotnet"), "cannot verify"));
+        var run = NewRun("", "", GatedPlan("Write-Output 'the host tried'; cmd /c exit 4", "Write-Output second"));
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("gate_failed", outcome.Result?.Status);
+        Assert.Equal("failed", outcome.Result?.Gate?.Outcome);
+        Assert.Equal(4, outcome.Result?.Gate?.ExitCode);
+        Assert.Equal(0, outcome.TasksCompleted);
+        Assert.Contains("the host tried", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_builder_roots_from_the_run_state_reach_the_builder_s_role()
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        var run = NewRun("", "", Plan, builderRoots: [@"C:\Dev\eShopOnContainers"]);
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
+                                                                                  CancellationToken.None);
+
+        Assert.Equal([@"C:\Dev\eShopOnContainers"], Assert.Single(vendor.Sessions).Role.WritableRoots);
+    }
+
+    private static string GatedPlan(string firstGate, string secondGate) =>
+        $"## Approach\n\n1. **First.** Do it. **Gate:** `{firstGate}` (R1)\n2. **Second.** Do it. **Gate:** `{secondGate}` (R2)\n";
+
+    private RunDirectory NewRun(string builderVendor,
+                                string builderSessionId,
+                                string? plan = null,
+                                IReadOnlyDictionary<string, string>? gateEnvironment = null,
+                                IReadOnlyList<string>? builderRoots = null)
     {
         var run = RunDirectory.Create(_workspace, "build");
-        run.WritePlan(Plan);
+        run.WritePlan(plan ?? Plan);
         run.WriteState(new RunState("build", _workspace, "Text", DateTimeOffset.Now, 0, 5,
-                                    Approved: true, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor));
+                                    Approved: true, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor,
+                                    GateEnvironment: gateEnvironment, BuilderRoots: builderRoots));
         return run;
     }
 

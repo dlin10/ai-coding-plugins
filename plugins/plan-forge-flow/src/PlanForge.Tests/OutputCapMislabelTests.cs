@@ -107,7 +107,12 @@ public sealed class OutputCapMislabelTests : IDisposable
         }
 
         Assert.Contains("exceeded", error.Message, StringComparison.Ordinal);
-        Assert.Equal("output-cap", Field(Single(Read(run), "process.kill"), "reason"));
+
+        // The tail of what it had written by then, kept for the same reason the stderr one is: a
+        // killed process is not around to be asked a second time.
+        var killed = Single(Read(run), "process.kill");
+        Assert.Equal("output-cap", Field(killed, "reason"));
+        Assert.NotEmpty(Field(killed, "stdoutTail"));
     }
 
     /// <summary>
@@ -134,8 +139,14 @@ public sealed class OutputCapMislabelTests : IDisposable
         return path;
     }
 
+    /// <summary>
+    /// Through <see cref="AtomicFile.Read"/> for the reason <c>DiagnosticLogTests.Read</c> records:
+    /// an ordinary read cannot open a file a concurrent append is holding.
+    /// </summary>
     private static IReadOnlyList<JsonElement> Read(RunDirectory run) =>
-        File.ReadAllLines(run.DiagnosticLogPath)
+        AtomicFile.Read(run.DiagnosticLogPath)
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
             .Where(line => line.Length > 0)
             .Select(line => JsonDocument.Parse(line).RootElement)
             .ToList();

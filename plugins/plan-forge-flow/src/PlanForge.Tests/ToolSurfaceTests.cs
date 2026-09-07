@@ -1,9 +1,12 @@
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
 using PlanForge.Run;
+using PlanForge.Vendors;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -63,6 +66,26 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
+    /// The rejection issue #59 measured blank on the wire: written for the orchestrator, thrown as
+    /// a framework type, and so blanked by the SDK. It runs the real validator inside the filter
+    /// rather than handing it a ready-made exception, because the in-process tests already pinned
+    /// this wording and passed while the wire said nothing.
+    /// </summary>
+    [Fact]
+    public async Task An_argument_rejection_reaches_the_caller_naming_the_argument_and_the_act()
+    {
+        var result = await ToolErrors.Surfaced((_, _) =>
+        {
+            WorkAct.ValidateArguments("build.next", null, new Selection("model", null), null, null, null, true);
+            throw new InvalidOperationException("the validator accepted an argument the act does not take");
+        })(null!, CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains("userGrantedRound", Text(result), StringComparison.Ordinal);
+        Assert.Contains("build.next", Text(result), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The SDK blanks foreign exception messages so a server cannot leak what a stray exception
     /// happens to carry, and nothing here was written for a model to read. That default stands.
     /// </summary>
@@ -81,6 +104,30 @@ public sealed class ToolSurfaceTests
     {
         await Assert.ThrowsAsync<OperationCanceledException>(
             async () => await Surfaced(new OperationCanceledException()));
+    }
+
+    /// <summary>
+    /// The two structured arguments of <c>forge.plan.confirm</c> are the first non-scalar tool
+    /// inputs this server takes, and reflection-based serialization is off repo-wide: this proves
+    /// the SDK can still describe them in the published schema, and that neither is required. The
+    /// service the tool takes from the container is bound the way the server binds it, so it stays
+    /// out of the schema here as it does on the wire.
+    /// </summary>
+    [Fact]
+    public void Confirm_publishes_the_gate_environment_and_the_builder_roots_as_optional_arguments()
+    {
+        var services = new ServiceCollection().AddSingleton(SessionRoots.None).BuildServiceProvider();
+        var tool = McpServerTool.Create(typeof(ForgeTools).GetMethod(nameof(ForgeTools.ConfirmPlan))!,
+                                        options: new McpServerToolCreateOptions { Services = services, SerializerOptions = ToolArgumentJson.ArgumentOptions });
+
+        var schema = tool.ProtocolTool.InputSchema;
+        var properties = schema.GetProperty("properties");
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots"],
+                     properties.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+        Assert.Contains("object", properties.GetProperty("gateEnvironment").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
     private static ValueTask<CallToolResult> Surfaced(Exception error) =>

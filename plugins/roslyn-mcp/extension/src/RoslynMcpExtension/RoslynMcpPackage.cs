@@ -15,7 +15,7 @@ namespace RoslynMcpExtension;
 
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", "1.7.0")]
+[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", "1.8.2")]
 [ProvideOptionPage(typeof(SettingsPage), "Roslyn MCP Extension", "General", 0, 0, true)]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExists_string, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("b8a7f3e2-1c4d-4e5f-9a6b-8c7d0e1f2a3b")]
@@ -94,10 +94,10 @@ public sealed class RoslynMcpPackage : AsyncPackage
         try
         {
             var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
-            var solutionDirectory = GetCurrentSolutionDirectory();
+            var solutionDirectory = GetCurrentSolutionDirectory(out var solutionPath);
             var port = RoslynMcpConfig.ResolvePort(solutionDirectory, settings.Port, out var configPath);
 
-            Controller.EnqueueEnsure(new McpServerSessionOptions(port, settings.ServerName, solutionDirectory, configPath));
+            Controller.EnqueueEnsure(new McpServerSessionOptions(port, settings.ServerName, solutionDirectory, configPath, solutionPath));
         }
         catch (Exception ex)
         {
@@ -120,11 +120,15 @@ public sealed class RoslynMcpPackage : AsyncPackage
             await infoBar.TryShowInfoBarUIAsync();
     }
 
-    private string? GetCurrentSolutionDirectory()
+    private string? GetCurrentSolutionDirectory(out string? solutionPath)
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        if (_solutionService?.GetSolutionInfo(out var dir, out _, out _) == VSConstants.S_OK && !string.IsNullOrEmpty(dir))
+        solutionPath = null;
+        if (_solutionService?.GetSolutionInfo(out var dir, out var file, out _) == VSConstants.S_OK && !string.IsNullOrEmpty(dir))
+        {
+            solutionPath = string.IsNullOrEmpty(file) ? null : file;
             return dir;
+        }
         return null;
     }
 

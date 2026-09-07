@@ -46,13 +46,13 @@ internal sealed class RunDirectory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jobId);
         if (!string.Equals(jobId, System.IO.Path.GetFileName(jobId), StringComparison.Ordinal))
-            throw new ArgumentException("job id must be a file name", nameof(jobId));
+            throw new ArgumentRejectedException("job id must be a file name");
 
         var jobsPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, JobsFolder));
         var jobPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(jobsPath, jobId + ".json"));
         var prefix = jobsPath.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
         if (!jobPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("job id resolves outside the run's jobs folder", nameof(jobId));
+            throw new ArgumentRejectedException("job id resolves outside the run's jobs folder");
 
         return jobPath;
     }
@@ -82,41 +82,69 @@ internal sealed class RunDirectory
     /// </summary>
     public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
 
-    public static RunDirectory Create(string workspaceRoot, string runId)
+    /// <summary>
+    /// Starts a run in the directory the host calls its own, falling back to
+    /// <paramref name="workspaceRoot"/> when it declares none. A run's files are the ones a person
+    /// reads, so they belong beside the session rather than wherever the task under review happens
+    /// to be rooted — see <see cref="SessionRoots"/>.
+    /// </summary>
+    public static async Task<RunDirectory> CreateAsync(SessionRoots roots,
+                                                       string workspaceRoot,
+                                                       string runId,
+                                                       CancellationToken ct) =>
+        Create(await roots.DirectoryAsync(ct).ConfigureAwait(false) ?? workspaceRoot, runId);
+
+    /// <summary>
+    /// Finds a run <see cref="CreateAsync"/> started. The session root is tried first and the
+    /// workspace root second, so a run begun before the session root was consulted — or begun
+    /// against a host that declares none — is still found by the same call.
+    /// </summary>
+    public static async Task<RunDirectory> OpenAsync(SessionRoots roots,
+                                                     string workspaceRoot,
+                                                     string runId,
+                                                     CancellationToken ct) =>
+        await roots.DirectoryAsync(ct).ConfigureAwait(false) is { } sessionRoot && Exists(sessionRoot, runId)
+            ? Open(sessionRoot, runId)
+            : Open(workspaceRoot, runId);
+
+    public static RunDirectory Create(string runRoot, string runId)
     {
-        var runPath = Confine(workspaceRoot, runId);
+        var runPath = Confine(runRoot, runId);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(runPath)!);
-        AtomicFile.Write(System.IO.Path.Combine(workspaceRoot, ForgeFolder, ".gitignore"), SelfIgnore);
+        AtomicFile.Write(System.IO.Path.Combine(runRoot, ForgeFolder, ".gitignore"), SelfIgnore);
         Directory.CreateDirectory(runPath);
 
         return new RunDirectory(runId, runPath);
     }
 
-    public static RunDirectory Open(string workspaceRoot, string runId)
+    public static RunDirectory Open(string runRoot, string runId)
     {
-        var runPath = Confine(workspaceRoot, runId);
+        var runPath = Confine(runRoot, runId);
         if (!Directory.Exists(runPath)) 
             throw new RunNotFoundException(runId);
         return new RunDirectory(runId, runPath);
     }
 
+    private static bool Exists(string runRoot, string runId) => Directory.Exists(Confine(runRoot, runId));
+
     /// <summary>
     /// The second of the two surviving checks: everything this class writes is under the run folder,
-    /// so one containment test on the run id replaces the six symlink and reparse-point guards. Both
-    /// the workspace root and the run id reach us from a tool call, which makes them caller input.
+    /// so one containment test on the run id replaces the six symlink and reparse-point guards. The
+    /// run id always reaches us from a tool call, and so does the root whenever it is the workspace
+    /// root, which makes both caller input.
     /// </summary>
     /// <remarks>
     /// The root has to be absolute, and that is worth refusing rather than resolving. A relative one
     /// would be resolved against the server process's working directory, which is not the repository
     /// and differs by host — the plugin folder under Codex, whatever the host started in elsewhere.
     /// Two sessions passing a relative root would then land in the same folder, and their runs would
-    /// silently share it.
+    /// silently share it. A session root cannot trip this: it is read out of a <c>file://</c> URI.
     /// </remarks>
-    private static string Confine(string workspaceRoot, string runId)
+    private static string Confine(string runRoot, string runId)
     {
-        if (!System.IO.Path.IsPathRooted(workspaceRoot)) throw new WorkspaceNotRootedException(workspaceRoot);
+        if (!System.IO.Path.IsPathRooted(runRoot)) throw new WorkspaceNotRootedException(runRoot);
 
-        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(workspaceRoot, ForgeFolder));
+        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(runRoot, ForgeFolder));
         var runPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(forgeRoot, runId));
 
         var prefix = forgeRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
@@ -252,6 +280,19 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    /// <summary>
+    /// Records that a round ran past its cap because the user granted it, so a reader of
+    /// <c>flow_log.md</c> sees the round as bought rather than budgeted.
+    /// </summary>
+    public void AppendFlowGrantedRound(string act, int round) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).AppendLine(" — extra round granted")
+                               .AppendLine()
+                               .Append("Round ").Append(round)
+                               .AppendLine(" runs because the user granted it past the cap.")
+                               .AppendLine()
+                               .ToString());
+
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
         var entry = new StringBuilder().Append("## Task ").Append(number).Append(" of ").Append(total).AppendLine()
@@ -305,8 +346,11 @@ internal sealed class RunDirectory
              .AppendLine()
              .Append("Verification: ").Append(result.Verification.Outcome)
              .Append(" — ").Append(result.Verification.Evidence).AppendLine()
-             .AppendLine()
-             .AppendLine(result.Summary)
+             .AppendLine();
+
+        if (result.Gate is { } gate) AppendGate(entry, gate);
+
+        entry.AppendLine(result.Summary)
              .AppendLine();
 
         foreach (var file in result.FilesChanged)
@@ -314,10 +358,61 @@ internal sealed class RunDirectory
 
         if (result.FilesChanged.Count > 0) entry.AppendLine();
     }
+
+    /// <summary>
+    /// The host's own line beside the builder's verification, so a reader of the timeline sees
+    /// which of the two decided the task. The output travels only when the gate did not pass:
+    /// that is when someone has to read it.
+    /// </summary>
+    private static void AppendGate(StringBuilder entry, GateRun gate)
+    {
+        var label = gate.Label == "Gate" ? "Gate" : "Gates " + gate.Label;
+        entry.Append(label).Append(": ").Append(gate.Outcome.Replace('_', ' ')).Append(" — ");
+
+        switch (gate.Outcome)
+        {
+            case "passed":
+                entry.Append(Inline(gate.Command)).Append(" exited 0 in ").Append(gate.Seconds?.ToString("0")).AppendLine(" s");
+                break;
+            case "failed":
+                entry.Append(Inline(gate.Command))
+                     .Append(gate.ExitCode is { } code ? $" exited {code}" : " did not run")
+                     .Append(" after ").Append(gate.Seconds?.ToString("0")).AppendLine(" s");
+                break;
+            case "timeout":
+                entry.Append(Inline(gate.Command)).Append(' ').AppendLine(gate.Detail);
+                break;
+            default:
+                entry.AppendLine(gate.Detail);
+                break;
+        }
+
+        entry.AppendLine();
+
+        if (gate.Outcome is "failed" or "timeout" && gate.Output is { Length: > 0 })
+            entry.AppendLine("```text")
+                 .AppendLine(gate.Output)
+                 .AppendLine("```")
+                 .AppendLine();
+    }
+
+    // A one-line command reads inline; a script keeps its lines, each in its own span.
+    private static string Inline(string? command) =>
+        command is null ? string.Empty
+        : command.Contains('\n') ? string.Join(" · ", command.Split('\n').Select(line => $"`{line}`"))
+        : $"`{command}`";
 }
 
 // The code-review defaults keep state files written before the counters existed readable; the cap
-// default matches what forge.begin writes today.
+// default matches what forge.begin writes today. The granted-round defaults do the same for state
+// files written before the user could buy a round past either cap, and the null gate settings for
+// runs begun before the server ran gates at all.
+/// <param name="GateEnvironment">Environment variables every gate command runs with, from <c>forge.begin</c>.</param>
+/// <param name="BuilderRoots">Paths outside the workspace the builder may write to, from <c>forge.begin</c>; codex-only today.</param>
+/// <param name="PendingGateFailure">
+/// What the last gate run said when it failed, handed to the next builder turn and cleared by the
+/// first gate that passes. Null while nothing is owed.
+/// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -330,7 +425,12 @@ internal sealed record RunState(string RunId,
                                 string BuilderSessionId = "",
                                 string BuilderVendor = "",
                                 int CodeReviewRounds = 0,
-                                int CodeReviewRoundCap = 3);
+                                int CodeReviewRoundCap = 3,
+                                int GrantedReviewRounds = 0,
+                                int GrantedCodeReviewRounds = 0,
+                                IReadOnlyDictionary<string, string>? GateEnvironment = null,
+                                IReadOnlyList<string>? BuilderRoots = null,
+                                string? PendingGateFailure = null);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 
@@ -339,6 +439,11 @@ internal sealed class RunEscapedException(string runId)
 
 internal sealed class WorkspaceNotRootedException(string workspaceRoot)
     : Exception($"workspaceRoot must be an absolute path, and '{workspaceRoot}' is not");
+
+// A tool argument the server refuses: an act that does not exist, an argument an act does not take,
+// a job id that is not one. A type of ours rather than ArgumentException because the SDK blanks a
+// framework exception's message on the wire, and these messages are written for the orchestrator.
+internal sealed class ArgumentRejectedException(string message) : Exception(message);
 
 // Reflection-based serialization is off repo-wide (Directory.Build.props), so every persisted
 // shape needs a source-generated contract.

@@ -170,7 +170,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         # The canvas is two halves that only work together: the tool has to point at the resource,
@@ -189,6 +189,23 @@ function Test-PublishedServer([string]$Executable) {
         if ($canvas.text -notmatch 'ui/notifications/tool-result') {
             throw 'canvas resource does not listen for the tool result it renders'
         }
+        # Services a tool takes from the container are bound by type and must never reach the
+        # schema: an orchestrator asked for `roots` has nothing to send, and forge.begin is the one
+        # tool whose whole argument list is one path, so it is where the leak would show first.
+        $begin = $tools | Where-Object { $_.name -eq 'forge.begin' } | Select-Object -First 1
+        $beginProperties = @($begin.inputSchema.properties.PSObject.Properties.Name)
+        if ($beginProperties.Count -ne 1 -or $beginProperties[0] -ne 'workspaceRoot') {
+            throw "forge.begin should take workspaceRoot and nothing else, and takes: $($beginProperties -join ', ')"
+        }
+        # The cheap call the plan link depends on: a draft, and nothing that could make it slow.
+        $planWrite = $tools | Where-Object { $_.name -eq 'forge.plan.write' } | Select-Object -First 1
+        $planWriteProperties = @($planWrite.inputSchema.properties.PSObject.Properties.Name)
+        if ($planWriteProperties.Count -ne 3 -or $planWriteProperties -notcontains 'planDraft') {
+            throw "forge.plan.write should take workspaceRoot, runId and planDraft, and takes: $($planWriteProperties -join ', ')"
+        }
+        if (@($planWrite.inputSchema.required) -notcontains 'planDraft') {
+            throw 'forge.plan.write must require planDraft'
+        }
         $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
         $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('workspaceRoot', 'runId', 'vendor')) {
@@ -197,15 +214,32 @@ function Test-PublishedServer([string]$Executable) {
         if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('act', 'planDraft')) {
+        foreach ($parameter in @('act', 'planDraft', 'userGrantedRound')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred')) {
+        foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred', 'userGrantedRound')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
+        }
+        # The gate settings travel with the approval, as structured arguments: an object and an array
+        # the SDK cannot describe without this assembly's own contract, so their absence here means
+        # the resolver chain lost it and the server refused to start describing them.
+        $confirm = $tools | Where-Object { $_.name -eq 'forge.plan.confirm' } | Select-Object -First 1
+        $confirmProperties = @($confirm.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('plan', 'approved', 'gateEnvironment', 'builderRoots')) {
+            if ($confirmProperties -notcontains $parameter) { throw "forge.plan.confirm schema is missing $parameter" }
+        }
+        if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots') {
+            throw 'forge.plan.confirm schema incorrectly requires the optional gate settings'
+        }
+        if (($confirm.inputSchema.properties.gateEnvironment | ConvertTo-Json -Compress) -notmatch 'object') {
+            throw 'forge.plan.confirm publishes gateEnvironment as something other than an object'
+        }
+        if (($confirm.inputSchema.properties.builderRoots | ConvertTo-Json -Compress) -notmatch 'array') {
+            throw 'forge.plan.confirm publishes builderRoots as something other than an array'
         }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('model', 'effort', 'vendor')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'userGrantedRound')) {
             if ($codeReviewProperties -notcontains $parameter) { throw "forge.review.code schema is missing $parameter" }
         }
         foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
@@ -220,10 +254,11 @@ function Test-PublishedServer([string]$Executable) {
         # the key is refused server-side, and at least one host drops the `null` literal while
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
-            'forge.plan.review' = @('effort', 'vendor', 'revision', 'deferred')
+            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
-            'forge.review.code' = @('effort', 'vendor')
+            'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'deferred')
+            'forge.plan.confirm' = @('gateEnvironment', 'builderRoots')
             'forge.log.append'  = @('level', 'detail')
         }
         foreach ($name in $optional.Keys) {

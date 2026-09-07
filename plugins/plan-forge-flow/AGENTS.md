@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all thirteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all fourteen `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -51,7 +51,7 @@ version, so a manifest naming a version with no release behind it breaks every f
 ```text
 src/PlanForge/            the MCP server
   Mcp/                    tool surface
-  Acts/                   PlanReview, Build, CodeReview, ReviewFix
+  Acts/                   PlanReview, Build, CodeReview, ReviewFix; the gate parser, runner and keeper
   Vendors/                IVendor and the shared contracts
     Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
   Orchestration/          capability profile
@@ -138,17 +138,28 @@ beside the binary. Do not move it in with the prompts.
 
 ## Run state, and the absence of locks
 
-Everything a run knows lives under `.forge/<runId>/` in the target workspace: `state.json`,
-`PLAN.md`, `review-log.md`, `flow_log.md`, `forge.log`, `baseline.patch`. The flow log is the
+Everything a run knows lives under `.forge/<runId>/`: `state.json`, `PLAN.md`, `review-log.md`,
+`flow_log.md`, `forge.log`, `baseline.patch`. **Not under `workspaceRoot`** — that argument is the
+git window and the workers' working directory, and the run's own files follow the *session* instead,
+the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
+`workspaceRoot` for a host that declares none. Only Claude Code declares one today; `CONTEXT.md`
+carries the measurement and the deprecation that hangs over it, and
+[docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md) the decision. Do not
+collapse the two roots back together in either direction: pinning `workspaceRoot` to the session
+shrinks the review to the session's subtree, and pinning the run folder to `workspaceRoot` puts
+`PLAN.md` where the host cannot linkify it. The flow log is the
 user-facing timeline — every critique, build result and fix round, plus the orchestrator's own
 revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
 lets builder entries live there without shifting what the next critic judges; `review-log.md` is
 critic input and stays free of them, carrying only the deferrals the next critic must treat as
-settled. `PLAN.md` is the run's plan *as it currently stands*, not the approved one: every plan-review
-round writes the draft it was handed, before the critic starts, so the user has a document to watch
-instead of meeting the plan once at approval. Approval is `state.json`'s `approved`, and a round run
-after it takes that flag back — see
-[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md). There are no locks and no Git refs —
+settled. `PLAN.md` is the run's plan *as it currently stands*, not the approved one: `forge.plan.write`
+puts the draft there ahead of the round that judges it — a separate call because a draft streamed
+into the review call is not on disk until that call arrives, which made the link late by the whole
+of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
+draft of its own. Approval is `state.json`'s `approved`, and a write or a round run after it takes
+that flag back — see
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
 patch.
 
@@ -175,6 +186,15 @@ before the empty-diff return, so a documentation-only tree is still inspected. W
 does is stop a worker reading an excluded file off disk; see
 [docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
+The one thing that is *verified* rather than prevented is a task's gate. After every builder turn,
+`Acts/Gatekeeper.cs` runs the command that immediately follows `**Gate:**` in the task (or the
+executable `## Gates` entries after a fix round) on the host through `Acts/GateRunner.cs`, and a
+non-zero exit rewrites the builder's `done` to `gate_failed` and leaves `tasksCompleted` where it
+was. Only code placed *first* after the label counts as a command — `Acts/PlanGates.cs` — because a
+gate that opens with prose and names a file in backticks would otherwise be run as that file. The
+critic never runs anything; do not change that. See
+[docs/adr/0015](docs/adr/0015-the-host-runs-the-gate.md).
+
 Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
 run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
 time rather than blocked. This is deliberate — see
@@ -194,7 +214,11 @@ show it to the user before asking rather than after.
 `Directory.Build.props` sets `TreatWarningsAsErrors`, `PublishTrimmed`, `PublishSingleFile`, and —
 most consequentially — `JsonSerializerIsReflectionEnabledByDefault=false`. Every serialized type
 needs a source-generated `JsonSerializerContext`; adding a record to a tool result without adding it
-to `ForgeToolJson` compiles and then fails at runtime. `JsonObject.ToJsonString()` stays safe.
+to `ForgeToolJson` compiles and then fails at runtime. `JsonObject.ToJsonString()` stays safe. The
+same applies to a non-scalar tool *argument*: the SDK marshals scalars from its own context, and
+anything else must be in `ToolArgumentJson`, which `WithTools` is handed — otherwise the server
+fails at startup describing a type it cannot see, which is what `ToolSurfaceTests` and the
+packaging script's schema checks catch.
 
 Types are `internal` with `InternalsVisibleTo("PlanForge.Tests")`, so tests exercise the real
 classes rather than a public façade.
@@ -203,4 +227,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the nine architecture decisions.
+decision. `docs/adr/` holds the fifteen architecture decisions.

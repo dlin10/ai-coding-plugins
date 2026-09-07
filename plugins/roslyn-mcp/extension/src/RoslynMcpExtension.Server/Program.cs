@@ -36,6 +36,11 @@ var nameOption = new Option<string>("--name")
     DefaultValueFactory = _ => "Roslyn MCP Server"
 };
 
+var solutionOption = new Option<string?>("--solution")
+{
+    Description = "Path of the Visual Studio solution this server exposes, reported to MCP clients"
+};
+
 var logLevelOption = new Option<string>("--log-level")
 {
     Description = "Minimum log level (Error, Warning, Information, Debug)",
@@ -44,7 +49,7 @@ var logLevelOption = new Option<string>("--log-level")
 
 var rootCommand = new RootCommand("Roslyn MCP Server - Exposes C# code analysis via MCP")
 {
-    pipeOption, hostOption, portOption, nameOption, logLevelOption
+    pipeOption, hostOption, portOption, nameOption, solutionOption, logLevelOption
 };
 
 rootCommand.SetAction(async (parseResult, _) =>
@@ -53,13 +58,25 @@ rootCommand.SetAction(async (parseResult, _) =>
     var host = parseResult.GetValue(hostOption)!;
     var port = parseResult.GetValue(portOption);
     var serverName = parseResult.GetValue(nameOption)!;
+    var solutionPath = parseResult.GetValue(solutionOption);
     var logLevel = parseResult.GetValue(logLevelOption)!;
-    await RunServerAsync(pipeName, host, port, serverName, logLevel);
+    await RunServerAsync(pipeName, host, port, serverName, solutionPath, logLevel);
 });
 
 return await rootCommand.Parse(args).InvokeAsync();
 
-static async Task RunServerAsync(string pipeName, string host, int port, string serverName, string logLevel)
+static string ServerInstructions(string? solutionPath, int port)
+{
+    var scope = solutionPath == null
+        ? $"Roslyn MCP on port {port}; Visual Studio reported no solution path."
+        : $"Roslyn MCP for the Visual Studio solution {solutionPath}, on port {port}.";
+    return scope + " Answers come from that solution only. A DocumentNotFound error names the solution that was searched"
+         + " and means the file belongs to a different solution, served by a different Roslyn MCP server,"
+         + " not that Visual Studio has failed to load it.";
+}
+
+static async Task RunServerAsync(string pipeName, string host, int port, string serverName,
+                                 string? solutionPath, string logLevel)
 {
     var msLogLevel = logLevel switch
     {
@@ -108,8 +125,9 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
                 options.ServerInfo = new Implementation
                 {
                     Name = serverName,
-                    Version = "1.7.0"
+                    Version = "1.8.2"
                 };
+                options.ServerInstructions = ServerInstructions(solutionPath, port);
             })
             .WithHttpTransport(options =>
             {

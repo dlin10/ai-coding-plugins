@@ -82,11 +82,15 @@ When a solution opens, the extension walks upward from the solution directory an
 
 This allows several Visual Studio instances to expose different solutions simultaneously, each on its own port. Because the nearest file wins, a repository holding one solution can keep `.roslynmcp.json` at its root, while a repository holding several places one beside each solution to give each its own port. Keep `.roslynmcp.json` developer-local and configure every MCP client that works on a solution to use that solution's `http://localhost:<port>/mcp` endpoint.
 
-If no `.roslynmcp.json` is found, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
+Because the file is developer-local, a Git worktree added from a configured repository does not carry one. When the upward search comes up empty and the solution sits in a linked worktree, the extension repeats the search from the same relative folder in the repository's main working tree, so a worktree serves its solution on the port the repository already uses without any per-worktree setup. Only one Visual Studio instance can hold a port, so open the solution from the main working tree or from one worktree at a time; give a worktree its own `.roslynmcp.json` when both must be open at once.
+
+If neither search finds a `.roslynmcp.json`, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
 
 ### Transport
 
 The HTTP MCP endpoint runs in **stateless** mode (no `Mcp-Session-Id`). Clients can keep calling tools after a server restart (solution switch / Start-Stop) without session recovery.
+
+The `initialize` response carries `instructions` naming the solution and port the server serves, and a `DocumentNotFound` error names the solution that was searched. Both exist so that a client configured with several Roslyn servers can tell a wrong server apart from a solution Visual Studio has not loaded.
 
 ### Dead Code Analysis
 
@@ -156,3 +160,11 @@ Find dead code including public members
 ## License
 
 MIT
+
+## Source-generator diagnostics
+
+Visual Studio can retain stale output from source generators in Balanced mode. `roslyn_validate_file` reports the baseline IDE compilation and adds `sourceGeneratedDocumentCount`: zero means a completed observation found no generated documents in the validated file's project; absent or null means the observation failed or exceeded its 10-second budget. This count is not a freshness signal. Requesting it can execute generators, but does not replace the diagnostics already captured for this response.
+
+An IDE build may help refresh the IDE cache, but does not guarantee immediate freshness: the experiment observed stale diagnostics even after a successful IDE build. `dotnet build` checks disk code and does not refresh that cache. Allow the workspace to update and validate again; persistence of the diagnostic still needs investigation. Automatic generator execution is a user-controlled VS option. Do not suppress genuine errors or assume every missing generated member is stale.
+
+The issue-70 experiment completed three scored live Balanced A-to-B trials without reproducing stale diagnostics in that direction. Stale MemberA diagnostics were observed during B-to-A preparation after successful IDE builds. Those preparations were excluded from the scored trials, and the candidate sequence was not measured against their stale cache. The measured `GetSourceGeneratedDocumentsAsync` then `GetCompilationAsync` sequence on the same captured project therefore did not demonstrate a refresh fix. The not-reproduced label applies only to the scored direction. It does not establish whether the candidate can repair the observed preparation failure or the reported branch-switch issue.

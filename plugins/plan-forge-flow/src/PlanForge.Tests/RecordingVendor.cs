@@ -71,6 +71,9 @@ internal sealed class RecordingVendorSession : IVendorSession
         ct.ThrowIfCancellationRequested();
         PromptText = prompt;
 
+        // A scripted failure: what a vendor session does when the turn dies partway through.
+        if (_response is Exception failure) throw failure;
+
         if (ReferenceEquals(schema, Schemas.Critique) && _response is Critique critique)
             return Task.FromResult((T)(object)critique);
 
