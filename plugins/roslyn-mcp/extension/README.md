@@ -158,3 +158,11 @@ Find dead code including public members
 ## License
 
 MIT
+
+## Source-generator diagnostics
+
+Visual Studio can retain stale output from source generators in Balanced mode. `roslyn_validate_file` reports the baseline IDE compilation and adds `sourceGeneratedDocumentCount`: zero means a completed observation found no generated documents in the validated file's project; absent or null means the observation failed or exceeded its 10-second budget. This count is not a freshness signal. Requesting it can execute generators, but does not replace the diagnostics already captured for this response.
+
+An IDE build may help refresh the IDE cache, but does not guarantee immediate freshness: the experiment observed stale diagnostics even after a successful IDE build. `dotnet build` checks disk code and does not refresh that cache. Allow the workspace to update and validate again; persistence of the diagnostic still needs investigation. Automatic generator execution is a user-controlled VS option. Do not suppress genuine errors or assume every missing generated member is stale.
+
+The issue-70 experiment completed three scored live Balanced A-to-B trials without reproducing stale diagnostics in that direction. Stale MemberA diagnostics were observed during B-to-A preparation after successful IDE builds. Those preparations were excluded from the scored trials, and the candidate sequence was not measured against their stale cache. The measured `GetSourceGeneratedDocumentsAsync` then `GetCompilationAsync` sequence on the same captured project therefore did not demonstrate a refresh fix. The not-reproduced label applies only to the scored direction. It does not establish whether the candidate can repair the observed preparation failure or the reported branch-switch issue.

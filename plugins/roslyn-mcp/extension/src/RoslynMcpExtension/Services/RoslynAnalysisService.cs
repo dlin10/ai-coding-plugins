@@ -72,11 +72,7 @@ public class RoslynAnalysisService(VisualStudioWorkspace workspace) : IRoslynAna
 		try
 		{
 			var result = await action();
-			if (result.ErrorMessage != null)
-				result.ErrorCode ??= ToolErrorCodes.InternalError;
-			result.RequestSucceeded = result.ErrorMessage == null;
-			if (result is SymbolListResult symbolListResult)
-				symbolListResult.ReturnedCount = symbolListResult.Members.Count;
+			CompleteResult(result);
 			Logger?.Log($"Tool '{toolName}' completed in {sw.ElapsedMilliseconds}ms");
 			return result;
 		}
@@ -90,5 +86,14 @@ public class RoslynAnalysisService(VisualStudioWorkspace workspace) : IRoslynAna
 	private static int ClampMaxResults(int maxResults, int maximum)
 	{
 		return maxResults < 1 ? 1 : maxResults > maximum ? maximum : maxResults;
+	}
+
+	internal static void CompleteResult<T>(T result) where T : IToolResult
+	{
+		if (result.ErrorMessage != null)
+			result.ErrorCode ??= ToolErrorCodes.InternalError;
+		result.RequestSucceeded = result.ErrorMessage == null;
+		if (result is SymbolListResult symbolListResult)
+			symbolListResult.ReturnedCount = symbolListResult.Members.Count;
 	}
 }

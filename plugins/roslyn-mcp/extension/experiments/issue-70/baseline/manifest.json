@@ -1,0 +1,38 @@
+{
+  "endpoint": "http://localhost:5052/mcp",
+  "timestampUtc": "2026-09-06T19:38:43.6207143+00:00",
+  "verifiedWorkspaceIdentity": {
+    "sampleSymbol": "RoslynMcpExtension.RoslynMcpPackage",
+    "sampleFilePath": "C:\\Dev\\Worktrees\\1d1d\\CodexPlugins\\plugins\\roslyn-mcp\\extension\\src\\RoslynMcpExtension\\RoslynMcpPackage.cs",
+    "expectedRoot": "C:\\Dev\\Worktrees\\1d1d\\CodexPlugins"
+  },
+  "versions": {
+    "initializeServerInfoVersion": "1.8.0",
+    "vsixManifestVersion": "1.8.0",
+    "programCsVersion": "1.8.0"
+  },
+  "tools": {
+    "names": [
+      "roslyn_validate_file",
+      "roslyn_search_symbols",
+      "roslyn_get_document_symbols",
+      "roslyn_find_dead_code",
+      "roslyn_find_references",
+      "roslyn_go_to_definition",
+      "roslyn_get_symbol_info",
+      "roslyn_find_implementations",
+      "roslyn_find_callers"
+    ],
+    "count": 9
+  },
+  "artifacts": {
+    "mcp-tools-list.sse": {
+      "sha256": "c70d6d88e5fdad9f26813084283b4a06a1b5f7b38193749e768aa943a83dde03",
+      "bytes": 6282
+    },
+    "mcp-initialize.sse": {
+      "sha256": "8b7086dd0cc681c13f90cff8387f4f75da3851ec5924c325a7fb42bf6d8c1c62",
+      "bytes": 190
+    }
+  }
+}

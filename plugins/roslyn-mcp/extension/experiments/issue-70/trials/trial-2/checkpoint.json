@@ -1,0 +1,27 @@
+{
+  "artifacts": {
+    "cli-b.json": "a1bd1d08c6959666a6197e36e16613368d1b7f5683e063b9867939db14fe1001",
+    "positive-validation.sse": "2d8067df76a4efaf8343f51bddc3f0ba4cc4334a1500ef7d51712ef435bffc86",
+    "clean-a\\generated.sse": "a017e9e7bb530a3d464f11c10e0b893eb55ddf67ee0b91e946f58323903bf44b",
+    "positive-build.sse": "4fa2674a79a4b1ee37fa1c698a4c83c4eebab14890ee39d69de7a62a07e7df86",
+    "error-comparison.sse": "06951b6ff3afcb13c03562eaf366841a0690cc24842b28f45bee704f0815e2d6",
+    "comparison.sse": "ea0d5c11fa06a6790c5f8a7dec720c74e7bb2d1316cf620ab49d00cbcda2c770",
+    "cli-b.log": "c2dcd8368ba88098484a257bb9a29165166ff7858e539da9a4499a23cdb315fd",
+    "clean-a\\build.sse": "86842bbe645e2dddb31b07ba5736a131f53e675a64c7f5421f0ff6f009c91f03",
+    "cli-error.json": "b9f93eadabfdc7d1f3b9cd2732f7a1c69c5ae21a0383fe516509d8306661c495",
+    "clean-a\\validation.sse": "3cf66715861aa670d61baf27ee21499caabe0b18da860f798c66e735f76c1fc1",
+    "cli-error.log": "ccbb0f0099d82d5e2c7afd6672b8883374b90f26beba5b1836bc8b5d0711fc26"
+  },
+  "host": {
+    "pid": 36192,
+    "startTime": "2026-09-06T23:10:28.9448268+03:00",
+    "executable": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\Common7\\IDE\\devenv.exe",
+    "commandLine": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\Common7\\IDE\\devenv.exe /RootSuffix Issue70Exp C:\\Dev\\Worktrees\\1d1d\\CodexPlugins\\plugins\\roslyn-mcp\\extension\\experiments\\issue-70\\Fixture\\Fixture.sln",
+    "rootSuffix": "Issue70Exp",
+    "fixtureSolution": "C:\\Dev\\Worktrees\\1d1d\\CodexPlugins\\plugins\\roslyn-mcp\\extension\\experiments\\issue-70\\Fixture\\Fixture.sln",
+    "deploymentHash": "ef94f0941bb789bace243228f7151a09e7918bf31297dedf2a3f2e64f0611a54",
+    "initPidExcluded": true
+  },
+  "stage": "complete",
+  "trial": 2
+}

@@ -1,0 +1,21 @@
+MSBuild version 18.9.1+a81b43525 for .NET Framework
+
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-2f33-pr97-265q
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-2x83-8g95-xh59
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-cj9g-3mj2-g8vv
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-cxmj-83gh-fp49
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1903: Package 'MessagePack' 2.5.192 has a known high severity vulnerability, https://github.com/advisories/GHSA-hv8m-jj95-wg3x
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-q2h6-ghwm-5qm8
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-qhmf-xw27-6rqr
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-v72x-2h86-7f8m
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1903: Package 'MessagePack' 2.5.192 has a known high severity vulnerability, https://github.com/advisories/GHSA-vh6j-jc39-fggf
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-w567-gjr2-hm5j
+C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\RoslynMcpExtension.csproj : warning NU1902: Package 'MessagePack' 2.5.192 has a known moderate severity vulnerability, https://github.com/advisories/GHSA-wfr3-xj75-pfwh
+  RoslynMcpExtension.Shared -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension.Shared\bin\Debug\netstandard2.0\RoslynMcpExtension.Shared.dll
+  RoslynMcpExtension -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\bin\Debug\net48\RoslynMcpExtension.dll
+    Determining projects to restore...
+    All projects are up-to-date for restore.
+    RoslynMcpExtension.Shared -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension.Shared\bin\Debug\netstandard2.0\RoslynMcpExtension.Shared.dll
+    RoslynMcpExtension.Server -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension.Server\bin\Debug\net10.0\RoslynMcpExtension.Server.dll
+    RoslynMcpExtension.Server -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\bin\Debug\net48\RoslynMcpExtension.Server\
+  RoslynMcpExtension -> C:\Dev\Worktrees\1d1d\CodexPlugins\plugins\roslyn-mcp\extension\src\RoslynMcpExtension\bin\Debug\net48\RoslynMcpExtension.vsix

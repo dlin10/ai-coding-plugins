@@ -1,0 +1,15 @@
+{
+  "baselineHead": "c8d10b09a91afd1b884c8de20e27c90b731dfd52",
+  "files": {
+    "Fixture/Generator/Issue70Generator.cs": "71d342b4fcd8cb7dca1e036f72215adc7031da2b26b5f91546fed8cef1e9741b",
+    "Fixture/Generator/Issue70.Generator.csproj": "2c4413e2eb1a397baa8285ff0e347c0d8ad1c55dfdf2e6870b469360de0a4937",
+    "Fixture/Consumer/Issue70.Consumer.csproj": "333edcfcc6b8bdb166d987c9d7206368864dba44ab6ff6a7250ca6c5fcf1104a",
+    "Fixture/Consumer/ControlApi.cs": "1658734c9c40bd67e6675ed6fc25f8c0246d5fc1f0916067529a304cc1aaf95a",
+    "Fixture/expected-members.json": "b8d6879f5d1d28648f344ad4f9fef8cebdb07edb03cf97261bfe94c3fc8653c1",
+    "Fixture/templates/Consumer.A.cs": "f14d12577ded8528f8e65ce0b5e953799ce0d70afe3fce3da0a9cf1e1fc8b4ae",
+    "Fixture/templates/Consumer.B.cs": "6aef828a4408fafb603280a4e59b1ff62d9011f54ec54860e343219b0408b93b",
+    "Fixture/templates/marker.A.txt": "26ffd5886253906a36a7ea0f6e26056fc36472626cb4894bcb100a34dc69d1db",
+    "Fixture/templates/marker.B.txt": "65be7a95a3a5b68952c6ee7d6d7429270e8b24f632656ba2bf161885dcdbf6b3",
+    "probe/Issue70ProbeService.cs": "22b07372b82e830c51e41f7232c6f3825c206bafade46fab3575737198c77a5d"
+  }
+}
