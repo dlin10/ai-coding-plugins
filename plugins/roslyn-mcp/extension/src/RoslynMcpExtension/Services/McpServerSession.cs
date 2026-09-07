@@ -20,12 +20,14 @@ internal enum ServerStartFailureKind
 }
 
 /// <summary>Per-solution configuration a session is started with.</summary>
-internal sealed class McpServerSessionOptions(int port, string serverName, string? solutionDirectory, string? configPath)
+internal sealed class McpServerSessionOptions(int port, string serverName, string? solutionDirectory,
+                                              string? configPath, string? solutionPath)
 {
 	public int Port { get; } = port;
 	public string ServerName { get; } = serverName;
 	public string? SolutionDirectory { get; } = solutionDirectory;
 	public string? ConfigPath { get; } = configPath;
+	public string? SolutionPath { get; } = solutionPath;
 }
 
 internal sealed class ServerStartResult
@@ -313,7 +315,8 @@ internal sealed class McpServerSession : IMcpServerSession
 		=> new()
 		{
 			FileName = dotnetPath,
-			Arguments = $"\"{serverPath}\" --pipe \"{pipeName}\" --port {options.Port} --name \"{options.ServerName}\"",
+			Arguments = $"\"{serverPath}\" --pipe \"{pipeName}\" --port {options.Port} --name \"{options.ServerName}\""
+			            + (options.SolutionPath == null ? "" : $" --solution \"{options.SolutionPath}\""),
 			WorkingDirectory = serverDir,
 			UseShellExecute = false,
 			CreateNoWindow = true,

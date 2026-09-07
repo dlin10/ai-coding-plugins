@@ -55,12 +55,21 @@ internal class DocumentFinder(VisualStudioWorkspace workspace)
 					best = candidate;
 				}
 			}
-			return best ?? throw new ToolRequestException(ToolErrorCodes.DocumentNotFound,
-			                                              $"File not found in any project: {filePath}");
+			return best ?? throw DocumentNotFound(filePath);
 		}
 
-		throw new ToolRequestException(ToolErrorCodes.DocumentNotFound,
-		                               $"File not found in any project: {filePath}");
+		throw DocumentNotFound(filePath);
+	}
+
+	/// <summary>
+	/// Names the solution that was searched, so a client holding several Roslyn servers can tell
+	/// "wrong server" apart from "Visual Studio has not loaded this file".
+	/// </summary>
+	private ToolRequestException DocumentNotFound(string filePath)
+	{
+		var solution = workspace.CurrentSolution.FilePath;
+		var scope = solution == null ? "any project" : $"any project of solution {solution}";
+		return new ToolRequestException(ToolErrorCodes.DocumentNotFound, $"File not found in {scope}: {filePath}");
 	}
 
 	public static int GetPosition(SyntaxTree syntaxTree, int line, int column)

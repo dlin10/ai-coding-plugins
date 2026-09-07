@@ -38,7 +38,7 @@ When per-solution directories are being written and a repository-root configurat
 After preflight succeeds, write the following for each solution, in its owning directory:
 
 1. Write `.roslynmcp.json` as exactly `{ "port": <port> }`.
-2. Ensure `.git/info/exclude` carries the unanchored patterns `.roslynmcp.json`, `.codex/`, and `.cursor/`. A pattern containing a slash, such as `.codex/config.toml`, is anchored to the repository root and silently fails to cover nested directories, so replace it with `.codex/`. Before broadening it, confirm that no tracked files live under a directory named `.codex`; a sibling such as `.codex-plugin/` does not match the pattern and stays tracked. Do not edit the committed `.gitignore`. Confirm each written file with `git check-ignore`.
+2. Ensure `.git/info/exclude` carries the unanchored patterns `.roslynmcp.json`, `.codex/`, `.cursor/`, and `.worktreeinclude`. A pattern containing a slash, such as `.codex/config.toml`, is anchored to the repository root and silently fails to cover nested directories, so replace it with `.codex/`. Before broadening it, confirm that no tracked files live under a directory named `.codex`; a sibling such as `.codex-plugin/` does not match the pattern and stays tracked. Do not edit the committed `.gitignore`. Confirm each written file with `git check-ignore`.
 3. Create or merge `.codex/config.toml`, preserving all unrelated TOML settings:
 
 ```toml
@@ -62,8 +62,54 @@ omit_tools_from = ["deferred"]
 }
 ```
 
-5. Configure Claude Code as described in the next section.
-6. Remove only the previously displayed global/user entries for which the user approved removal. Use `codex mcp remove <name>` for Codex user entries, `claude mcp remove <name> -s user` for Claude entries, and a structure-preserving JSON merge for Cursor.
+5. Create or merge `.worktreeinclude` in the **repository root** — this one file is per repository rather than per solution, because the Codex app reads it from the root when it creates a managed worktree. List the two client files of every owning directory as paths relative to the root, one per line, and append only the lines that are missing:
+
+```
+.codex/config.toml
+.cursor/mcp.json
+plugins/<name>/.codex/config.toml
+plugins/<name>/.cursor/mcp.json
+```
+
+   The Codex app copies only the ignored files that match these patterns into the worktrees it creates. Do not list `.roslynmcp.json`: the extension already resolves it from the main working tree, and a copy inside a worktree would collide with the port scan in preflight step 3.
+
+6. Create or merge `.cursor/worktrees.json` in each owning directory, preserving unrelated keys, and write `.cursor/setup-worktree-windows.ps1` beside it. Cursor looks for `worktrees.json` in the folder opened as the workspace when it creates a worktree, first inside the worktree and then in the main working tree, so an ignored file is found. The script runs inside the new worktree and copies the client files of every owning directory, so the whole worktree is configured whichever workspace created it:
+
+```json
+{
+  "setup-worktree-windows": "setup-worktree-windows.ps1"
+}
+```
+
+```powershell
+# Written by roslyn-setup-repo. Cursor runs it inside a new worktree; it copies the
+# developer-local MCP client configuration a worktree never receives, because every
+# such file is untracked in the main working tree.
+$ErrorActionPreference = 'Stop'
+$owners = @('.', 'plugins\<name>')
+$files = @('.codex\config.toml', '.cursor\mcp.json')
+
+$worktree = [IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
+$main = git worktree list --porcelain | Select-Object -First 1
+$main = [IO.Path]::GetFullPath(($main -replace '^worktree ', '').Trim())
+if ($main -eq $worktree) { Write-Host 'main working tree, nothing to copy'; exit 0 }
+
+foreach ($owner in $owners) {
+    foreach ($file in $files) {
+        $source = Join-Path $main (Join-Path $owner $file)
+        $target = Join-Path $worktree (Join-Path $owner $file)
+        if (-not (Test-Path $source)) { Write-Host "missing: $source"; continue }
+        New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+        Copy-Item $source $target -Force
+        Write-Host "copied: $target"
+    }
+}
+```
+
+   Fill `$owners` with the relative path of every owning directory; a single-solution repository has only `'.'`. The script takes both paths from git rather than from Cursor's `$ROOT_WORKTREE_PATH`, so it works whatever the working directory is, and it is a no-op when run in the main working tree. Overwrite an existing copy of the script, since it is generated. The exclude pattern `.cursor/` from step 2 already covers both files.
+
+7. Configure Claude Code as described in the next section.
+8. Remove only the previously displayed global/user entries for which the user approved removal. Use `codex mcp remove <name>` for Codex user entries, `claude mcp remove <name> -s user` for Claude entries, and a structure-preserving JSON merge for Cursor.
 
 ## Claude Code is keyed by repository, not by directory
 
@@ -86,7 +132,10 @@ Run this workflow in the repository's main working tree. Every file it writes is
 
 - **Visual Studio** needs nothing. When a worktree carries no `.roslynmcp.json`, the extension resolves the port from the same relative folder in the main working tree — bundled extension v1.8.0 and later.
 - **Claude Code** needs nothing. Its local-scope entries are keyed by repository and resolve from a worktree as well; confirm on the machine at hand by listing the servers from inside a worktree.
-- **Codex and Cursor** read configuration from the directory tree, so a worktree carries neither `.codex/config.toml` nor `.cursor/mcp.json`. Copy each from its owning directory in the main working tree into the matching folder in the worktree, then verify with `codex mcp list` run from inside the worktree rather than assuming the copy took effect.
+- **Codex and Cursor** read configuration from the directory tree, so a worktree carries neither `.codex/config.toml` nor `.cursor/mcp.json`. Codex stops its upward config walk at the first `.git`, and a linked worktree has one at its root, so the main working tree's `.codex/config.toml` is never consulted from a worktree. Two files written in the apply steps cover the worktrees the clients create themselves:
+  - Worktrees created by the **Codex app** receive both client files through `.worktreeinclude`. The app applies it only to its own managed worktrees, not to `git worktree add` and not to worktrees another client created.
+  - Worktrees created by **Cursor** receive them through `.cursor/worktrees.json` and its setup script.
+  - A worktree created any other way — `git worktree add`, or another client's worktree feature in which Codex or Cursor is then used — still needs the copy. Run `.cursor\setup-worktree-windows.ps1` from inside the worktree, or copy each file by hand, then verify with `codex mcp list` run from inside the worktree rather than assuming the copy took effect.
 
 One port serves one Visual Studio instance, so a solution can be open in the main working tree or in one worktree, not both at once. When both are needed, give the worktree its own `.roslynmcp.json` on a port no other solution claims, and point that worktree's Codex, Cursor, and Claude configuration at the same port.
 
@@ -95,5 +144,6 @@ One port serves one Visual Studio instance, so a solution can be open in the mai
 - Report one row per solution: the solution path, the port, and the port recorded in `.roslynmcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, and the Claude entry. All five must agree.
 - Confirm the per-solution resolution rather than assuming it: run `codex mcp list` from each solution directory and check the URL it reports.
 - Report any unavailable client that was skipped.
+- Confirm with `git check-ignore` that `.worktreeinclude`, `.cursor/worktrees.json`, and `.cursor/setup-worktree-windows.ps1` are ignored, and state that the Codex app and Cursor worktree paths were verified against documentation only: creating a worktree from either client is the user's check.
 - Remind the user to reopen each solution in Visual Studio so the extension reloads its port, and to start fresh Codex, Claude Code, and Cursor sessions so each client reloads its project MCP configuration.
 - Serving several solutions at once requires a separate port and a separate Visual Studio instance for each, whether those solutions live in one repository or in several.

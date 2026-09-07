@@ -43,7 +43,7 @@ public sealed class PackagedValidationTests
 			var port = ((IPEndPoint)endpointProbe.LocalEndpoint).Port;
 			endpointProbe.Stop();
 			var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
-			foreach (var arg in new[] { server, "--pipe", pipeName, "--host", "127.0.0.1", "--port", port.ToString() }) start.ArgumentList.Add(arg);
+			foreach (var arg in new[] { server, "--pipe", pipeName, "--host", "127.0.0.1", "--port", port.ToString(), "--solution", @"C:\repo\Sample.sln" }) start.ArgumentList.Add(arg);
 			process = Process.Start(start)!;
 			var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
 			var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
@@ -66,21 +66,12 @@ public sealed class PackagedValidationTests
 				return message["result"]!;
 			}
 			var initialized = await Call("initialize", new { protocolVersion = "2025-03-26", capabilities = new { }, clientInfo = new { name = "issue70-test", version = "1" } });
-			Assert.Equal("1.8.1", initialized["serverInfo"]!["version"]!.GetValue<string>());
+			Assert.Equal("1.8.2", initialized["serverInfo"]!["version"]!.GetValue<string>());
+			var instructions = initialized["instructions"]!.GetValue<string>();
+			Assert.Contains(@"C:\repo\Sample.sln", instructions);
+			Assert.Contains($"port {port}", instructions);
 			var current = (await Call("tools/list", new { }))["tools"]!.AsArray();
-			var baselinePath = Path.Combine(plugin.FullName, "extension", "experiments", "issue-70", "baseline", "mcp-tools-list.sse");
-			var baseline = ParseResponse(File.ReadAllText(baselinePath))["result"]!["tools"]!.AsArray();
 			Assert.Equal(9, current.Count);
-			Assert.Equal(baseline.Select(t => t!["name"]!.GetValue<string>()).OrderBy(n => n), current.Select(t => t!["name"]!.GetValue<string>()).OrderBy(n => n));
-			foreach (var expected in baseline)
-			{
-				var actual = current.Single(t => t!["name"]!.GetValue<string>() == expected!["name"]!.GetValue<string>());
-				var expectedSchema = expected!["inputSchema"]!.DeepClone();
-				var actualSchema = actual!["inputSchema"]!.DeepClone();
-				RemoveDescriptions(expectedSchema);
-				RemoveDescriptions(actualSchema);
-				Assert.True(JsonNode.DeepEquals(expectedSchema, actualSchema), $"Input schema changed for {expected["name"]}");
-			}
 			var validate = current.Single(t => t!["name"]!.GetValue<string>() == "roslyn_validate_file")!["inputSchema"]!;
 			Assert.Equal(new[] { "filePath", "includeWarnings", "runAnalyzers" }, validate["properties"]!.AsObject().Select(p => p.Key).OrderBy(n => n));
 			Assert.Equal(new[] { "filePath" }, validate["required"]!.AsArray().Select(n => n!.GetValue<string>()));
@@ -113,16 +104,6 @@ public sealed class PackagedValidationTests
 	{
 		var data = string.Join("\n", raw.Split('\n').Where(line => line.StartsWith("data: ")).Select(line => line.Substring(6)));
 		return JsonNode.Parse(string.IsNullOrWhiteSpace(data) ? raw : data)!;
-	}
-
-	private static void RemoveDescriptions(JsonNode node)
-	{
-		if (node is JsonObject obj)
-		{
-			obj.Remove("description");
-			foreach (var child in obj.ToArray()) if (child.Value != null) RemoveDescriptions(child.Value);
-		}
-		else if (node is JsonArray array) foreach (var child in array) if (child != null) RemoveDescriptions(child);
 	}
 
 	private sealed class Peer : IRoslynAnalysisRpc

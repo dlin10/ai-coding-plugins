@@ -58,6 +58,8 @@ The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions
 
 The extension walks upward from the solution directory and uses the nearest `.roslynmcp.json`. When that search finds nothing and the solution sits in a linked Git worktree — the usual case there, because the file is developer-local and therefore untracked — it repeats the search from the same relative folder in the repository's main working tree. A worktree therefore needs no port setup of its own, but one port serves one Visual Studio instance, so open a solution from the main working tree or from one worktree at a time and give a worktree its own `.roslynmcp.json` when both must be open at once.
 
+The clients are a different matter: Claude Code resolves a worktree to its repository and needs nothing, but Codex and Cursor read `.codex/config.toml` and `.cursor/mcp.json` from the directory tree, and a linked worktree starts without them. `roslyn-setup-repo` therefore also writes a `.worktreeinclude` that makes the Codex app copy both files into the worktrees it creates, and a `.cursor/worktrees.json` whose setup script does the same for worktrees Cursor creates. A worktree made any other way still needs that script run once from inside it.
+
 When neither search finds a file, the extension falls back to the **Fallback Port** setting under **Tools ▸ Options ▸ Roslyn MCP Extension ▸ General**, which also carries **Server Name** and **Auto Start**. The setting applies only in that unconfigured case, which is what its name says.
 
 Loading, closing, and reloading a solution — what a branch switch does — starts and stops the server through a single serialized queue, so a close-then-open burst keeps its order and a stale exit callback can never reach a newer run. Stopping asks the server to exit over its RPC channel so Kestrel releases the listening socket instead of being killed, which avoids the "port may already be in use" failures that used to follow a restart. Visual Studio shutdown keeps a fast path that terminates the child without waiting, because the UI thread must not block while the IDE exits.
@@ -84,7 +86,7 @@ Loading, closing, and reloading a solution — what a branch switch does — sta
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.8.1**.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.8.2**.
 - `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.
