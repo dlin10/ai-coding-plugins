@@ -146,6 +146,40 @@ public sealed class ValidateFileGeneratorTests : IDisposable
 	}
 
 	[Fact]
+	public async Task TimeoutDoesNotWaitForBlockingCancellationCallback()
+	{
+		using var releaseCallback = new ManualResetEventSlim();
+		var callbackEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var callbackExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+		var observation = OptionalGeneratorObservation.RunAsync(token =>
+		{
+			token.Register(() =>
+			{
+				callbackEntered.TrySetResult(true);
+				try { releaseCallback.Wait(); }
+				finally { callbackExited.TrySetResult(true); }
+				throw new InvalidOperationException("cancellation callback");
+			});
+			return pending.Task;
+		}, TimeSpan.FromMilliseconds(100));
+
+		try
+		{
+			Assert.Same(callbackEntered.Task, await Task.WhenAny(callbackEntered.Task, Task.Delay(5000)));
+			Assert.Same(observation, await Task.WhenAny(observation, Task.Delay(5000)));
+			Assert.Null(await observation);
+			Assert.False(callbackExited.Task.IsCompleted);
+		}
+		finally
+		{
+			releaseCallback.Set();
+			pending.TrySetException(new InvalidOperationException("late observation failure"));
+			Assert.Same(callbackExited.Task, await Task.WhenAny(callbackExited.Task, Task.Delay(5000)));
+		}
+	}
+
+	[Fact]
 	public async Task CompletedObservationReturnsCountWithoutChangingErrors()
 	{
 		var doc = Document("class Broken { int X => Missing; }");

@@ -12,25 +12,57 @@ internal static class OptionalGeneratorObservation
 		using var timer = new CancellationTokenSource();
 		var timeout = Task.Delay(budget, timer.Token);
 		var token = cancellation.Token;
-		// Roslyn may do synchronous work before returning its Task; include that in the budget.
-		var pending = Task.Run(() => operation(token));
+
+		// Include synchronous work before the operation returns its Task in the waiting budget.
+		var pending = Task.Run(() => ObserveAsync(operation, token));
+
 		if (await Task.WhenAny(pending, timeout).ConfigureAwait(false) == pending)
 		{
 			timer.Cancel();
-			try { return await pending.ConfigureAwait(false); }
-			catch (Exception) { return null; }
-			finally { cancellation.Dispose(); }
+			cancellation.Dispose();
+			return await pending.ConfigureAwait(false);
 		}
 
-		// Cancellation callbacks must not extend the caller's budget either.
-		_ = Task.Run(() =>
-		{
-			try { cancellation.Cancel(); }
-			catch (Exception) { /* Optional cancellation callbacks cannot fail validation. */ }
-			finally { cancellation.Dispose(); }
-		});
-		_ = pending.ContinueWith(completed => { _ = completed.Exception; }, CancellationToken.None,
-			TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+		// Cancel invokes callbacks synchronously; even requesting cancellation may block.
+		// Stop waiting now and transfer ownership of the source to background cleanup.
+		_ = Task.Run(() => CancelAndDrainAsync(pending, cancellation));
 		return null;
+	}
+
+	private static async Task<int?> ObserveAsync(Func<CancellationToken, Task<int>> operation, CancellationToken token)
+	{
+		try
+		{
+			return await operation(token).ConfigureAwait(false);
+		}
+		catch (Exception)
+		{
+			// Await observes faults even after RunAsync has timed out; no separate
+			// Task.Exception read or fault-only continuation is needed.
+			return null;
+		}
+	}
+
+	private static async Task CancelAndDrainAsync(Task<int?> pending, CancellationTokenSource cancellation)
+	{
+		try
+		{
+			try
+			{
+				cancellation.Cancel();
+			}
+			catch (Exception)
+			{
+				// A failing cancellation callback must not prevent draining the operation.
+			}
+
+			await pending.ConfigureAwait(false);
+		}
+		finally
+		{
+			// Keep the source alive until both cancellation callbacks and the operation finish.
+			// If either never finishes, cleanup remains pending; RunAsync does not wait for it.
+			cancellation.Dispose();
+		}
 	}
 }
