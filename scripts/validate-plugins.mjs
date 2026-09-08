@@ -341,6 +341,11 @@ function validateSync() {
         regex: /Version = "(\d+\.\d+\.\d+)"/,
         what: 'ServerInfo.Version',
       },
+      {
+        path: join(roslynDir, 'extension', 'src', 'RoslynMcpExtension.Server.Tests', 'PackagedValidationTests.cs'),
+        regex: /Assert\.Equal\("(\d+\.\d+\.\d+)", initialized/,
+        what: 'packaged serverInfo.version assertion',
+      },
     ];
     for (const { path, regex, what } of checks) {
       const version = extractVersion(path, regex, what);
