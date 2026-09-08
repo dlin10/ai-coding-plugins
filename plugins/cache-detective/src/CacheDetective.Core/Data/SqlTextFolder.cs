@@ -21,12 +21,26 @@ internal sealed class SqlTextFolder(Solution solution)
     /// order the parts lie in the text.</summary>
     private static readonly FoldedPlaceholders PLACEHOLDERS = new(_ => PARAMETER_PREFIX, PARAMETER_PREFIX);
 
-    private readonly StringConstantFolder _folder = new(solution, PLACEHOLDERS);
+    /// <summary>What a fold that named nothing at all reads as: one unknown part, which becomes one
+    /// parameter below.</summary>
+    private static readonly FoldedString UNRESOLVED =
+        new(PARAMETER_PREFIX, [new FoldedPart(FoldedPartKind.Unknown, PARAMETER_PREFIX, 0, null, "the query folded to no value")], null);
+
+    /// <summary>Multi-valued SQL is out of scope, and the bound of one is how that is said: a fragment
+    /// standing for several collapses to one neutral parameter <em>where it arises</em>, and the statement
+    /// around it keeps every literal it had. Reducing the whole query instead would throw away the
+    /// <c>UPDATE</c> along with the branchy value in it, and with it the table and the write edge — a
+    /// silent loss of findings, where a parameter in the value position is merely a value the parser was
+    /// never going to read. See <c>docs/adr/0015</c>.</summary>
+    private readonly StringConstantFolder _folder = new(solution, PLACEHOLDERS, maximumValues: 1);
 
     public async Task<FoldedSql> FoldAsync(ExpressionSyntax expression, SemanticModel semanticModel,
                                            CancellationToken cancellationToken)
     {
-        var folded = await _folder.FoldAsync(expression, semanticModel, cancellationToken);
+        var set = await _folder.FoldAsync(expression, semanticModel, cancellationToken);
+        // The bound above leaves exactly one value in every reachable case; a fold that produced none at all
+        // is the degenerate one, and it reads as a single parameter.
+        var folded = set.Values.Count == 1 ? set.Single : UNRESOLVED;
         var text = new StringBuilder();
         var parameters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

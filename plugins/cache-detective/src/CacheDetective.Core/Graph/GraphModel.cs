@@ -266,9 +266,13 @@ public sealed record Serves(ExternalSource from, Handler to, Confidence confiden
 
 public sealed record EventHop(Publishes Publish, Consumes Consume, Confidence Confidence, string? Reason);
 
+/// <param name="Modality">What the fold could say about the site before its key was annotated. An
+/// annotation resolves what the key <em>is</em>; it does not resolve whether the site had a choice, so
+/// the modality travels here and is honoured when the edge is finally created.</param>
 public sealed record PendingCacheOperation(int UnresolvedId, Handler Handler, string Store, CacheSemantic Semantic,
                                            TimeSpan? Ttl, IReadOnlyList<string> Tags, bool IsConditionalSet,
-                                           IReadOnlyList<Evidence> Evidence);
+                                           IReadOnlyList<Evidence> Evidence,
+                                           InvalidationModality Modality = InvalidationModality.Must);
 
 public enum EventSiteRole
 {
@@ -305,6 +309,16 @@ public sealed record Caches : GraphEdge
     public bool IsConditionalSet { get; }
 }
 
+/// <summary>Whether the site performs this invalidation, or may perform it — one of several values its
+/// key folded to. A run-time choice between three templates removes exactly one of them, so only a
+/// <see cref="Must"/> can stand for coverage; see <c>docs/adr/0015</c> and <c>CONTEXT.md</c> on a merge
+/// never granting a suppression that one site alone would not.</summary>
+public enum InvalidationModality
+{
+    Must,
+    May
+}
+
 public sealed record Invalidates : GraphEdge
 {
     public Invalidates(Handler from, CacheKey to, Confidence confidence, IEnumerable<Evidence>? evidence = null,
@@ -315,6 +329,10 @@ public sealed record Invalidates : GraphEdge
     }
 
     public CacheSemantic Semantic { get; }
+
+    /// <summary>Certain unless the fold said otherwise. Every edge built from a single named value keeps
+    /// the modality it has always had in effect.</summary>
+    public InvalidationModality Modality { get; init; } = InvalidationModality.Must;
 }
 
 public sealed record Calls : GraphEdge

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CacheDetective.Caching;
 using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Rules;
@@ -31,6 +32,12 @@ public sealed class WorkspaceConfiguration
 
     [JsonPropertyName("events")]
     public EventRecognizerConfiguration[]? Events { get; init; }
+
+    /// <summary>Caching libraries this workspace declares, beside <see cref="Events"/>. Until this
+    /// existed a cache recognizer could arrive only through <c>annotate</c> and died with the session,
+    /// which made a corpus keyed on an object unrepeatable; see <c>docs/adr/0016</c>.</summary>
+    [JsonPropertyName("caches")]
+    public CacheRecognizerConfiguration[]? Caches { get; init; }
 
     [JsonPropertyName("verify")]
     public VerifyConfiguration? Verify { get; init; }
@@ -87,5 +94,122 @@ public sealed class EventRecognizerConfiguration
             throw new InvalidDataException("events requires a publisher or consumer.");
         return new EventRecognizer(Name ?? "event_api", Publishers ?? (hasPublisher ? [Publisher!] : []), Methods, EventArgument,
                                    Consumer ?? string.Empty, Arity, Handle, HandlerKind, confidence, annotationId);
+    }
+}
+
+/// <summary>
+/// One declaration of a caching library, and the only one there is. The workspace's <c>caches</c>
+/// section, an <c>annotate</c> resolution of kind <c>cache_api</c> and the <c>--recognizers</c> file
+/// all deserialize into this: three readers of one schema, so a file written for one is accepted by
+/// the others and a "before" run and an "after" run can read the same bytes.
+/// <para>Unknown members are refused rather than ignored, as <see cref="VerifyConfiguration"/> refuses
+/// them: a field this schema does not know is a setting the author believes is doing something.</para>
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class CacheRecognizerConfiguration
+{
+    [JsonPropertyName("type")] public string? Type { get; init; }
+    [JsonPropertyName("store")] public string? Store { get; init; }
+    [JsonPropertyName("methods")] public CacheMethodConfiguration[]? Methods { get; init; }
+
+    /// <summary>Optional, and absent for every library that passes its key as a string.</summary>
+    [JsonPropertyName("key_object")] public KeyObjectConfiguration? KeyObject { get; init; }
+
+    public CacheRecognizer ToRecognizer(Confidence confidence, int? annotationId)
+    {
+        if (string.IsNullOrWhiteSpace(Type))
+            throw new InvalidDataException("caches requires a type naming the caching interface or class.");
+        if (string.IsNullOrWhiteSpace(Store))
+            throw new InvalidDataException($"caches['{Type}'] requires a store name.");
+        if (Methods is not { Length: > 0 })
+            throw new InvalidDataException($"caches['{Type}'] requires at least one method; a type with no methods recognizes nothing.");
+        return new CacheRecognizer(Type, Store, Methods.Select(method => method.ToRecognizer(Type)).ToArray(),
+                                   confidence, annotationId, KeyObject?.ToRecognizer(Type));
+    }
+
+    /// <summary>Both spellings of a semantic are accepted: the snake_case <c>remove_by_prefix</c> that
+    /// <c>annotate</c> documents, and the bare enum name that the committed <c>--recognizers</c> files
+    /// already carry. One shared parse cannot break either without breaking a file that parses today.
+    /// </summary>
+    internal static bool TryParseSemantic(string? value, out CacheSemantic semantic)
+    {
+        semantic = default;
+        // Enum.TryParse also accepts the underlying number, which would turn a typo into a semantic.
+        return !string.IsNullOrWhiteSpace(value) && char.IsLetter(value[0]) &&
+               Enum.TryParse(value.Replace("_", string.Empty, StringComparison.Ordinal), ignoreCase: true, out semantic);
+    }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class CacheMethodConfiguration
+{
+    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("semantic")] public string? Semantic { get; init; }
+
+    // Nullable so that "absent" and "argument zero" stay distinguishable — zero is the commonest key
+    // position, and a value type cannot carry absence. Same reason as EventRecognizerConfiguration.ConfiguredArity.
+    [JsonPropertyName("key_arg")] public int? KeyArgument { get; init; }
+    [JsonPropertyName("ttl_arg")] public int? TtlArgument { get; init; }
+    [JsonPropertyName("tags_arg")] public int? TagsArgument { get; init; }
+
+    internal CacheMethodRecognizer ToRecognizer(string type)
+    {
+        if (string.IsNullOrWhiteSpace(Name))
+            throw new InvalidDataException($"caches['{type}'] has a method with no name.");
+        if (!CacheRecognizerConfiguration.TryParseSemantic(Semantic, out var semantic))
+            throw new InvalidDataException($"caches['{type}'].{Name} has semantic '{Semantic}'. It must be one of " +
+                                           "get, set, remove, remove_by_tag, remove_by_prefix, increment, expire, lock.");
+        if (KeyArgument is not >= 0)
+            throw new InvalidDataException($"caches['{type}'].{Name} requires key_arg, the zero-based position of the key argument.");
+        if (TtlArgument is < 0 || TagsArgument is < 0)
+            throw new InvalidDataException($"caches['{type}'].{Name} has a negative argument position.");
+        return new CacheMethodRecognizer(Name, semantic, KeyArgument.Value, TtlArgument, TagsArgument);
+    }
+}
+
+/// <summary>A key that is an object: where its template literal lives, and where it meets its arguments.
+/// Carried and validated here; what the folder does with it is <c>docs/adr/0016</c>'s work.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class KeyObjectConfiguration
+{
+    [JsonPropertyName("type")] public string? Type { get; init; }
+    [JsonPropertyName("template_arg")] public int? TemplateArgument { get; init; }
+    [JsonPropertyName("factories")] public KeyObjectFactoryConfiguration[]? Factories { get; init; }
+
+    internal KeyObjectRecognizer ToRecognizer(string cacheType)
+    {
+        if (string.IsNullOrWhiteSpace(Type))
+            throw new InvalidDataException($"caches['{cacheType}'].key_object requires a type naming the key object.");
+        if (TemplateArgument is not >= 0)
+            throw new InvalidDataException($"caches['{cacheType}'].key_object requires template_arg, the zero-based constructor " +
+                                           "argument the template literal comes from.");
+        if (Factories is not { Length: > 0 })
+            throw new InvalidDataException($"caches['{cacheType}'].key_object requires at least one factory; without one the " +
+                                           "template never meets its arguments.");
+        return new KeyObjectRecognizer(Type, TemplateArgument.Value, Factories.Select(factory => factory.ToRecognizer(cacheType)).ToArray());
+    }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class KeyObjectFactoryConfiguration
+{
+    [JsonPropertyName("type")] public string? Type { get; init; }
+    [JsonPropertyName("methods")] public string[]? Methods { get; init; }
+    [JsonPropertyName("key_arg")] public int? KeyArgument { get; init; }
+    [JsonPropertyName("args_arg")] public int? ArgumentsArgument { get; init; }
+
+    internal KeyObjectFactory ToRecognizer(string cacheType)
+    {
+        if (string.IsNullOrWhiteSpace(Type))
+            throw new InvalidDataException($"caches['{cacheType}'].key_object.factories requires a type declaring the factory.");
+        if (Methods is not { Length: > 0 } || Methods.Any(string.IsNullOrWhiteSpace))
+            throw new InvalidDataException($"caches['{cacheType}'].key_object.factories['{Type}'] requires at least one method name.");
+        if (KeyArgument is not >= 0 || ArgumentsArgument is not >= 0)
+            throw new InvalidDataException($"caches['{cacheType}'].key_object.factories['{Type}'] requires key_arg and args_arg, the " +
+                                           "zero-based positions of the key object and of the argument array substituted into it.");
+        if (KeyArgument == ArgumentsArgument)
+            throw new InvalidDataException($"caches['{cacheType}'].key_object.factories['{Type}'] gives key_arg and args_arg the same " +
+                                           "position; one argument cannot be both the key object and the arguments put into it.");
+        return new KeyObjectFactory(Type, Methods, KeyArgument.Value, ArgumentsArgument.Value);
     }
 }

@@ -4,6 +4,13 @@
     <RootNamespace>CacheDetective</RootNamespace>
   </PropertyGroup>
 
+  <!-- The fold's set and its collapsed mark are internal, and a test that only reads the graph cannot
+       see the mark at all: a collapsed single-element fold and a certain one build the same vertex.
+       Mirrors CacheDetective.Cli. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CacheDetective.Core.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" />

@@ -165,3 +165,124 @@ delta between the two Orchard rows could be read as an effect of the recognizer.
 of the rows above — three `before`, two `after` — agree on every count, which is the specification's
 §11 stability target. Note that reproducible was never the same as right: nopCommerce reproduced its
 1397 unresolved `call` rows exactly and they were inflated all the same.
+
+## What phase 5 moved
+
+The table above varies the *configuration* — one recognizer file declared or not — at one analyser. This
+one varies the **analyser** and holds everything else still: same revision per corpus, same clean
+worktree, same solution, and the same declaration file byte for byte. That last is checked rather than
+assumed: every row records the SHA-256 of the recognizer or workspace file it read, and the phase gate
+compares the recorded hashes between the `before` and `after` of each pair rather than trusting that two
+files with the same name held the same content. The `before` rows were taken on **2026-09-07** against
+the phase-4 analyser with the configuration already at its final content; the `after` rows on
+**2026-09-08** against the phase-5 analyser as it stands after its code review — the review changed what
+the analyser recovers, so the rows were taken again once every finding was fixed, and these are those
+rows. The `before` rows were not re-taken and did not need to be: they were always the phase-4 analyser
+against the final configuration, which is exactly the baseline this pair wants. The runs are
+`load-<corpus>-phase5-{before,after}.json`.
+
+| Corpus | Count | Before | After |
+| --- | --- | --- | --- |
+| nopCommerce | cache operations | 3 | **116** |
+| nopCommerce | unresolved `key` | 121 | **28** |
+| nopCommerce | cache coverage | 0.023 | **0.784** |
+| nopCommerce | `caches` / `invalidates` / `reads` edges | 0 / 3 / 20 | **7 / 7 / 123** |
+| nopCommerce | vertices, edges | 5743, 19750 | **5843, 19864** |
+| nopCommerce | unresolved `role` | 0 | **4** |
+| nopCommerce | unresolved `call` | 1007 | **1008** |
+| nopCommerce | unresolved `cache_api` | 4 | 4 |
+| nopCommerce | total seconds | 108.2 s | 114.0 s |
+| eShopOnContainers | `serves` edges | 18 | **19** |
+| eShopOnContainers | `reads` edges | 68 | **71** |
+| eShopOnContainers | vertices, edges | 354, 431 | **357, 435** |
+| eShopOnContainers | unresolved `call` | 48 | 48 |
+| eShopOnContainers | `publishes` edges | 14 | 14 |
+| eShopOnContainers | unresolved `event` | 1 | 1 |
+| eShopOnContainers | cache operations, unresolved `key` | 0, 3 | 0, 3 |
+| eShopOnContainers | total seconds | 24.8 s | 25.0 s |
+| Orchard Core | every count above | — | **unchanged, to the digit** |
+| Orchard Core | unresolved `role` | 4 | 4 |
+| Orchard Core | total seconds | 180.3 s | 176.5 s |
+
+**The key object, measured on nopCommerce: cache operations 3 to 116, unresolved `key` 121 to 28.**
+Ninety-three sites stopped being rows the fold could not read and one hundred and thirteen operations
+appeared, which is the right shape: a site may key on more than one template, so a recovered site can
+yield several operations, but every operation that appeared came from a site already counted against the
+tool. Coverage follows from 0.023 to 0.784. The mechanism is `docs/adr/0016`:
+`Nop.Core.Caching.CacheKey` carries its template as a constructor argument and
+`PrepareKey`/`PrepareKeyForDefaultCache` substitute into its positional holes, so the recognizer can
+describe the object and the folder can read through it. The new operations arrive as 7 `caches`, 4 more
+`invalidates` and the balance of the 103 new `reads` — one edge per operation once the single HTTP read
+below is set aside — and vertices rise 100 because a `get` and a `set` on one template share a
+`CacheKey` vertex.
+
+**Most of that movement is the code review's, not the original task's.** The first measurement of this
+pair read 27 operations against 97 unresolved keys, coverage 0.211. Two review findings moved it to 116
+against 28: a key object reached through a local now folds to the set of values that local may hold, and
+— the larger of the two — a factory call is now recognised wherever it is met rather than only at the
+outermost expression, so `var key = _cacheKeyService.PrepareKeyForDefaultCache(defaults, id); await
+_staticCacheManager.GetAsync(key, …)` resolves. That is the form nopCommerce is written in;
+`CategoryService.cs:365` is the instance the review named and the corpus repeats it throughout. This
+measurement does not separate the two fixes' contributions, and no attempt is made to guess the split.
+
+**Cache coverage is 0.784, and no target is set for it.** No target, because the number is the finding
+rather than the goal — reading a key the compilation does not contain would mean claiming a value. The
+28 that remain are keys with no literal template to read, which is the honest residue; the earlier
+wording here claimed that of all 97, and the review was right that it was wrong.
+
+**nopCommerce's unresolved `role` went 0 to 4.** The classifier had no candidates on this corpus while
+there were three cache operations, so it reported nothing; with 116 it has keys to classify and four it
+cannot settle, which is a signal rather than a regression. It is not, however, the first time any corpus
+has given that classifier something to say — Orchard Core's `before` row already carries four
+unresolved-`role` entries and still does, so what is new is that a second corpus now produces them. What
+survives is the point that matters: the `role` measurement debt in `docs/cache-detective-spec.md` §12 was
+recorded because eShopOnContainers offered the classifier zero candidates to label, and a corpus with 116
+cache operations and templated keys is one that can now be sampled. The debt is payable; these four rows
+do not pay it, because §12 wants labelled rows and not a count of unsettled ones.
+
+**nopCommerce's unresolved `call` went 1007 to 1008.** One site, and this measurement does not isolate
+which. The reading the other counts support is one HTTP URL that now folds to two values where it folded
+to one, the second having no literal segment and so recording a row of its own — which would also account
+for one of the new `reads`, since `AddHttpReadAsync` creates an `ExternalSource` per fold value. That is a
+reconciliation of aggregates, not an observation of the row.
+
+**The fold set, measured on eShopOnContainers: `serves` 18 to 19, and `unresolved.call` unmoved at 48.**
+`API.GetAllCatalogItems` assembles its URL from a local assigned in three branches, one interpolating a
+conditional; it used to fold to `…/catalog/items{?}` and now names four templates, of which the one that
+adds no filter matches `CatalogController.ItemsAsync` and resolves the `serves` edge. `reads` rises 68 to
+71 and vertices 354 to 357 for the same reason: `HttpCallAnalyzer.AddHttpReadAsync` creates one
+`ExternalSource` vertex and one `Reads` edge per value the fold yields, so four values where there was
+one is three more of each. With the `serves` edge that is the whole of the +4 edges.
+
+**`unresolved.call` is the wrong count for this improvement, and the measurement is what shows it.** A
+row of kind `Call` is recorded when a fold yields no values at all (`HttpCallAnalyzer.cs:67`) or when a
+value carries no literal segment (`HttpCallAnalyzer.cs:78`). A URL that *has* a literal segment but
+matches no route is not recorded as unresolved at all — it is simply an `ExternalSource` with no `serves`
+edge. The catalog-items URL always carried the literal `/catalog/items`, so it never was one of the 48,
+and 48 is where it stays. The count that measures this change is `serves` against the `ExternalSource`
+vertices behind `reads`.
+
+**Publish attribution moved no count on eShop: `publishes` 14 to 14, unresolved `event` 1 to 1.**
+`docs/adr/0017` expected the number of `publishes` edges to fall, on the reasoning that a helper merges
+its callers' types onto one vertex. On this corpus it does not, because every caller of
+`PublishThroughEventBusAsync` names a distinct event type, so the flat set never merged two callers into
+one edge — and no publisher was outside the walk, so none became a row. What the change moved is which
+vertex each of the fourteen edges *starts from*, which no aggregate in this file records. That is pinned
+by `PublishAttributionTests` instead, and the ADR's prediction should be read as not borne out here
+rather than as confirmed.
+
+**Orchard Core reproduces every count exactly, and that is what makes the other two readable.** Same
+binary, same recognizer hash, a corpus none of these changes reaches: 2466 vertices, 7433 edges, 21 cache
+operations, 25 unresolved keys, 336 unresolved `call`, coverage 0.389 — identical in both rows, only the
+seconds differ. It held through the review fixes too, which is the stronger statement: the change that
+took nopCommerce from 3 operations to 116 moved nothing at all here. So nopCommerce's movement is an
+effect of the analyser meeting a shape it can now read, and not of run-to-run drift. Orchard is unchanged
+because its `IDynamicCacheService` is keyed on a `CacheContext`, which is a constructor id plus a fluent
+chain of `AddContext` calls rather than a template with positional holes; `docs/adr/0016` declines to
+describe it and says why, and this row is that decision measured.
+
+All three corpora still load complete — 33/33, 227/227 and 30/30 projects, none missing. The seconds went
+both ways: nopCommerce and eShopOnContainers finish slower than their `before` row (108.2 to 114.0 and
+24.8 to 25.0) and Orchard Core faster (180.3 to 176.5). Nothing in this phase was aimed at load time and
+no claim is made about it — these are single runs on a warm machine, and a spread of this size is what
+that measures.

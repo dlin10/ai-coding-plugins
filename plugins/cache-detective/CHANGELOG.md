@@ -1,5 +1,156 @@
 # Changelog
 
+## Unreleased
+
+- **A fold yields the set of values a site may produce, and says when it collapsed one**
+  (`docs/adr/0015`). A local assigned in several places and a conditional expression are the same
+  branching written two ways; both used to collapse to one unknown and lose the site. The folder now
+  returns every value, de-duplicated, ordered ordinally, and capped at eight on the result rather than
+  on the number of branches. Beside the set it carries a `collapsed` mark, set when the cap was
+  reached, when a member could not be named, or when the value came from a variable that builds
+  itself — and propagated through every composite, so a single template built over a collapsed part is
+  still known to be uncertain.
+- **`skills/scan/evals/eshop/expected.json` re-approved.** eShop's `API.GetAllCatalogItems` assembles
+  its URL from a local assigned in three branches, one interpolating a conditional, so the call folded
+  to `…/catalog/items{?}` and no endpoint matched its unknown tail. It now names four templates, and
+  the one that adds no filter resolves a `serves` edge to `CatalogController.ItemsAsync` on its own.
+  The file gains a `catalogItemsServes` expectation asserting exactly that, which is the corpus proof
+  that the motivating case is fixed.
+- `demo/behaviour-snapshot.json` and `skills/scan/evals/eshop/behaviour-snapshot.json` did **not**
+  move. Both record findings and unresolved rows; the catalog-items URL always carried a literal
+  segment, so it never was an unresolved row. What it lacked was a `serves` match, which those
+  snapshots do not record.
+- **Only a certain invalidation grants a suppression.** An `Invalidates` edge is now *must* when, and
+  only when, the site's fold named exactly one value and was not marked collapsed; otherwise it is
+  *may*. A handler whose `Remove` takes one of three templates removes exactly one at run time, so
+  counting it as coverage would hide the findings for the other two — and a suppressed finding is
+  invisible where a false one is merely noisy. The modality, not the size of the set, decides: a set of
+  one whose part outgrew the fold's bound, or whose sibling could not be named, is a choice wearing the
+  shape of a certainty. This covers `remove`, `remove_by_prefix` and `remove_by_tag` alike. What
+  changed is the modality and never the matching — a prefix still covers by pattern and a tag by
+  intersection.
+- Two suppressions require certainty: the missing-invalidation suppression in `UnguardedWriteRule`, and
+  the independent one in `StaleParentKeyRule` that skips a parent covered by a reachable removal.
+  `ORPHAN_INVALIDATION`, `PATTERN_MISMATCH` and the search that finds the *child* removal
+  `STALE_PARENT_KEY` starts from all go on accepting a may: the reason a may grants no suppression is
+  uncertainty, not absence, and a removal that may fire is neither dead code nor a mismatch. A may-edge
+  is otherwise unchanged and still appears in the chain the report prints.
+- The modality travels on `PendingCacheOperation` and is honoured when an annotation turns it into an
+  edge. An annotation resolves what the key *is*; it does not resolve whether the site had a choice, so
+  naming the unnameable member of a mixed removal no longer creates the certainty the fold refused.
+- **No recorded snapshot moved, and no existing test asserted a suppression this withdraws.** The demo
+  corpus's two removals are both single interpolations that fold to one certain value, so their
+  suppressions survive unchanged — which is the case the policy is required to leave alone — and the
+  eShop snapshot records no findings at all.
+- **A publish is attributed to the caller that named the event type** (`docs/adr/0017`), not to the body
+  that physically contains the call. A shared helper taking its event as a parameter — eShop's
+  `PublishThroughEventBusAsync` — now publishes nothing of its own and stays a link on the chain through
+  its `Calls` edge, exactly as a stored procedure is. A method that constructs the event in its own body
+  still names it itself. On eShop every one of the fourteen publishes now starts at the handler or
+  controller that constructed the event, and none at an integration-event service.
+- Recovery is per caller, and its failures are results too. A branch that ran out of hops, found no
+  caller, hit a cycle or passed an expression naming nothing is recorded as an `UnresolvedKind.Event`
+  row at the publish site naming that caller and that reason. One site may therefore produce edges and
+  rows at once, which is the correct outcome: without it, a helper with one good caller and one
+  exhausted branch left no trace of the second publisher at all.
+- Attribution is decided after the walk rather than during it. The walk is still discovering handlers
+  while the analyzer runs, so a caller met later would look unreachable purely for being met later; the
+  triples are resolved once every handler exists. The handler is looked up and never created — a caller
+  no entry point reaches gets a row saying so, because a chain head nothing reaches is a finding
+  addressed to nobody. This does not reopen `docs/adr/0014`: the caller lookup is a symbol query, not
+  part of the breadth-first walk, and each method is still expanded exactly once.
+- **No snapshot moved for this change either.** The behaviour snapshots record findings and unresolved
+  rows, not which vertex a publish starts from; eShop's publish and unresolved-event counts are
+  unchanged at 14 and 1. The count did not fall because on eShop every caller named a distinct type, so
+  the flat set had never merged two callers onto one — what moved is where each edge starts, which the
+  new `PublishAttributionTests` pin directly.
+- **The new work is order-independent, and says so by construction.** Both changes above introduced
+  fresh order sensitivity that `docs/adr/0014` had removed from the walk: a fold set's element order
+  reaches vertex creation, and `SymbolFinder.FindCallersAsync` does not specify the order it returns
+  callers in — which now decides which handler a publish hangs on and in what order rows are recorded.
+  The callers a recovery walks are collected and sorted by a stable key (the caller's display string,
+  then the site's file and position) before folding, and the deferred attribution triples and failure
+  rows are sorted by the same key before resolving. `Unresolved` ids are the sharp end, because an id is
+  what an `annotate` binds to: an id that moves between two runs of one solution binds the annotation to
+  a different site.
+- No snapshot moved for the ordering either: the behaviour snapshots record findings and unresolved rows
+  sorted, so an order that changed under them would not show. `Phase5DeterminismTests` therefore compares
+  sequences *as recorded* rather than sorted, and asserts the recorded order **is** the stable key order
+  — an assertion that fails when the sort is removed, which sorting both sides before comparing would
+  not.
+- **The phase is re-measured, and the numbers are in `skills/scan/evals/metrics/README.md`.** The three
+  corpora were indexed again at the same pinned revisions, with clean worktrees and the same declaration
+  files byte for byte — checked by comparing each row's recorded configuration hash against its `before`
+  row, so the analyser is the only difference between the pair. On nopCommerce the key object takes cache
+  operations from 3 to 116 and unresolved keys from 121 to 28, with coverage 0.023 to 0.784. On
+  eShopOnContainers the fold set takes `serves` edges from 18 to 19 and `reads` from 68 to 71, because one
+  `ExternalSource` is created per value a URL folds to. Orchard Core reproduces every count to the digit,
+  which is what makes the other two readable as effects of the analyser rather than of drift. No coverage
+  target is set: the number is the finding.
+- The `after` rows were taken twice: once when the phase closed, and again after its code review, because
+  two findings changed what the analyser recovers. nopCommerce read 27 operations against 97 unresolved
+  keys the first time and 116 against 28 the second, and the larger part of that is the fix that
+  recognises a factory call wherever it is met rather than only at the outermost expression — the form
+  nopCommerce is written in throughout. The rows in the file are the second measurement. The `before` rows
+  were not re-taken and did not need to be: they were always the phase-4 analyser against the final
+  configuration, which is the baseline the pair wants.
+- Two counts named in advance did not move, and both are recorded as results. eShop's `unresolved.call`
+  stays at 48 because a URL with a literal segment that matches no route is not an unresolved row at all
+  — only a fold with no values or no literal segment is — so that count never could have measured the
+  `serves` improvement. And `publishes` stays at 14 against `docs/adr/0017`'s expectation that it would
+  fall, because every caller of eShop's publish helper names a distinct event type, so the flat set had
+  never merged two callers onto one edge; what moved is where each edge starts, which no aggregate here
+  records and `PublishAttributionTests` pins instead.
+- The `Boundaries` section of `README.md` now describes what remains rather than what was fixed: Orchard
+  Core's `CacheContext`, multi-valued SQL, and a local that builds itself with `+=`, whose compound
+  assignment the fold cannot read and whose initialiser it therefore names but marks collapsed.
+- **`build/test-baseline.txt` re-recorded for one deliberate rename.**
+  `WorkspaceWriteConfinementTests.Index_and_query_create_only_the_workspace_configuration` is now
+  `Outside_msbuilds_intermediate_output_index_and_query_create_only_the_workspace_configuration`. The test
+  was not removed and did not stop running; what changed is that it now indexes a project *inside* the
+  workspace root it hashes, which is the arrangement the guarantee is about, and its name states the
+  allowance that arrangement forces. Opening a project there runs MSBuild's design-time build, which writes
+  its own intermediate output under the project's `obj` — measured, not assumed — so the exact assertion is
+  not available and the name says which one is made instead. The re-recorded baseline holds 691 cases
+  against the old 569; the only identity the old baseline had and the new one does not is that one rename,
+  and the other 123 are cases this phase and this review round added.
+
+- **An escaped positional hole is decoded in a non-constant interpolation, and used to be left doubled.**
+  `InterpolatedStringTextSyntax.ValueText` hands back the braces as written — it decodes the string's
+  escapes, not the interpolation's own — and phase 4 was built on the belief that it decoded both. The
+  belief held for every template in the fixture, because a constant interpolation never reaches the
+  interpolation walk at all: `GetConstantValue` answers it first with the value the compiler already
+  decoded. nopCommerce's `NopEntityCacheDefaults<TEntity>` writes `$"Nop.{EntityTypeName}.byid.{{0}}"`,
+  which is not constant, so the `{{0}}` arrived doubled, matched no format item, and the factory
+  substituted into nothing and dropped its argument in silence. Measured rather than assumed: the fixture
+  folded to `fixture.{EntityTypeName}.byid.{{0}}` before the fix. The regression's interpolation is
+  deliberately non-constant, so it cannot pass by taking the constant path.
+- **A possible removal of the parent now reaches the `STALE_PARENT_KEY` chain**, as it already did for
+  `UNGUARDED_WRITE`. The suppression is withheld because of that removal, so a finding that omitted it sent
+  the reader to a `Remove` of the parent and left them to conclude the tool was wrong. The may-edges are
+  appended after the chain that was already there, so nothing that reads the chain by position moves, and
+  each carries the reason it did not count. The search both rules use is now one helper,
+  `PossibleInvalidations`, so a reader meets the same explanation whichever finding shows it.
+
+- **The `after` rows were taken a third time after the escaped-hole fix, and not one count moved.** That is
+  the outcome the fix predicted: `NopEntityCacheDefaults.ByIdCacheKey` and `ByIdsCacheKey` — the only two
+  cache declarations in the corpus that write an escaped hole in a non-constant interpolation — were
+  already producing a `CacheKey` before the fix, just one whose template kept its `{{0}}` and whose factory
+  argument went nowhere. Decoding the hole changes what those two templates say, not how many there are, so
+  nopCommerce holds at 116 operations against 28 unresolved keys and coverage 0.784, and eShopOnContainers
+  and Orchard Core are identical to the digit as well.
+- Two claims in `skills/scan/evals/metrics/README.md` contradicted the rows they described and are
+  corrected. The seconds do not all fall: nopCommerce and eShopOnContainers finish slower than their
+  `before` row and only Orchard faster, which is what a single run on a warm machine measures, and no claim
+  is made about load time. And nopCommerce's unresolved `role` going 0 to 4 is not the first time a corpus
+  gave that classifier something to say — Orchard's `before` row already carried four and still does. What
+  survives is the part that matters: the §12 `role` debt was recorded because eShop offered zero candidates
+  to label, and a corpus with 116 operations and templated keys is one that can now be sampled.
+- The `Boundaries` note on multi-valued SQL described behaviour the fragment-level fallback had already
+  restored. It now says what is true: the branchy value collapses to one parameter and the statement around
+  it keeps its literals, so an `UPDATE`'s table and write survive; what is not done is parsing once per
+  value and uniting the results.
+
 ## 0.4.0 - 2026-09-05
 
 - Added runtime verification, built into the server rather than driven through third-party MCP servers,

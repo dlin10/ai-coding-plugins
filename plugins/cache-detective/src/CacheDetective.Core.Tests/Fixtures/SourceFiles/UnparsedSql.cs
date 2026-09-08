@@ -75,4 +75,21 @@ public sealed class UnparsedSqlController : ControllerBase
         DbCommand command = null!;
         command.CommandType = CommandType.StoredProcedure;
     }
+
+    /// <summary>A branch-assigned value interpolated into an UPDATE. The value is beyond the fold, but the
+    /// statement around it is not: reducing the whole query would take dbo.Products and its write with it.
+    /// </summary>
+    public int BranchyUpdate(bool flag)
+    {
+        var price = flag ? "1" : "2";
+        return _connection.Execute($"update dbo.Products set Price = {price}");
+    }
+
+    /// <summary>The other spelling of the same branch, on a read.</summary>
+    public object BranchySelect(bool flag)
+    {
+        var column = "Id";
+        if (flag) column = "Name";
+        return _connection.Query<SqlEntity>($"select {column} from dbo.Categories");
+    }
 }

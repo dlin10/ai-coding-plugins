@@ -5,11 +5,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.Json.Serialization;
 using CacheDetective.Cli;
+using CacheDetective.Configuration;
 using CacheDetective.Serialization;
 using CacheDetective.Caching;
 using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Indexing;
+using CacheDetective.Mcp;
 using CacheDetective.Workspaces;
 
 namespace CacheDetective;
@@ -17,6 +19,13 @@ namespace CacheDetective;
 internal static class MetricsCommand
 {
     private const string MANIFEST = "skills/scan/evals/metrics/manifest.json";
+
+    /// <summary>Every edge kind, so that one which fell to zero is a zero in the file rather than a
+    /// missing key: a reader comparing two rows must be able to tell an empty kind from a row written
+    /// before the kind was reported. The names are the ones <see cref="Mcp.TraceQueries.EdgeType"/>
+    /// produces, so a measurement and an <c>export_graph</c> dump speak one vocabulary.</summary>
+    private static readonly string[] EDGE_KINDS =
+        ["caches", "calls", "consumes", "fires", "invalidates", "publishes", "reads", "serves", "writes"];
 
     /// <summary>What a revision reads as when git could not produce one. It is not a revision and nothing
     /// may be pinned to it.</summary>
@@ -64,13 +73,17 @@ internal static class MetricsCommand
         var sqlDenominator = graph.ParsedSqlSites + Count(unresolved, "sql");
         var cacheCoverage = Coverage(graph.CacheOperations.Count, cacheDenominator);
         var sqlCoverage = Coverage(graph.ParsedSqlSites, sqlDenominator);
+        var edgesByKind = EDGE_KINDS.ToDictionary(kind => kind, _ => 0, StringComparer.Ordinal);
+        foreach (var group in graph.Edges.GroupBy(TraceQueries.EdgeType))
+            edgesByKind[group.Key] = group.Count();
         var result = new Measurement(options.Solution!, indexed.LoadSeconds, indexed.IndexSeconds,
-                                     indexed.LoadSeconds + indexed.IndexSeconds, VertexCount(graph), graph.Edges.Count,
+                                     indexed.LoadSeconds + indexed.IndexSeconds, VertexCount(graph), graph.Edges.Count, edgesByKind,
                                      graph.CacheOperations.Count, unresolved, indexed.Diagnostics, indexed.Coverage.ProjectsExpected,
                                      indexed.Coverage.ProjectsLoaded, indexed.Coverage.MissingProjects,
                                      indexed.Coverage.EmptyProjects, indexed.Coverage.LoadComplete,
                                      indexed.Revision.Value, indexed.Revision.WorkingTreeClean, indexed.RecognizersFile,
-                                     indexed.RecognizersHash, indexed.RecognizersApplied, cacheCoverage, sqlCoverage,
+                                     indexed.RecognizersHash, indexed.RecognizersApplied, indexed.WorkspaceFile,
+                                     indexed.WorkspaceHash, indexed.WorkspaceApplied, cacheCoverage, sqlCoverage,
                                      indexed.Revision.WorkingTreeClean,
                                      new MeasurementCounts(VertexCount(graph), graph.Edges.Count, graph.CacheOperations.Count),
                                      new MeasurementCoverage(cacheCoverage, sqlCoverage));
@@ -157,60 +170,62 @@ internal static class MetricsCommand
         var solutionArgument = options.Solution!;
         var solution = Path.GetFullPath(Path.IsPathRooted(solutionArgument) ? solutionArgument : Path.Combine(root, solutionArgument));
         var recognizers = await ReadRecognizersAsync(options.Recognizers).ConfigureAwait(false);
+        var workspace = await ReadWorkspaceAsync(options.Workspace).ConfigureAwait(false);
         var load = Stopwatch.StartNew();
         using var loaded = await options.Load(solution, CancellationToken.None).ConfigureAwait(false);
         load.Stop();
         var index = Stopwatch.StartNew();
-        var configured = recognizers.Concat(CacheRecognizers.All.Where(builtin => recognizers.All(declared => declared.TypeName != builtin.TypeName)))
-                                    .ToArray();
-        var graph = await new CallGraphIndexer(new IndexerOptions(configured, EventRecognizers.All))
+        // The same merge a session uses, through the same helper: a declaration measured here and the same
+        // declaration indexed in a session must resolve identically, or the measurement is about the
+        // command rather than about the tool. See CacheRecognizers.Merge.
+        var configured = CacheRecognizers.Merge(recognizers.Concat(workspace.Caches));
+        var graph = await new CallGraphIndexer(new IndexerOptions(configured, EventRecognizers.All.Concat(workspace.Events).ToArray()))
             .IndexAsync(loaded.Solution, options.Solution!).ConfigureAwait(false);
         index.Stop();
         return new Indexed(graph, load.Elapsed.TotalSeconds, index.Elapsed.TotalSeconds, loaded.Diagnostics.Count, loaded.Coverage,
                            GetRevision(root), options.Recognizers is null ? null : Path.GetFullPath(options.Recognizers),
-                           options.Recognizers is null ? null : HashFile(options.Recognizers!), recognizers.Count);
+                           options.Recognizers is null ? null : HashFile(options.Recognizers!), recognizers.Count,
+                           options.Workspace is null ? null : Path.GetFullPath(options.Workspace),
+                           options.Workspace is null ? null : HashFile(options.Workspace), workspace.Count);
     }
 
+    /// <summary>
+    /// The <c>events</c> and <c>caches</c> a workspace declares, read through the one parser and merged
+    /// the way <see cref="Mcp.WorkspaceSession"/> merges them, at <see cref="Confidence.Confirmed"/> —
+    /// the repository is stating what its own libraries do.
+    /// <para>Without this a corpus whose event bus is declared rather than built in measures as though it
+    /// publishes nothing, which is not a fact about the corpus but about the command.</para>
+    /// </summary>
+    private static async Task<WorkspaceDeclarations> ReadWorkspaceAsync(string? path)
+    {
+        if (path is null) return new WorkspaceDeclarations([], []);
+        WorkspaceConfiguration configuration;
+        try { configuration = await WorkspaceConfigurationStore.ReadFileAsync(path).ConfigureAwait(false); }
+        catch (Exception error) when (error is JsonException or InvalidDataException)
+        {
+            throw new ArgumentException($"Invalid workspace file '{path}'. {error.Message}", error);
+        }
+
+        return new WorkspaceDeclarations(
+            (configuration.Events ?? []).Select(item => item.ToRecognizer(Confidence.Confirmed, null)).ToArray(),
+            (configuration.Caches ?? []).Select(item => item.ToRecognizer(Confidence.Confirmed, null)).ToArray());
+    }
+
+    /// <summary>The third reader of the one declaration schema. It shares <see cref="CacheRecognizerConfiguration"/>
+    /// with the workspace's <c>caches</c> section and with <c>annotate</c>'s <c>cache_api</c>, so a file
+    /// written for one is read by all three — which is what lets a "before" run and an "after" run read
+    /// the same bytes. The confidence stays <c>likely</c>: a file passed on the command line is a claim
+    /// about an API this tool does not know.</summary>
     private static async Task<IReadOnlyList<CacheRecognizer>> ReadRecognizersAsync(string? path)
     {
         if (path is null) return [];
-        JsonDocument document;
-        try { document = JsonDocument.Parse(await File.ReadAllTextAsync(path).ConfigureAwait(false)); }
-        catch (JsonException error) { throw new ArgumentException($"Invalid recognizers file '{path}'.", error); }
-        using (document)
-        {
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                throw new ArgumentException("--recognizers must contain a JSON array.");
-            var recognizers = new List<CacheRecognizer>();
-            foreach (var element in document.RootElement.EnumerateArray())
-                recognizers.Add(ParseRecognizer(element));
-            return recognizers;
-        }
-    }
-
-    private static CacheRecognizer ParseRecognizer(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object || !Text(element, "type", out var type) || !Text(element, "store", out var store) ||
-            !element.TryGetProperty("methods", out var methods) || methods.ValueKind != JsonValueKind.Array ||
-            element.EnumerateObject().Any(property => property.Name is not ("type" or "store" or "methods")))
-        {
-            throw new ArgumentException("--recognizers entries must be { type, store, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }] }.");
-        }
-        var parsed = new List<CacheMethodRecognizer>();
-        foreach (var method in methods.EnumerateArray())
-        {
-            if (method.ValueKind != JsonValueKind.Object || !Text(method, "name", out var name) || !Text(method, "semantic", out var semanticText) ||
-                !Number(method, "key_arg", out var keyArgument) || !OptionalNumber(method, "ttl_arg", out var ttlArgument) ||
-                !OptionalNumber(method, "tags_arg", out var tagsArgument) || !Enum.TryParse<CacheSemantic>(semanticText, true, out var semantic) ||
-                method.EnumerateObject().Any(property => property.Name is not ("name" or "semantic" or "key_arg" or "ttl_arg" or "tags_arg")))
-            {
-                throw new ArgumentException("--recognizers entries must be { type, store, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }] }.");
-            }
-            parsed.Add(new CacheMethodRecognizer(name, semantic, keyArgument, ttlArgument, tagsArgument));
-        }
-        if (parsed.Count == 0)
-            throw new ArgumentException("--recognizers methods must not be empty.");
-        return new CacheRecognizer(type, store, parsed, Confidence.Likely);
+        CacheRecognizerConfiguration[]? declared;
+        try { declared = JsonSerializer.Deserialize<CacheRecognizerConfiguration[]>(await File.ReadAllTextAsync(path).ConfigureAwait(false)); }
+        catch (JsonException error) { throw new ArgumentException($"Invalid recognizers file '{path}'. {error.Message}", error); }
+        if (declared is null)
+            throw new ArgumentException("--recognizers must contain a JSON array.");
+        try { return declared.Select(configuration => configuration.ToRecognizer(Confidence.Likely, null)).ToArray(); }
+        catch (InvalidDataException error) { throw new ArgumentException($"Invalid recognizers file '{path}'. {error.Message}", error); }
     }
 
     private static MetricsSample BuildSample(CacheGraph graph, string sample, int count, string revision, string root)
@@ -422,16 +437,19 @@ internal static class MetricsCommand
         value = 0;
         return element.TryGetProperty(name, out var member) && member.TryGetInt32(out value) && value >= 0;
     }
-    private static bool OptionalNumber(JsonElement element, string name, out int? value)
-    {
-        value = null;
-        return !element.TryGetProperty(name, out var member) || member.ValueKind == JsonValueKind.Null || (member.TryGetInt32(out var number) && (value = number) >= 0);
-    }
 
     private enum MetricsMode { Measure, Sample, Compare, Score }
     private sealed record RepositoryRevision(string Value, bool WorkingTreeClean);
     private sealed record Indexed(CacheGraph Graph, double LoadSeconds, double IndexSeconds, int Diagnostics, LoadCoverage Coverage,
-                                  RepositoryRevision Revision, string? RecognizersFile, string? RecognizersHash, int RecognizersApplied);
+                                  RepositoryRevision Revision, string? RecognizersFile, string? RecognizersHash, int RecognizersApplied,
+                                  string? WorkspaceFile, string? WorkspaceHash, int WorkspaceApplied);
+
+    private sealed record WorkspaceDeclarations(IReadOnlyList<EventRecognizer> Events, IReadOnlyList<CacheRecognizer> Caches)
+    {
+        /// <summary>How many recognizers the workspace contributed, of either kind. It is what a reader
+        /// checks to see that the file was read rather than merely named.</summary>
+        public int Count => Events.Count + Caches.Count;
+    }
     private sealed record ManifestSample(string Sample, int TargetCount, string Revision);
 
     private sealed class Options
@@ -441,6 +459,7 @@ internal static class MetricsCommand
         public string? Solution { get; private init; }
         public string? Out { get; private init; }
         public string? Recognizers { get; private init; }
+        public string? Workspace { get; private init; }
         public string? Sample { get; private init; }
         public int? Count { get; private init; }
         public string? Compare { get; private init; }
@@ -457,9 +476,9 @@ internal static class MetricsCommand
             for (var index = 0; index < args.Length; index++)
             {
                 if (args[index] == "--force") { force = true; continue; }
-                if (args[index] is not ("--root" or "--solution" or "--out" or "--recognizers" or "--sample" or "--count" or "--compare" or "--score") ||
+                if (args[index] is not ("--root" or "--solution" or "--out" or "--recognizers" or "--workspace" or "--sample" or "--count" or "--compare" or "--score") ||
                     index + 1 >= args.Length || !values.TryAdd(args[index], args[++index]))
-                    throw new ArgumentException("Usage: cachedet metrics --root <path> --solution <name> --out <file> [--recognizers <file>].");
+                    throw new ArgumentException("Usage: cachedet metrics --root <path> --solution <name> --out <file> [--recognizers <file>] [--workspace <file>].");
             }
             var sample = values.GetValueOrDefault("--sample");
             var compare = values.GetValueOrDefault("--compare");
@@ -473,6 +492,7 @@ internal static class MetricsCommand
             else if (values.TryGetValue("--count", out countText)) count = int.Parse(countText);
             var options = new Options { Mode = mode, Root = values.GetValueOrDefault("--root"), Solution = values.GetValueOrDefault("--solution"),
                                         Out = values.GetValueOrDefault("--out"), Recognizers = values.GetValueOrDefault("--recognizers"),
+                                        Workspace = values.GetValueOrDefault("--workspace"),
                                         Sample = sample, Count = count, Compare = compare, Score = score, Force = force };
             if (mode == MetricsMode.Score)
             {
@@ -483,9 +503,11 @@ internal static class MetricsCommand
                 throw new ArgumentException("--root and a non-empty --solution are required.");
             if (mode is MetricsMode.Measure or MetricsMode.Sample && string.IsNullOrWhiteSpace(options.Out))
                 throw new ArgumentException("--out is required.");
-            if (mode == MetricsMode.Sample && (count is null || options.Recognizers is not null))
-                throw new ArgumentException("--sample requires --count and does not accept --recognizers.");
-            if (mode == MetricsMode.Compare && (string.IsNullOrWhiteSpace(compare) || options.Out is not null || options.Count is not null || options.Recognizers is not null || force))
+            // A sample and a comparison are drawn from the corpus as the built-in analyser sees it; a
+            // declaration file of either kind would make the drawn rows depend on it, so both refuse both.
+            if (mode == MetricsMode.Sample && (count is null || options.Recognizers is not null || options.Workspace is not null))
+                throw new ArgumentException("--sample requires --count and does not accept --recognizers or --workspace.");
+            if (mode == MetricsMode.Compare && (string.IsNullOrWhiteSpace(compare) || options.Out is not null || options.Count is not null || options.Recognizers is not null || options.Workspace is not null || force))
                 throw new ArgumentException("Usage: cachedet metrics --compare <file> --root <path> --solution <name>.");
             return options;
         }

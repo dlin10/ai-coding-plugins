@@ -36,6 +36,13 @@ Use `{ "role": "cache" }` or `{ "role": "store", "store": "..." }` after inspect
 Use `{ "type": "Full.Type", "store": "name", "methods": [...] }`, with every method's semantic
 and key argument. Add it only when the relevant API surface is known.
 
+When the key is an object rather than a string, add `"key_object"`: the object's type, the
+constructor argument the template literal comes from, and the factories that substitute into it —
+`{ "type": "...", "template_arg": 0, "factories": [{ "type": "...", "methods": ["..."], "key_arg": 0, "args_arg": 1 }] }`.
+
+This is the same declaration the workspace's `caches` section takes, so one written here can be
+pasted into `.cache-detective/workspace.json` unchanged — which is how it survives the session.
+
 ## `event_api`
 
 Use the configured event-recognizer form (`publisher`, `consumer`, optional methods and argument

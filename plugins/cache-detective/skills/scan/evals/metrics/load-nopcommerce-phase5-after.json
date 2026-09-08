@@ -1,0 +1,67 @@
+{
+  "solution": "src/NopCommerce.sln",
+  "loadSeconds": 21.0594673,
+  "indexSeconds": 92.9531367,
+  "totalSeconds": 114.01260400000001,
+  "vertices": 5843,
+  "edges": 19864,
+  "edgesByKind": {
+    "caches": 7,
+    "calls": 19727,
+    "consumes": 0,
+    "fires": 0,
+    "invalidates": 7,
+    "publishes": 0,
+    "reads": 123,
+    "serves": 0,
+    "writes": 0
+  },
+  "cacheOperations": 116,
+  "unresolved": {
+    "key": 28,
+    "sql": 0,
+    "call": 1008,
+    "cache_api": 4,
+    "role": 4,
+    "event": 0,
+    "event_api": 1
+  },
+  "diagnostics": 0,
+  "projectsExpected": 33,
+  "projectsLoaded": 33,
+  "missingProjects": [],
+  "emptyProjects": [],
+  "loadComplete": true,
+  "revision": "918444773367deb734b93d3ad80e17325d6c147a",
+  "workingTreeClean": true,
+  "recognizersFile": "C:\\Dev\\CodexPlugins\\plugins\\cache-detective\\skills\\scan\\evals\\metrics\\recognizers-nopcommerce.json",
+  "recognizersHash": "FD3150D6BE468B45A3C1DD57BC43314BD685E7EAC20F331FE5C343FB33E05231",
+  "recognizersApplied": 1,
+  "workspaceFile": null,
+  "workspaceHash": null,
+  "workspaceRecognizersApplied": 0,
+  "cacheSiteCoverage": {
+    "value": 0.7837837837837838,
+    "status": "ok"
+  },
+  "sqlSiteCoverage": {
+    "value": null,
+    "status": "not_applicable"
+  },
+  "cleanWorktree": true,
+  "counts": {
+    "vertices": 5843,
+    "edges": 19864,
+    "cacheOperations": 116
+  },
+  "coverage": {
+    "cache": {
+      "value": 0.7837837837837838,
+      "status": "ok"
+    },
+    "sql": {
+      "value": null,
+      "status": "not_applicable"
+    }
+  }
+}

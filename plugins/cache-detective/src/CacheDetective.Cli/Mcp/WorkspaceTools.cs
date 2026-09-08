@@ -21,9 +21,11 @@ internal sealed class WorkspaceTools
                                                 [Description("Client-name to solution/project service mappings. Omit to retain existing mappings.")]
                                                 Dictionary<string, string>? services = null,
                                                 [Description("Additional event bus recognizers. Omit to retain existing recognizers.")]
-                                                EventRecognizerConfiguration[]? events = null)
+                                                EventRecognizerConfiguration[]? events = null,
+                                                [Description("Additional caching library recognizers. Omit to retain existing recognizers.")]
+                                                CacheRecognizerConfiguration[]? caches = null)
     {
-        var result = await session.InitializeAsync(root, solutions, budgets, cancellationToken, services, events)
+        var result = await session.InitializeAsync(root, solutions, budgets, cancellationToken, services, events, caches)
                                   .ConfigureAwait(false);
         return JsonSerializer.Serialize(result, CacheDetectiveJsonContext.Default.WorkspaceInitResult);
     }

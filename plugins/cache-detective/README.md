@@ -297,20 +297,30 @@ orphan invalidation — a `Remove` of a key nothing caches — and deliberately 
 cannot yet see every writer of a table. The `services`, `verify` and `sensitive` configuration sections
 are all interpreted now; a field none of their schemas knows is refused rather than ignored.
 
-Two limits are known and deliberate for now, both visible on eShopOnContainers. A value that depends
-on a branch — a local assigned differently in two places, so a URL or a key differs per path — folds
-to one unknown template rather than to the several templates it can take, which is sound but coarse:
-the site becomes an unresolved row for the agent instead of several sources. And an event published
-through a shared helper is attributed to the helper, so every type that helper can publish appears
-in the event chain of a finding headed by one of its callers.
+Three limits remain where a fold stops short of a value it could in principle name, and each is a
+different reason rather than three faces of one. Multi-valued SQL is out of scope, and out of scope means
+the branchy *value* and not the statement holding it: a fragment that stands for several collapses to one
+neutral parameter where it arises, and the statement around it keeps every literal it had, so
+`UPDATE dbo.Products SET Price = {branchy}` still resolves `dbo.Products` and still records its write.
+What is not done is running the parser once per value and uniting the results, so a query whose *shape*
+differs across a branch — a table name chosen by a condition, say — is read as the one shape the fold
+could prove and the alternatives are not enumerated. A local that builds itself with `+=` is not
+read, because a compound assignment is not a value the fold can see; the site folds to the local's
+initialiser and is marked collapsed, so the template it names can never be mistaken for the one value
+the run produces. And Orchard Core's `CacheContext` is not folded — see the bullet below.
 
 ### What analysis will not reduce
 
-- **A cache key built as an object is not folded to a template.** nopCommerce passes a `CacheKey`
-  object assembled by a key service and Orchard Core passes a `CacheContext`; the key folder reads
-  string expressions, so it recovers almost none of them. Declaring a recognizer finds the call sites
-  and does not fix this: measured on nopCommerce, cache coverage after declaring
-  `IStaticCacheManager` was 0.013.
+- **A cache key built as an object is folded only where the object carries its own template.** The
+  recognizer may describe one: the type, the constructor argument the template literal comes from, and
+  the factories that substitute arguments into its positional holes (`docs/adr/0016`). That is
+  nopCommerce's `Nop.Core.Caching.CacheKey`, and describing it takes the corpus from 3 cache operations
+  against 121 unresolved keys to 116 against 28, coverage 0.023 to 0.784. Orchard Core's `CacheContext`
+  is not that shape and is not folded: it is a constructor id plus a fluent chain of `AddContext` calls
+  composed at run time, which needs a second kind of description rather than a second entry of this one,
+  and in v3.0.1 the cache id is usually a run-time string from a Razor tag-helper attribute or a Liquid
+  filter argument, so even a perfect reader of it would fold a handful of sites. Orchard's coverage is
+  reported with that as its measured reason.
 - **A framework that hides data access behind interfaces implemented in its own packages yields a graph
   with no writes at all, and you can see that it did from the unresolved entries of kind call.** The
   call graph resolves an interface call only to implementations inside the workspace, so an ABP

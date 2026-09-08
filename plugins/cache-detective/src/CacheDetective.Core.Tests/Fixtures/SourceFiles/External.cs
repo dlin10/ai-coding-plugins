@@ -75,6 +75,16 @@ namespace ExternalFixture
 
         public async Task Unknown(HttpClient client, string url) => await client.GetAsync(url);
 
+        public async Task BranchyUrl(HttpClient client, bool flag)
+        {
+            var path = "/branch/one";
+            if (flag) path = "/branch/two";
+            await client.GetAsync(path);
+        }
+
+        public async Task ConditionalUrl(HttpClient client, bool flag) =>
+            await client.GetAsync(flag ? "/conditional/yes" : "/conditional/no");
+
         public async Task LocalHelper(HttpClient client, string baseUri, int page)
         {
             var uri = Api.Items(baseUri, page);

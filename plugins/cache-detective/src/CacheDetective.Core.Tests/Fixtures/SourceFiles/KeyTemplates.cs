@@ -48,6 +48,15 @@ public sealed class KeyController : ControllerBase
 
     public void Dynamic(string dynamicKey) => _cache.Set(dynamicKey, 1);
 
+    public void Branchy(bool flag)
+    {
+        var choice = "branch:one";
+        if (flag) choice = "branch:two";
+        _cache.Set(choice, 1);
+    }
+
+    public void Conditional(bool flag) => _cache.Set(flag ? "conditional:yes" : "conditional:no", 1);
+
     private static string Five1(int value) => Five2(value);
     private static string Five2(int value) => Five3(value);
     private static string Five3(int value) => Five4(value);

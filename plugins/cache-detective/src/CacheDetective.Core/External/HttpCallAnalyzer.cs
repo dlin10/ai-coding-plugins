@@ -58,15 +58,35 @@ internal sealed class HttpCallAnalyzer(Solution solution)
     {
         var expression = GetUriExpression(url, semanticModel);
         var folded = expression is null ? null : await _folder.FoldAsync(expression, semanticModel, cancellationToken);
-        var template = folded is null ? "{?}" : PathTemplates.Normalize(ExternalTemplate(folded));
-        if (string.IsNullOrEmpty(template)) template = "{?}";
-        var source = AddRead(graph, handler, "http", method, template,
-                             await FindClientNameAsync(invocation, semanticModel, cancellationToken), CreateEvidence(invocation));
-        if (folded is null || !folded.HasLiteralPart)
+        var clientName = await FindClientNameAsync(invocation, semanticModel, cancellationToken);
+        // One source per value the call may reach: a URL assembled from a branch names several endpoints,
+        // and each is matched for `serves` exactly as a single template is.
+        var values = folded?.Values ?? [];
+        if (values.Count == 0)
         {
-            graph.AddUnresolvedExternal(UnresolvedKind.Call, handler, CreateEvidence(invocation), invocation.ToString(),
-                                        "HTTP URL has no literal segment: name the endpoint it reaches.", source);
+            AddUnresolvedUrl(graph, handler, invocation, method, "{?}", clientName);
+            return;
         }
+
+        foreach (var value in values)
+        {
+            var template = PathTemplates.Normalize(ExternalTemplate(value));
+            if (string.IsNullOrEmpty(template)) template = "{?}";
+            var source = AddRead(graph, handler, "http", method, template, clientName, CreateEvidence(invocation));
+            if (!value.HasLiteralPart)
+            {
+                graph.AddUnresolvedExternal(UnresolvedKind.Call, handler, CreateEvidence(invocation), invocation.ToString(),
+                                            "HTTP URL has no literal segment: name the endpoint it reaches.", source);
+            }
+        }
+    }
+
+    private void AddUnresolvedUrl(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, string method,
+                                  string template, string? clientName)
+    {
+        var source = AddRead(graph, handler, "http", method, template, clientName, CreateEvidence(invocation));
+        graph.AddUnresolvedExternal(UnresolvedKind.Call, handler, CreateEvidence(invocation), invocation.ToString(),
+                                    "HTTP URL has no literal segment: name the endpoint it reaches.", source);
     }
 
     private static ExternalSource AddRead(CacheGraph graph, Handler handler, string kind, string method, string template,
@@ -77,7 +97,7 @@ internal sealed class HttpCallAnalyzer(Solution solution)
         return source;
     }
 
-    private static string ExternalTemplate(FoldedString folded) => folded.Value;
+    private static string ExternalTemplate(FoldedString value) => value.Value;
 
     private static string? GetHttpMethod(IMethodSymbol method, INamedTypeSymbol? instanceType)
     {

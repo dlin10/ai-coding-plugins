@@ -29,13 +29,24 @@ public sealed class StaleParentKeyRule
             {
                 var handler = (Handler)invalidation.From;
                 var reach = Reachability.From(handler, edges, graph);
-                if (edges.OfType<Invalidates>().Any(edge => reach.Handlers.ContainsKey((((Handler)edge.From).Solution, ((Handler)edge.From).Symbol)) &&
+                // The rule's own suppression, and it wants certainty for the same reason the unguarded
+                // write does: a parent that may be removed is a parent that may be left stale, and
+                // accepting the may here would stop STALE_PARENT_KEY ever firing for it. The sibling
+                // search above, which finds the child removal the finding starts from, keeps accepting a
+                // may — a possible removal of the child is still a possible removal, and refusing it
+                // there would delete the finding rather than preserve it.
+                if (edges.OfType<Invalidates>().Any(edge => edge.Modality == InvalidationModality.Must &&
+                                                        reach.Handlers.ContainsKey((((Handler)edge.From).Solution, ((Handler)edge.From).Symbol)) &&
                                                         CacheKeyCovering.Covers(edge, parent, parent.TagsAll))) continue;
                 var confidence = ConfidenceGaps.Touches(graph, new[] { handler }.Concat(dependency.Path.SelectMany(Handlers)), GapScope.Data) ||
                                  ConfidenceGaps.Touches(graph, reach.Handlers.Values.Select(item => item.Handler), GapScope.Coverage)
                                      ? Confidence.Unknown : Weaken(invalidation.Confidence, dependency.Confidence);
+                // The parent removals that may fire go last, after the chain the reader already knew: the
+                // suppression was withheld because of them, so the finding has to show them and say why.
+                // Appended rather than woven in, so nothing that reads the chain by position moves.
                 findings.Add(new StaleParentKeyFinding(handler, parent, child, confidence,
-                    [invalidation, .. dependency.Path], parent.TtlSeconds, child.TtlSeconds, reach.Projects));
+                    [invalidation, .. dependency.Path, .. PossibleInvalidations.Covering(parent, reach.Handlers, edges)],
+                    parent.TtlSeconds, child.TtlSeconds, reach.Projects));
             }
         }
         return findings;

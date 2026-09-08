@@ -59,7 +59,8 @@ public sealed class UnguardedWriteRule
                     var ttlSeconds = key.TtlSeconds;
                     var suppressed = ttlSeconds is not null && ttlSeconds.Value <= budgetSeconds;
                     var dependency = matches.OrderBy(candidate => candidate.Confidence).ThenBy(candidate => candidate.Path.Count).First();
-                    var chain = BuildChain(head.Path, write, dependency.Path);
+                    var chain = BuildChain(head.Path, write, dependency.Path,
+                                           PossibleInvalidations.Covering(key, invalidationSearch.Handlers, edges));
 
                     var confidence = Weaken(write.Confidence, dependency.Confidence);
                     var chainHandlers = GetHandlers(chain).ToArray();
@@ -82,17 +83,23 @@ public sealed class UnguardedWriteRule
     }
 
     /// <summary>The chain reads top to bottom: how the handler reached the write, the write itself, then
-    /// the path from the table up to the key.</summary>
-    private static GraphEdge[] BuildChain(IReadOnlyList<GraphEdge> head, Writes write, IReadOnlyList<GraphEdge> dependency)
+    /// the path from the table up to the key — and last the removals that reach this key but only may fire,
+    /// each carrying the reason it did not count. They come last so that the chain a reader already knew
+    /// keeps its shape and the write keeps its index in it.</summary>
+    private static GraphEdge[] BuildChain(IReadOnlyList<GraphEdge> head, Writes write, IReadOnlyList<GraphEdge> dependency,
+                                          IReadOnlyList<Invalidates> possible)
     {
-        var chain = new GraphEdge[head.Count + 1 + dependency.Count];
+        var chain = new GraphEdge[head.Count + 1 + dependency.Count + possible.Count];
         for (var index = 0; index < head.Count; index++)
             chain[index] = head[index];
         chain[head.Count] = write;
         for (var index = 0; index < dependency.Count; index++)
             chain[head.Count + 1 + index] = dependency[dependency.Count - index - 1];
+        for (var index = 0; index < possible.Count; index++)
+            chain[head.Count + 1 + dependency.Count + index] = possible[index];
         return chain;
     }
+
 
     /// <summary>The handlers at the head of the chains that reach one write, with the path from each. A
     /// handler's own write has an empty path; a procedure's write is reached through the calls into it; a
@@ -191,10 +198,16 @@ public sealed class UnguardedWriteRule
     private static bool Activates(IReadOnlySet<WriteEvent> writeEvents, IReadOnlySet<WriteEvent> triggerEvents) =>
         writeEvents.Count == 0 || writeEvents.Any(triggerEvents.Contains);
 
+    /// <summary>Only a certain invalidation suppresses. A removal whose key folded to several values, or
+    /// to one standing for several, removes one of them at run time; counting it as coverage would hide
+    /// the findings for the others, and a suppressed finding is invisible where a false one is only
+    /// noisy. The matching is untouched — a prefix still covers by pattern, a tag by intersection.
+    /// </summary>
     private static bool HasCoveringInvalidation(CacheKey key, IReadOnlyDictionary<(string Solution, string Symbol), ReachedHandler> reachableHandlers,
                                                 IEnumerable<GraphEdge> edges) =>
         edges.OfType<Invalidates>()
-             .Any(invalidation => reachableHandlers.ContainsKey(GetHandlerId((Handler)invalidation.From)) &&
+             .Any(invalidation => invalidation.Modality == InvalidationModality.Must &&
+                                  reachableHandlers.ContainsKey(GetHandlerId((Handler)invalidation.From)) &&
                                   CacheKeyCovering.Covers(invalidation, key, key.TagsAll));
 
 

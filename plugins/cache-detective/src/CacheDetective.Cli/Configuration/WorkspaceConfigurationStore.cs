@@ -43,6 +43,7 @@ public static class WorkspaceConfigurationStore
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
         EnsureSupportedEvents(configuration);
+        EnsureSupportedCaches(configuration);
         EnsureSupportedVerify(configuration);
         return configuration;
     }
@@ -53,6 +54,7 @@ public static class WorkspaceConfigurationStore
         EnsureSupportedVersion(configuration.Version);
         EnsureSupportedDatabases(configuration);
         EnsureSupportedEvents(configuration);
+        EnsureSupportedCaches(configuration);
         EnsureSupportedVerify(configuration);
 
         var path = GetPath(repositoryRoot);
@@ -105,6 +107,12 @@ public static class WorkspaceConfigurationStore
     {
         foreach (var @event in configuration.Events ?? [])
             @event.ToRecognizer(Confidence.Confirmed, null);
+    }
+
+    private static void EnsureSupportedCaches(WorkspaceConfiguration configuration)
+    {
+        foreach (var cache in configuration.Caches ?? [])
+            cache.ToRecognizer(Confidence.Confirmed, null);
     }
 
     /// <summary>No <c>verify</c> section at all stays entirely legal: verification is opt-in, and a

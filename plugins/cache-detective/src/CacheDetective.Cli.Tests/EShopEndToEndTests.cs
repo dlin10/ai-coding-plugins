@@ -65,6 +65,18 @@ public sealed class EShopEndToEndTests(ITestOutputHelper output)
         Assert.Contains(graph.Edges.OfType<Serves>(), edge => TraceId(edge.From) == serves.GetProperty("source").GetString() &&
                                                               ((Handler)edge.To).Project == serves.GetProperty("targetProject").GetString() &&
                                                               ((Handler)edge.To).Symbol.Contains(serves.GetProperty("targetSymbolContains").GetString()!, StringComparison.Ordinal));
+        // The motivating case for the folded set (docs/adr/0015). GetAllCatalogItems assembles its URL
+        // from a local assigned in three branches, one interpolating a conditional, so the fold used to
+        // give one template with an unknown tail and no endpoint matched it. The branch that adds no
+        // filter now names the endpoint outright.
+        var catalogItems = expected.RootElement.GetProperty("catalogItemsServes");
+        Assert.Contains(graph.Edges.OfType<Serves>(),
+            edge => edge.From is ExternalSource source &&
+                    source.ClientName == catalogItems.GetProperty("clientName").GetString() &&
+                    source.Template.Contains(catalogItems.GetProperty("templateContains").GetString()!, StringComparison.Ordinal) &&
+                    ((Handler)edge.To).Project == catalogItems.GetProperty("targetProject").GetString() &&
+                    ((Handler)edge.To).Symbol.Contains(catalogItems.GetProperty("targetSymbolContains").GetString()!, StringComparison.Ordinal));
+
         foreach (var key in expected.RootElement.GetProperty("unresolvedKeys").EnumerateArray().Select(item => item.GetString()!))
             Assert.Contains(graph.Unresolved, unresolved => unresolved.Kind == UnresolvedKind.Key && unresolved.Snippet.Contains(key, StringComparison.Ordinal));
 

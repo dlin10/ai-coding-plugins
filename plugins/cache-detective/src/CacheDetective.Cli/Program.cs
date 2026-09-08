@@ -15,7 +15,7 @@ internal static class Program
         Usage:
           cachedet mcp        Serve the Model Context Protocol over stdio.
           cachedet metrics    Measure an index, create or compare a review sample, or score labels.
-            cachedet metrics --root <path> --solution <name> --out <file> [--recognizers <file>]
+            cachedet metrics --root <path> --solution <name> --out <file> [--recognizers <file>] [--workspace <file>]
             cachedet metrics --sample role|efwrite --count N --root <path> --solution <name> --out <file>
             cachedet metrics --compare <file> --root <path> --solution <name>
             cachedet metrics --score <file>

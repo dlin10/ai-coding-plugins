@@ -60,6 +60,10 @@ public sealed class CallGraphIndexer
         // from any entry point, so the limit falls on the same methods every run. See docs/adr/0014.
         var visited = new HashSet<IMethodSymbol>(METHOD_COMPARER);
         var frontier = new List<IMethodSymbol>();
+        // Every method the walk expanded, so a publish can be attributed to its caller once the walk has
+        // finished. Deciding that mid-walk would call a caller unreachable purely because the frontier had
+        // not reached it yet. See docs/adr/0017.
+        var walked = new Dictionary<IMethodSymbol, Handler>(METHOD_COMPARER);
 
         foreach (var entryPoint in entryPoints)
         {
@@ -81,6 +85,7 @@ public sealed class CallGraphIndexer
             frontier = next;
         }
 
+        eventCallAnalyzer.Resolve(graph, walked);
         await efWriteAnalyzer.AddEdgesAsync(graph, cancellationToken);
         new CacheRoleClassifier().Classify(graph, solutionName);
 
@@ -89,6 +94,7 @@ public sealed class CallGraphIndexer
         async Task ExpandAsync(IMethodSymbol method, int depth, ICollection<IMethodSymbol> next)
         {
             var currentHandler = CreateHandler(method, solutionName, GetKind(method, entryPointKinds), GetRoutes(method, entryPointRoutes));
+            walked[method] = currentHandler;
             cacheCallAnalyzer.RecordUnsupportedAttributes(graph, currentHandler, method);
             await efReadAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
             await efWriteAnalyzer.AnalyzeAsync(solution, currentHandler, method, cancellationToken);

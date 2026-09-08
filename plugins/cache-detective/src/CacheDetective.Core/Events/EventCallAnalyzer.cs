@@ -6,12 +6,49 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace CacheDetective.Events;
 
+/// <summary>
+/// A publish is attributed to the caller that named the event type, not to the body that physically
+/// contains the call. A shared helper taking the event as a parameter — eShop's
+/// <c>PublishThroughEventBusAsync</c> — publishes nothing of its own: it stays a link on the chain
+/// through its <c>Calls</c> edge, exactly as a stored procedure is. See <c>docs/adr/0017</c>.
+/// <para>Attribution is decided after the walk, not during it. The walk is still discovering handlers
+/// while this analyzer runs, so a caller met later would look unreachable purely for being met later.
+/// The triples are collected here and resolved in <see cref="Resolve"/>, where the handler is looked up
+/// and never created: a chain head nothing reaches is a finding addressed to nobody.</para>
+/// </summary>
 internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRecognizer> recognizers)
 {
     private const int MAXIMUM_RECOVERY_DEPTH = 5;
 
     private readonly HashSet<string> _unknownTypes = new(StringComparer.Ordinal);
     private readonly Dictionary<INamedTypeSymbol, bool> _hasDerivedTypes = new(SymbolEqualityComparer.Default);
+    private readonly List<PendingPublish> _publishes = [];
+    private readonly List<PendingFailure> _failures = [];
+
+    /// <summary>One recovered publish, waiting for the walk to finish so its publisher can be looked up.</summary>
+    private sealed record PendingPublish(IMethodSymbol Publisher, string EventType, Handler Site, Evidence Evidence,
+                                         string Snippet, Confidence Confidence, int? AnnotationId);
+
+    /// <summary>A caller branch that produced no type. A failure is a result too: without it a helper with
+    /// one good caller and one exhausted branch would leave no trace of the second publisher at all.</summary>
+    private sealed record PendingFailure(Handler Site, Evidence Evidence, string Snippet, string Reason);
+
+    /// <summary>One method's contribution: the type it named, and the method that named it.</summary>
+    private sealed record RecoveredType(IMethodSymbol Owner, INamedTypeSymbol Type);
+
+    /// <summary>One place a helper is called from, with the stable key it is ordered by.</summary>
+    private sealed record CallSite(IMethodSymbol? Containing, ExpressionSyntax Expression, SemanticModel SemanticModel,
+                                   string Caller, string File, int Line, int Character);
+
+    /// <summary>The one order everything order-sensitive in this analyzer uses: the caller's display
+    /// string, then where the site is. Two runs of one solution must record the same edges and the same
+    /// <see cref="Unresolved"/> ids in the same order, because an id is what an <c>annotate</c> binds
+    /// to.</summary>
+    private static IEnumerable<CallSite> Order(IEnumerable<CallSite> sites) =>
+        sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
+             .ThenBy(site => site.File, StringComparer.Ordinal)
+             .ThenBy(site => site.Line)
+             .ThenBy(site => site.Character);
 
     public async Task<bool> TryAnalyzeAsync(CacheGraph graph, Handler handler, IMethodSymbol containingMethod,
                                             InvocationExpressionSyntax invocation, SemanticModel semanticModel,
@@ -36,25 +73,81 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
             return true;
         }
 
-        var types = await EventTypesAsync(eventExpression, semanticModel, containingMethod, 0, [], cancellationToken);
+        var recovered = new Dictionary<string, RecoveredType>(StringComparer.Ordinal);
+        var failures = new List<string>();
+        var unnamed = new List<string>();
+        await AddEventTypesAsync(eventExpression, semanticModel, containingMethod, 0, [], recovered, failures, unnamed, cancellationToken);
 
-        if (types.Count == 0)
+        var evidence = CreateEvidence(invocation);
+        var snippet = invocation.ToString();
+        // A site that named nothing at all keeps its own single row, recorded here at walk time as it
+        // always has been: the branches that named nothing are exactly what that row is already saying.
+        if (recovered.Count == 0 && failures.Count == 0)
         {
-            var unresolved = graph.AddUnresolved(UnresolvedKind.Event, handler, CreateEvidence(invocation), invocation.ToString(),
+            var unresolved = graph.AddUnresolved(UnresolvedKind.Event, handler, evidence, snippet,
                                                  "Event type not statically known: name its events.");
             graph.MarkEventSite(unresolved.Id, EventSiteRole.Publish);
             return true;
         }
 
-        foreach (var type in types)
+        // Edges and unresolved rows from one site is the correct outcome, not a contradiction: one caller
+        // may name its event while another's recovery runs out.
+        foreach (var value in recovered.Values)
         {
-            graph.AddEdge(new Publishes(handler, new Event(GetFullName(type)), recognizer.Confidence, [CreateEvidence(invocation)])
-            {
-                AnnotationId = recognizer.AnnotationId
-            });
+            _publishes.Add(new PendingPublish(value.Owner, GetFullName(value.Type), handler, evidence, snippet,
+                                              recognizer.Confidence, recognizer.AnnotationId));
+        }
+
+        // Once anything was said about this site, a branch that named nothing is a result of its own and is
+        // recorded beside the rest: one branch of a conditional resolving does not excuse the other.
+        foreach (var failure in failures.Concat(unnamed))
+        {
+            _failures.Add(new PendingFailure(handler, evidence, snippet, failure));
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Turns what the walk recovered into edges, now that every handler the walk reached exists. A
+    /// publisher the walk never reached from an entry point is recorded as unresolved rather than given a
+    /// vertex of its own: creating one would put a chain head into the graph that nothing reaches.
+    /// </summary>
+    public void Resolve(CacheGraph graph, IReadOnlyDictionary<IMethodSymbol, Handler> walked)
+    {
+        // Collected in walk order, resolved in a stable one, so which handler an edge hangs on and which
+        // id a row gets do not depend on when the walk met each site.
+        foreach (var pending in _publishes.OrderBy(item => Describe(item.Publisher), StringComparer.Ordinal)
+                                          .ThenBy(item => item.Evidence.File, StringComparer.Ordinal)
+                                          .ThenBy(item => item.Evidence.Line)
+                                          .ThenBy(item => item.EventType, StringComparer.Ordinal))
+        {
+            if (walked.TryGetValue(pending.Publisher, out var publisher))
+            {
+                graph.AddEdge(new Publishes(publisher, new Event(pending.EventType), pending.Confidence, [pending.Evidence])
+                {
+                    AnnotationId = pending.AnnotationId
+                });
+                continue;
+            }
+
+            AddEventRow(graph, pending.Site, pending.Evidence, pending.Snippet,
+                        $"{Describe(pending.Publisher)} publishes {pending.EventType} here, and no entry point reaches it: " +
+                        "name the handler that calls it.");
+        }
+
+        foreach (var failure in _failures.OrderBy(item => item.Reason, StringComparer.Ordinal)
+                                         .ThenBy(item => item.Evidence.File, StringComparer.Ordinal)
+                                         .ThenBy(item => item.Evidence.Line))
+        {
+            AddEventRow(graph, failure.Site, failure.Evidence, failure.Snippet, failure.Reason);
+        }
+    }
+
+    private static void AddEventRow(CacheGraph graph, Handler site, Evidence evidence, string snippet, string reason)
+    {
+        var unresolved = graph.AddUnresolved(UnresolvedKind.Event, site, evidence, snippet, reason);
+        graph.MarkEventSite(unresolved.Id, EventSiteRole.Publish);
     }
 
     private EventRecognizer? FindRecognizer(IMethodSymbol method, INamedTypeSymbol? instanceType)
@@ -99,36 +192,27 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
         return true;
     }
 
-    private async Task<IReadOnlyList<INamedTypeSymbol>> EventTypesAsync(ExpressionSyntax expression, SemanticModel semanticModel,
-                                                                          IMethodSymbol containingMethod, int depth,
-                                                                          HashSet<IMethodSymbol> activeMethods,
-                                                                          CancellationToken cancellationToken)
-    {
-        var recovered = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
-        await AddEventTypesAsync(expression, semanticModel, containingMethod, depth, activeMethods, recovered, cancellationToken);
-        return recovered.Values.ToArray();
-    }
-
     private async Task AddEventTypesAsync(ExpressionSyntax expression, SemanticModel semanticModel, IMethodSymbol containingMethod,
                                           int depth, HashSet<IMethodSymbol> activeMethods,
-                                          Dictionary<string, INamedTypeSymbol> recovered, CancellationToken cancellationToken)
+                                          Dictionary<string, RecoveredType> recovered, List<string> failures,
+                                          List<string> unnamed, CancellationToken cancellationToken)
     {
         expression = Unwrap(expression);
         switch (expression)
         {
             case ObjectCreationExpressionSyntax:
-                AddConcrete(semanticModel.GetTypeInfo(expression, cancellationToken).Type, recovered);
+                AddConcrete(semanticModel.GetTypeInfo(expression, cancellationToken).Type, containingMethod, recovered);
                 return;
             case ConditionalExpressionSyntax conditional:
-                await AddEventTypesAsync(conditional.WhenTrue, semanticModel, containingMethod, depth, activeMethods, recovered, cancellationToken);
-                await AddEventTypesAsync(conditional.WhenFalse, semanticModel, containingMethod, depth, activeMethods, recovered, cancellationToken);
+                await AddEventTypesAsync(conditional.WhenTrue, semanticModel, containingMethod, depth, activeMethods, recovered, failures, unnamed, cancellationToken);
+                await AddEventTypesAsync(conditional.WhenFalse, semanticModel, containingMethod, depth, activeMethods, recovered, failures, unnamed, cancellationToken);
                 return;
         }
 
         var symbol = semanticModel.GetSymbolInfo(expression, cancellationToken).Symbol;
         if (symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, containingMethod))
         {
-            await RecoverAsync(containingMethod, parameter, depth, activeMethods, recovered, cancellationToken);
+            await RecoverAsync(containingMethod, parameter, depth, activeMethods, recovered, failures, unnamed, cancellationToken);
             return;
         }
 
@@ -144,23 +228,42 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
             foreach (var value in values)
             {
                 var model = value.SyntaxTree == semanticModel.SyntaxTree ? semanticModel : semanticModel.Compilation.GetSemanticModel(value.SyntaxTree);
-                await AddEventTypesAsync(value, model, containingMethod, depth, activeMethods, recovered, cancellationToken);
+                await AddEventTypesAsync(value, model, containingMethod, depth, activeMethods, recovered, failures, unnamed, cancellationToken);
             }
             return;
         }
 
         var type = semanticModel.GetTypeInfo(expression, cancellationToken).Type;
         if (IsConcrete(type) && !await HasDerivedTypesAsync((INamedTypeSymbol)type!, cancellationToken))
-            AddConcrete(type, recovered);
+        {
+            AddConcrete(type, containingMethod, recovered);
+            return;
+        }
+
+        // A branch that names nothing is a result whether or not a sibling branch succeeded. A recovered
+        // branch says so directly; the publish site itself says so through <paramref name="unnamed"/>,
+        // which the caller reports only once something else was said about the site — because a site that
+        // named nothing at all already has its own "event type not statically known" row, and saying it
+        // twice would move every such row.
+        (depth > 0 ? failures : unnamed)
+            .Add($"{Describe(containingMethod)} passes an expression that names no concrete event type: name its events.");
     }
 
     private async Task RecoverAsync(IMethodSymbol method, IParameterSymbol parameter, int depth,
                                     HashSet<IMethodSymbol> activeMethods,
-                                    Dictionary<string, INamedTypeSymbol> recovered,
-                                    CancellationToken cancellationToken)
+                                    Dictionary<string, RecoveredType> recovered, List<string> failures,
+                                    List<string> unnamed, CancellationToken cancellationToken)
     {
-        if (depth >= MAXIMUM_RECOVERY_DEPTH || !activeMethods.Add(method))
+        if (depth >= MAXIMUM_RECOVERY_DEPTH)
         {
+            failures.Add($"{Describe(method)} takes its event as a parameter, and the search for the caller that names it " +
+                         $"reached its limit of {MAXIMUM_RECOVERY_DEPTH} hops.");
+            return;
+        }
+
+        if (!activeMethods.Add(method))
+        {
+            failures.Add($"{Describe(method)} takes its event as a parameter, and the call chain that would name it is a cycle.");
             return;
         }
 
@@ -176,6 +279,11 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
             documents = solution.Projects.SelectMany(project => project.Documents).ToArray();
         }
 
+        // SymbolFinder does not specify the order it returns callers in, and the order decides which
+        // handler an edge hangs on and in what order rows are recorded — and an Unresolved id is what an
+        // annotate binds to. Every call site is collected first and walked in a stable order. See
+        // docs/adr/0014 for why the counts must be a function of the solution alone.
+        var sites = new List<CallSite>();
         foreach (var document in documents)
         {
             var root = await document.GetSyntaxRootAsync(cancellationToken);
@@ -202,12 +310,31 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
                 }
 
                 var containing = semanticModel.GetEnclosingSymbol(invocation.SpanStart, cancellationToken) as IMethodSymbol;
-                if (containing is not null)
-                    await AddEventTypesAsync(expression, semanticModel, containing, depth + 1,
-                                             new HashSet<IMethodSymbol>(activeMethods, SymbolEqualityComparer.Default), recovered,
-                                             cancellationToken);
+                var span = invocation.GetLocation().GetLineSpan();
+                sites.Add(new CallSite(containing, expression, semanticModel,
+                                       containing is null ? string.Empty : Describe(containing), span.Path,
+                                       span.StartLinePosition.Line, span.StartLinePosition.Character));
             }
         }
+
+        var callers = sites.Count;
+        foreach (var site in Order(sites))
+        {
+            if (site.Containing is null)
+            {
+                failures.Add($"{Describe(method)} is called from a place with no enclosing method, so the caller that names " +
+                             "its event could not be identified.");
+                continue;
+            }
+
+            await AddEventTypesAsync(site.Expression, site.SemanticModel, site.Containing, depth + 1,
+                                     new HashSet<IMethodSymbol>(activeMethods, SymbolEqualityComparer.Default), recovered, failures,
+                                     unnamed, cancellationToken);
+        }
+
+        if (callers == 0)
+            failures.Add($"{Describe(method)} takes its event as a parameter, and no caller in this solution passes one: " +
+                         "name its events.");
     }
 
     private async Task<bool> HasDerivedTypesAsync(INamedTypeSymbol type, CancellationToken cancellationToken)
@@ -219,11 +346,18 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
         return hasDerived;
     }
 
-    private static void AddConcrete(ITypeSymbol? type, Dictionary<string, INamedTypeSymbol> recovered)
+    /// <summary>Keyed by owner and type together, so two callers naming the same event stay two publishes
+    /// and one caller naming two events stays one caller.</summary>
+    private static void AddConcrete(ITypeSymbol? type, IMethodSymbol owner, Dictionary<string, RecoveredType> recovered)
     {
         if (IsConcrete(type))
-            recovered.TryAdd(GetFullName(type!), (INamedTypeSymbol)type!);
+            recovered.TryAdd($"{Describe(owner)}{GetFullName(type!)}", new RecoveredType(owner, (INamedTypeSymbol)type!));
     }
+
+    /// <summary>How a method is named in a reason, and the same string a <see cref="Handler"/> carries as
+    /// its symbol, so a reader can match the row to the handler it names.</summary>
+    private static string Describe(IMethodSymbol method) =>
+        method.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat);
 
     private static IEnumerable<IMethodSymbol> GetRelatedMethods(IMethodSymbol method)
     {
@@ -249,34 +383,6 @@ internal sealed class EventCallAnalyzer(Solution solution, IReadOnlyList<EventRe
         }
 
         return methods;
-    }
-
-    private static IParameterSymbol? FindParameter(ExpressionSyntax expression, SemanticModel semanticModel, IMethodSymbol containingMethod)
-    {
-        var symbol = semanticModel.GetSymbolInfo(Unwrap(expression)).Symbol;
-        if (symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, containingMethod))
-        {
-            return parameter;
-        }
-
-        if (symbol is not ILocalSymbol local)
-        {
-            return null;
-        }
-
-        var initializer = local.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax())
-                               .OfType<VariableDeclaratorSyntax>()
-                               .Select(declarator => declarator.Initializer?.Value)
-                               .FirstOrDefault(value => value is not null);
-        if (initializer is null)
-        {
-            return null;
-        }
-
-        var initializerModel = initializer.SyntaxTree == expression.SyntaxTree
-                                   ? semanticModel
-                                   : semanticModel.Compilation.GetSemanticModel(initializer.SyntaxTree);
-        return FindParameter(initializer, initializerModel, containingMethod);
     }
 
     private static IEnumerable<INamedTypeSymbol> GetApiTypes(IMethodSymbol method, INamedTypeSymbol? instanceType)

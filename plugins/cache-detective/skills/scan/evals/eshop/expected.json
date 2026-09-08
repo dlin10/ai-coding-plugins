@@ -8,6 +8,12 @@
     "targetProject": "Catalog.API",
     "targetSymbolContains": "CatalogController.CatalogBrandsAsync"
   },
+  "catalogItemsServes": {
+    "clientName": "ICatalogService",
+    "templateContains": "catalog/items",
+    "targetProject": "Catalog.API",
+    "targetSymbolContains": "CatalogController.ItemsAsync"
+  },
   "unresolvedKeys": [ "customerId" ],
   "plantedFinding": {
     "rule": "CROSS_SERVICE_GAP",

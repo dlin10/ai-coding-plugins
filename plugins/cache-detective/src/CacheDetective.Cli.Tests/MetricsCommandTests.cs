@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using CacheDetective;
 using CacheDetective.Caching;
+using CacheDetective.Configuration;
 using CacheDetective.Graph;
 using CacheDetective.Indexing;
 using CacheDetective.Events;
+using CacheDetective.Mcp;
 using CacheDetective.Serialization;
 using CacheDetective.Workspaces;
 using Xunit;
@@ -196,6 +198,187 @@ public sealed class MetricsCommandTests
         Assert.Equal(Confidence.Likely, mystery.Confidence);
         Assert.All(graph.Edges.OfType<Caches>().Where(edge => edge.To is CacheKey { Template: "orders" }),
                    edge => Assert.Equal(Confidence.Confirmed, edge.Confidence));
+    }
+
+    /// <summary>
+    /// A declaration whose type overlaps a built-in must mean the same thing measured as it does scanned.
+    /// Recognition takes the first matching type, so when the two paths ordered the list differently the
+    /// same declaration produced a different store, a different semantic and a different fold depending on
+    /// which one read it — and a measurement that disagrees with the session is not a measurement of the
+    /// tool. Both now go through <see cref="CacheRecognizers.Merge"/>. See the R7 and R2 review findings.
+    /// </summary>
+    [Fact]
+    public async Task A_declaration_overlapping_a_builtin_resolves_the_same_way_measured_and_scanned()
+    {
+        using var repository = await TestRepository.CreateAsync();
+        var recognizers = repository.File("overlap.json");
+        await File.WriteAllTextAsync(recognizers, OverlapJson());
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj",
+                                                       "--out", output, "--recognizers", recognizers]));
+
+        // The declaration turns IMemoryCache's Set into a removal, so the measurement counts invalidations
+        // where the built-in would have counted caches.
+        var kinds = Read(output).GetProperty("edgesByKind");
+        Assert.True(kinds.GetProperty("invalidates").GetInt32() > 0);
+
+        var session = new WorkspaceSession();
+        await session.InitializeAsync(repository.Path, ["App.csproj"], null, caches: OverlapConfiguration());
+        Assert.True((await session.IndexSolutionAsync("App.csproj")).Succeeded);
+
+        var removals = session.Graph.Edges.OfType<Invalidates>().ToArray();
+        Assert.NotEmpty(removals);
+        Assert.All(removals, edge => Assert.Equal(OVERRIDDEN_STORE, ((CacheKey)edge.To).Store));
+        Assert.Equal(kinds.GetProperty("invalidates").GetInt32(), removals.Length);
+    }
+
+    /// <summary>And the built-in it overrides is gone rather than merely outranked, so the override holds
+    /// however a consumer searches the list.</summary>
+    [Fact]
+    public async Task A_declaration_overlapping_a_builtin_replaces_it_rather_than_shadowing_it()
+    {
+        var declared = new CacheRecognizer("Microsoft.Extensions.Caching.Memory.IMemoryCache", OVERRIDDEN_STORE,
+                                           [new CacheMethodRecognizer("Set", CacheSemantic.Remove, 0)]);
+
+        var merged = CacheRecognizers.Merge([declared]);
+
+        Assert.Same(declared, Assert.Single(merged, recognizer => recognizer.TypeName == declared.TypeName));
+        Assert.Contains(merged, recognizer => recognizer.TypeName == "Microsoft.Extensions.Caching.Distributed.IDistributedCache");
+        Assert.Equal(CacheRecognizers.All.Count, merged.Length);
+    }
+
+    private const string OVERRIDDEN_STORE = "overridden";
+
+    private static string OverlapJson() => """
+        [{ "type": "Microsoft.Extensions.Caching.Memory.IMemoryCache", "store": "overridden",
+           "methods": [{ "name": "Set", "semantic": "remove", "key_arg": 0 }] }]
+        """;
+
+    private static CacheRecognizerConfiguration[] OverlapConfiguration() =>
+        JsonSerializer.Deserialize<CacheRecognizerConfiguration[]>(OverlapJson())!;
+
+    /// <summary>Every kind is present even at zero. A kind that vanished when it fell to zero would make a
+    /// before row and an after row differ by a missing key, which reads the same as a row written before
+    /// the field existed.</summary>
+    [Fact]
+    public async Task Edges_by_kind_names_every_kind_even_at_zero()
+    {
+        using var repository = await TestRepository.CreateAsync();
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await Measure(repository, output));
+
+        var kinds = Read(output).GetProperty("edgesByKind");
+        foreach (var kind in new[] { "caches", "invalidates", "publishes", "consumes", "serves", "reads", "writes", "calls", "fires" })
+            Assert.True(kinds.TryGetProperty(kind, out _), $"edgesByKind has no '{kind}'");
+        Assert.Equal(0, kinds.GetProperty("publishes").GetInt32());
+        Assert.True(kinds.GetProperty("caches").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task Edges_by_kind_accounts_for_every_edge()
+    {
+        using var repository = await TestRepository.CreateAsync();
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await Measure(repository, output));
+
+        var measurement = Read(output);
+        var total = measurement.GetProperty("edgesByKind").EnumerateObject().Sum(kind => kind.Value.GetInt32());
+        Assert.Equal(measurement.GetProperty("edges").GetInt32(), total);
+    }
+
+    /// <summary>The regression that stops a silently ignored option from passing for a working one: this
+    /// fixture's only publisher is a bus no built-in recognizer knows, so the count is zero without the
+    /// option and non-zero with it. eShop is the corpus this exists for.</summary>
+    [Fact]
+    public async Task Workspace_option_changes_the_measured_graph()
+    {
+        using var repository = await TestRepository.CreateWithDeclaredBusAsync();
+        var without = repository.File("without.json");
+        var with = repository.File("with.json");
+
+        Assert.Equal(0, await Measure(repository, without));
+        Assert.Equal(0, await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj",
+                                                       "--out", with, "--workspace", repository.File("workspace.json")]));
+
+        Assert.Equal(0, Read(without).GetProperty("edgesByKind").GetProperty("publishes").GetInt32());
+        Assert.True(Read(with).GetProperty("edgesByKind").GetProperty("publishes").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task Workspace_file_hash_and_count_are_recorded()
+    {
+        using var repository = await TestRepository.CreateWithDeclaredBusAsync();
+        var workspace = repository.File("workspace.json");
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj",
+                                                       "--out", output, "--workspace", workspace]));
+
+        var measurement = Read(output);
+        Assert.Equal(Path.GetFullPath(workspace), measurement.GetProperty("workspaceFile").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(measurement.GetProperty("workspaceHash").GetString()));
+        Assert.Equal(1, measurement.GetProperty("workspaceRecognizersApplied").GetInt32());
+    }
+
+    [Fact]
+    public async Task Run_without_a_workspace_records_no_workspace_file_and_zero_applied()
+    {
+        using var repository = await TestRepository.CreateWithDeclaredBusAsync();
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await Measure(repository, output));
+
+        var measurement = Read(output);
+        Assert.Equal(JsonValueKind.Null, measurement.GetProperty("workspaceFile").ValueKind);
+        Assert.Equal(JsonValueKind.Null, measurement.GetProperty("workspaceHash").ValueKind);
+        Assert.Equal(0, measurement.GetProperty("workspaceRecognizersApplied").GetInt32());
+    }
+
+    /// <summary>The two declaration files are independent inputs and each is counted on its own, so a row
+    /// says which of them contributed what rather than one total that could come from either.</summary>
+    [Fact]
+    public async Task A_workspace_and_a_recognizers_file_are_counted_separately()
+    {
+        using var repository = await TestRepository.CreateWithDeclaredBusAsync();
+        var recognizers = repository.File("recognizers.json");
+        await File.WriteAllTextAsync(recognizers, RecognizerJson());
+        var output = repository.File("metrics.json");
+
+        Assert.Equal(0, await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj", "--out", output,
+                                                       "--recognizers", recognizers, "--workspace", repository.File("workspace.json")]));
+
+        var measurement = Read(output);
+        Assert.Equal(1, measurement.GetProperty("recognizersApplied").GetInt32());
+        Assert.Equal(1, measurement.GetProperty("workspaceRecognizersApplied").GetInt32());
+        Assert.True(measurement.GetProperty("edgesByKind").GetProperty("publishes").GetInt32() > 0);
+    }
+
+    [Fact]
+    public async Task An_unreadable_workspace_is_a_usage_error()
+    {
+        using var repository = await TestRepository.CreateWithDeclaredBusAsync();
+        var workspace = repository.File("broken.json");
+        await File.WriteAllTextAsync(workspace, """{ "version": 1, "root": ".", "solutions": [], "budgets": {}, "events": [{ "name": "x" }] }""");
+
+        var exit = await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj",
+                                                  "--out", repository.File("metrics.json"), "--workspace", workspace]);
+
+        Assert.Equal(2, exit);
+    }
+
+    [Fact]
+    public async Task Sample_refuses_a_workspace()
+    {
+        using var repository = await TestRepository.CreateAsync();
+
+        var exit = await MetricsCommand.RunAsync(["--root", repository.Path, "--solution", "App.csproj",
+                                                  "--out", repository.File("sample.json"), "--sample", "role", "--count", "3",
+                                                  "--workspace", repository.File("workspace.json")]);
+
+        Assert.Equal(2, exit);
     }
 
     /// <summary>
@@ -391,8 +574,10 @@ public sealed class MetricsCommandTests
     public void A_measurement_round_trips_through_the_source_generated_context()
     {
         var coverage = new CoverageMetric(0.5, "ok");
-        var measurement = new Measurement("App.sln", 1, 2, 3, 4, 5, 6, new Dictionary<string, int> { ["key"] = 1 }, 0,
-                                          1, 1, [], [], true, "abc123", true, null, null, 0, coverage, coverage, true,
+        var measurement = new Measurement("App.sln", 1, 2, 3, 4, 5, new Dictionary<string, int> { ["caches"] = 5 }, 6,
+                                          new Dictionary<string, int> { ["key"] = 1 }, 0,
+                                          1, 1, [], [], true, "abc123", true, null, null, 0, "workspace.json", "def456", 2,
+                                          coverage, coverage, true,
                                           new MeasurementCounts(4, 5, 6), new MeasurementCoverage(coverage, coverage));
 
         var json = JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement);
@@ -402,6 +587,9 @@ public sealed class MetricsCommandTests
         Assert.True(read.CleanWorktree);
         Assert.Equal(4, read.Counts.Vertices);
         Assert.Equal(0.5, read.Coverage.Cache.Value);
+        Assert.Equal(5, read.EdgesByKind["caches"]);
+        Assert.Equal("workspace.json", read.WorkspaceFile);
+        Assert.Equal(2, read.WorkspaceRecognizersApplied);
     }
 
     private static Task<int> Measure(TestRepository repository, string output) =>
@@ -504,6 +692,43 @@ public sealed class MetricsCommandTests
             await Git(repository.Path, "init");
             await Git(repository.Path, "add", ".");
             await Git(repository.Path, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "corpus");
+            return repository;
+        }
+
+        /// <summary>A corpus whose only publisher is a bus no built-in recognizer knows, beside the
+        /// workspace file that declares it — the shape eShop has, where the event bus is configured rather
+        /// than built in. Kept apart from <see cref="CreateAsync"/> so that adding it moves no other
+        /// measurement.</summary>
+        public static async Task<TestRepository> CreateWithDeclaredBusAsync()
+        {
+            var repository = await CreateEmptyAsync();
+            await System.IO.File.WriteAllTextAsync(repository.File("App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><EnableNETAnalyzers>false</EnableNETAnalyzers></PropertyGroup></Project>");
+            await System.IO.File.WriteAllTextAsync(repository.File("App.cs"), """
+                public class ControllerBase { }
+                public sealed class Changed { }
+                public sealed class MysteryBus { public void Publish(Changed changed) { } }
+                public sealed class MysteryCache { public void Set(string key) { } }
+                public sealed class BusController : ControllerBase
+                {
+                    public void Post()
+                    {
+                        new MysteryBus().Publish(new Changed());
+                        new MysteryCache().Set("mystery");
+                    }
+                }
+                """);
+            await System.IO.File.WriteAllTextAsync(repository.File("workspace.json"), """
+                {
+                  "version": 1,
+                  "root": ".",
+                  "solutions": [ "App.csproj" ],
+                  "budgets": {},
+                  "events": [
+                    { "name": "mystery", "publisher": "MysteryBus", "methods": [ "Publish" ],
+                      "event_argument": 0, "consumer": "IMysteryConsumer" }
+                  ]
+                }
+                """);
             return repository;
         }
 

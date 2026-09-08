@@ -94,7 +94,19 @@ internal sealed class WorkspaceSession
                     Graph.AddAnnotationEdge(new Caches(pending.Handler, key, Confidence.Likely, pending.Evidence, pending.IsConditionalSet) { AnnotationId = annotationId });
                     break;
                 case CacheSemantic.Remove or CacheSemantic.RemoveByTag or CacheSemantic.RemoveByPrefix:
-                    Graph.AddAnnotationEdge(new Invalidates(pending.Handler, key, Confidence.Likely, pending.Evidence, pending.Semantic) { AnnotationId = annotationId });
+                    // The annotation says what the key is. It does not say the site had no choice, so the
+                    // modality the fold recorded travels on the pending operation and is honoured here:
+                    // naming the unnameable member of a mixed removal must not create the certainty the
+                    // fold refused.
+                    Graph.AddAnnotationEdge(new Invalidates(pending.Handler, key, Confidence.Likely, pending.Evidence, pending.Semantic)
+                    {
+                        AnnotationId = annotationId,
+                        Modality = pending.Modality,
+                        Reason = pending.Modality == InvalidationModality.May
+                            ? "This removal may fire with this key: the annotation named the key, but the site's fold " +
+                              "left it a choice, so it is not certain to remove this value and does not count as coverage."
+                            : null
+                    });
                     break;
             }
             Graph.AddAnnotationCacheOperation(operation);
@@ -176,29 +188,28 @@ internal sealed class WorkspaceSession
     private async Task<string> DeclareCacheRecognizerAsync(Unresolved unresolved, JsonElement resolution, int annotationId,
                                                             CancellationToken cancellationToken)
     {
-        if (resolution.ValueKind != JsonValueKind.Object || !TryString(resolution, "store", out var store) ||
-            !resolution.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String ||
-            !resolution.TryGetProperty("methods", out var methods) || methods.ValueKind != JsonValueKind.Array ||
-            resolution.EnumerateObject().Any(member => member.Name is not ("type" or "methods" or "store")))
+        // The same schema the workspace's caches section and the --recognizers file are read with, so a
+        // declaration made live here can be pasted into the config unchanged. See CacheRecognizerConfiguration.
+        CacheRecognizerConfiguration configuration;
+        try
         {
-            throw new ArgumentException("resolution for kind 'cache_api' must be { type, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }], store }");
+            configuration = JsonSerializer.Deserialize<CacheRecognizerConfiguration>(resolution.GetRawText()) ?? throw new JsonException();
+        }
+        catch (JsonException error)
+        {
+            throw new ArgumentException($"resolution for kind 'cache_api' must be {ResolutionSchema(UnresolvedKind.CacheApi)}", error);
         }
 
-        var parsed = new List<CacheMethodRecognizer>();
-        foreach (var method in methods.EnumerateArray())
+        CacheRecognizer recognizer;
+        try
         {
-            if (method.ValueKind != JsonValueKind.Object || method.EnumerateObject().Any(member => member.Name is not ("name" or "semantic" or "key_arg" or "ttl_arg" or "tags_arg")) ||
-                !TryString(method, "name", out var name) || !TryString(method, "semantic", out var semanticName) ||
-                !TryInt(method, "key_arg", out var keyArgument) || !TryOptionalInt(method, "ttl_arg", out var ttlArgument) ||
-                !TryOptionalInt(method, "tags_arg", out var tagsArgument) || !TrySemantic(semanticName, out var semantic))
-            {
-                throw new ArgumentException("resolution for kind 'cache_api' must be { type, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }], store }");
-            }
-            parsed.Add(new CacheMethodRecognizer(name, semantic, keyArgument, ttlArgument, tagsArgument));
+            recognizer = configuration.ToRecognizer(Confidence.Likely, annotationId);
         }
-        if (parsed.Count == 0)
-            throw new ArgumentException("resolution for kind 'cache_api' must be { type, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }], store }");
-        var recognizer = new CacheRecognizer(type.GetString()!, store, parsed, Confidence.Likely, annotationId);
+        catch (InvalidDataException error)
+        {
+            throw new ArgumentException($"resolution for kind 'cache_api' must be {ResolutionSchema(UnresolvedKind.CacheApi)}", error);
+        }
+
         _declaredCacheRecognizers.Add(recognizer);
         try { return await ReindexAnnotatedSolutionAsync(unresolved.Solution, cancellationToken).ConfigureAwait(false); }
         catch { _declaredCacheRecognizers.Remove(recognizer); throw; }
@@ -273,37 +284,6 @@ internal sealed class WorkspaceSession
                value.TryGetProperty("target", out target) && target.ValueKind == JsonValueKind.String;
     }
 
-    private static bool TryInt(JsonElement value, string property, out int result)
-    {
-        result = 0;
-        return value.TryGetProperty(property, out var member) && member.TryGetInt32(out result);
-    }
-
-    private static bool TryOptionalInt(JsonElement value, string property, out int? result)
-    {
-        result = null;
-        return !value.TryGetProperty(property, out var member) || (member.TryGetInt32(out var number) && (result = number) is not null);
-    }
-
-    private static bool TrySemantic(string value, out CacheSemantic semantic) => value switch
-    {
-        "get" => Set(CacheSemantic.Get, out semantic),
-        "set" => Set(CacheSemantic.Set, out semantic),
-        "remove" => Set(CacheSemantic.Remove, out semantic),
-        "remove_by_tag" => Set(CacheSemantic.RemoveByTag, out semantic),
-        "remove_by_prefix" => Set(CacheSemantic.RemoveByPrefix, out semantic),
-        "increment" => Set(CacheSemantic.Increment, out semantic),
-        "expire" => Set(CacheSemantic.Expire, out semantic),
-        "lock" => Set(CacheSemantic.Lock, out semantic),
-        _ => Set(default, out semantic, false)
-    };
-
-    private static bool Set(CacheSemantic value, out CacheSemantic semantic, bool success = true)
-    {
-        semantic = value;
-        return success;
-    }
-
     private static string? EventApiType(string reason)
     {
         const string prefix = "Unknown event bus type ";
@@ -317,7 +297,8 @@ internal sealed class WorkspaceSession
         UnresolvedKind.Call => "{ target: handler:<Solution>/<Symbol> } or { external: true }",
         UnresolvedKind.Event => "{ handlers: string[] } or { events: string[] } or { external: true }",
         UnresolvedKind.Role => "{ role: cache|store, store?: string }",
-        UnresolvedKind.CacheApi => "{ type, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }], store }",
+        UnresolvedKind.CacheApi => "{ type, methods: [{ name, semantic, key_arg, ttl_arg?, tags_arg? }], store, " +
+                                   "key_object?: { type, template_arg, factories: [{ type, methods, key_arg, args_arg }] } }",
         UnresolvedKind.EventApi => "{ publisher, consumer, methods?, event_argument?, arity?, handle?, handler_kind? }",
         _ => "{}"
     };
@@ -430,7 +411,8 @@ internal sealed class WorkspaceSession
     internal async Task<WorkspaceInitResult> InitializeAsync(string root, IReadOnlyList<string>? solutions, IReadOnlyDictionary<string, double>? budgets,
                                                              CancellationToken cancellationToken = default,
                                                              IReadOnlyDictionary<string, string>? services = null,
-                                                             EventRecognizerConfiguration[]? events = null)
+                                                             EventRecognizerConfiguration[]? events = null,
+                                                             CacheRecognizerConfiguration[]? caches = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -439,7 +421,7 @@ internal sealed class WorkspaceSession
             var repositoryRoot = Path.GetFullPath(root);
             var configurationPath = WorkspaceConfigurationStore.GetPath(repositoryRoot);
             var exists = File.Exists(configurationPath);
-            var hasOverrides = solutions is not null || budgets is not null || services is not null || events is not null;
+            var hasOverrides = solutions is not null || budgets is not null || services is not null || events is not null || caches is not null;
             if (!exists && solutions is null)
             {
                 throw new InvalidOperationException($"No workspace configuration exists at '{configurationPath}', and no solutions were supplied.");
@@ -454,7 +436,7 @@ internal sealed class WorkspaceSession
                                     ? Merge(existing,
                                             repositoryRoot,
                                             solutions,
-                                            budgets, services, events)
+                                            budgets, services, events, caches)
                                     : existing!;
             var written = hasOverrides && await WorkspaceConfigurationStore.WriteAsync(repositoryRoot,
                                                                                        configuration,
@@ -688,7 +670,13 @@ internal sealed class WorkspaceSession
         {
             loaded = await _loader.LoadAsync(fullPath, cancellationToken).ConfigureAwait(false);
             var configuredEvents = (_configuration.Events ?? []).Select(configuration => configuration.ToRecognizer(Confidence.Confirmed, null));
-            var indexer = new CallGraphIndexer(new IndexerOptions(CacheRecognizers.All.Concat(_declaredCacheRecognizers).ToArray(),
+            // A recognizer the workspace declares is confirmed, as a configured event bus already is: the
+            // repository is stating what its own library does. One arriving through annotate stays likely,
+            // because every edge an annotation creates is likely.
+            var configuredCaches = (_configuration.Caches ?? []).Select(configuration => configuration.ToRecognizer(Confidence.Confirmed, null));
+            // The same merge cachedet metrics uses, through the same helper, so a declaration means the
+            // same thing measured as it does scanned. See CacheRecognizers.Merge.
+            var indexer = new CallGraphIndexer(new IndexerOptions(CacheRecognizers.Merge(configuredCaches.Concat(_declaredCacheRecognizers)),
                                                                    EventRecognizers.All.Concat(configuredEvents).Concat(_declaredEventRecognizers).ToArray()));
             var replacement = await indexer.IndexAsync(loaded.Solution, solutionName, cancellationToken).ConfigureAwait(false);
             Graph.ReplaceSolution(solutionName, replacement);
@@ -1325,7 +1313,8 @@ internal sealed class WorkspaceSession
     private static WorkspaceConfiguration Merge(WorkspaceConfiguration? existing, string repositoryRoot, IReadOnlyList<string>? solutions,
                                                 IReadOnlyDictionary<string, double>? budgets,
                                                 IReadOnlyDictionary<string, string>? services,
-                                                EventRecognizerConfiguration[]? events)
+                                                EventRecognizerConfiguration[]? events,
+                                                CacheRecognizerConfiguration[]? caches)
     {
         var mergedSolutions = (existing?.Solutions ?? []).Concat(solutions ?? [])
                                                          .Select(solution => NormalizeSolution(repositoryRoot,
@@ -1353,6 +1342,7 @@ internal sealed class WorkspaceSession
             Databases = existing?.Databases,
             Services = services is null ? existing?.Services : new Dictionary<string, string>(services, StringComparer.OrdinalIgnoreCase),
             Events = events ?? existing?.Events,
+            Caches = caches ?? existing?.Caches,
             Verify = existing?.Verify,
             Sensitive = existing?.Sensitive
         };

@@ -71,7 +71,8 @@ internal sealed class CacheCallAnalyzer
             return true;
         }
 
-        var foldedKey = await _keyTemplateFolder.FoldAsync(keyExpression, semanticModel, cancellationToken);
+        var foldedKey = await _keyTemplateFolder.FoldAsync(keyExpression, semanticModel, cancellationToken,
+                                                           match.Value.Recognizer.KeyObject);
         var ttl = methodRecognizer.TtlOrOptionsArgumentIndex is { } ttlIndex
                       ? ExtractTtl(GetArgumentExpression(operation, ttlIndex, match.Value.ArgumentOffset), semanticModel)
                       : null;
@@ -82,46 +83,76 @@ internal sealed class CacheCallAnalyzer
                           (IsConstant(GetArgumentExpression(operation, condition.ArgumentIndex, match.Value.ArgumentOffset), condition.ConstantName,
                                       semanticModel) || IsConstant(GetArgumentExpression(operation, "when"), condition.ConstantName, semanticModel));
         var evidence = CreateEvidence(invocation);
-        if (!foldedKey.HasLiteralSegment)
+        // One vertex and one edge per template the site may key on, each carrying the call site's own
+        // evidence. A template with no literal segment is not a key at all, so the elements that lack one
+        // gather into a single unresolved row for the site — one row whether they are one or several.
+        // A site that named exactly one value, and named it certainly, invalidates that key. Anything else
+        // — several values, or one standing for several — removes one of them at run time, and only the
+        // site itself knows which, so the edge may fire rather than must. The mark and not the count is
+        // what decides: a set of one whose part outgrew the bound is a choice wearing the shape of a
+        // certainty. See docs/adr/0015.
+        var modality = foldedKey.Templates.Count == 1 && !foldedKey.Collapsed
+            ? InvalidationModality.Must
+            : InvalidationModality.May;
+        // The modality alone tells a reader nothing. A finding that withholds a suppression because of it
+        // has to be able to say which of the two shapes it met, because they are fixed differently: several
+        // named values is a branch to read, and a value standing for several is a fold that gave up. The
+        // reason travels on the edge, so every consumer that prints an edge prints it. See docs/adr/0015.
+        var modalityReason = modality == InvalidationModality.Must
+            ? null
+            : foldedKey.Templates.Count > 1
+                ? $"This removal may fire with this key: the site's key folds to {foldedKey.Templates.Count} values and " +
+                  "removes one of them at run time, so it is not certain to remove this one and does not count as coverage."
+                : "This removal may fire with this key: the site's key folded to one value that stands for several, " +
+                  "so it is not certain to remove this one and does not count as coverage.";
+        var nameable = foldedKey.Templates.Where(template => template.HasLiteralSegment).ToArray();
+        var unnameable = foldedKey.Templates.Where(template => !template.HasLiteralSegment).ToArray();
+        if (unnameable.Length > 0)
         {
             var keyEvidence = CreateEvidence(keyExpression);
             var unresolved = graph.AddUnresolved(UnresolvedKind.Key, handler, keyEvidence, keyExpression.ToString(),
-                                                 foldedKey.Reason ?? "The key contains no literal segment.");
+                                                 unnameable[0].Reason ?? "The key contains no literal segment.");
             graph.AddPendingCacheOperation(new PendingCacheOperation(unresolved.Id, handler, match.Value.Recognizer.Store,
-                                                                      methodRecognizer.Semantic, ttl, tags, conditional, [evidence]));
-            return true;
+                                                                      methodRecognizer.Semantic, ttl, tags, conditional, [evidence], modality));
         }
-        var key = new CacheKey(foldedKey.Template, match.Value.Recognizer.Store, ttl, tags, role: null);
 
-        graph.AddHandler(handler);
-        switch (methodRecognizer.Semantic)
+        foreach (var template in nameable)
         {
-            case CacheSemantic.Get:
-                graph.AddEdge(new Reads(handler, key, match.Value.Recognizer.Confidence, [evidence])
-                {
-                    AnnotationId = match.Value.Recognizer.AnnotationId
-                });
-                break;
-            case CacheSemantic.Set:
-                graph.AddEdge(new Caches(handler, key, match.Value.Recognizer.Confidence, [evidence], conditional)
-                {
-                    AnnotationId = match.Value.Recognizer.AnnotationId
-                });
-                break;
-            case CacheSemantic.Remove:
-            case CacheSemantic.RemoveByTag:
-            case CacheSemantic.RemoveByPrefix:
-                graph.AddEdge(new Invalidates(handler, key, match.Value.Recognizer.Confidence, [evidence], methodRecognizer.Semantic)
-                {
-                    AnnotationId = match.Value.Recognizer.AnnotationId
-                });
-                break;
-            default:
-                graph.AddCacheKeyObservation(handler.Solution, key);
-                break;
+            var key = new CacheKey(template.Template, match.Value.Recognizer.Store, ttl, tags, role: null);
+
+            graph.AddHandler(handler);
+            switch (methodRecognizer.Semantic)
+            {
+                case CacheSemantic.Get:
+                    graph.AddEdge(new Reads(handler, key, match.Value.Recognizer.Confidence, [evidence])
+                    {
+                        AnnotationId = match.Value.Recognizer.AnnotationId
+                    });
+                    break;
+                case CacheSemantic.Set:
+                    graph.AddEdge(new Caches(handler, key, match.Value.Recognizer.Confidence, [evidence], conditional)
+                    {
+                        AnnotationId = match.Value.Recognizer.AnnotationId
+                    });
+                    break;
+                case CacheSemantic.Remove:
+                case CacheSemantic.RemoveByTag:
+                case CacheSemantic.RemoveByPrefix:
+                    graph.AddEdge(new Invalidates(handler, key, match.Value.Recognizer.Confidence, [evidence], methodRecognizer.Semantic)
+                    {
+                        AnnotationId = match.Value.Recognizer.AnnotationId,
+                        Modality = modality,
+                        Reason = modalityReason
+                    });
+                    break;
+                default:
+                    graph.AddCacheKeyObservation(handler.Solution, key);
+                    break;
+            }
+
+            graph.AddCacheOperation(new CacheOperation(handler, key, methodRecognizer.Semantic, conditional, [evidence]));
         }
 
-        graph.AddCacheOperation(new CacheOperation(handler, key, methodRecognizer.Semantic, conditional, [evidence]));
         return true;
     }
 
@@ -164,7 +195,10 @@ internal sealed class CacheCallAnalyzer
         return null;
     }
 
-    private static IEnumerable<INamedTypeSymbol> GetApiTypes(IMethodSymbol method, INamedTypeSymbol? instanceType)
+    /// <summary>The types a call may be recognized through: the receiver, its interfaces and its bases.
+    /// Shared with <see cref="KeyTemplateFolder"/>, which matches a declared key-object factory the same
+    /// way, so a factory declared on an interface is found through the type the caller holds.</summary>
+    internal static IEnumerable<INamedTypeSymbol> GetApiTypes(IMethodSymbol method, INamedTypeSymbol? instanceType)
     {
         var directTypes = new List<INamedTypeSymbol>();
         if (instanceType is not null)
@@ -199,7 +233,7 @@ internal sealed class CacheCallAnalyzer
         }
     }
 
-    private static string GetFullName(INamedTypeSymbol type) =>
+    internal static string GetFullName(INamedTypeSymbol type) =>
         type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "", StringComparison.Ordinal);
 
     private static bool MethodNameMatches(string recognizedName, string methodName) =>
