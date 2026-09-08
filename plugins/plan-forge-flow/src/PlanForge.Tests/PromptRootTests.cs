@@ -41,20 +41,26 @@ public sealed class PromptRootTests : IDisposable
     {
         var located = PromptLibrary.Locate(configured);
 
-        Assert.True(File.Exists(Path.Combine(located, "codex", "critic.md")),
-            $"the walk-up answered {located}, which holds no vendor prompts");
+        Assert.True(File.Exists(Path.Combine(located, "critic-contract.md")),
+            $"the walk-up answered {located}, which holds no role prompts");
     }
 
     [Fact]
     public void A_configured_root_is_what_the_library_then_loads_from()
     {
         var root = Path.Combine(_temp, "prompts");
-        Directory.CreateDirectory(Path.Combine(root, "codex"));
-        File.WriteAllText(Path.Combine(root, "codex", "critic.md"), "judge it");
+        Directory.CreateDirectory(Path.Combine(root, "cursor"));
+        File.WriteAllText(Path.Combine(root, "critic-contract.md"), "judge it");
+        File.WriteAllText(Path.Combine(root, "cursor", "critic.md"), "answer in JSON");
 
-        var prompt = new PromptLibrary(PromptLibrary.Locate(root)).Load("codex", VendorRole.Critic);
+        var prompt = new PromptLibrary(PromptLibrary.Locate(root)).Load("cursor", VendorRole.Critic);
 
+        // Both halves, in order: the role contract, then what differs about this vendor.
         Assert.Contains("judge it", prompt, StringComparison.Ordinal);
+        Assert.Contains("answer in JSON", prompt, StringComparison.Ordinal);
+        Assert.True(prompt.IndexOf("judge it", StringComparison.Ordinal)
+                    < prompt.IndexOf("answer in JSON", StringComparison.Ordinal),
+            "the role contract must come before the vendor's own tail");
     }
 
     /// <summary>

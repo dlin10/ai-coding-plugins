@@ -4,9 +4,10 @@ using System.Text.Json;
 namespace PlanForge.Vendors;
 
 /// <summary>
-/// Structure for vendors with no native schema support: the schema goes into the prompt, validation
-/// happens here, and a rejected reply is retried once carrying the reason. Two of the three vendors
-/// are in that position — Cursor has no schema flag, and the Codex App Server has no schema field.
+/// Structure for a vendor with no native schema support: the schema goes into the prompt, validation
+/// happens here, and a rejected reply is retried once carrying the reason. Cursor is the one vendor
+/// in that position — it has no schema flag; Claude and Codex hand their schema to the CLI instead,
+/// through `--json-schema` and `codex exec --output-schema`.
 /// </summary>
 internal static class SchemaInPrompt
 {

@@ -79,8 +79,10 @@ public sealed class SafetyTests
     {
         var root = Path.Combine(Path.GetTempPath(), "planforge-prompts", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(Path.Combine(root, "claude"));
-        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "judge");
-        File.WriteAllText(Path.Combine(root, "claude", "builder.md"), "implement");
+        File.WriteAllText(Path.Combine(root, "critic-contract.md"), "judge");
+        File.WriteAllText(Path.Combine(root, "builder-contract.md"), "implement");
+        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "answer through the tool");
+        File.WriteAllText(Path.Combine(root, "claude", "builder.md"), "answer through the tool");
         File.WriteAllText(Path.Combine(root, "roslyn-contract.md"), "roslyn first");
         File.WriteAllText(Path.Combine(root, "orchestration-contract.md"), "the forge tools are not yours");
 
@@ -111,7 +113,8 @@ public sealed class SafetyTests
     {
         var root = Path.Combine(Path.GetTempPath(), "planforge-prompts", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(Path.Combine(root, "claude"));
-        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "judge");
+        File.WriteAllText(Path.Combine(root, "critic-contract.md"), "judge");
+        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "answer through the tool");
         File.WriteAllText(Path.Combine(root, "requirements-contract.md"), "the requirements are yours");
         File.WriteAllText(Path.Combine(root, "scope-contract.md"), "the scope is not yours");
 

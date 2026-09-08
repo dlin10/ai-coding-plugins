@@ -3,12 +3,15 @@ using PlanForge.Vendors;
 namespace PlanForge.Prompts;
 
 /// <summary>
-/// Role prompts live as files under <c>prompts/&lt;vendor&gt;/&lt;role&gt;.md</c> so they can be
-/// edited and tuned per project without rebuilding the binary.
+/// Role prompts live as files under <c>prompts/</c> so they can be edited and tuned per project
+/// without rebuilding the binary: one contract per role, plus an optional
+/// <c>prompts/&lt;vendor&gt;/&lt;role&gt;.md</c> for what differs about a vendor.
 /// </summary>
 internal sealed class PromptLibrary(string? root = null)
 {
     private const string PromptsFolder = "prompts";
+    private const string BuilderContractFile = "builder-contract.md";
+    private const string CriticContractFile = "critic-contract.md";
     private const string RoslynContractFile = "roslyn-contract.md";
     private const string ScopeContractFile = "scope-contract.md";
     private const string RequirementsContractFile = "requirements-contract.md";
@@ -51,20 +54,27 @@ internal sealed class PromptLibrary(string? root = null)
         return Path.Combine(AppContext.BaseDirectory, PromptsFolder);
     }
 
+    /// <summary>
+    /// The role contract carries the whole of what a builder or a critic is told; a vendor file
+    /// adds only what differs about that vendor — how it must hand its answer back — and a vendor
+    /// with nothing to add has no file at all. The role text lived in three copies until they
+    /// drifted, which is the same fault the 1.x roslyn copies had.
+    /// </summary>
     public string Load(string vendorId, VendorRole role)
     {
-        var path = Path.Combine(_root, vendorId, $"{role.ToString().ToLowerInvariant()}.md");
-        if (!File.Exists(path)) 
-            throw new PromptNotFoundException(path);
+        var contract = Path.Combine(_root, role is VendorRole.Critic ? CriticContractFile : BuilderContractFile);
+        if (!File.Exists(contract))
+            throw new PromptNotFoundException(contract);
+
+        var prompt = Append(File.ReadAllText(contract),
+                            Path.Combine(vendorId, $"{role.ToString().ToLowerInvariant()}.md"));
 
         // A host running a worker for us also hands it whatever the user installed there, and this
         // plugin is usually among that: a cursor builder measured on 2026-08-29 was given the run's
         // own forge skill and started its MCP server. Neither role has any business driving the run
         // it was called into, so both are told to leave that surface alone.
-        var prompt = Append(File.ReadAllText(path), OrchestrationContractFile);
+        prompt = Append(prompt, OrchestrationContractFile);
 
-        // The shared contracts live once and are appended rather than copied into each vendor's
-        // file, which is how the 1.x copies drifted apart.
         return role is VendorRole.Critic ? Append(prompt, RoslynContractFile) : prompt;
     }
 
