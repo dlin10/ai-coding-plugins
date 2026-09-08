@@ -9,7 +9,7 @@ namespace RoslynMcpExtension.Server.Tools;
 public sealed class DeadCodeTool(RpcClient rpc)
 {
 	[McpServerTool(Name = "roslyn_find_dead_code")]
-	[Description("Finds potentially dead code (types, methods, fields with no source references) in the active workspace. Values above 1000 are clamped.")]
+	[Description("Finds potentially dead code (types, methods, fields with no source references) in the active workspace. Values above 1000 are clamped. Results are candidates rather than proof: the analysis sees source references only, so members reached through reflection, dependency injection, serialization, framework activation, or consumers outside this solution are reported as unused.")]
 	public Task<SymbolListResult> FindDeadCode(
 		[Description("Maximum number of dead code entries to return (default: 200, maximum: 1000)")] int maxResults = 200,
 		[Description("Include internal and private members (default: true). When false, only private members are reported unless includePublic is also true.")] bool includeInternal = true,

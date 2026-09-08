@@ -302,6 +302,18 @@ function validateSync() {
         `plugins/${entry.name}: host manifest versions differ (${manifests.map(item => `${relative(repoRoot, item.path)}=${item.manifest.version}`).join(', ')})`,
       );
     }
+
+    // The README title carries the same release version and nothing else checked it.
+    const readmePath = join(pluginsDir, entry.name, 'README.md');
+    if (versions.size === 1 && existsSync(readmePath)) {
+      const [pluginVersion] = versions;
+      const heading = readFileSync(readmePath, 'utf8').match(/^#[^\n]*?(\d+\.\d+\.\d+)/);
+      if (heading && heading[1] !== pluginVersion) {
+        fail(
+          `${relative(repoRoot, readmePath)}: title version is ${heading[1]} but the host manifests say ${pluginVersion}`,
+        );
+      }
+    }
   }
 
   // 3 + 4. roslyn-mcp: the vsixmanifest Identity Version is the single source of
