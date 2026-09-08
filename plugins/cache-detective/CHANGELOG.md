@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **The detection rules terminate on an enterprise-sized graph** (`docs/adr/0018`). `depends_on`
+  enumerated one row per path and cut cycles with a path set, which is also the absence of a memo: at
+  depth 12 and an out-degree of 4.6 that is ~4.6^12 walks per handler, and each visit scanned all
+  24 687 edges for want of an adjacency index. On a 64-project solution `index_solution` never returned
+  — one core at 100% for 46 minutes, killed by hand. It now returns in 152 s, which is the MSBuild load
+  and nothing measurable beyond it. No prepared corpus had caught this because `MetricsCommand`
+  evaluates no rules, so nopCommerce and Orchard were only ever measured on a path that never calls the
+  closure.
+- **`depends_on` returns one row per target**, at the strongest confidence the graph reaches it by and
+  the shortest path at that confidence. That is the row `UnguardedWriteRule`, `StaleParentKeyRule`,
+  `ExternalNoTtlRule` and both trace builders each already selected with
+  `OrderBy(Confidence).ThenBy(Path.Count).First()`, so no finding moves; the walk now searches for it
+  instead of enumerating everything and discarding all but one. Confidence is part of the search state
+  rather than minimised after the fact, because `(Confirmed, 10)` and `(Likely, 2)` are incomparable —
+  the first is the better row and the second the better prefix.
+- **A walk that goes round a cycle no longer reports incompleteness.** Without a path set a two-method
+  cycle spends the whole depth budget, and reporting that would have set the flag on every solution
+  with a recursive call in it and made the verifier withhold refutation everywhere. The depth limit is
+  now judged when the walk ends: a refused descent counts only if that source was never settled at a
+  confidence at least as strong. The positive case — a chain longer than the limit, with a table below
+  the cut — had no test before and now has one, so the rule cannot pass vacuously.
+- `demo/behaviour-snapshot.json`, which records five findings with their chains and confidences, did
+  **not** move.
+
 - **A fold yields the set of values a site may produce, and says when it collapsed one**
   (`docs/adr/0015`). A local assigned in several places and a conditional expression are the same
   branching written two ways; both used to collapse to one unknown and lose the site. The folder now

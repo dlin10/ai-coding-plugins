@@ -41,6 +41,7 @@ public sealed class CacheGraph
     private int _serviceJoinsVersion = -1;
     private int _procedureGapsVersion = -1;
     private int _eventGapsVersion = -1;
+    private int _adjacencyVersion = -1;
     private int _verticesVersion = -1;
     private bool _vertexListsDirty = true;
     private readonly Guid _instance = Guid.NewGuid();
@@ -64,6 +65,7 @@ public sealed class CacheGraph
     private IReadOnlyList<CacheOperation> _builtCacheOperations = [];
     private IReadOnlyList<PendingCacheOperation> _builtPendingCacheOperations = [];
     private readonly Dictionary<(string Template, string Store), (int Version, KeyDependencyWalk Walk)> _dependencies = [];
+    private CacheGraphAdjacency? _adjacency;
 
     // The vertex indexes. Every private Add* updates these in place, and every Find* reads them: the
     // lists below are built from the indexes, never scanned to answer a lookup. A private Add* must not
@@ -1283,6 +1285,19 @@ public sealed class CacheGraph
             _eventGapsVersion = _version;
         }
         return _eventGaps;
+    }
+
+    /// <summary>The edges grouped by the vertex a walk leaves, shared by every key's closure rather than
+    /// rebuilt per key: the grouping costs one pass over the edges and saves each walk a pass per visit.
+    /// </summary>
+    internal CacheGraphAdjacency GetAdjacency()
+    {
+        if (_adjacencyVersion != _version || _adjacency is null)
+        {
+            _adjacency = CacheGraphAdjacency.Build(this);
+            _adjacencyVersion = _version;
+        }
+        return _adjacency;
     }
 
     internal KeyDependencyWalk GetDependencies(CacheKey key)

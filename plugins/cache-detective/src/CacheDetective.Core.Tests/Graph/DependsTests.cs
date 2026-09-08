@@ -67,6 +67,32 @@ public sealed class DependsTests
             dependency => dependency.Target is CacheKey key && key.Template == "outer:{id}");
     }
 
+    /// <summary>The other half of the pair the walk has to tell apart. A cycle spends the depth budget
+    /// exactly as a long chain does, and only this one is incompleteness: the chain has a table below the
+    /// cut that the walk never saw, where the cycle's every source was reached anyway. Its sibling —
+    /// <c>Pruning_a_source_already_on_the_path_is_not_incompleteness</c> — asserts the false case.
+    /// </summary>
+    [Fact]
+    public void A_chain_longer_than_the_depth_limit_is_reported_as_incomplete()
+    {
+        var graph = new CacheGraph();
+        var key = new CacheKey("outer:{id}", "memory", null, [], "cache");
+        var chain = Enumerable.Range(0, 16).Select(index => Handler($"Step{index}")).ToArray();
+
+        graph.AddEdge(new Caches(chain[0], key, Confidence.Confirmed));
+        for (var index = 0; index + 1 < chain.Length; index++)
+            graph.AddEdge(new Calls(chain[index], chain[index + 1], Confidence.Confirmed));
+
+        graph.AddEdge(new Reads(chain[12], new Table("dbo.Near", "default"), Confidence.Confirmed));
+        graph.AddEdge(new Reads(chain[15], new Table("dbo.Far", "default"), Confidence.Confirmed));
+
+        var walk = graph.WalkDependencies(graph.CacheKeys.Single());
+
+        Assert.True(walk.DepthLimitReached);
+        Assert.Contains(walk.Dependencies, dependency => dependency.Target is Table { Name: "dbo.Near" });
+        Assert.DoesNotContain(walk.Dependencies, dependency => dependency.Target is Table { Name: "dbo.Far" });
+    }
+
     private static Handler Handler(string symbol) =>
         new("fixture", symbol, "method", "fixture.cs", 1);
 }
