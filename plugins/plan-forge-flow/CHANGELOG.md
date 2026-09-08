@@ -1,5 +1,32 @@
 # Plan Forge Flow releases
 
+## 0.27.2
+
+A prompt audit of everything this plugin puts in front of a model. Three of the fourteen tools
+described themselves in a single sentence while the other eleven carried their whole contract, so
+the rules that separate a rejoin from a retry lived only in `SKILL.md` — fine for an orchestrator
+reading the skill, invisible to one that is not.
+
+- `forge.work.start` now says it is the Cursor route, that the act's result arrives from
+  `forge.work.fetch` rather than from it, that `started: false` means rejoin the returned `jobId`
+  instead of starting a second worker against the same run, and that a job id does not outlive the
+  server process that issued it.
+- `forge.work.fetch` names what it returns and says it must follow a poll that came back in a state
+  other than `running`.
+- `forge.status` lists what it actually carries — rounds against their caps, `approved`,
+  `tasksCompleted`, the profile, `driftedFiles`, and any `activeJob` — because the skill tells the
+  orchestrator to read those numbers from it before asking the user to approve or to grant a round.
+
+Text that had outlived its own change is gone from the prompts. `prompts/roslyn-contract.md` opened
+with two lines about replacing two drifted per-host copies, and `PromptLibrary` appends that file to
+every critic prompt, so a note about this repository's prompt refactoring reached a worker whose job
+is judging C# semantics. In `skills/forge/SKILL.md`, "the old rule" and "as it was before" were
+written as a diff against the skill as it stood before the host ran the gates, and pointed at a rule
+the reader has never seen. The reasoning stays where it belongs, in `docs/adr/` and `AGENTS.md`.
+
+No behaviour changed: the descriptions are what a host reads, and the prompt edits removed only
+sentences about the documents themselves.
+
 ## 0.27.1
 
 A builder turn came back as `claude.exe exited 1: ` — an exit code and an empty colon. The claude CLI
