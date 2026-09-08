@@ -125,7 +125,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
                 options.ServerInfo = new Implementation
                 {
                     Name = serverName,
-                    Version = "1.8.2"
+                    Version = "1.8.3"
                 };
                 options.ServerInstructions = ServerInstructions(solutionPath, port);
             })

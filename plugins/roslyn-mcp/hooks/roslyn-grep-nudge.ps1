@@ -45,7 +45,9 @@ if ($tool -ne 'Grep' -and ($hay -notmatch '(?i)\b(rg|grep|select-string|sls)\b')
 $touchesCSharp = ($hay -match '(?i)\.cs\b') -or ($hay -match '(?i)\*\.cs') -or `
                  ($hay -match '(?i)\.csproj\b') -or ($hay -match '(?i)\.slnx?\b') -or `
                  ($tool -eq 'Grep' -and [string]$ti.type -match '(?i)^cs$')
-if (-not $touchesCSharp) {
+# A search that names non-C# files is not a Roslyn question, even inside a C# repository.
+$targetsOtherFiles = $hay -match '(?i)(\.(md|markdown|json|jsonc|ya?ml|toml|xml|txt|ps1|psm1|sh|mjs|c?js|tsx?|sql|csv)\b|--include=|--glob[= ])'
+if (-not $touchesCSharp -and -not $targetsOtherFiles) {
     $workingDirectory = [string]$payload.cwd
     if (-not $workingDirectory) { $workingDirectory = [Environment]::CurrentDirectory }
     $repositoryRoot = & git -C $workingDirectory rev-parse --show-toplevel 2>$null

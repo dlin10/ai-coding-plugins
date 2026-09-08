@@ -66,7 +66,7 @@ public sealed class PackagedValidationTests
 				return message["result"]!;
 			}
 			var initialized = await Call("initialize", new { protocolVersion = "2025-03-26", capabilities = new { }, clientInfo = new { name = "issue70-test", version = "1" } });
-			Assert.Equal("1.8.2", initialized["serverInfo"]!["version"]!.GetValue<string>());
+			Assert.Equal("1.8.3", initialized["serverInfo"]!["version"]!.GetValue<string>());
 			var instructions = initialized["instructions"]!.GetValue<string>();
 			Assert.Contains(@"C:\repo\Sample.sln", instructions);
 			Assert.Contains($"port {port}", instructions);
