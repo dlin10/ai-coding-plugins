@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **The MCP server starts.** It never had, under any host. `cachedet` has required an `mcp`
+  subcommand since the CLI grew one, and no host manifest passed it: `.claude-plugin/plugin.json`,
+  `.mcp.json` and `.cursor-plugin/plugin.json` all invoke `bin/cachedet-launcher.cmd` with nothing
+  after it, the launcher ended in `"%EXE%" %*`, and so the binary printed its usage to stderr and
+  exited — which every host reports as `CONNECTION_CLOSED`, a message that describes a transport
+  fault and this is not one. An argumentless launch now means `mcp`, which is what the launcher
+  exists for; anything else is still forwarded as written, so `cachedet-launcher.cmd --version`
+  keeps working. Fixing it in the launcher rather than in three manifests makes the next manifest
+  correct by construction, including the `.mcp.json` a user may copy into their own configuration.
+- **The end-to-end test launches the server the way the manifests do**, through
+  `cmd /d /c cachedet-launcher.cmd` with no arguments. It previously called the published binary and
+  added `mcp` itself, so it exercised an invocation no host performs — which is the whole reason a
+  broken manifest survived five phases behind a green suite. Reverting the launcher fails the new
+  case with *the server closed stdout before answering initialize*, the same symptom the host
+  reports, so the guard is not vacuous.
+- `build/test-baseline.txt` gained the new case and the eleven from the two preceding commits that
+  were never recorded, which had left those tests outside the pass-to-skip guard.
+
 - **The detection rules terminate on an enterprise-sized graph** (`docs/adr/0018`). `depends_on`
   enumerated one row per path and cut cycles with a path set, which is also the absence of a memo: at
   depth 12 and an out-degree of 4.6 that is ~4.6^12 walks per handler, and each visit scanned all

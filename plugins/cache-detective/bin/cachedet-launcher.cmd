@@ -35,5 +35,11 @@ rd "%CACHE%" >nul 2>&1
 exit /b 1
 
 :run
-"%EXE%" %*
+rem Serving MCP is what every host manifest launches this for, and cachedet requires the subcommand
+rem to do it, so an argumentless launch means mcp. Anything else is forwarded as written.
+if "%~1"=="" (
+  "%EXE%" mcp
+) else (
+  "%EXE%" %*
+)
 exit /b %ERRORLEVEL%

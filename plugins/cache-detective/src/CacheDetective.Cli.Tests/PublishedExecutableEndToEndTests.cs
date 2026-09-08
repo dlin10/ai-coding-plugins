@@ -19,7 +19,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         if (SkipUnlessPublished(out var executable))
             return;
 
-        await using var server = new PublishedServer(executable, output);
+        await using var server = new PublishedServer(executable, ["mcp"], output);
         server.Send(new
         {
             jsonrpc = "2.0",
@@ -50,6 +50,42 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Published_launcher_serves_mcp_when_a_host_manifest_launches_it_with_no_arguments()
+    {
+        if (SkipUnlessPublished(out var executable))
+            return;
+
+        // Every host manifest runs `cmd /d /c cachedet-launcher.cmd` and passes nothing after it, so
+        // that is what this starts. Adding the subcommand here instead would test an invocation no
+        // host performs, which is how the manifests came to launch a server that only printed usage.
+        var launcher = Path.GetFullPath(
+            Path.Combine(Path.GetDirectoryName(executable)!, "..", "cachedet-launcher.cmd"));
+        Assert.True(File.Exists(launcher), $"The launcher the manifests name is missing: {launcher}");
+
+        await using var server = new PublishedServer("cmd.exe", ["/d", "/c", launcher], output);
+        server.Send(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "initialize",
+            @params = InitializeParameters()
+        });
+        var initialize = await server.ReadResponseAsync("initialize", HANDSHAKE_TIMEOUT);
+        server.Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
+        server.Send(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
+        var toolList = await server.ReadResponseAsync("tools/list", HANDSHAKE_TIMEOUT);
+        await server.CompleteAsync(HANDSHAKE_TIMEOUT);
+
+        using var initializeDocument = JsonDocument.Parse(initialize);
+        Assert.Equal("2025-06-18", initializeDocument.RootElement.GetProperty("result")
+            .GetProperty("protocolVersion").GetString());
+
+        using var toolsDocument = JsonDocument.Parse(toolList);
+        Assert.Contains(toolsDocument.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray(),
+            tool => tool.GetProperty("name").GetString() == "workspace_status");
+    }
+
+    [Fact]
     public async Task Published_server_indexes_real_solution_without_cache_keys_or_source_changes()
     {
         if (SkipUnlessPublished(out var executable))
@@ -63,7 +99,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 
         try
         {
-            await using var server = new PublishedServer(executable, output);
+            await using var server = new PublishedServer(executable, ["mcp"], output);
             server.Send(new
             {
                 jsonrpc = "2.0",
@@ -204,10 +240,10 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         private readonly Task<string> _standardError;
         private bool _completed;
 
-        public PublishedServer(string executable, ITestOutputHelper output)
+        public PublishedServer(string fileName, IReadOnlyList<string> arguments, ITestOutputHelper output)
         {
             _output = output;
-            var startInfo = new ProcessStartInfo(executable)
+            var startInfo = new ProcessStartInfo(fileName)
             {
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -216,7 +252,8 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
                 CreateNoWindow = true,
                 StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
             };
-            startInfo.ArgumentList.Add("mcp");
+            foreach (var argument in arguments)
+                startInfo.ArgumentList.Add(argument);
             _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start cachedet.");
             _process.StandardInput.NewLine = "\n";
             _standardError = _process.StandardError.ReadToEndAsync();
