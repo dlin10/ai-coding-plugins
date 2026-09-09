@@ -178,6 +178,14 @@ has open, whatever share mode it was given, and a blocked replacement surfaces a
 `UnauthorizedAccessException` rather than `IOException`. Both facts are load-bearing; the retry loop
 catches both exception types. All run-folder writes must go through `AtomicFile`.
 
+The one exception to "no coordination" is inside `Append`, and it is between threads rather than
+between runs: an appender queues on a per-file gate before it competes for the exclusive handle,
+because Windows grants that handle without a queue and a thread that keeps losing eventually gives
+up. Every flow that finds a run through `RunLog.Current` appends to the same `forge.log`, so the
+losing thread was real, and a dropped log entry is silent by design — `RunLog.Write` may not let a
+failed write take the tool call down with it. How long the retry waits is a span, never a count of
+probes: a slower machine is where contention lasts longest and where a fixed count is spent soonest.
+
 ## What is checked, and what is not
 
 Only two things are prevented, both irreversible: secrets leaving for another model

@@ -106,4 +106,28 @@ public sealed class AtomicFileTests : IDisposable
         Assert.Equal("{\"event\":\"first\"}\n", AtomicFile.Read(path));
         Assert.ThrowsAny<IOException>(() => File.ReadAllText(path));
     }
+
+    /// <summary>
+    /// How long the wait lasts is a span, not a count of probes. The count was twenty, a probe
+    /// apart by twenty-five milliseconds, so an appender gave up after half a second — and
+    /// <c>RunLog.Write</c> may not let a failed write take the tool call down with it, which makes
+    /// giving up an entry lost in silence. The run whose <c>forge.log</c> lost its <c>tool.failed</c>
+    /// on a two-core runner is the case: the slower the machine, the longer contention lasts and
+    /// the sooner a fixed count of probes is spent.
+    /// </summary>
+    [Fact]
+    public async Task An_append_waits_out_a_holder_for_longer_than_the_old_count_of_probes()
+    {
+        var path = Path.Combine(_root, "forge.log");
+        AtomicFile.Append(path, "first\n");
+
+        var holder = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+        var appending = Task.Run(() => AtomicFile.Append(path, "second\n"));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(900));
+        await holder.DisposeAsync();
+        await appending;
+
+        Assert.Equal(["first", "second"], File.ReadAllLines(path));
+    }
 }

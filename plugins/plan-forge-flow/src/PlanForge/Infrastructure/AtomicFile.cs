@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 
 namespace PlanForge.Infrastructure;
@@ -14,9 +16,28 @@ namespace PlanForge.Infrastructure;
 /// </remarks>
 internal static class AtomicFile
 {
-    private const int Attempts = 20;
-    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
+    /// <summary>
+    /// How long a caller waits out a file someone else has open. A span rather than a count of
+    /// attempts, because what has to be covered is how long the contention lasts: a two-core
+    /// runner is where it lasts longest and where a fixed count of probes is spent soonest.
+    /// </summary>
+    private static readonly TimeSpan RetryBudget = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// How long a caller waits for a file that is not there. Windows implements
+    /// <see cref="File.Replace(string,string,string)"/> by taking the destination away and renaming
+    /// the replacement into its place, so a path can be missing for the moment that takes — but a
+    /// file that is genuinely gone stays gone, and every further millisecond is charged to a caller
+    /// who already has its answer.
+    /// </summary>
+    private static readonly TimeSpan ReplaceWindow = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The ceiling on one wait; the wait itself is a random part of it — see <see cref="Retry"/>.</summary>
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>The per-file gate <see cref="Append"/> queues on, keyed the way Windows names files.</summary>
+    private static readonly ConcurrentDictionary<string, object> Appenders = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads a file that <see cref="Write"/> may replace underneath. The delete share is the whole
@@ -72,13 +93,29 @@ internal static class AtomicFile
     /// Appends under an exclusive handle. Two processes appending at once would otherwise be free
     /// to interleave inside one entry, and the review log is read back as a critic's input.
     /// </summary>
-    public static void Append(string path, string content) => Retry(() =>
+    /// <remarks>
+    /// One appender at a time per file within this process, because the exclusive handle is granted
+    /// without a queue: a loser is told the file is busy and has to come back, so where several
+    /// threads append to one file the same thread can lose every attempt it is given while the
+    /// others make progress. That is not hypothetical — a run's <c>forge.log</c> is written by every
+    /// flow that finds it through <c>RunLog.Current</c>, and an append that gives up there is an
+    /// entry lost in silence, since a failed write may not take the tool call down with it. Ordering
+    /// them here leaves <see cref="Retry"/> only the contention it cannot order: the other server
+    /// process, which is a second writer rather than every thread of this one.
+    /// </remarks>
+    public static void Append(string path, string content)
     {
-        using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read,
-                                          bufferSize: 4096, FileOptions.WriteThrough);
-        using var writer = new StreamWriter(stream, Utf8);
-        writer.Write(content);
-    });
+        lock (Appenders.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+        {
+            Retry(() =>
+            {
+                using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read,
+                                                  bufferSize: 4096, FileOptions.WriteThrough);
+                using var writer = new StreamWriter(stream, Utf8);
+                writer.Write(content);
+            });
+        }
+    }
 
     /// <summary>
     /// Measured on Windows 11 rather than assumed: <c>File.Move(overwrite: true)</c> refuses to
@@ -98,21 +135,49 @@ internal static class AtomicFile
         File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
     }
 
-    // A blocked replace surfaces as UnauthorizedAccessException on Windows, not IOException, so
-    // both have to be treated as "someone else has it open right now".
     private static void Retry(Action action)
     {
-        for (var attempt = 1; ; attempt++)
+        var waited = Stopwatch.StartNew();
+        var ceiling = 1.0;
+
+        while (true)
         {
             try
             {
                 action();
                 return;
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException && attempt < Attempts)
+            catch (Exception error) when (Waits(error, waited.Elapsed))
             {
-                Thread.Sleep(RetryDelay);
+                // A random part of the ceiling rather than the ceiling itself. Every loser of a
+                // contended open used to wake on one fixed cadence and collide with the same
+                // winners again, so a waiter could lose every attempt it was given while the
+                // others made progress — and an append that gives up is an entry lost, since
+                // RunLog.Write may not let a failed write take the call down with it. Waking at
+                // an unshared moment is what makes the wait fair rather than another collision.
+                Thread.Sleep(TimeSpan.FromMilliseconds(Random.Shared.NextDouble() * ceiling));
+                ceiling = Math.Min(ceiling * 2, MaxRetryDelay.TotalMilliseconds);
             }
         }
     }
+
+    /// <summary>
+    /// Whether the failure is one that coming back later can fix, and whether the caller has waited
+    /// long enough already.
+    /// </summary>
+    /// <remarks>
+    /// A blocked replace surfaces as <see cref="UnauthorizedAccessException"/> on Windows rather
+    /// than <see cref="IOException"/>, so both mean "someone else has it open right now". The two
+    /// absences do not: a missing file may be a replacement mid-flight and waits only that long
+    /// (<see cref="ReplaceWindow"/>), and a missing directory is nothing in flight at all — nothing
+    /// here removes one — so it answers at once rather than charging a caller for a wait that
+    /// cannot end well.
+    /// </remarks>
+    private static bool Waits(Exception error, TimeSpan waited) => error switch
+                                                                  {
+                                                                      DirectoryNotFoundException => false,
+                                                                      FileNotFoundException => waited < ReplaceWindow,
+                                                                      IOException or UnauthorizedAccessException => waited < RetryBudget,
+                                                                      _ => false
+                                                                  };
 }
