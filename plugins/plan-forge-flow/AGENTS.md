@@ -57,7 +57,8 @@ src/PlanForge/            the MCP server
   Orchestration/          capability profile
   Run/ Repo/ Prompts/ Review/ Infrastructure/
 src/PlanForge.Tests/      integration tests are traited "Category=Integration"
-prompts/<vendor>/         role prompts, editable without a rebuild
+prompts/                  role contracts and shared contracts, editable without a rebuild
+  <vendor>/               only what differs about that vendor; codex needs nothing and has none
 skills/forge/SKILL.md     how the orchestrator drives the tools
 ```
 
@@ -89,9 +90,10 @@ inside the call.
 suppliers that run in a separate process. Three implementations live in per-vendor folders that
 mirror `prompts/`: `Claude/`, `Codex/`, `Cursor/`.
 
-Structured output is a hard requirement of the interface. Claude has it natively (`--json-schema`);
-Codex and Cursor do not, so both go through `SchemaInPrompt` — schema in the prompt, validation
-here, exactly one retry. Model catalogues feed the interview: `CatalogCache` probes every vendor in
+Structured output is a hard requirement of the interface. Claude and Codex reach it natively —
+`--json-schema` and `codex exec --output-schema`, the latter since
+[docs/adr/0012](docs/adr/0012-reach-codex-through-exec.md) — and Cursor has no schema flag, so it
+alone goes through `SchemaInPrompt`: schema in the prompt, validation here, exactly one retry. Model catalogues feed the interview: `CatalogCache` probes every vendor in
 the background from `forge.begin`, and `forge.models` serves the results so the model question
 offers what the vendor actually serves — see
 [docs/adr/0007](docs/adr/0007-serve-live-catalogues-to-the-interview.md). A catalogue is `live`
@@ -108,8 +110,9 @@ belongs in the vendor, never in the core.
 `workspaceRoot`, which arrives as a per-call tool argument, so there is no container lifetime that
 fits. The reasoning is recorded in a `<remarks>` block on the class — read it before replacing it.
 
-Adding a vendor means a folder under `Vendors/`, a prompt pair under `prompts/`, an arm in
-`VendorFactory`, and a bundle assertion in `build/package.ps1`.
+Adding a vendor means a folder under `Vendors/`, an arm in `VendorFactory`, and — only where the
+vendor needs to be told something the role contracts do not already say — a folder under `prompts/`
+and the matching bundle assertion in `build/package.ps1`.
 
 **Each vendor keeps the critic read-only by a different mechanism**, and none of it is enforced by
 this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits`, Cursor
@@ -117,8 +120,13 @@ relies on `--mode plan` alone. `CONTEXT.md` documents what was measured for each
 
 ## Prompts are data, not code
 
-Role prompts live under `prompts/<vendor>/<role>.md` and are copied beside the binary, so they can
-be edited and tuned per project **without a rebuild**. `PromptLibrary` walks up from the binary
+Role prompts live under `prompts/` and are copied beside the binary, so they can be edited and tuned
+per project **without a rebuild**. `builder-contract.md` and `critic-contract.md` carry the whole of
+what a worker is told; `prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
+must hand its answer back — and is optional, which is why codex, whose `--output-schema` settles the
+question, has no file at all. The role text lived in three copies until they drifted: the codex and
+cursor critics lost "do not reopen a finding the log shows as resolved" and their builders lost "a
+half-finished task reported as done is worse than a blocked one", asymmetric since the first commit. `PromptLibrary` walks up from the binary
 because the shipped layouts differ (publish output vs. installed plugin), but **a third layout
 cannot be walked to at all**: the launcher downloads the bare executable into a per-version cache
 under `%LOCALAPPDATA%`, and the prompts never travel with the release asset. So
@@ -227,4 +235,4 @@ classes rather than a public façade.
 
 `CONTEXT.md` holds the vocabulary and the **measured** facts behind the design — protocol quirks
 established by probing a live server, not by reading documentation. Read it before arguing with a
-decision. `docs/adr/` holds the fifteen architecture decisions.
+decision. `docs/adr/` holds the architecture decisions.

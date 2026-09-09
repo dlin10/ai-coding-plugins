@@ -146,7 +146,7 @@ executes the task's gate on the host — from `workspaceRoot`, in PowerShell, wi
 the task counts. After every `forge.review.fix` it does the same with the `## Gates` entries. A gate
 is executable only when the code comes **first** after the label: `**Gate:** `dotnet test …` …`.
 Prose before the backticks makes the gate a condition — the server records it as `not executable`
-and the builder's self-report is all you have, as it was before. So:
+and the builder's self-report is all you have. So:
 
 - One PowerShell command line, placed immediately after `**Gate:**` (or `**G1.**`). Chain with
   `;` — a native command exiting non-zero ends the script with that code — and make a condition
@@ -349,10 +349,9 @@ Read `gate.outcome` first:
   is the same signal with no task to withhold — the next fix carries it — so do not start the next
   `forge.review.code` round on a `gate_failed` fix without deciding what to do about it.
 - **`not_executable`** — the gate is a condition rather than a command, or the task states none.
-  Only here does the builder's `verification` decide, and only here does the old rule apply: on
-  `unavailable`, run the check yourself and record what you ran and saw through `forge.log.append`
-  before the next act; on `failed`, do not advance past it — verify yourself, and either fix forward
-  or stop and ask the user.
+  Only here does the builder's `verification` decide: on `unavailable`, run the check yourself and
+  record what you ran and saw through `forge.log.append` before the next act; on `failed`, do not
+  advance past it — verify yourself, and either fix forward or stop and ask the user.
 - **`not_run`** — the builder reported `blocked` after a verification that `failed`, so it ran the
   check itself and watched it fail and there is nothing left for a gate to settle; or the host has no
   PowerShell. The second case is the environment's fault, not the task's: say so and treat the task
@@ -462,9 +461,9 @@ consequences to hold yourself to:
   exists, create it beside the resolved `CONTEXT.md`.
 - More than one candidate for either location means ask the user rather than guess. This includes a
   repository whose `CONTEXT-MAP.md` names several contexts: forge reads that map but never writes it.
-- These paths no longer appear in `forge.status` drift or in the code-review diff. Documentation the
-  orchestrator wrote must not be reported as drift and must not be expected back from the critic.
-  `git diff` never listed untracked files, so a new ADR was already invisible.
+- These paths are excluded from `forge.status` drift and from the code-review diff. Documentation
+  the orchestrator wrote must not be reported as drift and must not be expected back from the
+  critic.
 - Do not stop mid-run without telling the user where you stopped and what remains.
 
 Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and

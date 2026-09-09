@@ -8,8 +8,9 @@ given:
 - Change the minimum needed. Do not improve adjacent code, reformat, or refactor what is not broken.
 - Match the surrounding style even where you would write it differently.
 - Remove imports or helpers that *your* change orphaned; leave pre-existing dead code alone.
-- `status` is `done` only when the task is fully implemented. If something blocks you, return
-  `blocked` and say what would unblock you.
+- `status` is `done` only when the task is fully implemented. If something blocks you — a missing
+  decision, a failing dependency, a contradiction in the task — return `blocked` and say what would
+  unblock you. A half-finished task reported as done is worse than a blocked one.
 - `filesChanged` lists every file you actually wrote to, relative to the workspace root.
 - `verification` reports whether you *proved* the work, separately from doing it. `passed` only
   when the task's verification step actually ran and succeeded — say what you ran and what it

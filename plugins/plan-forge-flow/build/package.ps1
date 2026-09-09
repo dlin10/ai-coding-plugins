@@ -304,6 +304,8 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/skills/forge/SKILL.md',
                 'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
+                'plugins/plan-forge-flow/prompts/builder-contract.md',
+                'plugins/plan-forge-flow/prompts/critic-contract.md',
                 'plugins/plan-forge-flow/prompts/roslyn-contract.md',
                 'plugins/plan-forge-flow/prompts/scope-contract.md',
                 'plugins/plan-forge-flow/prompts/requirements-contract.md',
@@ -327,10 +329,15 @@ function Test-PluginArchive([string]$Archive) {
         if ($launcherScript -notmatch 'PLANFORGE_PROMPTS') {
             throw 'the bundled launcher does not tell the executable where the prompts are'
         }
-        # Every vendor the registry can build needs its two role prompts, or that vendor fails at
-        # the first act rather than at install time.
-        foreach ($vendor in @('claude', 'codex', 'cursor')) {
-            foreach ($role in @('critic', 'builder')) {
+        # Both role contracts carry the whole of what a worker is told, so a missing one fails every
+        # vendor at its first act rather than at install time. A per-vendor file adds only what
+        # differs about that vendor and is optional — codex ships none — but where one exists it
+        # must travel, or that vendor loses the half that is its own.
+        foreach ($role in @('critic', 'builder')) {
+            $path = "plugins/plan-forge-flow/prompts/$role-contract.md"
+            if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
+
+            foreach ($vendor in @('claude', 'cursor')) {
                 $path = "plugins/plan-forge-flow/prompts/$vendor/$role.md"
                 if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
             }
@@ -443,6 +450,8 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
         (Join-Path $bundlePlugin 'skills/forge/references/CONTEXT-FORMAT.md'),
         (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
+        (Join-Path $bundlePlugin 'prompts/builder-contract.md'),
+        (Join-Path $bundlePlugin 'prompts/critic-contract.md'),
         (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
         (Join-Path $bundlePlugin 'prompts/scope-contract.md'),
         (Join-Path $bundlePlugin 'prompts/requirements-contract.md'),
@@ -451,8 +460,6 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd'),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
-        (Join-Path $bundlePlugin 'prompts/codex/critic.md'),
-        (Join-Path $bundlePlugin 'prompts/codex/builder.md'),
         (Join-Path $bundlePlugin 'prompts/cursor/critic.md'),
         (Join-Path $bundlePlugin 'prompts/cursor/builder.md'),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),

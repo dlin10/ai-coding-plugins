@@ -1,8 +1,5 @@
 # Roslyn-first review
 
-Applies to every critic, whatever the vendor. One file, because the contract does not differ by
-vendor — the two per-host copies it replaces had drifted into saying subtly different things.
-
 For a claim about C#/.NET semantics — a symbol's references, callers, definition, implementations,
 document symbols, or whether something is dead — use the read-only Roslyn MCP tools before text
 search. Discover them first if they are not already exposed.

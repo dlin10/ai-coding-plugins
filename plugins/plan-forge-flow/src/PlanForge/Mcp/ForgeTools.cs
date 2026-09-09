@@ -315,7 +315,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id.")]
+    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id, act, state, `started`, and `documents` — the route for a host whose clock on a tool call is shorter than a worker act, which today means Cursor. The act's own result is not here: follow this with forge.work.poll until the state is no longer `running`, then forge.work.fetch. `started: false` means this run already has an active job — rejoin the returned `jobId` rather than starting a second worker. A `plan.review` act refuses a second round without `revision`, as the one-call tool does. A job id does not outlive the server process that created it; after a restart, start a new act and read the persisted result under `.forge/<runId>/`.")]
     public static Task<string> StartWork(JobRegistry registry,
                                          SessionRoots roots,
                                          [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -417,7 +417,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act.")]
+    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act: the act's own payload as the `result` string, beside its state, any `error`, and `documents`. Call it only after a forge.work.poll came back in a state other than `running` — a job still running has no result to fetch. A job id from a server process that has since exited cannot be fetched; start a new act instead, and read the persisted result under `.forge/<runId>/`.")]
     public static async Task<string> FetchWork(JobRegistry registry,
                                                SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -443,7 +443,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands, with any working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing: under `run`, the plan-review and code-review rounds against their caps, whether the plan is approved, the tasks completed, and the capability profile; under `driftedFiles`, the working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`; under `activeJob`, any background worker act still running, with its id and elapsed seconds. Call it before you show the user the plan to approve, and before you ask them to grant a round past a cap, so the question carries its numbers.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
