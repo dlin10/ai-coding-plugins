@@ -23,6 +23,11 @@
       "name": "explain-code-simply",
       "source": "./plugins/explain-code-simply",
       "description": "Clear, accurate explanations of code and .NET concepts in the user's language."
+    },
+    {
+      "name": "cache-detective",
+      "source": "./plugins/cache-detective",
+      "description": "Whole-workspace cache consistency scanning for .NET — connects cache keys to cross-solution data dependencies and reports evidence-backed invalidation risks."
     }
   ]
 }

@@ -1,0 +1,129 @@
+# Cache Detective — domain language
+
+The vocabulary the code, the MCP tool schemas and the report must use. Written during the interview
+that scoped phase 1; extended as later phases land.
+
+| Term | Meaning |
+|---|---|
+| **Workspace** | Everything one scan covers: the solutions, the database, the service mapping and the cache and event recognizers named in `.cache-detective/workspace.json`. One graph spans the whole workspace, never one graph per solution. |
+| **Code indexer** | The Roslyn half: walks solutions, emits cache keys, handlers, tables, calls. |
+| **DB indexer** | The catalogue half: reads a live SQL Server's `sys.*` views for procedures, triggers and views. Not in phase 1. |
+| **Sink** | A cache call site — a `Get`, `Set`, `Remove` on a caching API. |
+| **Recognizer** | The declarative description of one caching library: its type, its methods, each method's semantic, which argument carries the key, which carries the TTL. The key argument may be a string expression or a **key object**. Adding a library means adding a recognizer, never adding a branch. Built in for `IMemoryCache`, `IDistributedCache`, `HybridCache` and `StackExchange.Redis`; a workspace declares its own in the `caches` section of its config, or the agent declares one through an `annotate` of kind `cache_api`. |
+| **Key object** | A cache key passed to a sink as an object rather than as a string — nopCommerce's `CacheKey`. The recognizer names the type, the constructor argument the template literal comes from, and the factory methods that substitute arguments into its positional holes, so `new CacheKey("Nop.category.all.{0}-{1}-{2}")` reached through `PrepareKeyForDefaultCache(key, storeId, roleIds, showHidden)` folds to `Nop.category.all.{storeId}-{roleIds}-{showHidden}`. What is folded are the argument *names*, exactly as for a string key; a run-time value the library derives from an argument — an entity collapsed to its id, a list of ids collapsed to a hash — was never in reach and is not claimed. Orchard's `CacheContext`, whose identity is a cache id plus a fluent chain of contexts, is a different grammar and is out of scope. See `docs/adr/0016`. |
+| **Semantic** | What a sink does to the entry: `get`, `set`, `remove`, `remove_by_tag`, `remove_by_prefix`, `increment`, `expire`, `lock`. The word for the operation's kind, never for meaning-of-the-value. A recognizer method may also name one argument and the constant that turns the call into a conditional set — the only shipped case is `StringSet` with `When.NotExists`. |
+| **Template** | A cache key with its variable parts folded to names: `product:{id}`. Known substitutions become `{name}`, unknown ones `{?}`. A value that depends on a branch folds to the **template set** the site may produce, never to its first assignment. Two sites that build the same template *in the same store* are the same `CacheKey` vertex; the same template in two stores is two vertices, because an invalidation in one store does not reach the other. When sites merge, TTL merges as the longest with "no TTL" meaning infinity. Tags merge twice, because a tag means different things to the two questions asked of it: the intersection across sites is what a tag removal must match to *cover* the key, since entries written by an untagged site are never evicted by it, and the union is what keeps a tag removal from being called dead. A merge must never grant a suppression that one site alone would not. |
+| **Template set** | What one fold yields: every template the site *may* produce, each folded independently, plus a mark saying whether anything on the way stood for several values. At a `get` or `set` site every nameable element becomes a `CacheKey` vertex. At an invalidation site the mark decides what the site grants: a fold is **certain** only when it names exactly one template and is unmarked, and only a certain invalidation can suppress a missing-invalidation finding. Everything else is a possibility — several templates, a member that could not be named, a set over its bound, a variable built by updating itself — and is recorded and shown, so a dead removal stays visible, but grants nothing. The mark travels through composites, because a set of one built over a collapsed part is a choice wearing the shape of a certainty. A conditional expression and a local assigned in several branches are the same case in two syntaxes. The bound is eight, measured on the folded result rather than on the number of assignments, because sets multiply; overflowing it yields one `{?}` with a reason naming the bound rather than the branch, and the mark. Cache keys and HTTP routes take the set; SQL takes the single element. See `docs/adr/0015`. |
+| **Role** | `cache` — the value is derived from sources and can go stale. `store` — the cache *is* the storage (sessions, locks, idempotency, rate limits, tokens); there is no source of truth, so staleness is meaningless. Detection rules apply only to `role: cache`. |
+| **Handler** | A method reached from an **entry point**, identified as `handler:<Solution>/<Type>.<Method>`. A handler also carries the **service** it belongs to. |
+| **Entry point** | A method the outside world can reach without another handler calling it, and therefore a root of the call-graph walk. Seven **forms** are found by type — controller action, gRPC service method, request handler, event consumer, `BackgroundService`, `IHostedService`, job — and one by document: the minimal API endpoint, found by walking `MapGet`-family invocations rather than types, which is why it is not a finder. Each form is an `IEntryPointFinder`, never a branch in one method, and the order the finders run in is fixed and tested, because it fixes the order handlers reach the graph and therefore the ids of `unresolved` rows an annotation binds to. See `docs/adr/0019`. |
+| **Entry-point recognizer** | The declarative description of one entry-point form whose whole definition is a shape and a method name: the interface or base class name, its arity, the method that handles, and the `kind` the handler is recorded under. The rows live in `EntryPointTables`, grouped into one list per position in the finder order, because the order forms are emitted in fixes the order handlers reach the graph. Read by one finder, `RecognizerEntryPointFinder`, exactly as `CacheRecognizer` is read by `CacheCallAnalyzer`. It covers only the forms that are independent of every other form; one that computes anything — a `HandlerRoute`, a graph edge, or the exclusion of another form, as `BackgroundService` excludes `IHostedService` — is its own finder instead. Not declarable from `workspace.json` today — the record is shaped so it could be, and the config section, its schema and its `annotate` kind are deliberately not built until something needs them. |
+| **Service** | The unit a chain crosses when it becomes cross-service: the project (assembly) a handler is compiled in, not the solution. A solution may hold one service or twenty — eShopOnContainers holds every service in one `.sln` — so the report names services by project, and "invalidation: not found in Catalog.API, Basket.API" lists projects. An explicit `services` mapping in the workspace config may name a solution or a project. |
+| **Event** | A message published by one handler and consumed by others, the second way a chain crosses a service boundary (the first is an HTTP or gRPC call). Its identity is the contract type's full name, and nothing else: two solutions sharing a contract package produce one vertex; a contract duplicated per service under different namespaces — as eShopOnContainers does, and as its RabbitMQ bus routes by short type name — produces one vertex per full name. What joins those vertices is the **event hop**, a derived pair of one `publishes` and one `consumes`: `confirmed` when both sit on the same vertex, `likely` with the reason that the contract is duplicated when the vertices differ but the short names agree and the two handlers are in different services. Two different types with one short name inside one service never pair. The stored `consumes` edge is never altered by a hop. See `docs/adr/0009`. |
+| **Event recognizer** | The declarative description of one event bus: the publishing type and method and where the event's type comes from (the argument's static type, or a type argument), and the consumer interface's name, arity and handling method. Built in for MediatR, MassTransit, Rebus and NServiceBus; a workspace declares its own bus — eShop's `IEventBus` / `IIntegrationEventHandler<T>` — in the `events` section of its config, or the agent declares one through an `annotate` of kind `event_api`. A recognizer may name a publisher with no consumer side: an outbox whose *add* is the moment a service commits to publishing — eShop's Ordering service publishes only that way — while the consumer side comes from another recognizer. Implementing the consumer interface is what makes a consumer; registration with the bus is not checked, and the README says so. |
+| **publishes / consumes** | `Handler → Event` and `Event → Handler`. The event's type is what the published expression *can be*, not what it is declared as: a construction names its type, a conditional names both branches, a local names every value assigned to it, a parameter is followed to the callers up to five hops, and a property or return value whose declared type other events derive from names nothing. The edge belongs to the **caller that named the type**, never to the helper the publish call sits in: a shared publish helper is a link on the chain through `calls`, exactly as a stored procedure is, and attributing to it would put every caller's event type on one vertex. When that yields nothing, when the caller that named the type has no `Handler` vertex, or when an event has no consumer anywhere in the workspace, the event is `unresolved` with kind `event`. See `docs/adr/0017`. |
+| **ExternalSource** | Something a handler reads that is not a table and not a key: an HTTP call (`http:GET /products/{id}`) or a gRPC call (`grpc:Catalog.GetItems`). The URL is folded like a cache key. Kinds `config` and `clock` are out of scope until a rule needs them. |
+| **serves** | `ExternalSource → Handler`: the call is joined to an endpoint elsewhere in the workspace, and `depends_on` continues into that handler's own reads. Three levels, tried in order: an explicit `services` mapping (`confirmed`), a client name matched to a service name (`likely`), a route matched across the whole workspace (`likely`; several candidates are `unresolved` with kind `call`, listing them). Within a service chosen by the first two levels the match is on the **known tail** of the path, because an API gateway rewrites prefixes and the tail is what survives: a leading placeholder is the call's base address, never a route segment, the tail begins after it and after the last `{?}`, and behind a gateway the tail may be longer than the route, so the comparison runs from the end over whichever is shorter. At the third level only a full match counts. See `docs/adr/0010`. A gRPC call joins by service and method name to the override in the class deriving from the generated base — deterministic, `confirmed`. |
+| **Cross-service gap** | The unguarded-write finding's cross-service form, not a second finding beside it. The rule is `CROSS_SERVICE_GAP` when the handler at the head of the chain publishes an event that has consumers and no consumer covers the key; it is `UNGUARDED_WRITE` when no such event exists. An invalidation reached through `publishes → consumes` covers the key exactly as one reached through `calls` does, at no better confidence than the `consumes` edge it crossed. |
+| **Annotation** | The agent's resolution of one `unresolved` item, applied to the in-memory graph for the rest of the session and recorded so the report can list what the agent assumed. Every edge an annotation creates is `likely`. Resolving a `cache_api` or `event_api` item registers the recognizer and re-indexes the affected solution through the ordinary path, so the graph is only ever built one way. Nothing persists between runs. |
+| **Stored procedure** | `schema.name` in one database. Created from either half: the code half creates it on meeting a call, the catalogue half on meeting its definition, and they are the same vertex. A procedure with no outgoing edges means one of two different things, and the graph must say which — see **Hidden write** and `docs/adr/0007`. |
+| **Trigger** | `schema.name`, carrying the table it hangs on and the events it fires for. A trigger participates in a chain only when the write's events intersect its own: a trigger declared `FOR DELETE` is not reached by an `INSERT`, and `TRUNCATE` reaches no trigger at all. |
+| **View** | `schema.name`. Reads tables and other views; nothing writes through one. |
+| **Hidden write** | A write to a table that the handler's own code does not contain: performed by a stored procedure it calls, or by a trigger that fires on a table it writes. The term exists because it is what phase 2 adds to the unguarded-write rule, and because these links of a chain look different in the report — they carry a database object's name where code carries a `file:line`. |
+| **Table** | `schema.name`. The unit of joining: EF, Dapper, ADO.NET, stored procedures, triggers and views all reduce to the same vertex, and two solutions naming the same table share it. The database is an attribute, never part of the identity — which is what lets a table named by EF, where no database is known, meet the same table named by the catalogue, where one is. A workspace carries at most one database; see `docs/adr/0007`. |
+| **depends_on** | The derived relation `CacheKey → Table | CacheKey | ExternalSource`: the transitive closure of `caches ← Handler → reads/calls/serves → …`. The closure runs through database objects too: a handler that calls a stored procedure depends on what that procedure reads, and one that reads a view depends on the view's tables. It runs through `serves` into another service's handler and on to that service's tables; an `ExternalSource` with no `serves` is a leaf, and only a TTL can guard it (`EXTERNAL_NO_TTL`). **One row per target**, at the strongest confidence the graph reaches it by and the shortest path at that confidence — not a row per path, which is exponential in the depth limit and which every caller collapsed to this row anyway. Computed as a shortest-path search over `(source, confidence, depth spent)`, so a cycle needs no rule of its own and only a source the walk never reached any other way counts as the depth limit being met. See `docs/adr/0018`. Not stored; computed on query. |
+| **Budget** | How stale a table's data may legitimately be, in seconds. A key whose TTL is within the budget is not a finding. Default 60 s; set per table or mask in the workspace config. |
+| **Confidence** | `confirmed` — the static analysis proved every edge on the path. `likely` — an edge on the path is inferred. `unknown` — the path crosses an `unresolved`. The agent's inference is never reported as fact. The catalogue and the T-SQL grammar are both deterministic, so the database half produces no `likely` edges at all; where it cannot answer, it produces an `unresolved` instead. |
+| **Unresolved** | A construct the indexer met and could not reduce, recorded with its snippet and a reason. Never a silent skip and never a guess. |
+| **Finding** | One rule firing on one path, carried with its confidence and its evidence. |
+| **Chain** | The report's only shape for a finding: a linear top-to-bottom path from the write to the key, each line carrying a file:line or a database object name. No diagrams. |
+| **Runtime verification** | The optional step that asks a live cache and database whether a finding is materialising at this moment. It is requested, never automatic, and it runs inside the server rather than through anyone else's, because a sample must be drawn, compared and redacted before it becomes a tool result — see `docs/adr/0011`. It reads and never writes, exactly as both indexers do. |
+| **Observation** | What verification produces, and the only thing it produces: `refuted`, `possible`, or `not verifiable`, attached to a finding. It is a third vocabulary beside rule and confidence, and it changes neither of them and never hides a finding — see `docs/adr/0012`. `not verifiable` is a result, not a failure: a computed value, a key with no live entry, a dependency on an `ExternalSource` with no `serves`, and every key with `role: store` are all correctly unverifiable. |
+| **Last write** | How long ago the database last recorded a write to a table, asked of the server on its own clock rather than read from a column, so that a table with no modification column can still be asked and no clock is compared with another. It is per table, never per row, and it can only suggest staleness, never rule it out — see `docs/adr/0012`. A server restart or an index rebuild resets it, and a reset reads as "not verifiable", never as "no writes". |
+| **Verification sample** | The bounded set of live keys one finding is checked against: at most twenty, found by the key template's **known tail**, because a cache library's configured prefix is not in the code the template was folded from — the same reasoning, and the same tail rule, as `serves` route matching in `docs/adr/0010`. A sample that could not be completed within its budget is reported as incomplete rather than treated as the whole. |
+| **Sensitive field** | A field of a cached value whose name matches a mask — `email`, `phone`, `*password*`, `*token*`, `*secret*` built in, and whatever the workspace adds to them, never replaces them. Verification may report that such a field differs and never what it holds; a value that is not structured data is never shown at all. |
+
+## The cached value is opaque; only what was read matters
+
+Nothing in the graph inspects what a handler *put* into the cache. Whether the entry holds an EF
+entity, a DTO assembled from five tables, a computed price or another service's answer changes
+nothing: a key's dependencies are everything the handler **read** on the way to its `Set`. This is
+what lets one model cover EF, Dapper, stored procedures and HTTP without a special case for each,
+and it is why a key whose write path reads nothing has no dependencies at all — a pure computation,
+correctly, changes only with a deploy.
+
+## A key with no reads is a store, and no rule applies to it
+
+Session entries, distributed locks, idempotency keys, rate-limit counters and tokens live in the
+same Redis as the caches and look identical at the call site. They have no source of truth, so
+"this write has no invalidation" is not a defect there — it is the design. Role is therefore
+computed during indexing, not asked for later, and every rule in the detection set filters on it
+first. Getting this wrong in either direction is a precision bug, which is why an unclassifiable
+key becomes `unresolved` with kind `role` rather than defaulting to `cache`.
+
+## A finding belongs to the handler, never to the procedure or the trigger
+
+Once procedures and triggers can write, the unguarded-write rule stops having an obvious subject:
+three different vertices on one chain performed a write. The subject is always the handler at the
+head of the chain. Procedures and triggers are links, because the person reading the finding fixes
+code and adds the invalidation to a handler — and because a chain with no handler at its head has
+nobody to fix it.
+
+The consequence is a deliberate blind spot. The catalogue knows procedures that no indexed code
+calls, and those procedures write tables that cached keys depend on. They produce no findings. That
+is the same restraint as `docs/adr/0003`: a graph that reports every write it can see, without
+knowing whether anything reaches it, reports the tool's own incompleteness as the code's defect.
+
+## Orphan invalidation is measured against cache writes, not database writes
+
+"A `Remove` of a key nobody writes" has two readings, and only one of them holds without a database
+in the graph. See `docs/adr/0003`.
+
+## Verification refutes better than it confirms, and only comparison refutes
+
+The strong half of runtime verification is the negative one — the half that sets a finding aside for
+now — and it is the half worth running for: a reader triaging twenty findings can start with the ones
+verification could not refute.
+
+But only one mechanism earns it. Comparing the cached value's fields against the current row refutes,
+because equality is observed rather than inferred. The **age** of an entry does not, however precisely
+it is measured: an entry's deadline may have been extended after it was written, and a handler may
+read a row, wait while the table changes, and only then write what it already had — in both cases the
+entry looks younger than the data it holds. Age therefore feeds the weak half, «staleness is
+possible», and the report's numbers, and never the strong one. See `docs/adr/0012`.
+
+Age cannot refute, but it can **withhold** a refutation: `refuted` needs the fields of the finding's own
+table to agree *and* that table not to have been written since the entry was created. A write after it
+gives `possible` with `basis: age`, because the fields compared are only some of what the value was
+built from and the write may have touched one of the others.
+
+Neither half moves the finding. A refuted finding stays visible and keeps its confidence, because a
+missing invalidation that has not bitten yet is still missing.
+
+## The core never sees a path
+
+`CacheDetective.Core` takes a Roslyn `Solution` and an open database connection; turning `.sln`,
+`.slnx` and `.csproj` into one, and an `env:` reference into the other, is the CLI's job. The seam exists because the analysis is semantic-model work that is fully testable
+on sources compiled in memory, while the MSBuild half is an adapter with almost no logic and a very
+slow test. See `docs/adr/0002`.
+
+## Roslyn no longer loads MSBuild in the calling process
+
+Measured on 2026-09-02 against `Microsoft.CodeAnalysis.Workspaces.MSBuild` 5.9.0: the package ships
+`contentFiles/any/any/BuildHost-net472/` and `BuildHost-netcore/`, and `MSBuildWorkspace` starts one
+of them as a **separate process**. Every deployment question about this plugin follows from that
+one fact, because a plain single-file publish leaves those folders loose beside the executable.
+See `docs/adr/0001`.
+
+## The MCP server reads code and writes exactly one file
+
+The server writes `.cache-detective/workspace.json` and nothing else. The report is composed and
+written by the skill, from `get_evidence`, because the report is prose and prose belongs to the
+agent. Everything the server touches beyond that — solutions, and later SQL Server and Redis — is
+read-only, and the read-only requirement is stated in the README rather than assumed.
+
+## Responses are small on purpose
+
+Every tool answers in compact JSON, paginated, bounded at 8 KB. The agent must never receive the
+whole graph: the graph is the server's, and the tools are the questions worth asking of it. A tool
+that would exceed the bound pages instead of truncating, and says so.

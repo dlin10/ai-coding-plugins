@@ -1,0 +1,34 @@
+{
+  "name": "cache-detective",
+  "displayName": "Cache Detective",
+  "version": "0.4.0",
+  "description": "Scan whole .NET workspaces for cache consistency risks with cross-solution dependencies, confidence, and evidence.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "category": "developer-tools",
+  "keywords": [
+    "cache",
+    "invalidation",
+    "stale-data",
+    "csharp",
+    "dotnet"
+  ],
+  "tags": [
+    "debugging",
+    "diagnostics",
+    "developer-tools"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "cache-detective": {
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${CURSOR_PLUGIN_ROOT}\\bin\\cachedet-launcher.cmd"
+      ]
+    }
+  }
+}

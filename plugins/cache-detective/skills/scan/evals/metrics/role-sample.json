@@ -1,0 +1,13 @@
+{
+  "sample": "role",
+  "targetCount": 30,
+  "candidateCount": 0,
+  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
+  "rows": [],
+  "metrics": {
+    "accuracy": null,
+    "falsePositiveRate": null,
+    "unclearCount": 0,
+    "status": "not_applicable"
+  }
+}

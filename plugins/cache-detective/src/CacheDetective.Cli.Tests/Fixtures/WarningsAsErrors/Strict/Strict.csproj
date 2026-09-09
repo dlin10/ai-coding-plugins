@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The project a real repository has and the loader must survive: it promotes MSBuild's own
+       warnings to errors. The loader passes MSBuildTreatWarningsAsErrors=false as a global property,
+       which outranks this one, because it is reading the semantic model of someone else's code and
+       not shipping it. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- An MSBuild warning, not a compiler one: a design-time build never runs csc, so a compiler
+       warning would never be raised and the fixture would prove nothing. Its text echoes the settings
+       that were actually in force, which is how a test can see whether the loader's properties reached
+       the build at all. -->
+  <Target Name="CacheDetectiveFixtureWarning" BeforeTargets="ResolveReferences">
+    <Warning Code="CDTEST0001"
+             Text="Cache Detective fixture: MSBuildTreatWarningsAsErrors=$(MSBuildTreatWarningsAsErrors);TreatWarningsAsErrors=$(TreatWarningsAsErrors);NuGetAudit=$(NuGetAudit)" />
+  </Target>
+
+</Project>

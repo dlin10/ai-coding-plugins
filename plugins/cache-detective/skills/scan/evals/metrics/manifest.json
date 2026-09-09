@@ -1,0 +1,29 @@
+{
+  "corpus": "eShopOnContainers",
+  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
+  "solution": "src/eShopOnContainers-ServicesAndWebApps.sln",
+  "files": [
+    {
+      "file": "role-sample.json",
+      "sample": "role",
+      "targetCount": 30,
+      "candidateCount": 0,
+      "reason": "eShopOnContainers has exactly one recognised cache client, the IDatabase field in RedisBasketRepository, and its three call sites key on a runtime variable rather than a template, so no cache key carries a role to label. The three sites are counted as unresolved keys, not as candidates."
+    },
+    {
+      "file": "ef-write-sample.json",
+      "sample": "efwrite",
+      "targetCount": 20,
+      "candidateCount": 10,
+      "reason": "The heuristic finds ten distinct EF write sites in the corpus; all ten are labelled because ten is fewer than the target of twenty."
+    }
+  ],
+  "samples": {
+    "role": {
+      "targetCount": 30
+    },
+    "efwrite": {
+      "targetCount": 20
+    }
+  }
+}

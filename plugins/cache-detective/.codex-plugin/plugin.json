@@ -1,0 +1,23 @@
+{
+  "name": "cache-detective",
+  "version": "0.4.0",
+  "description": "Scan whole .NET workspaces for cache consistency risks with cross-solution dependencies, confidence, and evidence.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Cache Detective",
+    "shortDescription": "Scan a .NET workspace for cache consistency risks",
+    "longDescription": "Indexes every configured .NET solution into one cross-solution graph, connects cache keys to their data dependencies, and reports missing invalidation, unused invalidation, and near-miss templates. Every result includes confidence and source evidence, while incomplete analysis remains explicitly unresolved.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Interactive"
+    ],
+    "defaultPrompt": "Run /cache-detective:scan on this repository and write an evidence-backed cache consistency report."
+  }
+}

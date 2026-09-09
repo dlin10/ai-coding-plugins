@@ -1,0 +1,70 @@
+diff --git a/src/Web/WebMVC/.cache-detective-planted b/src/Web/WebMVC/.cache-detective-planted
+new file mode 100644
+index 0000000..45e1d43
+--- /dev/null
++++ b/src/Web/WebMVC/.cache-detective-planted
+@@ -0,0 +1 @@
++cache-detective planted case: WebMVC caches catalog items in IMemoryCache with no TTL and no invalidation.
+diff --git a/src/Web/WebMVC/Services/CatalogService.cs b/src/Web/WebMVC/Services/CatalogService.cs
+index 6150992..d7e4b88 100644
+--- a/src/Web/WebMVC/Services/CatalogService.cs
++++ b/src/Web/WebMVC/Services/CatalogService.cs
+@@ -1,24 +1,36 @@
+-﻿namespace Microsoft.eShopOnContainers.WebMVC.Services;
++﻿using Microsoft.Extensions.Caching.Memory;
++
++namespace Microsoft.eShopOnContainers.WebMVC.Services;
+ 
+ public class CatalogService : ICatalogService
+ {
+     private readonly IOptions<AppSettings> _settings;
+     private readonly HttpClient _httpClient;
+     private readonly ILogger<CatalogService> _logger;
++    private readonly IMemoryCache _memory;
+ 
+     private readonly string _remoteServiceBaseUrl;
+ 
+-    public CatalogService(HttpClient httpClient, ILogger<CatalogService> logger, IOptions<AppSettings> settings)
++    public CatalogService(HttpClient httpClient, ILogger<CatalogService> logger, IOptions<AppSettings> settings, IMemoryCache memory)
+     {
+         _httpClient = httpClient;
+         _settings = settings;
+         _logger = logger;
++        _memory = memory;
+ 
+         _remoteServiceBaseUrl = $"{_settings.Value.PurchaseUrl}/c/api/v1/catalog/";
+     }
+ 
+     public async Task<Catalog> GetCatalogItems(int page, int take, int? brand, int? type)
+     {
++        // Planted by cache-detective's eShop eval: a per-process cache over the catalogue that nothing
++        // invalidates when Catalog.API changes a price. See skills/scan/evals/eshop/README.md.
++        var key = $"catalog:items:{page}:{take}:{brand}:{type}";
++        if (_memory.TryGetValue<Catalog>(key, out var cached))
++        {
++            return cached;
++        }
++
+         var uri = API.Catalog.GetAllCatalogItems(_remoteServiceBaseUrl, page, take, brand, type);
+ 
+         var responseString = await _httpClient.GetStringAsync(uri);
+@@ -28,6 +40,7 @@ public class CatalogService : ICatalogService
+             PropertyNameCaseInsensitive = true
+         });
+ 
++        _memory.Set(key, catalog);
+         return catalog;
+     }
+ 
+diff --git a/src/Web/WebMVC/Startup.cs b/src/Web/WebMVC/Startup.cs
+index 960d23e..5d4ddb4 100644
+--- a/src/Web/WebMVC/Startup.cs
++++ b/src/Web/WebMVC/Startup.cs
+@@ -103,6 +103,7 @@ static class ServiceCollectionExtensions
+         services.Configure<AppSettings>(configuration);
+         services.AddSession();
+         services.AddDistributedMemoryCache();
++        services.AddMemoryCache();
+ 
+         if (configuration.GetValue<string>("IsClusterEnv") == bool.TrueString)
+         {

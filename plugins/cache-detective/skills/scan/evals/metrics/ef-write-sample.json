@@ -1,0 +1,94 @@
+{
+  "sample": "efwrite",
+  "targetCount": 20,
+  "candidateCount": 10,
+  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
+  "rows": [
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Catalog.API.Controllers.CatalogController.CreateProductAsync(Microsoft.eShopOnContainers.Services.Catalog.API.Model.CatalogItem):default:dbo.Catalog:src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs:260",
+      "file": "src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs",
+      "line": 260,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Adds a freshly built CatalogItem to the CatalogItems DbSet, and the SaveChangesAsync on line 262 commits that insert to dbo.Catalog."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Ordering.Infrastructure.Repositories.BuyerRepository.Update(Microsoft.eShopOnContainers.Services.Ordering.Domain.AggregatesModel.BuyerAggregate.Buyer):default:ordering.buyers:src/Services/Ordering/Ordering.Infrastructure/Repositories/BuyerRepository.cs:28",
+      "file": "src/Services/Ordering/Ordering.Infrastructure/Repositories/BuyerRepository.cs",
+      "line": 28,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Calls Update on the Buyers DbSet; the repository saves nothing itself, but the caller commits the tracked change to ordering.buyers through the IUnitOfWork exposed on line 7."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF.Services.IntegrationEventLogService.UpdateEventStatus(System.Guid, Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF.EventStateEnum):default:dbo.IntegrationEventLog:src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs:75",
+      "file": "src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs",
+      "line": 75,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Calls Update on the IntegrationEventLogs DbSet for the entry loaded on line 69, and the SaveChangesAsync on line 77 commits the row to dbo.IntegrationEventLog."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Webhooks.API.Controllers.WebhooksController.UnsubscribeWebhook(int):default:dbo.Subscriptions:src/Services/Webhooks/Webhooks.API/Controllers/WebhooksController.cs:89",
+      "file": "src/Services/Webhooks/Webhooks.API/Controllers/WebhooksController.cs",
+      "line": 89,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Removes the subscription loaded on line 85 from the tracked context, and the SaveChangesAsync on line 90 deletes that row from dbo.Subscriptions."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF.Services.IntegrationEventLogService.UpdateEventStatus(System.Guid, Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF.EventStateEnum):default:dbo.IntegrationEventLog:src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs:70",
+      "file": "src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs",
+      "line": 70,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Assigns State on the entry loaded on line 69, and EF persists that mutation to dbo.IntegrationEventLog on line 77; it is the same row the site on line 75 also covers, so the table is written once, not twice."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Ordering.Infrastructure.Repositories.BuyerRepository.Add(Microsoft.eShopOnContainers.Services.Ordering.Domain.AggregatesModel.BuyerAggregate.Buyer):default:ordering.buyers:src/Services/Ordering/Ordering.Infrastructure/Repositories/BuyerRepository.cs:18",
+      "file": "src/Services/Ordering/Ordering.Infrastructure/Repositories/BuyerRepository.cs",
+      "line": 18,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Adds a transient Buyer to the Buyers DbSet; the insert reaches ordering.buyers when the caller commits through the IUnitOfWork this repository exposes."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Ordering.Infrastructure.Repositories.OrderRepository.Add(Microsoft.eShopOnContainers.Services.Ordering.Domain.AggregatesModel.OrderAggregate.Order):default:ordering.orders:src/Services/Ordering/Ordering.Infrastructure/Repositories/OrderRepository.cs:17",
+      "file": "src/Services/Ordering/Ordering.Infrastructure/Repositories/OrderRepository.cs",
+      "line": 17,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Adds an Order to the Orders DbSet and returns the tracked entity; the insert reaches ordering.orders when the caller saves through the IUnitOfWork on line 8."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.BuildingBlocks.IntegrationEventLogEF.Services.IntegrationEventLogService.SaveEventAsync(Microsoft.eShopOnContainers.BuildingBlocks.EventBus.Events.IntegrationEvent, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction):default:dbo.IntegrationEventLog:src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs:47",
+      "file": "src/BuildingBlocks/EventBus/IntegrationEventLogEF/Services/IntegrationEventLogService.cs",
+      "line": 47,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Adds a new IntegrationEventLogEntry to the IntegrationEventLogs DbSet, and the SaveChangesAsync on line 49 inserts it into dbo.IntegrationEventLog inside the caller\u0027s transaction."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Catalog.API.Controllers.CatalogController.UpdateProductAsync(Microsoft.eShopOnContainers.Services.Catalog.API.Model.CatalogItem):default:dbo.Catalog:src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs:223",
+      "file": "src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs",
+      "line": 223,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Calls Update on the CatalogItems DbSet; both branches below commit it to dbo.Catalog, on line 231 through the integration event service and on line 238 through SaveChangesAsync."
+    },
+    {
+      "id": "efwrite:src/eShopOnContainers-ServicesAndWebApps.sln:Microsoft.eShopOnContainers.Services.Catalog.API.Controllers.CatalogController.DeleteProductAsync(int):default:dbo.Catalog:src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs:281",
+      "file": "src/Services/Catalog/Catalog.API/Controllers/CatalogController.cs",
+      "line": 281,
+      "prediction": "write",
+      "verdict": "true_write",
+      "justification": "Removes the product loaded on line 274 from the CatalogItems DbSet, and the SaveChangesAsync on line 283 deletes that row from dbo.Catalog."
+    }
+  ],
+  "metrics": {
+    "accuracy": 1,
+    "falsePositiveRate": 0,
+    "unclearCount": 0,
+    "status": "ok"
+  }
+}

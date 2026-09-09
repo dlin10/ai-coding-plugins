@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cache-detective": {
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".\\bin\\cachedet-launcher.cmd"
+      ],
+      "cwd": ".",
+      "tool_timeout_sec": 600
+    }
+  }
+}

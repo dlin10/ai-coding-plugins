@@ -1,0 +1,10 @@
+[
+  {
+    "type": "OrchardCore.DynamicCache.IDynamicCacheService",
+    "store": "distributed",
+    "methods": [
+      { "name": "GetCachedValueAsync", "semantic": "get", "key_arg": 0 },
+      { "name": "SetCachedValueAsync", "semantic": "set", "key_arg": 0 }
+    ]
+  }
+]

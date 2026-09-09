@@ -1,0 +1,67 @@
+{
+  "solution": "src/eShopOnContainers-ServicesAndWebApps.sln",
+  "loadSeconds": 10.1505166,
+  "indexSeconds": 14.8092995,
+  "totalSeconds": 24.959816099999998,
+  "vertices": 357,
+  "edges": 435,
+  "edgesByKind": {
+    "caches": 0,
+    "calls": 288,
+    "consumes": 29,
+    "fires": 0,
+    "invalidates": 0,
+    "publishes": 14,
+    "reads": 71,
+    "serves": 19,
+    "writes": 14
+  },
+  "cacheOperations": 0,
+  "unresolved": {
+    "key": 3,
+    "sql": 0,
+    "call": 48,
+    "cache_api": 0,
+    "role": 0,
+    "event": 1,
+    "event_api": 0
+  },
+  "diagnostics": 26,
+  "projectsExpected": 30,
+  "projectsLoaded": 30,
+  "missingProjects": [],
+  "emptyProjects": [],
+  "loadComplete": true,
+  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
+  "workingTreeClean": true,
+  "recognizersFile": null,
+  "recognizersHash": null,
+  "recognizersApplied": 0,
+  "workspaceFile": "C:\\Dev\\CodexPlugins\\plugins\\cache-detective\\skills\\scan\\evals\\eshop\\workspace.json",
+  "workspaceHash": "8A7C2824F42B82937CACCDCAC598FDAB53DBFE3ADDAF02904CD089DC144F445C",
+  "workspaceRecognizersApplied": 2,
+  "cacheSiteCoverage": {
+    "value": 0,
+    "status": "ok"
+  },
+  "sqlSiteCoverage": {
+    "value": 1,
+    "status": "ok"
+  },
+  "cleanWorktree": true,
+  "counts": {
+    "vertices": 357,
+    "edges": 435,
+    "cacheOperations": 0
+  },
+  "coverage": {
+    "cache": {
+      "value": 0,
+      "status": "ok"
+    },
+    "sql": {
+      "value": 1,
+      "status": "ok"
+    }
+  }
+}
