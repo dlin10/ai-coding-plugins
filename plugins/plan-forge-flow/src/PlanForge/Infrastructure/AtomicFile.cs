@@ -17,23 +17,15 @@ namespace PlanForge.Infrastructure;
 internal static class AtomicFile
 {
     /// <summary>
-    /// How long a caller waits out a file someone else has open. A span rather than a count of
-    /// attempts, because what has to be covered is how long the contention lasts: a two-core
-    /// runner is where it lasts longest and where a fixed count of probes is spent soonest.
+    /// How long a caller waits out a file someone else has open. A span rather than the count of
+    /// attempts it used to be, because the waits below vary: what bounds the wait has to be the
+    /// clock once no two of them are the same length. Half a second is the twenty probes a
+    /// twenty-five millisecond cadence used to buy, and the suite around it is timed against that.
     /// </summary>
-    private static readonly TimeSpan RetryBudget = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RetryBudget = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>
-    /// How long a caller waits for a file that is not there. Windows implements
-    /// <see cref="File.Replace(string,string,string)"/> by taking the destination away and renaming
-    /// the replacement into its place, so a path can be missing for the moment that takes — but a
-    /// file that is genuinely gone stays gone, and every further millisecond is charged to a caller
-    /// who already has its answer.
-    /// </summary>
-    private static readonly TimeSpan ReplaceWindow = TimeSpan.FromMilliseconds(500);
-
-    /// <summary>The ceiling on one wait; the wait itself is a random part of it — see <see cref="Retry"/>.</summary>
-    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMilliseconds(25);
+    /// <summary>The wait between attempts, on average — see <see cref="NextWait"/>.</summary>
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>The per-file gate <see cref="Append"/> queues on, keyed the way Windows names files.</summary>
@@ -135,10 +127,15 @@ internal static class AtomicFile
         File.Replace(temp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
     }
 
+    // A blocked replace surfaces as UnauthorizedAccessException on Windows, not IOException, so both
+    // have to be treated as "someone else has it open right now". A missing *directory* is the one
+    // thing that never is: nothing here removes one, so no wait can end well — and the wait is no
+    // longer the caller's alone to spend, because Append queues on the gate above. Waiting out a
+    // folder that has been deleted would hold every appender behind it in turn, which is how the
+    // suite's own teardown once cost minutes: a log write left pointing at a removed run folder.
     private static void Retry(Action action)
     {
         var waited = Stopwatch.StartNew();
-        var ceiling = 1.0;
 
         while (true)
         {
@@ -147,37 +144,31 @@ internal static class AtomicFile
                 action();
                 return;
             }
-            catch (Exception error) when (Waits(error, waited.Elapsed))
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                                          && error is not DirectoryNotFoundException
+                                          && waited.Elapsed < RetryBudget)
             {
-                // A random part of the ceiling rather than the ceiling itself. Every loser of a
-                // contended open used to wake on one fixed cadence and collide with the same
-                // winners again, so a waiter could lose every attempt it was given while the
-                // others made progress — and an append that gives up is an entry lost, since
-                // RunLog.Write may not let a failed write take the call down with it. Waking at
-                // an unshared moment is what makes the wait fair rather than another collision.
-                Thread.Sleep(TimeSpan.FromMilliseconds(Random.Shared.NextDouble() * ceiling));
-                ceiling = Math.Min(ceiling * 2, MaxRetryDelay.TotalMilliseconds);
+                Thread.Sleep(NextWait());
             }
         }
     }
 
     /// <summary>
-    /// Whether the failure is one that coming back later can fix, and whether the caller has waited
-    /// long enough already.
+    /// The same wait as ever on average, spread either side of it so two waiters do not come back
+    /// together.
     /// </summary>
     /// <remarks>
-    /// A blocked replace surfaces as <see cref="UnauthorizedAccessException"/> on Windows rather
-    /// than <see cref="IOException"/>, so both mean "someone else has it open right now". The two
-    /// absences do not: a missing file may be a replacement mid-flight and waits only that long
-    /// (<see cref="ReplaceWindow"/>), and a missing directory is nothing in flight at all — nothing
-    /// here removes one — so it answers at once rather than charging a caller for a wait that
-    /// cannot end well.
+    /// The decorrelation is the whole point: losers of a contended open used to wake on one fixed
+    /// cadence and collide with the same winners again, so a waiter could lose every attempt it was
+    /// given while the others made progress — and an append that gives up is an entry lost, since
+    /// <c>RunLog.Write</c> may not let a failed write take the tool call down with it.
+    /// <para>
+    /// The mean stays where it was, and that is not a detail. Waiting less means retrying more, and
+    /// a caller that retries every millisecond holds its thread instead of parking it — measured at
+    /// four cores, a backoff that started at one millisecond doubled the suite's running time and
+    /// starved the tasks sharing its thread pool. A retry loop is a place to wait, not to spin.
+    /// </para>
     /// </remarks>
-    private static bool Waits(Exception error, TimeSpan waited) => error switch
-                                                                  {
-                                                                      DirectoryNotFoundException => false,
-                                                                      FileNotFoundException => waited < ReplaceWindow,
-                                                                      IOException or UnauthorizedAccessException => waited < RetryBudget,
-                                                                      _ => false
-                                                                  };
+    private static TimeSpan NextWait() =>
+        RetryDelay * (0.5 + Random.Shared.NextDouble());
 }

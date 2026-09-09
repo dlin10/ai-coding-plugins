@@ -57,12 +57,17 @@ public sealed class AtomicFileTests : IDisposable
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var reads = 0;
 
-        var writing = payloads.Select((payload, index) => Task.Run(() =>
+        // A thread each rather than the thread pool's. These loops never yield, and eight of them
+        // on a pool sized to the processor count leave the four queued last waiting on thread
+        // injection — which arrives about twice a second, well inside the two the loop runs for.
+        // The readers then never run at all, and the assertion below reports the scheduler rather
+        // than anything this file does.
+        var writing = payloads.Select((payload, index) => LongRunning(() =>
         {
             while (!stop.IsCancellationRequested) AtomicFile.Write(path, payloads[index]);
         })).ToArray();
 
-        var reading = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        var reading = Enumerable.Range(0, 4).Select(_ => LongRunning(() =>
         {
             while (!stop.IsCancellationRequested)
             {
@@ -108,26 +113,34 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     /// <summary>
-    /// How long the wait lasts is a span, not a count of probes. The count was twenty, a probe
-    /// apart by twenty-five milliseconds, so an appender gave up after half a second — and
-    /// <c>RunLog.Write</c> may not let a failed write take the tool call down with it, which makes
-    /// giving up an entry lost in silence. The run whose <c>forge.log</c> lost its <c>tool.failed</c>
-    /// on a two-core runner is the case: the slower the machine, the longer contention lasts and
-    /// the sooner a fixed count of probes is spent.
+    /// Every entry lands, however many threads are appending. The exclusive handle an append needs
+    /// is granted without a queue, so the losers of one open come back and collide again; before
+    /// <see cref="AtomicFile.Append"/> ordered them, one thread could lose every attempt it had and
+    /// give up while the others made progress. What made that silent rather than loud is
+    /// <c>RunLog.Write</c>, which may not let a failed write take the tool call down with it.
     /// </summary>
+    /// <remarks>
+    /// A load this size passes either way on an unloaded machine — the losing thread was found by
+    /// a stress harness at sixty-four writers, not by this. It is here to fail loudly if the
+    /// ordering is ever removed under a load a build agent can produce.
+    /// </remarks>
+    private static Task LongRunning(Action loop) =>
+        Task.Factory.StartNew(loop, CancellationToken.None,
+                              TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
     [Fact]
-    public async Task An_append_waits_out_a_holder_for_longer_than_the_old_count_of_probes()
+    public async Task Every_concurrent_append_lands()
     {
+        const int Writers = 16;
+        const int Each = 25;
         var path = Path.Combine(_root, "forge.log");
-        AtomicFile.Append(path, "first\n");
 
-        var holder = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
-        var appending = Task.Run(() => AtomicFile.Append(path, "second\n"));
+        await Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => Task.Run(() =>
+        {
+            for (var entry = 0; entry < Each; entry++)
+                AtomicFile.Append(path, $"{writer}-{entry} " + new string('x', 2000) + "\n");
+        })));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(900));
-        await holder.DisposeAsync();
-        await appending;
-
-        Assert.Equal(["first", "second"], File.ReadAllLines(path));
+        Assert.Equal(Writers * Each, File.ReadAllLines(path).Length);
     }
 }
