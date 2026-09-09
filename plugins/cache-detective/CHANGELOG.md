@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+- **A form of entry point is a finder, not a branch** (`docs/adr/0019`). `AddTypeEntryPoints` decided
+  seven kinds of entry point as seven consecutive branches in one method, so adding an eighth meant
+  editing that method — the one thing the rest of this project is built not to require, since
+  `CONTEXT.md` states the principle as *adding a library means adding a recognizer, never adding a
+  branch* and cache stores, cache key objects and event buses all obey it. The forms are now six
+  `IEntryPointFinder`s asked about a type in one recorded order, and adding a *uniform* form — one
+  shape, one method, one kind — is a row in one of the three lists of `EntryPointTables.Default`,
+  with no branch edited anywhere. A test adds a row for a shape no recognizer knows and finds a
+  handler of that kind in the graph, which is the claim stated as a test rather than asserted in
+  prose.
+- **The finder order is written down rather than emergent.** The three uniform forms are three lists
+  and not one because they emit at three different points in the order the branches ran, and that
+  order must not move: an unresolved row's id is what an annotation binds to, so an id that shifts
+  between runs binds the annotation to a different site. `BackgroundService` and `IHostedService`
+  stay an exclusive pair rather than two rows, because `BackgroundService` *implements*
+  `IHostedService` and a table running both against one type would find `ExecuteAsync` **and**
+  `StartAsync` and record two entry points where the branches record one. The order test projects
+  each finder to its type name *and* the rows it carries, because two of the six are the same class
+  and a name-only assertion would pass with those two swapped — which is the one failure the test
+  exists to catch.
+- **`IndexAsync` reads as its own summary.** It was 127 lines whose local function closed over
+  fourteen variables — a class with fourteen fields written in a syntax that hides them. The
+  traversal is now `CallGraphWalk`, which owns the frontier and returns the handlers it expanded, and
+  the six analyzers are one `SolutionAnalyzers` value; what is left builds the analyzers, finds the
+  entry points, walks, resolves events, adds the EF write edges and classifies roles. The walk is
+  unchanged: still breadth-first, still one expansion per method at its shortest distance from an
+  entry point, still cut at twelve.
+- **`WorkspaceSession` delegates to five collaborators while keeping its member surface and its
+  single gate.** It was 1492 lines holding response fitting, database indexing, annotation, solution
+  indexing and verification beside the state all five read; it is now 672. `ResponseFitting`,
+  `DatabaseIndexing`, `AnnotationApplication`, `SolutionIndexing` and `VerificationRunner` hold
+  nothing and are handed the graph, the configuration and the rest as arguments on each call. That is
+  not a preference about style: `AnnotateAsync` re-indexes partway through and replaces the graph, so
+  a collaborator built with the graph up front would go on reading one that is no longer in use.
+  Every member a test names is still on the session, forwarding, and no test was edited.
+- **Both behaviour snapshots compare equal**, `demo/behaviour-snapshot.json` and
+  `skills/scan/evals/eshop/behaviour-snapshot.json` alike. That is the whole evidence
+  that the graph did not move: every change above is a move, and snapshots that still match say no
+  handler, edge, finding or unresolved id changed its position or its id. `build/test-baseline.txt`
+  gained the two cases the ordering and recognizer-row tests added, so they sit inside the
+  pass-to-skip guard rather than outside it.
+
 - **The MCP server starts.** It never had, under any host. `cachedet` has required an `mcp`
   subcommand since the CLI grew one, and no host manifest passed it: `.claude-plugin/plugin.json`,
   `.mcp.json` and `.cursor-plugin/plugin.json` all invoke `bin/cachedet-launcher.cmd` with nothing

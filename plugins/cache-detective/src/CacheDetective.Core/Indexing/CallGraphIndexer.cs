@@ -1,20 +1,16 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Operations;
 using CacheDetective.Caching;
-using CacheDetective.Data;
 using CacheDetective.Events;
 using CacheDetective.External;
 using CacheDetective.Graph;
+using CacheDetective.Indexing.EntryPoints;
 
 namespace CacheDetective.Indexing;
 
 public sealed class CallGraphIndexer
 {
-    private const int MAXIMUM_DEPTH = 12;
-    private static readonly IEqualityComparer<IMethodSymbol> METHOD_COMPARER = new MethodSymbolComparer();
-
     private static readonly HashSet<string> MINIMAL_API_METHODS =
     [
         "MapGet",
@@ -26,152 +22,59 @@ public sealed class CallGraphIndexer
     ];
 
     private readonly IndexerOptions _options;
+    private readonly IReadOnlyList<IEntryPointFinder> _finders;
 
     public CallGraphIndexer()
-        : this(new IndexerOptions(CacheRecognizers.All, EventRecognizers.All))
+        : this(new IndexerOptions(CacheRecognizers.All, EventRecognizers.All), EntryPointTables.Default)
     {
     }
 
     public CallGraphIndexer(IndexerOptions options)
+        : this(options, EntryPointTables.Default)
+    {
+    }
+
+    internal CallGraphIndexer(IndexerOptions options, EntryPointTables tables)
     {
         _options = options;
+        // Built once. ConsumerForms collapses the event recognizers, and a finder list rebuilt inside the
+        // type loop would collapse them again for every type in the solution to reach the same answer.
+        _finders = Finders(options, tables);
     }
+
+    /// <summary>The forms of entry point, in the order they are asked about a type. The order is the whole
+    /// content of this list: it decides the order entry points reach the graph, and an unresolved row's id is
+    /// what an annotation binds to.</summary>
+    internal static IReadOnlyList<IEntryPointFinder> Finders(IndexerOptions options, EntryPointTables tables) =>
+    [
+        new ControllerEntryPointFinder(),
+        new GrpcEntryPointFinder(),
+        new RecognizerEntryPointFinder(tables.RequestHandlers),
+        new EventConsumerEntryPointFinder(ConsumerForms(options.EventRecognizers)),
+        new HostedServiceEntryPointFinder(tables.HostedServices),
+        new RecognizerEntryPointFinder(tables.Jobs)
+    ];
 
     public async Task<CacheGraph> IndexAsync(Solution solution, string solutionName, CancellationToken cancellationToken = default)
     {
         var graph = new CacheGraph();
-        var cacheCallAnalyzer = new CacheCallAnalyzer(solution, _options.CacheRecognizers);
-        var eventCallAnalyzer = new EventCallAnalyzer(solution, _options.EventRecognizers);
-        var httpCallAnalyzer = new HttpCallAnalyzer(solution);
-        var efReadAnalyzer = new EfReadAnalyzer(solution);
-        var efWriteAnalyzer = new EfWriteAnalyzer(efReadAnalyzer);
-        var sqlAnalyzer = new SqlAnalyzer(solution);
-        var entryPoints = await FindEntryPointsAsync(solution, solutionName, graph, _options.EventRecognizers, cancellationToken);
-        var entryPointKinds = entryPoints.GroupBy(entry => entry.Method, METHOD_COMPARER)
-                                         .ToDictionary(group => group.Key, group => group.First().Kind, METHOD_COMPARER);
-        var entryPointRoutes = entryPoints.GroupBy(entry => entry.Method, METHOD_COMPARER)
-                                          .ToDictionary(group => group.Key, group => group.SelectMany(entry => entry.Routes).ToArray(), METHOD_COMPARER);
-        // The walk is breadth-first, and that is what makes it a function of the solution rather than of
-        // the order the solution arrived in. Depth-first with a "walk it again if we found it shallower"
-        // memo reached a method at whatever depth the first path happened to offer: a method first met at
-        // the depth limit recorded the cut and was then walked again from a shallower caller, recording
-        // every edge below it a second time, while the same solution enumerated the other way round
-        // recorded them once. Breadth-first expands every method exactly once, at its shortest distance
-        // from any entry point, so the limit falls on the same methods every run. See docs/adr/0014.
-        var visited = new HashSet<IMethodSymbol>(METHOD_COMPARER);
-        var frontier = new List<IMethodSymbol>();
-        // Every method the walk expanded, so a publish can be attributed to its caller once the walk has
-        // finished. Deciding that mid-walk would call a caller unreachable purely because the frontier had
-        // not reached it yet. See docs/adr/0017.
-        var walked = new Dictionary<IMethodSymbol, Handler>(METHOD_COMPARER);
+        var analyzers = SolutionAnalyzers.Create(solution, _options);
+        var entryPoints = await FindEntryPointsAsync(solution, solutionName, graph, _finders, cancellationToken);
+        var walked = await new CallGraphWalk(solution, solutionName, graph, analyzers).WalkAsync(entryPoints, cancellationToken);
 
-        foreach (var entryPoint in entryPoints)
-        {
-            graph.AddHandler(CreateHandler(entryPoint.Method, solutionName, entryPoint.Kind, entryPoint.Routes));
-            if (visited.Add(entryPoint.Method))
-            {
-                frontier.Add(entryPoint.Method);
-            }
-        }
-
-        for (var depth = 0; frontier.Count > 0; depth++)
-        {
-            var next = new List<IMethodSymbol>();
-            foreach (var method in frontier)
-            {
-                await ExpandAsync(method, depth, next);
-            }
-
-            frontier = next;
-        }
-
-        eventCallAnalyzer.Resolve(graph, walked);
-        await efWriteAnalyzer.AddEdgesAsync(graph, cancellationToken);
+        analyzers.EventCalls.Resolve(graph, walked);
+        await analyzers.EfWrites.AddEdgesAsync(graph, cancellationToken);
         new CacheRoleClassifier().Classify(graph, solutionName);
 
         return graph;
-
-        async Task ExpandAsync(IMethodSymbol method, int depth, ICollection<IMethodSymbol> next)
-        {
-            var currentHandler = CreateHandler(method, solutionName, GetKind(method, entryPointKinds), GetRoutes(method, entryPointRoutes));
-            walked[method] = currentHandler;
-            cacheCallAnalyzer.RecordUnsupportedAttributes(graph, currentHandler, method);
-            await efReadAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
-            await efWriteAnalyzer.AnalyzeAsync(solution, currentHandler, method, cancellationToken);
-            await sqlAnalyzer.AnalyzeAsync(graph, currentHandler, method, cancellationToken);
-
-            foreach (var invocation in await GetInvocationsAsync(method, cancellationToken))
-            {
-                var document = solution.GetDocument(invocation.SyntaxTree);
-                if (document is null)
-                {
-                    continue;
-                }
-
-                var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
-                if (semanticModel is null)
-                {
-                    continue;
-                }
-
-                if (await cacheCallAnalyzer.TryAnalyzeAsync(graph, currentHandler, invocation, semanticModel, cancellationToken))
-                {
-                    continue;
-                }
-
-                if (await eventCallAnalyzer.TryAnalyzeAsync(graph, currentHandler, method, invocation, semanticModel, cancellationToken))
-                {
-                    continue;
-                }
-
-                if (await httpCallAnalyzer.TryAnalyzeAsync(graph, currentHandler, invocation, semanticModel, cancellationToken))
-                {
-                    continue;
-                }
-
-                if (depth == MAXIMUM_DEPTH)
-                {
-                    AddUnresolved(graph, currentHandler, invocation, $"Maximum call depth of {MAXIMUM_DEPTH} reached.");
-                    continue;
-                }
-
-                var calledMethod = semanticModel.GetSymbolInfo(invocation, cancellationToken).Symbol as IMethodSymbol;
-                if (calledMethod is null)
-                {
-                    continue;
-                }
-
-                var targets = await ResolveTargetsAsync(calledMethod, solution, cancellationToken);
-                if (targets.IsInterfaceCall && targets.Methods.Count == 0)
-                {
-                    AddUnresolved(graph, currentHandler, invocation, $"No implementation found for {calledMethod.ToDisplayString()}.");
-                    continue;
-                }
-
-                var confidence = targets.IsInterfaceCall && targets.Methods.Count > 1 ? Confidence.Likely : Confidence.Confirmed;
-                var evidence = CreateEvidence(invocation);
-
-                foreach (var target in targets.Methods)
-                {
-                    efWriteAnalyzer.RecordCall(method, target);
-                    var to = CreateHandler(target, solutionName, GetKind(target, entryPointKinds), GetRoutes(target, entryPointRoutes));
-                    graph.AddEdge(new Calls(currentHandler, to, confidence, [evidence]));
-
-                    if (visited.Add(target))
-                    {
-                        next.Add(target);
-                    }
-                }
-            }
-        }
     }
 
     private static async Task<IReadOnlyList<EntryPoint>> FindEntryPointsAsync(
-        Solution solution, string solutionName, CacheGraph graph, IReadOnlyList<EventRecognizer> eventRecognizers,
+        Solution solution, string solutionName, CacheGraph graph, IReadOnlyList<IEntryPointFinder> finders,
         CancellationToken cancellationToken)
     {
         var entryPoints = new List<EntryPoint>();
-        var consumerForms = ConsumerForms(eventRecognizers);
+        var context = new EntryPointContext(graph, solutionName);
 
         // Ordered by path, because Solution.Projects yields whatever order the workspace loaded them in.
         // The set of entry points does not depend on it, but the order rows reach the graph does, and an
@@ -188,7 +91,17 @@ public sealed class CallGraphIndexer
 
             foreach (var type in GetSourceTypes(compilation.Assembly.GlobalNamespace))
             {
-                AddTypeEntryPoints(type, solutionName, graph, consumerForms, entryPoints);
+                // One decision, applied once. Dropping it would give abstract classes and interfaces entry
+                // points and move the graph; repeating it inside every finder would write it five times.
+                if (type.IsAbstract || type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
+                {
+                    continue;
+                }
+
+                foreach (var finder in finders)
+                {
+                    finder.Find(type, context, entryPoints);
+                }
             }
 
             foreach (var document in project.Documents)
@@ -223,78 +136,6 @@ public sealed class CallGraphIndexer
         return entryPoints;
     }
 
-    private static void AddTypeEntryPoints(INamedTypeSymbol type, string solutionName, CacheGraph graph,
-                                           IReadOnlyList<EventRecognizer> consumerForms,
-                                           ICollection<EntryPoint> entryPoints)
-    {
-        if (type.IsAbstract || type.TypeKind is not (TypeKind.Class or TypeKind.Struct))
-        {
-            return;
-        }
-
-        if (DerivesFrom(type, "ControllerBase", 0) || HasAttribute(type, "ApiControllerAttribute", 0))
-        {
-            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(IsPublicAction))
-            {
-                entryPoints.Add(new EntryPoint(method, "controller", GetControllerRoutes(type, method)));
-            }
-        }
-
-        if (type.BaseType is { } baseType && baseType.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "BindServiceMethodAttribute"))
-        {
-            var service = baseType.ContainingType?.Name;
-            if (service is not null)
-            {
-                foreach (var method in type.GetMembers().OfType<IMethodSymbol>()
-                                    .Where(method => method.DeclaredAccessibility == Accessibility.Public && method.IsOverride &&
-                                                     method.Locations.Any(location => location.IsInSource)))
-                {
-                    entryPoints.Add(new EntryPoint(method, "grpc", [new HandlerRoute("grpc", "*", $"{service}/{method.Name}")]));
-                }
-            }
-        }
-
-        AddHandlingMethods(type, "IRequestHandler", 2, "Handle", "request_handler", entryPoints);
-        AddHandlingMethods(type, "IRequestHandler", 1, "Handle", "request_handler", entryPoints);
-        foreach (var recognizer in consumerForms)
-        {
-            AddEventHandlingMethods(type, solutionName, graph, recognizer, entryPoints);
-        }
-
-        if (DerivesFrom(type, "BackgroundService", 0))
-        {
-            AddMethods(type, "ExecuteAsync", "background_service", entryPoints);
-        }
-        else
-        {
-            AddHandlingMethods(type, "IHostedService", 0, "StartAsync", "hosted_service", entryPoints);
-        }
-
-        AddHandlingMethods(type, "IJob", 0, "Execute", "job", entryPoints);
-    }
-
-    private static void AddHandlingMethods(INamedTypeSymbol type, string shapeName, int arity, string methodName, string kind,
-                                           ICollection<EntryPoint> entryPoints)
-    {
-        var interfaces = type.AllInterfaces.Where(candidate => HasShape(candidate, shapeName, arity)).ToArray();
-        foreach (var interfaceType in interfaces)
-        {
-            foreach (var member in interfaceType.GetMembers().OfType<IMethodSymbol>().Where(method => method.Name == methodName))
-            {
-                if (type.FindImplementationForInterfaceMember(member) is IMethodSymbol implementation &&
-                    implementation.Locations.Any(location => location.IsInSource))
-                {
-                    entryPoints.Add(new EntryPoint(implementation, kind, []));
-                }
-            }
-        }
-
-        if (interfaces.Length == 0 && DerivesFrom(type, shapeName, arity))
-        {
-            AddMethods(type, methodName, kind, entryPoints);
-        }
-    }
-
     private static IReadOnlyList<EventRecognizer> ConsumerForms(IReadOnlyList<EventRecognizer> recognizers) =>
         recognizers.Select((recognizer, index) => (Recognizer: recognizer, Index: index))
                    .GroupBy(item => (item.Recognizer.ConsumerInterfaceName, item.Recognizer.ConsumerArity,
@@ -305,155 +146,6 @@ public sealed class CallGraphIndexer
                                          .First()
                                          .Recognizer)
                    .ToArray();
-
-    private static void AddEventHandlingMethods(INamedTypeSymbol type, string solutionName, CacheGraph graph,
-                                                EventRecognizer recognizer,
-                                                ICollection<EntryPoint> entryPoints)
-    {
-        var implementations = new HashSet<IMethodSymbol>(METHOD_COMPARER);
-        var interfaces = type.AllInterfaces.Where(candidate => HasShape(candidate, recognizer.ConsumerInterfaceName,
-                                                                          recognizer.ConsumerArity));
-        foreach (var interfaceType in interfaces)
-        {
-            var contract = interfaceType.TypeArguments[0];
-            foreach (var member in interfaceType.GetMembers().OfType<IMethodSymbol>().Where(method => method.Name == recognizer.HandleMethod))
-            {
-                if (type.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation ||
-                    !implementation.Locations.Any(location => location.IsInSource) || !implementations.Add(implementation))
-                {
-                    continue;
-                }
-
-                var handlerKind = string.IsNullOrWhiteSpace(recognizer.HandlerKind) ? "consumer" : recognizer.HandlerKind;
-                var handler = CreateHandler(implementation, solutionName, handlerKind);
-                entryPoints.Add(new EntryPoint(implementation, handlerKind, []));
-                var evidence = CreateEvidence(type.Locations.First(location => location.IsInSource));
-                if (contract is ITypeParameterSymbol)
-                {
-                    var unresolved = graph.AddUnresolved(UnresolvedKind.Event, handler, evidence, interfaceType.ToDisplayString(),
-                                                         "Open generic consumer: name its events.");
-                    graph.MarkEventSite(unresolved.Id, EventSiteRole.Consume);
-                    continue;
-                }
-
-                graph.AddEdge(new Consumes(new Event(GetFullName(contract)), handler, recognizer.Confidence, [evidence])
-                {
-                    AnnotationId = recognizer.AnnotationId
-                });
-            }
-        }
-    }
-
-    private static void AddMethods(INamedTypeSymbol type, string methodName, string kind, ICollection<EntryPoint> entryPoints)
-    {
-        for (var current = type; current is not null; current = current.BaseType)
-        {
-            var methods = current.GetMembers()
-                                 .OfType<IMethodSymbol>()
-                                 .Where(method => method.Name == methodName || method.Name.EndsWith($".{methodName}", StringComparison.Ordinal))
-                                 .Where(method => method.Locations.Any(location => location.IsInSource))
-                                 .ToArray();
-            if (methods.Length == 0)
-            {
-                continue;
-            }
-
-            foreach (var method in methods)
-            {
-                entryPoints.Add(new EntryPoint(method, kind, []));
-            }
-
-            return;
-        }
-    }
-
-    private static bool IsPublicAction(IMethodSymbol method) =>
-        method.DeclaredAccessibility == Accessibility.Public && method.MethodKind == MethodKind.Ordinary && !method.IsStatic &&
-        !method.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType && HasShape(attributeType, "NonActionAttribute", 0)) &&
-        method.Locations.Any(location => location.IsInSource);
-
-    private static bool DerivesFrom(INamedTypeSymbol type, string name, int arity)
-    {
-        for (var current = type.BaseType; current is not null; current = current.BaseType)
-        {
-            if (HasShape(current, name, arity))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasAttribute(INamedTypeSymbol type, string name, int arity)
-    {
-        for (var current = type; current is not null; current = current.BaseType)
-        {
-            if (current.GetAttributes().Any(attribute => attribute.AttributeClass is { } attributeType && HasShape(attributeType, name, arity)))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasShape(INamedTypeSymbol type, string name, int arity) =>
-        type.Name == name && type.Arity == arity;
-
-    private static IReadOnlyList<HandlerRoute> GetControllerRoutes(INamedTypeSymbol type, IMethodSymbol method)
-    {
-        var prefixes = type.GetAttributes().Where(attribute => attribute.AttributeClass?.Name == "RouteAttribute")
-                           .Select(AttributeTemplate).DefaultIfEmpty(string.Empty).ToArray();
-        var routes = new List<HandlerRoute>();
-        var attributes = method.GetAttributes();
-        var routeTemplates = attributes.Where(attribute => attribute.AttributeClass?.Name == "RouteAttribute")
-                                       .Select(AttributeTemplate).ToArray();
-        var verbs = attributes.Select(attribute => (Method: HttpMethod(attribute), Template: AttributeTemplate(attribute)))
-                              .Where(attribute => attribute.Method is not null).ToArray();
-        var bareVerbs = verbs.Where(verb => verb.Template.Length == 0).Select(verb => verb.Method!).ToArray();
-
-        foreach (var template in routeTemplates)
-        {
-            foreach (var httpMethod in bareVerbs.DefaultIfEmpty("*"))
-                AddRoute(httpMethod, template);
-        }
-        foreach (var verb in verbs.Where(verb => verb.Template.Length > 0))
-            AddRoute(verb.Method!, verb.Template);
-        if (routeTemplates.Length == 0)
-        {
-            foreach (var httpMethod in bareVerbs)
-                AddRoute(httpMethod, string.Empty);
-        }
-
-        return routes;
-
-        void AddRoute(string httpMethod, string template)
-        {
-            var controller = type.Name.EndsWith("Controller", StringComparison.Ordinal) ? type.Name[..^10] : type.Name;
-            foreach (var prefix in prefixes)
-            {
-                var combined = $"{prefix}/{template}".Replace("[controller]", controller, StringComparison.OrdinalIgnoreCase)
-                                                   .Replace("[action]", method.Name, StringComparison.OrdinalIgnoreCase);
-                routes.Add(new HandlerRoute("http", httpMethod, PathTemplates.Normalize(combined)));
-            }
-        }
-    }
-
-    private static string? HttpMethod(AttributeData attribute) => attribute.AttributeClass?.Name switch
-    {
-        "HttpGetAttribute" => "GET",
-        "HttpPostAttribute" => "POST",
-        "HttpPutAttribute" => "PUT",
-        "HttpDeleteAttribute" => "DELETE",
-        "HttpPatchAttribute" => "PATCH",
-        "HttpHeadAttribute" => "HEAD",
-        _ => null
-    };
-
-    private static string AttributeTemplate(AttributeData attribute) =>
-        attribute.ConstructorArguments.FirstOrDefault() is { Kind: not TypedConstantKind.Array } argument &&
-        argument.Value is string template ? template : string.Empty;
 
     private static IReadOnlyList<HandlerRoute> GetMinimalRoutes(IMethodSymbol method, InvocationExpressionSyntax invocation,
                                                                  SemanticModel semanticModel)
@@ -516,99 +208,4 @@ public sealed class CallGraphIndexer
                };
     }
 
-    private static async Task<(bool IsInterfaceCall, IReadOnlyList<IMethodSymbol> Methods)> ResolveTargetsAsync(
-        IMethodSymbol calledMethod, Solution solution, CancellationToken cancellationToken)
-    {
-        if (calledMethod.ContainingType.TypeKind != TypeKind.Interface)
-        {
-            return (false, calledMethod.Locations.Any(location => location.IsInSource) ? [calledMethod] : []);
-        }
-
-        var implementations = await SymbolFinder.FindImplementationsAsync(calledMethod, solution, cancellationToken: cancellationToken);
-        // SymbolFinder searches the projects in parallel and does not specify the order it hands the
-        // results back in. Sorting them is what keeps two runs over one solution recording the same edges
-        // in the same order.
-        var methods = implementations.OfType<IMethodSymbol>()
-                                     .Where(method => !method.IsAbstract)
-                                     .Where(method => method.Locations.Any(location => location.IsInSource))
-                                     .Distinct(METHOD_COMPARER)
-                                     .OrderBy(SortKey, StringComparer.Ordinal)
-                                     .ToArray();
-        return (true, methods);
-
-        static string SortKey(IMethodSymbol method)
-        {
-            var lineSpan = GetSourceLocation(method).GetLineSpan();
-            return $"{method.ToDisplayString()} {lineSpan.Path} {lineSpan.StartLinePosition.Line}";
-        }
-    }
-
-    private static async Task<IReadOnlyList<InvocationExpressionSyntax>> GetInvocationsAsync(IMethodSymbol method, CancellationToken cancellationToken)
-    {
-        var invocations = new List<InvocationExpressionSyntax>();
-
-        foreach (var syntaxReference in method.DeclaringSyntaxReferences)
-        {
-            var root = await syntaxReference.GetSyntaxAsync(cancellationToken);
-            invocations.AddRange(root.DescendantNodes(node => node is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax))
-                                     .OfType<InvocationExpressionSyntax>());
-        }
-
-        return invocations;
-    }
-
-    private static Handler CreateHandler(IMethodSymbol method, string solutionName, string kind, IReadOnlyList<HandlerRoute>? routes = null)
-    {
-        var location = GetSourceLocation(method);
-        var lineSpan = location.GetLineSpan();
-        var symbol = method.MethodKind == MethodKind.AnonymousFunction
-                         ? $"{method.ContainingSymbol.ToDisplayString()}::<lambda>@{lineSpan.StartLinePosition.Line + 1}:" +
-                           $"{lineSpan.StartLinePosition.Character + 1}"
-                         : method.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat);
-
-        return new Handler(solutionName, symbol, kind, lineSpan.Path, lineSpan.StartLinePosition.Line + 1)
-        {
-            Project = method.ContainingAssembly.Name,
-            Routes = routes ?? []
-        };
-    }
-
-    private static string GetKind(IMethodSymbol method, IReadOnlyDictionary<IMethodSymbol, string> entryPointKinds) =>
-        entryPointKinds.GetValueOrDefault(method, "method");
-
-    private static IReadOnlyList<HandlerRoute> GetRoutes(IMethodSymbol method,
-                                                          IReadOnlyDictionary<IMethodSymbol, HandlerRoute[]> entryPointRoutes) =>
-        entryPointRoutes.GetValueOrDefault(method, []);
-
-    private static Location GetSourceLocation(IMethodSymbol method) =>
-        method.Locations.First(location => location.IsInSource);
-
-    private static Evidence CreateEvidence(SyntaxNode syntax)
-    {
-        return CreateEvidence(syntax.GetLocation());
-    }
-
-    private static Evidence CreateEvidence(Location location)
-    {
-        var lineSpan = location.GetLineSpan();
-        return new Evidence(lineSpan.Path, lineSpan.StartLinePosition.Line + 1);
-    }
-
-    private static string GetFullName(ITypeSymbol type) =>
-        type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "", StringComparison.Ordinal);
-
-    private static void AddUnresolved(CacheGraph graph, Handler handler, InvocationExpressionSyntax invocation, string reason)
-    {
-        var evidence = CreateEvidence(invocation);
-        graph.AddUnresolved(UnresolvedKind.Call, handler, evidence, invocation.ToString(), reason);
-    }
-
-    private sealed class MethodSymbolComparer : IEqualityComparer<IMethodSymbol>
-    {
-        public bool Equals(IMethodSymbol? x, IMethodSymbol? y) => SymbolEqualityComparer.Default.Equals(x, y);
-
-        public int GetHashCode(IMethodSymbol obj) => SymbolEqualityComparer.Default.GetHashCode(obj);
-    }
-
-    private sealed record EntryPoint(IMethodSymbol Method, string Kind, IReadOnlyList<HandlerRoute> Routes);
 }
