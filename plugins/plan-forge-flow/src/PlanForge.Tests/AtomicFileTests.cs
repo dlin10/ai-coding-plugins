@@ -57,12 +57,17 @@ public sealed class AtomicFileTests : IDisposable
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var reads = 0;
 
-        var writing = payloads.Select((payload, index) => Task.Run(() =>
+        // A thread each rather than the thread pool's. These loops never yield, and eight of them
+        // on a pool sized to the processor count leave the four queued last waiting on thread
+        // injection — which arrives about twice a second, well inside the two the loop runs for.
+        // The readers then never run at all, and the assertion below reports the scheduler rather
+        // than anything this file does.
+        var writing = payloads.Select((payload, index) => LongRunning(() =>
         {
             while (!stop.IsCancellationRequested) AtomicFile.Write(path, payloads[index]);
         })).ToArray();
 
-        var reading = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        var reading = Enumerable.Range(0, 4).Select(_ => LongRunning(() =>
         {
             while (!stop.IsCancellationRequested)
             {
@@ -105,5 +110,37 @@ public sealed class AtomicFileTests : IDisposable
 
         Assert.Equal("{\"event\":\"first\"}\n", AtomicFile.Read(path));
         Assert.ThrowsAny<IOException>(() => File.ReadAllText(path));
+    }
+
+    /// <summary>
+    /// Every entry lands, however many threads are appending. The exclusive handle an append needs
+    /// is granted without a queue, so the losers of one open come back and collide again; before
+    /// <see cref="AtomicFile.Append"/> ordered them, one thread could lose every attempt it had and
+    /// give up while the others made progress. What made that silent rather than loud is
+    /// <c>RunLog.Write</c>, which may not let a failed write take the tool call down with it.
+    /// </summary>
+    /// <remarks>
+    /// A load this size passes either way on an unloaded machine — the losing thread was found by
+    /// a stress harness at sixty-four writers, not by this. It is here to fail loudly if the
+    /// ordering is ever removed under a load a build agent can produce.
+    /// </remarks>
+    private static Task LongRunning(Action loop) =>
+        Task.Factory.StartNew(loop, CancellationToken.None,
+                              TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+    [Fact]
+    public async Task Every_concurrent_append_lands()
+    {
+        const int Writers = 16;
+        const int Each = 25;
+        var path = Path.Combine(_root, "forge.log");
+
+        await Task.WhenAll(Enumerable.Range(0, Writers).Select(writer => Task.Run(() =>
+        {
+            for (var entry = 0; entry < Each; entry++)
+                AtomicFile.Append(path, $"{writer}-{entry} " + new string('x', 2000) + "\n");
+        })));
+
+        Assert.Equal(Writers * Each, File.ReadAllLines(path).Length);
     }
 }

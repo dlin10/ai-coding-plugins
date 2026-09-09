@@ -178,6 +178,29 @@ has open, whatever share mode it was given, and a blocked replacement surfaces a
 `UnauthorizedAccessException` rather than `IOException`. Both facts are load-bearing; the retry loop
 catches both exception types. All run-folder writes must go through `AtomicFile`.
 
+The one exception to "no coordination" is inside `Append`, and it is between threads rather than
+between runs: an appender queues on a per-file gate before it competes for the exclusive handle,
+because Windows grants that handle without a queue and a thread that keeps losing eventually gives
+up. Every flow that finds a run through `RunLog.Current` appends to the same `forge.log`, so the
+losing thread was real, and a dropped log entry is silent by design — `RunLog.Write` may not let a
+failed write take the tool call down with it.
+
+The gate changes what a wasted wait costs, and that is the part to hold on to. Before it, appenders
+that could not get in wasted the same half second *concurrently*; behind a queue each one spends it
+in turn, so a wait that cannot succeed is multiplied by however many threads are behind it. That is
+why `Retry` answers a missing **directory** at once instead of waiting: nothing here removes one, so
+no wait can end well, and `RunLog.Current`'s fallback keeps pointing at run folders that a session
+has already deleted. Measured at four cores: waiting them out costs the suite eleven minutes a run,
+answering at once costs twenty seconds. A missing *file* still waits — `File.Replace` takes the
+destination away and renames the replacement into its place, so a path can be absent for that
+moment, which `A_reader_never_observes_a_partial_write` establishes.
+
+The wait itself is a span rather than the count of probes it used to be, because no two waits are
+the same length any more: they are spread either side of the old twenty-five millisecond cadence so
+that two waiters do not come back together. Keep the *mean* where it is. Waiting less means retrying
+more, and a caller that retries every millisecond holds its thread instead of parking it — a backoff
+starting at one millisecond doubled the suite's running time and starved the tasks sharing its pool.
+
 ## What is checked, and what is not
 
 Only two things are prevented, both irreversible: secrets leaving for another model
