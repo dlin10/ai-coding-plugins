@@ -121,6 +121,15 @@ public sealed class CursorAgentTests
         Assert.Contains("--approve-mcps", builder);
     }
 
+    [Fact]
+    public void Worker_processes_mark_the_self_plugin_for_exclusion_without_changing_other_configuration()
+    {
+        var environment = CursorAgentSession.BuildEnvironment();
+
+        Assert.Equal("1", environment["PLANFORGE_SELF_EXCLUDED"]);
+        Assert.Single(environment);
+    }
+
     /// <summary>
     /// cursor-agent has no system-prompt flag, so the role instructions must travel at the head of
     /// the prompt itself; a session that drops them runs a critic that was never told it is one.

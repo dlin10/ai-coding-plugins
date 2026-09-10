@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.28.0
+
+Every Codex and Claude critic and builder inherited the host's Plan Forge Flow plugin, including
+its MCP server and `forge` skill. The prompt told a worker not to orchestrate, but its capability
+surface still let it start a run inside its parent run.
+
+- Both Codex roles now disable the complete canonical
+  `plan-forge-flow@dlin10-ai-coding-plugins` plugin for every turn. Other plugins, MCP servers and
+  user configuration remain available to the worker.
+- A Codex critic now runs with `--ephemeral`, so its deliberately fresh review rounds do not leave
+  resumable sessions in the host's history. A builder remains persistent and resumes across tasks.
+- Both Claude roles disable the same complete plugin through a one-process settings override while
+  inheriting every other capability. A critic uses `--no-session-persistence`; a builder remains
+  persistent and resumes across tasks.
+- Cursor has no per-process plugin-disable flag, so both roles mark their child environment and the
+  self MCP launcher exits before starting `planforge.exe`; unrelated plugins and MCP servers remain
+  untouched. The explicitly invoked `forge` skill is now manual-only rather than advertised to
+  worker models.
+
 ## 0.27.2
 
 A prompt audit of everything this plugin puts in front of a model. Three of the fourteen tools

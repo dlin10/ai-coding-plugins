@@ -1,6 +1,7 @@
 ---
 name: forge
 description: Use only when the user explicitly invokes $forge or directly asks to run Plan Forge Flow. Hardens an implementation plan through independent review rounds, approval, a stepwise builder, and a final code review, using the plan-forge-flow MCP tools.
+disable-model-invocation: true
 ---
 
 # Plan Forge Flow
