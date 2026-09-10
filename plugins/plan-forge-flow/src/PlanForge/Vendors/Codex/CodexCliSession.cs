@@ -13,6 +13,8 @@ namespace PlanForge.Vendors.Codex;
 internal sealed class CodexCliSession : IVendorSession
 {
     private static readonly TimeSpan RUN_TIMEOUT = TimeSpan.FromMinutes(20);
+    private const string SELF_PLUGIN_DISABLE =
+        "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false";
 
     private readonly RoleSpec _role;
     private readonly Selection _selection;
@@ -115,6 +117,10 @@ internal sealed class CodexCliSession : IVendorSession
             arguments.Add(sessionId);
         }
 
+        // A critic is deliberately fresh every round. Keeping its rollout would only add a
+        // resumable session to the host's history; a builder must keep its rollout for later tasks.
+        if (role.Role is VendorRole.Critic) arguments.Add("--ephemeral");
+
         arguments.Add("-");
         arguments.Add("--skip-git-repo-check");
         arguments.Add("--json");
@@ -130,6 +136,12 @@ internal sealed class CodexCliSession : IVendorSession
             arguments.Add("-c");
             arguments.Add("model_reasoning_effort=" + TomlValue.String(selection.Effort));
         }
+
+        // A worker may inherit every other host capability, but never this plugin: exposing forge
+        // inside forge lets either role start a run within its parent run. Disable the whole plugin
+        // rather than only its MCP server so its skill and instructions are absent as well.
+        arguments.Add("-c");
+        arguments.Add(SELF_PLUGIN_DISABLE);
 
         // codex exec resume has no -s, so one spelling of the sandbox covers a builder's first turn
         // and every later one, at the cost of the flag's pre-launch validation of a bad value.

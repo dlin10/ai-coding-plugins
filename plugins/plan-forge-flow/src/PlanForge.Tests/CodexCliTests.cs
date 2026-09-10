@@ -49,7 +49,7 @@ public sealed class CodexCliTests
         Assert.True(readiness.Available, $"codex unavailable: {readiness.Detail}");
         _output.WriteLine($"catalogue: {string.Join(", ", vendor.Catalog.Models.Select(m => m.Id))}");
 
-        Assert.Equal(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+        Assert.Equal(["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
                      vendor.Catalog.Models.Select(model => model.Id));
         Assert.True(vendor.Catalog.Models[0].IsDefault);
         Assert.Equal("low", vendor.Catalog.Models[0].DefaultEffort);
