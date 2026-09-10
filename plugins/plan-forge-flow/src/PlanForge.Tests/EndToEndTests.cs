@@ -50,12 +50,12 @@ public sealed class EndToEndTests : IDisposable
         var ct = timeout.Token;
         var mathFile = Path.Combine(_repo, "math.js");
 
-        await InitialCommitAsync(mathFile, ct);
+        var baselineHead = await InitialCommitAsync(mathFile, ct);
 
         var run = RunDirectory.Create(_repo, "e2e");
         run.WritePlan(Plan);
         run.WriteState(new RunState("e2e", _repo, "Text", DateTimeOffset.Now,
-            ReviewRounds: 0, ReviewRoundCap: 5, BaselineHead: "", Approved: true));
+            ReviewRounds: 0, ReviewRoundCap: 5, BaselineHead: baselineHead, Approved: true));
 
         var vendor = new ClaudeCliVendor(_repo);
         var prompts = new PromptLibrary(RepositoryPrompts());
@@ -73,6 +73,8 @@ public sealed class EndToEndTests : IDisposable
         var built = await File.ReadAllTextAsync(mathFile, ct);
         await File.WriteAllTextAsync(mathFile, built.Replace("a - b", "a + b", StringComparison.Ordinal), ct);
         Assert.DoesNotContain("a - b", await File.ReadAllTextAsync(mathFile, ct), StringComparison.Ordinal);
+        await _git.OutputAsync(["add", "--", "math.js"], ct);
+        await _git.OutputAsync(["commit", "-qm", "run work with injected defect"], ct);
 
         // --- Code review: one critic round per call, this test playing the
         // orchestrator's relay turn in between -------------------------------
@@ -97,7 +99,7 @@ public sealed class EndToEndTests : IDisposable
         Assert.Contains("a - b", await File.ReadAllTextAsync(mathFile, ct), StringComparison.Ordinal);
     }
 
-    private async Task InitialCommitAsync(string mathFile, CancellationToken ct)
+    private async Task<string> InitialCommitAsync(string mathFile, CancellationToken ct)
     {
         await _git.OutputAsync(["init", "-q"], ct);
         await _git.OutputAsync(["config", "user.email", "tests@example.invalid"], ct);
@@ -110,6 +112,7 @@ public sealed class EndToEndTests : IDisposable
             """, ct);
         await _git.OutputAsync(["add", "math.js"], ct);
         await _git.OutputAsync(["commit", "-qm", "initial"], ct);
+        return (await _git.OutputAsync(["rev-parse", "HEAD"], ct)).Trim();
     }
 
     private static string RepositoryPrompts()
