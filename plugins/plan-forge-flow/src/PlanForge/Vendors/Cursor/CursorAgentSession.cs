@@ -12,6 +12,7 @@ namespace PlanForge.Vendors.Cursor;
 internal sealed class CursorAgentSession : IVendorSession
 {
     private const string CallSuffix = "ToolCall";
+    internal const string SelfExclusionEnvironment = "PLANFORGE_SELF_EXCLUDED";
 
     private static readonly TimeSpan _runTimeout = TimeSpan.FromMinutes(20);
 
@@ -42,7 +43,8 @@ internal sealed class CursorAgentSession : IVendorSession
         for (var attempt = 1; attempt <= SchemaInPrompt.MaxAttempts; attempt++)
         {
             var spec = new ProcessSpec(CursorAgentVendor.Executable, BuildArguments(), _workingDirectory,
-                SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure));
+                SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure),
+                BuildEnvironment());
 
             await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
 
@@ -227,6 +229,17 @@ internal sealed class CursorAgentSession : IVendorSession
 
         return arguments;
     }
+
+    /// <summary>
+    /// Cursor has no per-process plugin-disable flag. Its child MCP processes inherit this marker,
+    /// and this plugin's launcher answers it by exiting before planforge starts. Other plugins and
+    /// MCP servers ignore it and remain available.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string> BuildEnvironment() =>
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [SelfExclusionEnvironment] = "1"
+        };
 
     /// <summary>
     /// Cursor carries effort inside the model id, so the join happens here, not in the core.

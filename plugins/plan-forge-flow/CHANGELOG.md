@@ -14,6 +14,10 @@ surface still let it start a run inside its parent run.
 - Both Claude roles disable the same complete plugin through a one-process settings override while
   inheriting every other capability. A critic uses `--no-session-persistence`; a builder remains
   persistent and resumes across tasks.
+- Cursor has no per-process plugin-disable flag, so both roles mark their child environment and the
+  self MCP launcher exits before starting `planforge.exe`; unrelated plugins and MCP servers remain
+  untouched. The explicitly invoked `forge` skill is now manual-only rather than advertised to
+  worker models.
 
 ## 0.27.2
 

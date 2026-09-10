@@ -329,6 +329,15 @@ function Test-PluginArchive([string]$Archive) {
         if ($launcherScript -notmatch 'PLANFORGE_PROMPTS') {
             throw 'the bundled launcher does not tell the executable where the prompts are'
         }
+        if ($launcherScript -notmatch 'PLANFORGE_SELF_EXCLUDED') {
+            throw 'the bundled launcher does not exclude its MCP server from Cursor workers'
+        }
+        $skillEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/skills/forge/SKILL.md')
+        $reader = [IO.StreamReader]::new($skillEntry.Open())
+        try { $skillScript = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        if ($skillScript -notmatch '(?m)^disable-model-invocation:\s*true\s*$') {
+            throw 'the bundled forge skill is advertised to worker models instead of staying user-invoked'
+        }
         # Both role contracts carry the whole of what a worker is told, so a missing one fails every
         # vendor at its first act rather than at install time. A per-vendor file adds only what
         # differs about that vendor and is optional — codex ships none — but where one exists it
