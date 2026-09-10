@@ -8,6 +8,8 @@ namespace PlanForge.Vendors.Claude;
 internal sealed class ClaudeCliSession : IVendorSession
 {
     private const string StructuredOutputTool = "StructuredOutput";
+    private const string SelfPluginSettings =
+        """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
     private static readonly TimeSpan RunTimeout = TimeSpan.FromMinutes(20);
 
     private readonly RoleSpec _role;
@@ -238,7 +240,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
     }
 
-    private List<string> BuildArguments(string schemaJson)
+    internal List<string> BuildArguments(string schemaJson)
     {
         var arguments = new List<string>
         {
@@ -258,6 +260,11 @@ internal sealed class ClaudeCliSession : IVendorSession
             arguments.Add(_selection.Effort);
         }
 
+        // A worker may inherit every other host capability, but never this plugin: disabling the
+        // whole plugin keeps its skill, hooks and MCP server out of both worker roles.
+        arguments.Add("--settings");
+        arguments.Add(SelfPluginSettings);
+
         if (CanResume)
         {
             // The Builder edits files, so it needs its edits to land without a prompt.
@@ -269,6 +276,11 @@ internal sealed class ClaudeCliSession : IVendorSession
                 arguments.Add("--resume");
                 arguments.Add(_sessionId);
             }
+        }
+        else
+        {
+            // A critic is deliberately fresh every round and must not leave a resumable transcript.
+            arguments.Add("--no-session-persistence");
         }
 
         return arguments;
