@@ -14,6 +14,7 @@ public sealed class CodeReviewTests : IDisposable
 
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
     private readonly GitClient _git;
+    private string _baselineHead = "baseline";
 
     public CodeReviewTests()
     {
@@ -47,9 +48,38 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Contains("# Approved plan", session.PromptText, StringComparison.Ordinal);
         Assert.Contains("Change tracked.txt.", session.PromptText, StringComparison.Ordinal);
         Assert.Contains("ordinary change", session.PromptText, StringComparison.Ordinal);
-        Assert.DoesNotContain("CONTEXT.md", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("context change", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("adr change", session.PromptText, StringComparison.Ordinal);
         Assert.Equal(1, run.ReadState().CodeReviewRounds);
+    }
+
+    [Fact]
+    public async Task Work_committed_after_the_baseline_reaches_the_critic_with_its_review_window()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("tracked.txt", "committed during the run\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+        await _git.OutputAsync(["commit", "-qm", "run work"], ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+
+        var critique = await NewReview(critic).ReviewAsync(
+            NewRun(baselineHead: baseline.Head), new Selection("critic-model", null), false, ct);
+
+        var session = Assert.Single(critic.Sessions);
+        Assert.Contains("# Review window", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains($"Base commit: {baseline.Head}", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Mode: run baseline", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Target: current working tree, including untracked files", session.PromptText,
+                        StringComparison.Ordinal);
+        Assert.Contains("Excluded paths: every CONTEXT.md and docs/adr/** at any depth", session.PromptText,
+                        StringComparison.Ordinal);
+        Assert.Contains("committed during the run", session.PromptText, StringComparison.Ordinal);
+        Assert.EndsWith($"Review window: run baseline {baseline.Head[..12]} to working tree.",
+                        critique.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -83,7 +113,8 @@ public sealed class CodeReviewTests : IDisposable
         var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
         Assert.Equal("approve", critique.Verdict);
-        Assert.Equal("nothing to review", critique.Summary);
+        Assert.StartsWith("nothing to review", critique.Summary, StringComparison.Ordinal);
+        Assert.Contains("Review window: run baseline", critique.Summary, StringComparison.Ordinal);
         Assert.Empty(critic.Sessions);
         Assert.Equal(0, run.ReadState().CodeReviewRounds);
     }
@@ -258,6 +289,24 @@ public sealed class CodeReviewTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sensitive_path_only_in_committed_work_aborts_the_review()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "config/appsettings.Production.json");
+        await WriteFileAsync("config/appsettings.Production.json", "committed secret-looking change\n", ct);
+        await _git.OutputAsync(["add", "--", "config/appsettings.Production.json"], ct);
+        await _git.OutputAsync(["commit", "-qm", "sensitive run work"], ct);
+
+        var critic = new RecordingVendor("claude");
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct));
+
+        Assert.Contains("diff touches config/appsettings.Production.json", error.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+    }
+
+    [Fact]
     public async Task Sensitive_paths_are_guarded_before_an_empty_diff_is_accepted()
     {
         var critic = new RecordingVendor("claude");
@@ -267,6 +316,47 @@ public sealed class CodeReviewTests : IDisposable
             NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), false, CancellationToken.None));
 
         Assert.Empty(critic.Sessions);
+    }
+
+    [Fact]
+    public async Task An_empty_head_fallback_is_approved_without_spending_a_round_and_warns_about_its_limit()
+    {
+        var baseline = new string('a', 40);
+        var head = new string('b', 40);
+        var critic = new RecordingVendor("claude");
+        var git = new ReviewGit([], string.Empty, isFallback: true, baseline, head);
+        var run = NewRun(baselineHead: baseline);
+
+        var critique = await NewReview(critic, git).ReviewAsync(
+            run, new Selection("critic-model", null), false, CancellationToken.None);
+
+        Assert.Equal("approve", critique.Verdict);
+        Assert.Contains("HEAD fallback bbbbbbbbbbbb", critique.Summary, StringComparison.Ordinal);
+        Assert.Contains("run baseline aaaaaaaaaaaa is not an ancestor", critique.Summary, StringComparison.Ordinal);
+        Assert.Contains("committed run work may be outside this window", critique.Summary, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+        Assert.Equal(0, run.ReadState().CodeReviewRounds);
+    }
+
+    [Fact]
+    public async Task A_head_fallback_is_explained_in_the_critic_prompt()
+    {
+        var baseline = new string('a', 40);
+        var head = new string('b', 40);
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "fallback diff is sound"));
+        var git = new ReviewGit(["tracked.txt"], "diff", isFallback: true, baseline, head);
+
+        var critique = await NewReview(critic, git).ReviewAsync(
+            NewRun(baselineHead: baseline), new Selection("critic-model", null), false, CancellationToken.None);
+
+        var prompt = Assert.Single(critic.Sessions).PromptText;
+        Assert.Contains("Mode: HEAD fallback", prompt, StringComparison.Ordinal);
+        Assert.Contains($"Base commit: {head}", prompt, StringComparison.Ordinal);
+        Assert.Contains($"Run baseline: {baseline}", prompt, StringComparison.Ordinal);
+        Assert.Contains("committed run work may be outside this window", prompt, StringComparison.Ordinal);
+        Assert.StartsWith("fallback diff is sound", critique.Summary, StringComparison.Ordinal);
+        Assert.Contains("HEAD fallback bbbbbbbbbbbb", critique.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -293,11 +383,15 @@ public sealed class CodeReviewTests : IDisposable
     private CodeReview NewReview(RecordingVendor critic, IReviewGit? reviewGit = null) =>
         new(critic, new PromptLibrary(RepositoryPrompts()), reviewGit ?? _git);
 
-    private RunDirectory NewRun(bool approved = true, int reviewRounds = 0, int codeReviewRounds = 0)
+    private RunDirectory NewRun(bool approved = true,
+                                int reviewRounds = 0,
+                                int codeReviewRounds = 0,
+                                string? baselineHead = null)
     {
         var run = RunDirectory.Create(_repo, "review");
         run.WriteState(new RunState("review", _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
-                                    Approved: approved, CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
+                                    BaselineHead: baselineHead ?? _baselineHead, Approved: approved,
+                                    CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
         run.WritePlan(Plan);
         return run;
     }
@@ -313,6 +407,7 @@ public sealed class CodeReviewTests : IDisposable
 
         await _git.OutputAsync(["add", "--", "tracked.txt", .. additionalPaths], ct);
         await _git.OutputAsync(["commit", "-qm", "initial"], ct);
+        _baselineHead = (await _git.OutputAsync(["rev-parse", "HEAD"], ct)).Trim();
     }
 
     private async Task WriteFileAsync(string relativePath, string contents, CancellationToken ct)
@@ -322,14 +417,19 @@ public sealed class CodeReviewTests : IDisposable
         await File.WriteAllTextAsync(path, contents, ct);
     }
 
-    private sealed class ReviewGit(IReadOnlyList<string> changedPaths, string diff) : IReviewGit
+    private sealed class ReviewGit(IReadOnlyList<string> changedPaths,
+                                   string diff,
+                                   bool isFallback = false,
+                                   string? baseline = null,
+                                   string? baseHead = null) : IReviewGit
     {
-        public Task<string> DiffAsync(IReadOnlyList<string> pathspec, CancellationToken ct) =>
-            Task.FromResult(diff);
-
-        public Task<IReadOnlyList<string>> ChangedPathsAsync(IReadOnlyList<string> pathspec,
-                                                             CancellationToken ct) =>
-            Task.FromResult(changedPaths);
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead,
+                                                        CancellationToken ct) =>
+            Task.FromResult(new ReviewWindow(baseline ?? baselineHead,
+                                             baseHead ?? baselineHead,
+                                             isFallback,
+                                             changedPaths,
+                                             diff));
     }
 
     private static string RepositoryPrompts()

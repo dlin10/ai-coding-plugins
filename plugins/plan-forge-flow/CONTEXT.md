@@ -14,6 +14,7 @@ these terms replace it.
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
+| **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. |
 | **Flow log** | The user-facing timeline of a run, `flow_log.md`: every critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
 | **Plan file** | The run's plan as it currently stands, `PLAN.md`: written by `forge.plan.write` before each round, rewritten by a round handed a draft of its own, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a write or a round after it takes the flag back. |
 | **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
@@ -574,17 +575,25 @@ every `CONTEXT.md` and every path under `docs/adr/` at any depth. The guard take
 deliberately: it covers exactly the set of paths whose contents are sent, so a sensitive *name* under
 an excluded path — an ADR called `0005-token-rotation.md` — is not a leak and must not abort the run.
 
-The window those four share is the working tree against `HEAD` plus untracked files rendered as
-new-file diffs — staged, unstaged and brand-new alike, composed without staging anything. It was
+The baseline and drift report describe the working tree against the `HEAD` at the moment each is
+read. The code-review window instead describes the final tree against the commit recorded by
+`forge.begin`, while that commit remains an ancestor of the current `HEAD`; this is what keeps work
+in view after the Orchestrator commits it mid-run. Both forms add untracked files as new-file diffs,
+so staged, unstaged and brand-new files are visible without staging anything. The window was
 narrower once: a bare `git diff`, blind to every new file, which is how round 1 of the run behind
 issue #21 was spent on findings about code that existed on disk (issue #25). The run folder never
 widens in, because `.forge/` ignores itself.
 
-Three limits come with that boundary, all recorded rather than fixed. A third party's edit to
-`CONTEXT.md` or an ADR is invisible to drift and to code review. A commit made mid-run moves `HEAD`
-and takes its changes out of the window — the flow already forbids committing during a run. And a
-vendor worker runs in the workspace, so nothing here stops it reading an excluded file it was not
-sent; the pathspec governs what is handed over, not what is reachable.
+If history no longer descends from the recorded commit — after a rebase, amend or branch switch —
+the review window falls back to the current `HEAD` and says so in both the Critic's prompt and the
+returned summary. A missing or unresolvable baseline is broken Run state, not divergence, and stops
+the review. Preparing the path list and content diff remains lock-free: both reads use the same base
+commit and pathspec, but a concurrent edit may land between them.
+
+Two limits come with the documentation boundary, both recorded rather than fixed. A third party's
+edit to `CONTEXT.md` or an ADR is invisible to drift and to code review. And a vendor worker runs in
+the workspace, so nothing here stops it reading an excluded file it was not sent; the pathspec
+governs what is handed over, not what is reachable.
 
 ## The session is not the workspace, and only one host says where it is
 

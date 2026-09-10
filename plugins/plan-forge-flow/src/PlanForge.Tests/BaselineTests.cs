@@ -129,7 +129,7 @@ public sealed class BaselineTests : IDisposable
 
         Assert.Equal(["brand-new.txt"], await baseline.DriftedFilesAsync(_git, ct));
         Assert.Contains("created after the baseline",
-                        await _git.DiffAsync(GitPathspec.WithoutDocumentation, ct),
+                        await _git.DiffAsync(ct),
                         StringComparison.Ordinal);
     }
 
@@ -182,7 +182,7 @@ public sealed class BaselineTests : IDisposable
         var path = Path.Combine(_repo, "binary.bin");
         await File.WriteAllBytesAsync(path, [0x00, 0x01, 0x02, 0x00, 0xff], ct);
 
-        var diff = await _git.DiffAsync(GitPathspec.WithoutDocumentation, ct);
+        var diff = await _git.DiffAsync(ct);
 
         Assert.Contains("Binary files", diff, StringComparison.Ordinal);
         Assert.Equal(["binary.bin"], await baseline.DriftedFilesAsync(_git, ct));
@@ -199,6 +199,113 @@ public sealed class BaselineTests : IDisposable
         await WriteFileAsync(".forge/run1/state.json", "{}\n", ct);
 
         Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    [Fact]
+    public async Task A_review_window_keeps_work_committed_after_the_baseline()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync("tracked.txt", "committed during the run\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+        await _git.OutputAsync(["commit", "-qm", "run work"], ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+
+        Assert.False(window.IsFallback);
+        Assert.Equal(baseline.Head, window.BaseHead);
+        Assert.Equal(["tracked.txt"], window.ChangedPaths);
+        Assert.Contains("committed during the run", window.Diff, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_review_window_contains_committed_and_uncommitted_work_once()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "dirty.txt");
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await WriteFileAsync("tracked.txt", "committed during the run\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+        await _git.OutputAsync(["commit", "-qm", "committed phase"], ct);
+        await WriteFileAsync("dirty.txt", "still dirty\n", ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+
+        Assert.Equal(["dirty.txt", "tracked.txt"], window.ChangedPaths.Order(StringComparer.Ordinal));
+        Assert.Contains("committed during the run", window.Diff, StringComparison.Ordinal);
+        Assert.Contains("still dirty", window.Diff, StringComparison.Ordinal);
+        Assert.Equal(1, window.ChangedPaths.Count(path => path == "tracked.txt"));
+        Assert.Equal(1, window.ChangedPaths.Count(path => path == "dirty.txt"));
+    }
+
+    [Fact]
+    public async Task A_review_window_includes_dirt_already_present_when_the_run_began()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "dirty at forge.begin\n", ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+
+        Assert.Equal(["tracked.txt"], window.ChangedPaths);
+        Assert.Contains("dirty at forge.begin", window.Diff, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_review_window_excludes_work_reverted_to_the_baseline_state()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("tracked.txt", "temporary run work\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+        await _git.OutputAsync(["commit", "-qm", "temporary phase"], ct);
+        await WriteFileAsync("tracked.txt", "original\n", ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+
+        Assert.Empty(window.ChangedPaths);
+        Assert.Empty(window.Diff);
+    }
+
+    [Fact]
+    public async Task A_review_window_falls_back_to_head_after_history_diverges()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+
+        await _git.OutputAsync(["checkout", "-q", "--orphan", "replacement"], ct);
+        await WriteFileAsync("tracked.txt", "replacement history\n", ct);
+        await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
+        await _git.OutputAsync(["commit", "-qm", "replacement root"], ct);
+        var fallbackHead = (await _git.OutputAsync(["rev-parse", "HEAD"], ct)).Trim();
+        await WriteFileAsync("tracked.txt", "dirty after divergence\n", ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+
+        Assert.True(window.IsFallback);
+        Assert.Equal(fallbackHead, window.BaseHead);
+        Assert.Equal(["tracked.txt"], window.ChangedPaths);
+        Assert.Contains("-replacement history", window.Diff, StringComparison.Ordinal);
+        Assert.DoesNotContain("-original", window.Diff, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_review_window_refuses_an_unresolvable_baseline()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+
+        var error = await Assert.ThrowsAsync<ReviewBaselineUnavailableException>(() =>
+            _git.ReadReviewWindowAsync("missing-baseline", ct));
+
+        Assert.Contains("begin a new run", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("missing-baseline", error.Message, StringComparison.Ordinal);
     }
 
     private async Task InitialCommitAsync(CancellationToken ct, params string[] additionalPaths)
