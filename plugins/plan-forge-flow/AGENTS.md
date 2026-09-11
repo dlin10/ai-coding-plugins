@@ -209,12 +209,15 @@ writes escaping the run folder (one containment check in `RunDirectory`, which a
 non-absolute `workspaceRoot`). Note that the secret regex runs over diffs as well as file contents,
 so its leading character class must keep matching the `+` of an added line.
 
-Baseline capture, drift reporting, the code-review diff, and the sensitive-path check share one
-pathspec: `CONTEXT.md` and `docs/adr/**` are excluded at any depth. The check deliberately takes the
-same pathspec, so it covers exactly what is sent — a sensitive *name* under an excluded path is not a
-leak, and refusing it would only break ADRs that legitimately mention tokens or secrets. It runs
-before the empty-diff return, so a documentation-only tree is still inspected. What none of this
-does is stop a worker reading an excluded file off disk; see
+Baseline capture, drift reporting, the code-review window, and the sensitive-path check share one
+pathspec: `CONTEXT.md` and `docs/adr/**` are excluded at any depth. They do not share a revision:
+baseline and drift retain their `HEAD` comparison, while code review compares the commit recorded by
+`forge.begin` with the current working tree whenever it is still an ancestor of `HEAD`, falling back
+to the current `HEAD` after history diverges. The check deliberately reads the same resolved review
+window as the content diff, so it covers exactly what is sent — a sensitive *name* under an excluded
+path is not a leak, and refusing it would only break ADRs that legitimately mention tokens or
+secrets. It runs before the empty-diff return, so a documentation-only tree is still inspected. What
+none of this does is stop a worker reading an excluded file off disk; see
 [docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
 The one thing that is *verified* rather than prevented is a task's gate. After every builder turn,

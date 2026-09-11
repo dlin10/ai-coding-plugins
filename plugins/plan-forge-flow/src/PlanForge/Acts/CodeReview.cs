@@ -31,11 +31,12 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap);
         var granted = state.CodeReviewRounds >= state.CodeReviewRoundCap;
 
-        await GuardChangedPathsAsync(ct);
-        var diff = await git.DiffAsync(GitPathspec.WithoutDocumentation, ct);
-        if (diff.Length == 0) return new Critique("approve", [], "nothing to review");
+        var window = await git.ReadReviewWindowAsync(state.BaselineHead, ct);
+        GuardChangedPaths(window);
+        if (window.Diff.Length == 0)
+            return WithReviewWindow(new Critique("approve", [], "nothing to review"), window);
 
-        var review = ComposeReview(run.ReadPlan(), diff, run.ReadReviewLog());
+        var review = ComposeReview(run.ReadPlan(), window, run.ReadReviewLog());
         SensitiveInput.Guard(review, "the diff under review");
 
         Critique critique;
@@ -43,7 +44,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         await using (var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id)),
                                                           selection, resumeToken: null, ct))
         {
-            critique = await critic.RunAsync(review, Schemas.Critique, ct);
+            critique = WithReviewWindow(await critic.RunAsync(review, Schemas.Critique, ct), window);
         }
 
         var round = state.CodeReviewRounds + 1;
@@ -63,27 +64,39 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <c>0005-token-rotation.md</c>, say — is not a leak, because that file's contents never reach
     /// a vendor, and aborting the run over it would refuse a legitimate name for no gain.
     /// </summary>
-    private async Task GuardChangedPathsAsync(CancellationToken ct)
+    private static void GuardChangedPaths(ReviewWindow window)
     {
-        var changed = await git.ChangedPathsAsync(GitPathspec.WithoutDocumentation, ct);
-        foreach (var path in changed)
+        foreach (var path in window.ChangedPaths)
         {
             if (SensitiveInput.IsSensitivePath(path))
                 throw new SensitiveContentException($"the diff touches {path}, which");
         }
     }
 
-    private static string ComposeReview(string plan, string diff, string reviewLog)
+    private static string ComposeReview(string plan, ReviewWindow window, string reviewLog)
     {
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
                                         .AppendLine(plan)
                                         .AppendLine()
-                                        .AppendLine("# Diff under review")
+                                        .AppendLine("# Review window")
                                         .AppendLine()
-                                        .AppendLine("```diff")
-                                        .AppendLine(diff)
-                                        .AppendLine("```");
+                                        .AppendLine($"Mode: {(window.IsFallback ? "HEAD fallback" : "run baseline")}")
+                                        .AppendLine($"Base commit: {window.BaseHead}");
+
+        if (window.IsFallback)
+            prompt.AppendLine($"Run baseline: {window.BaselineHead}")
+                  .AppendLine("Reason: the run baseline is not an ancestor of the current HEAD; "
+                              + "committed run work may be outside this window.");
+
+        prompt.AppendLine("Target: current working tree, including untracked files")
+              .AppendLine("Excluded paths: every CONTEXT.md and docs/adr/** at any depth")
+              .AppendLine()
+              .AppendLine("# Diff under review")
+              .AppendLine()
+              .AppendLine("```diff")
+              .AppendLine(window.Diff)
+              .AppendLine("```");
 
         if (reviewLog.Length > 0)
             prompt.AppendLine()
@@ -93,6 +106,17 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
         return prompt.ToString();
     }
+
+    private static Critique WithReviewWindow(Critique critique, ReviewWindow window)
+    {
+        var summary = window.IsFallback
+            ? $"Review window: HEAD fallback {Short(window.BaseHead)} to working tree; run baseline "
+              + $"{Short(window.BaselineHead)} is not an ancestor, so committed run work may be outside this window."
+            : $"Review window: run baseline {Short(window.BaseHead)} to working tree.";
+        return critique with { Summary = $"{critique.Summary}\n\n{summary}" };
+    }
+
+    private static string Short(string head) => head[..Math.Min(12, head.Length)];
 }
 
 internal sealed class CodeReviewCapReachedException(int rounds, int cap)

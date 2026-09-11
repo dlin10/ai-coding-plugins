@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using PlanForge.Prompts;
 using PlanForge.Vendors;
+using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -73,6 +75,30 @@ public sealed class PromptRootTests : IDisposable
     public void The_launcher_sets_the_variable_the_library_reads()
     {
         Assert.Contains(PromptLibrary.RootVariable, File.ReadAllText(Launcher()), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_launcher_exits_before_starting_the_server_in_a_cursor_worker()
+    {
+        var start = new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        start.ArgumentList.Add("/d");
+        start.ArgumentList.Add("/c");
+        start.ArgumentList.Add(Launcher());
+        start.Environment[CursorAgentSession.SelfExclusionEnvironment] = "1";
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("launcher did not start");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await process.WaitForExitAsync(timeout.Token);
+
+        Assert.Equal(0, process.ExitCode);
+        Assert.Empty(await process.StandardOutput.ReadToEndAsync(timeout.Token));
+        Assert.Empty(await process.StandardError.ReadToEndAsync(timeout.Token));
     }
 
     /// <summary>

@@ -21,12 +21,14 @@ public sealed class CodexArgumentTests
         Assert.Equal(
         [
             "exec",
+            "--ephemeral",
             "-",
             "--skip-git-repo-check",
             "--json",
             "--output-schema", "schema.json",
             "-o", "result.json",
             "-m", "gpt-5.6-sol",
+            "-c", "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false",
             "-c", "sandbox_mode=" + TomlValue.String("read-only"),
             "-c", "developer_instructions=" + TomlValue.String("review the plan")
         ], arguments);
@@ -44,8 +46,28 @@ public sealed class CodexArgumentTests
         Assert.Equal("resume", arguments[1]);
         Assert.Equal("thread-1", arguments[2]);
         Assert.Equal("-", arguments[3]);
+        Assert.DoesNotContain("--ephemeral", arguments);
         Assert.Contains("model_reasoning_effort=" + TomlValue.String("high"), arguments);
+        Assert.Contains("plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false", arguments);
         Assert.Contains("sandbox_mode=" + TomlValue.String("workspace-write"), arguments);
+    }
+
+    [Fact]
+    public void Both_roles_disable_only_the_self_plugin_and_keep_the_ambient_configuration()
+    {
+        var critic = CodexCliSession.BuildArguments(
+            new RoleSpec(VendorRole.Critic, "review the plan"),
+            new Selection("gpt-5.6-sol", null), null, "schema.json", "result.json");
+        var builder = CodexCliSession.BuildArguments(
+            new RoleSpec(VendorRole.Builder, "implement the task"),
+            new Selection("gpt-5.6-sol", null), null, "schema.json", "result.json");
+
+        foreach (var arguments in new[] { critic, builder })
+        {
+            Assert.Contains("plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false", arguments);
+            Assert.DoesNotContain("--ignore-user-config", arguments);
+            Assert.DoesNotContain("--disable", arguments);
+        }
     }
 
     [Fact]

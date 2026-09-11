@@ -212,9 +212,8 @@ public sealed class WorkActTests : IDisposable
 
     private sealed class RecordingReviewGit(IReadOnlyList<string> paths, string diff) : IReviewGit
     {
-        public Task<string> DiffAsync(IReadOnlyList<string> pathspec, CancellationToken ct) => Task.FromResult(diff);
-
-        public Task<IReadOnlyList<string>> ChangedPathsAsync(IReadOnlyList<string> pathspec, CancellationToken ct) =>
-            Task.FromResult(paths);
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead,
+                                                        CancellationToken ct) =>
+            Task.FromResult(new ReviewWindow(baselineHead, baselineHead, IsFallback: false, paths, diff));
     }
 }
