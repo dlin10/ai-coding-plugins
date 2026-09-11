@@ -26,6 +26,10 @@ Understand code, errors, and C#/.NET concepts in plain language. Explain Code Si
 
 Scan a complete .NET workspace for cache consistency risks. Cache Detective connects cache keys to data dependencies across solutions and reports missing invalidation, unused invalidation, and near-miss templates with confidence and source evidence.
 
+### [Ponytail.net](plugins/ponytail-net)
+
+Keep C# changes as simple as the contract allows. Ponytail.net steers an agent toward reuse, framework facilities, and the smallest complete implementation—with lite, full, and ultra levels—while preserving the async, LINQ, EF Core, caching, and serialization guarantees that a shorter patch tends to break.
+
 ## Choose the Right Plugin
 
 | When you want to... | Choose |
@@ -35,6 +39,7 @@ Scan a complete .NET workspace for cache consistency risks. Cache Detective conn
 | Work confidently in C# and .NET solutions | **Roslyn MCP** |
 | Understand code and C#/.NET concepts in plain language | **Explain Code Simply** |
 | Scan a .NET workspace for cache consistency risks | **Cache Detective** |
+| Keep C#/.NET changes simple without breaking their contracts | **Ponytail.net** |
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 

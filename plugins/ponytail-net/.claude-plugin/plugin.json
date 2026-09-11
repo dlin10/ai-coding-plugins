@@ -1,0 +1,10 @@
+{
+  "name": "ponytail-net",
+  "version": "0.1.0",
+  "description": "Keep C#/.NET changes on the simplest implementation that delivers the whole contract: reuse first, framework facilities second, new code and dependencies last, with lite/full/ultra levels.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/"
+}
