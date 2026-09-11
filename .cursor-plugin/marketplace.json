@@ -28,6 +28,11 @@
       "name": "cache-detective",
       "source": "./plugins/cache-detective",
       "description": "Whole-workspace cache consistency scanning for .NET — connects cache keys to cross-solution data dependencies and reports evidence-backed invalidation risks."
+    },
+    {
+      "name": "ponytail-net",
+      "source": "./plugins/ponytail-net",
+      "description": "Simplest complete C#/.NET solutions — a reuse-first, contract-preserving simplification skill with lite/full/ultra levels for Codex, Claude Code, and Cursor."
     }
   ]
 }

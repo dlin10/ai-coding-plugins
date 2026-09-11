@@ -1,0 +1,89 @@
+{
+  "skill_name": "ponytail-net",
+  "fixtures": "Run `bash fixtures/setup.sh <root>` to materialise the four solutions these prompts run against; each eval names its fixture below.",
+  "categories": {
+    "correctness": "The requested behavior is delivered and the hidden contract tests pass.",
+    "scope": "The change stays inside the task boundary: no new abstractions, no unrelated edits, no deleted tests, no edits on a review request.",
+    "reporting": "The final report has the shape the skill asks for and states what was verified. Kept apart from the other two so a better-formatted report never reads as better code."
+  },
+  "evals": [
+    {
+      "id": 1,
+      "name": "bug-shared-callers",
+      "fixture": "pricing",
+      "prompt": "Finance reported that invoice totals round wrong. Example: one line, SKU A, unit price 2.345, quantity 1, VAT 0 comes out as 2.34 on the invoice, but it must be 2.35 (half-up to cents, as the comment in InvoiceService says). Please fix this.",
+      "expected_output": "The rounding is fixed once in the shared Money.RoundToCents helper (both callers document the same rounding), a regression test lands in the existing xunit project, the suite passes, and the report says what was checked.",
+      "files": [],
+      "assertions": [
+        { "category": "correctness", "text": "Money.RoundToCents now rounds half-up: the hidden RoundToCents theory (2.345 -> 2.35, 0.005 -> 0.01) passes" },
+        { "category": "correctness", "text": "The refund path is fixed as well: the hidden RefundAmount_RoundsHalfUpLikeTheInvoice test passes, so the fix lives in the shared helper rather than a local patch in InvoiceService" },
+        { "category": "correctness", "text": "dotnet test on the solution is green after the change (existing tests and the new ones), and no existing test was deleted" },
+        { "category": "scope", "text": "A regression test for the reported case was added to the existing tests/PricingApp.Tests project, with no new test project or framework" },
+        { "category": "scope", "text": "No new abstraction was introduced for rounding: no new interface, class, enum, option, or extra parameter; the RoundToCents signature is unchanged" },
+        { "category": "scope", "text": "The diff touches only src/PricingApp/Money.cs and files under tests/ (no unrelated refactoring)" },
+        { "category": "reporting", "text": "The final report names the active ponytail-net level" },
+        { "category": "reporting", "text": "The final report states which build/test commands actually ran and their results" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "add-cache",
+      "fixture": "rates",
+      "prompt": "Every call to IExchangeRateService.GetRateAsync goes to the rate provider, which is slow and rate-limited. Cache rates per currency pair for 5 minutes.",
+      "expected_output": "ExchangeRateService uses the already registered IMemoryCache with a 5-minute absolute expiration keyed per normalised currency pair, cancellation still flows to the client, the existing tests are updated and a caching test added, no new interface, decorator, options class, or package appears.",
+      "files": [],
+      "assertions": [
+        { "category": "correctness", "text": "Repeated requests for one currency pair reach the provider once: the hidden RepeatedRequestsForOnePair_CallTheProviderOnce test passes" },
+        { "category": "correctness", "text": "Pairs are cached separately and a case difference does not split the entry: the hidden DifferentPairs_AreCachedSeparately and CurrencyCaseDoesNotSplitTheCacheEntry tests pass" },
+        { "category": "correctness", "text": "The cancellation token still reaches the provider on a cache miss: the hidden FirstFetch_StillPropagatesTheCancellationToken test passes" },
+        { "category": "correctness", "text": "The expiration is absolute and five minutes (AbsoluteExpirationRelativeToNow, SetAbsoluteExpiration, or the Set(key, value, TimeSpan) overload with TimeSpan.FromMinutes(5)), not sliding and not a different duration" },
+        { "category": "correctness", "text": "The existing RatesApp.Tests tests were updated where the constructor changed and a caching test was added; the whole suite passes and no existing test was deleted" },
+        { "category": "scope", "text": "Caching uses the already registered IMemoryCache; no hand-rolled Dictionary/ConcurrentDictionary cache field or custom cache class was written" },
+        { "category": "scope", "text": "No new interface, decorator class, options/settings class, or NuGet package was added; the csproj files are unchanged" },
+        { "category": "reporting", "text": "The final report names the active ponytail-net level" },
+        { "category": "reporting", "text": "The final report states which build/test commands actually ran and their results" },
+        { "category": "reporting", "text": "The final report mentions at least one caching caveat (per-process scope, or that IMemoryCache/GetOrCreateAsync does not guarantee a single factory execution per key on concurrent misses)" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "ultra-simplify-trap",
+      "fixture": "orders",
+      "prompt": "ultra: simplify OrderExporter and everything under src/OrdersApp/Exporting. It has accumulated scaffolding nobody needs anymore.",
+      "expected_output": "Dead scaffolding (the unused ExportOptions class, the unused private FormatLegacyDate helper, the single-case factory) goes; ExportLegacy stays because the dispatcher reaches it by name, the dispatcher's public constructor and the ExportCommands map stay for the operations console, the null and empty-order checks stay, the legacy_id JSON name stays, no existing test is deleted, tests pass, and the report says how references were verified without Roslyn.",
+      "files": [],
+      "assertions": [
+        { "category": "correctness", "text": "The unused ExportOptions class and the unused private FormatLegacyDate helper are removed" },
+        { "category": "correctness", "text": "The single-case ExportFormatterFactory is removed or inlined (no ExportFormatterFactory type remains)" },
+        { "category": "correctness", "text": "ExportLegacy is still reachable by name and returns JSON containing legacy_id: the hidden ExportLegacy_IsStillReachableByName test passes" },
+        { "category": "correctness", "text": "The null check and the empty-order check in Export remain: the hidden Export_StillRejectsNull and Export_StillRejectsAnOrderWithoutLines tests pass" },
+        { "category": "correctness", "text": "The legacy_id JSON property name is preserved: the hidden LegacyId_StillSerializesAsSnakeCase test passes" },
+        { "category": "correctness", "text": "The project's own test suite builds and passes after the change" },
+        { "category": "scope", "text": "The public entry point outside the dead scaffolding is kept: ExportCommandDispatcher keeps its public (OrderExporter, IReadOnlyDictionary<string, string>) constructor and ExportCommands.Default still exists" },
+        { "category": "scope", "text": "No existing test was deleted (Export_WritesHeaderAndOneRowPerLine, Export_RejectsAnOrderWithoutLines, and Dispatcher_DefaultCommand_ExportsCsv all remain), and no new test framework or project was added" },
+        { "category": "scope", "text": "Changes are confined to src/OrdersApp/Exporting and tests/; csproj files and Directory.Build.props (including TreatWarningsAsErrors) are untouched" },
+        { "category": "reporting", "text": "The final report names level ultra" },
+        { "category": "reporting", "text": "The final report says how references were verified without Roslyn MCP (text search plus build)" },
+        { "category": "reporting", "text": "The final report gives the by-name dispatch (reflection through the command map) as the reason ExportLegacy stays" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "review-no-edits",
+      "fixture": "customers",
+      "prompt": "Review the last commit (git show HEAD) for overengineering and for simplifications that changed behavior. Do not modify any files; give me the findings.",
+      "expected_output": "No file is modified. Findings name the factory, options class, and interface added for one implementation and one call site; the dropped OrderBy in FindByCity; the StreamWriter disposed before the returned WriteAsync completes; the CS8602 suppression hiding a null Email; and they do not propose removing the administrator check or the ICustomerRepository port.",
+      "files": [],
+      "assertions": [
+        { "category": "correctness", "text": "Findings flag the ICustomerLookupService interface, CustomerLookupServiceFactory, and CustomerLookupOptions as indirection added for one implementation and one call site" },
+        { "category": "correctness", "text": "Findings flag the dropped OrderBy in FindByCity as a behavior change the UI depends on" },
+        { "category": "correctness", "text": "Findings flag that ReportService now disposes the StreamWriter before the returned WriteAsync task completes" },
+        { "category": "correctness", "text": "Findings flag the CS8602 suppression in CustomerLookupService as hiding a null Email dereference (the repository contains a customer with a null email)" },
+        { "category": "correctness", "text": "Findings do not recommend removing the administrator check in ExportAll or the ICustomerRepository interface" },
+        { "category": "scope", "text": "No file was modified: git status in the project is clean after the run" },
+        { "category": "reporting", "text": "The final report names the active ponytail-net level" },
+        { "category": "reporting", "text": "The final report is a findings list rather than applied changes (illustrative snippets are fine)" }
+      ]
+    }
+  ]
+}

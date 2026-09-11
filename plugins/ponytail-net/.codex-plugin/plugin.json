@@ -1,0 +1,22 @@
+{
+  "name": "ponytail-net",
+  "version": "0.1.0",
+  "description": "Keep C#/.NET changes on the simplest implementation that delivers the whole contract: reuse first, framework facilities second, new code and dependencies last, with lite/full/ultra levels.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Ponytail.net",
+    "shortDescription": "Simplest complete C#/.NET implementations",
+    "longDescription": "Steers implementations, bug fixes, refactorings, and reviews in C#/.NET toward the least complexity a maintainer must own while delivering the whole requested behavior. Reuses existing code and framework facilities before adding abstractions or dependencies, applies C#-specific decision rules for async, LINQ and EF Core, caching, and serialization, and finishes with the build and tests the change requires. Levels: lite, full (default), ultra, off.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": "Use $ponytail-net to make this change with the simplest implementation that keeps the full contract."
+  }
+}
