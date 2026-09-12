@@ -1,4 +1,4 @@
-# Implementation Specification: Race Hunter
+# Implementation Specification: Concurrency Hunter
 
 | Поле | Значение |
 |---|---|
@@ -8,7 +8,7 @@
 
 ## 1. Назначение и статус
 
-Спецификация описывает предлагаемые архитектуру, компоненты, алгоритмы, модели данных, plugin integration и подход к проверке Race Hunter. Это исходный технический драфт для следующего агента; он требует доработки и не является завершённым планом реализации.
+Спецификация описывает предлагаемые архитектуру, компоненты, алгоритмы, модели данных, plugin integration и подход к проверке текущей версии Concurrency Hunter для race/lost-update analysis. Это исходный технический драфт для следующего агента; он требует доработки и не является завершённым планом реализации. Полноценный deadlock analysis выделен в отдельную будущую версию со своими PRD и SPEC; границы дальнейшей проработки описаны в разделе 14.2.
 
 [PRD](PRD.md) задаёт обязательное поведение продукта, scope, метрики и критерии приёмки. Технические решения `TD-*`, логические схемы и примеры данных в этом документе задают основу реализации и подлежат уточнению. При противоречии с PRD приоритет имеет PRD; примеры не задают дополнительных продуктовых требований.
 
@@ -59,7 +59,7 @@ flowchart TD
 
 | Компонент | Ответственность | Не отвечает за |
 |---|---|---|
-| Plugin Command Adapter | Единая `/race-hunter` команда, target resolution, lifecycle run, передача отмены в host и возврат ссылки на отчёт | Analysis verdicts |
+| Plugin Command Adapter | Единая `/concurrency-hunter` команда, target resolution, lifecycle run, передача отмены в host и возврат ссылки на отчёт | Analysis verdicts |
 | Project Loader | MSBuild/Roslyn workspace, compilation boundary, coverage | Анализ concurrency |
 | Roslyn Frontend | Symbols/IOperation/CFG → normalized IR | Framework-specific verdicts |
 | Summary Engine | Local effects, symbolic propagation, fixpoint | Попарное сравнение всех methods |
@@ -240,7 +240,7 @@ Equality keys определяется фактическим comparer колл�
 - Число контекстов на метод, глубина candidate-local refinement и правила widening ограничиваются constants в коде сервера. Конкретные значения определяются на correctness/performance corpus; порядок создания, объединения и уточнения контекстов детерминирован.
 - При объединении контекстов сохраняется консервативное объединение may-targets, aliases и effects. Потеря precision явно отражается в uncertainty/coverage; отбросить неудобный контекст или вывести disjointness/confinement из достижения budget нельзя. Must-held protection и ordering должны оставаться доказанными для всех охваченных executions.
 
-Различный `ContextKey` не является самостоятельным доказательством разных объектов, а одинаковый ключ может представлять несколько runtime instances. Преимущества выбранной политики по precision, времени и памяти необходимо подтвердить на .NET corpus, включая сравнение с простыми call-site/object-sensitive baselines. Методическая основа для такого сравнения: [Hybrid Context-Sensitivity for Points-To Analysis](https://yanniss.github.io/hybrid-context-pldi13.pdf); опубликованные результаты на Java не подменяют измерения Race Hunter.
+Различный `ContextKey` не является самостоятельным доказательством разных объектов, а одинаковый ключ может представлять несколько runtime instances. Преимущества выбранной политики по precision, времени и памяти необходимо подтвердить на .NET corpus, включая сравнение с простыми call-site/object-sensitive baselines. Методическая основа для такого сравнения: [Hybrid Context-Sensitivity for Points-To Analysis](https://yanniss.github.io/hybrid-context-pldi13.pdf); опубликованные результаты на Java не подменяют измерения Concurrency Hunter.
 
 **TD-045.** Lock identity использует тот же points-to mechanism, что и data resource identity. Одинаковое имя поля или тип lock не доказывают общую защиту.
 
@@ -761,7 +761,7 @@ AI-composed human-readable finding должен отвечать в таком �
 Плагин для Codex, Claude Code и Cursor предоставляет одну команду:
 
 ```text
-/race-hunter [target]
+/concurrency-hunter [target]
 ```
 
 `target` optional. При его отсутствии плагин использует активный workspace и применяет детерминированный порядок resolution: выбранная host-ом solution, единственная solution в workspace, затем project graph из workspace root. Если target нельзя определить однозначно, команда завершается `Failed` и всё равно создаёт короткий diagnostic report с найденными вариантами; она не переходит в интерактивный wizard.
@@ -853,7 +853,7 @@ AI evals используют независимо размеченные expect
 
 ### 9.6. Packaging
 
-Один release плагина `race-hunter` содержит общий version-pinned analyzer engine с built-in provider implementations, semantic/report schemas, workflow skill и три тонких host adapter-а: Codex, Claude Code и Cursor. Когда host поддерживает portable Agent Plugins, используются общий skill и local MCP server; host-specific wrapper отвечает только за регистрацию `/race-hunter` и ссылку на artifact. Предлагаемый skill+MCP layout нужно сверить с [документацией Codex plugins](https://developers.openai.com/codex/build-plugins) при детализации packaging. Engine не поставляется пользователю как отдельный глобальный executable.
+Один release плагина `concurrency-hunter` содержит общий version-pinned analyzer engine с built-in provider implementations, semantic/report schemas, workflow skill и три тонких host adapter-а: Codex, Claude Code и Cursor. Когда host поддерживает portable Agent Plugins, используются общий skill и local MCP server; host-specific wrapper отвечает только за регистрацию `/concurrency-hunter` и ссылку на artifact. Предлагаемый skill+MCP layout нужно сверить с [документацией Codex plugins](https://developers.openai.com/codex/build-plugins) при детализации packaging. Engine не поставляется пользователю как отдельный глобальный executable.
 
 Plugin package должен быть self-contained либо выполнять preflight поддерживаемого local runtime до начала scan. Installation/update не запускают анализ автоматически. Версии adapter, engine, built-in provider registry, report schema и AI workflow записываются в каждый отчёт.
 
@@ -1133,3 +1133,11 @@ Corpus должен включать:
 7. Определить этапы реализации и детализацию acceptance fixtures по зависимостям компонентов. Порядок разработки и rollout milestones этим черновиком не фиксируются.
 8. Зафиксировать SDK feature bands и версии Roslyn/MSBuild для поддержки .NET 8, .NET 9 и .NET 10 со стабильными C# versions без preview; проверить matrix на Windows и Linux.
 9. Определить синтаксис локальных source suppressions и repository-wide записей в skill, repository identity, exact semantic matching, формат expiry и диагностику невалидных записей с соблюдением FR-18.
+
+### 14.2. Отдельная будущая версия: deadlock detection
+
+Полноценное обнаружение deadlocks реализуется отдельной будущей версией Concurrency Hunter по собственным PRD и SPEC, согласно [PRD, разделу 8](PRD.md). Будущая спецификация определяет модель зависимостей ожидания и завершения, поддержку synchronization modes, task/thread waits, async continuations и scheduler/context dependencies, генерацию и проверку candidates, evidence/report contracts, corpus и performance budgets. Конкретная матрица поддержки фиксируется в будущих документах.
+
+Будущая реализация может переиспользовать общий frontend, points-to, method summaries, execution facts, cache infrastructure и report workflow. Необходимые расширения IR/summaries, analysis core, schemas и правила совместимости оцениваются при той проработке; номер релиза и необходимость major version заранее не фиксируются.
+
+В текущем ядре сохраняются уже необходимые по TD-012/TD-021 явные acquire/release, spawn/join/await events, identities, guards и provenance. Фильтрация race candidates не подменяет эти исходные semantic facts. Граф ожиданий, deadlock rules и их acceptance checks относятся к будущей реализации; они не добавляют условий приёмки текущей версии.
