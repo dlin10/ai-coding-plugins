@@ -4,7 +4,7 @@ using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.MSBuild;
 
-namespace CacheDetective.Workspaces;
+namespace Common.Roslyn;
 
 public sealed class MsBuildSolutionLoader
 {
@@ -30,7 +30,7 @@ public sealed class MsBuildSolutionLoader
     /// <summary>Registers the MSBuild instance this process builds against. Registration is process-wide
     /// and may only happen once, so anything else that creates its own workspace has to come through
     /// here rather than register a second time.</summary>
-    internal static void EnsureMsBuildRegistered() => _ = REGISTERED_INSTANCE.Value;
+    public static void EnsureMsBuildRegistered() => _ = REGISTERED_INSTANCE.Value;
 
     public async Task<MsBuildLoadResult> LoadAsync(string path,
                                                    CancellationToken cancellationToken = default)

@@ -3,6 +3,7 @@ using CacheDetective.Configuration;
 using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Serialization;
+using Common.Mcp;
 using System.Text.Json;
 
 namespace CacheDetective.Mcp;

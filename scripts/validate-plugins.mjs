@@ -289,6 +289,8 @@ function validateSync() {
   const pluginsDir = join(repoRoot, 'plugins');
   for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    // Shared code, not a plugin, nothing ships it. See docs/adr/0001.
+    if (entry.name === 'Common') continue;
     const claudeManifest = join(pluginsDir, entry.name, '.claude-plugin', 'plugin.json');
     const cursorManifest = join(pluginsDir, entry.name, '.cursor-plugin', 'plugin.json');
     const codexManifest = join(pluginsDir, entry.name, '.codex-plugin', 'plugin.json');
@@ -379,6 +381,8 @@ function validateCatalogCoverage() {
   const pluginsDir = join(repoRoot, 'plugins');
   for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    // Shared code, not a plugin, nothing ships it. See docs/adr/0001.
+    if (entry.name === 'Common') continue;
     const pluginDir = join(pluginsDir, entry.name);
     const shipped = hosts.filter((host) => existsSync(join(pluginDir, host.manifest, 'plugin.json')));
     if (shipped.length === 0) {

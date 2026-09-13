@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **The MSBuild loader, the response envelope, text fitting, diagnostic fragmentation, exit codes
+  and version reading now live in `plugins/Common`**, as `Common.Roslyn` and `Common.Mcp` (root
+  `docs/adr/0001`). 21 of their tests moved with them into `Common.Tests`, and
+  `build/test-baseline.txt` was re-recorded to 684 cases with both behaviour snapshots untouched.
+  The build invariants and package versions moved to `plugins/Directory.Build.props` and
+  `plugins/Directory.Packages.props`; `build/package.ps1` and `build/check-test-baseline.ps1` are
+  now wrappers over `plugins/Common/build/`.
 - **A form of entry point is a finder, not a branch** (`docs/adr/0019`). `AddTypeEntryPoints` decided
   seven kinds of entry point as seven consecutive branches in one method, so adding an eighth meant
   editing that method — the one thing the rest of this project is built not to require, since

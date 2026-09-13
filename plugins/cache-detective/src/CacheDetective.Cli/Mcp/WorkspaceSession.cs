@@ -7,7 +7,8 @@ using CacheDetective.Graph;
 using CacheDetective.Indexing;
 using CacheDetective.Rules;
 using CacheDetective.Verification;
-using CacheDetective.Workspaces;
+using Common.Mcp;
+using Common.Roslyn;
 using StackExchange.Redis;
 using System.Text.Json;
 
@@ -643,10 +644,6 @@ internal sealed record IndexDatabaseResult(string Database, bool Succeeded, Date
 /// here so a caller can see whether it may verify without reading the configuration file itself.</summary>
 internal sealed record WorkspaceStatusResult(ListEnvelope<SolutionStatus> Solutions, WorkspaceCounts Counts,
                                              bool VerifyAuto = false);
-/// <summary>One diagnostic, or one fragment of one whose message is too long to travel whole: the
-/// fragments of a message share an <paramref name="Id"/> and are numbered <paramref name="Part"/> of
-/// <paramref name="Parts"/>, so a reader that pages to the end can put the message back together.</summary>
-internal sealed record WorkspaceDiagnosticResult(string Id, string Kind, string Message, int Part, int Parts);
 internal sealed record IndexSolutionResult(string Path, bool Succeeded, DateTimeOffset? IndexedAt,
                                            WorkspaceCounts Counts,
                                            ListEnvelope<WorkspaceDiagnosticResult> Diagnostics,

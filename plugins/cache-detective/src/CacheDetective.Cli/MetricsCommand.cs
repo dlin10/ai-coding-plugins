@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.Json.Serialization;
-using CacheDetective.Cli;
 using CacheDetective.Configuration;
 using CacheDetective.Serialization;
 using CacheDetective.Caching;
@@ -12,7 +11,8 @@ using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Indexing;
 using CacheDetective.Mcp;
-using CacheDetective.Workspaces;
+using Common.Mcp;
+using Common.Roslyn;
 
 namespace CacheDetective;
 

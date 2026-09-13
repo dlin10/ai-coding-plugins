@@ -1,0 +1,6 @@
+<Project>
+  <!-- find-files pins its versions inline, so this stops the search for the root Directory.Packages.props. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

@@ -16,7 +16,7 @@
        the build at all. -->
   <Target Name="CacheDetectiveFixtureWarning" BeforeTargets="ResolveReferences">
     <Warning Code="CDTEST0001"
-             Text="Cache Detective fixture: MSBuildTreatWarningsAsErrors=$(MSBuildTreatWarningsAsErrors);TreatWarningsAsErrors=$(TreatWarningsAsErrors);NuGetAudit=$(NuGetAudit)" />
+             Text="Common.Tests fixture: MSBuildTreatWarningsAsErrors=$(MSBuildTreatWarningsAsErrors);TreatWarningsAsErrors=$(TreatWarningsAsErrors);NuGetAudit=$(NuGetAudit)" />
   </Target>
 
 </Project>

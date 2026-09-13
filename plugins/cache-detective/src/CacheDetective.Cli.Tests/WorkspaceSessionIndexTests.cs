@@ -1,5 +1,6 @@
 using CacheDetective.Mcp;
-using CacheDetective.Workspaces;
+using Common.Mcp;
+using Common.Roslyn;
 using Xunit;
 
 namespace CacheDetective.Tests;

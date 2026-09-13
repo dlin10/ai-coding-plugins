@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using CacheDetective.Serialization;
 using CacheDetective.Verification;
+using Common.Mcp;
 
 namespace CacheDetective.Mcp;
 

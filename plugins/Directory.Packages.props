@@ -31,6 +31,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageVersion Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="ModelContextProtocol.Extensions.Apps" Version="2.2.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <!-- Centralising exposed a split: CacheDetective.Core.Tests was on 3.0.2 and

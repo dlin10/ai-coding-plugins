@@ -24,12 +24,6 @@
     <ProjectReference Include="../CacheDetective.Cli/CacheDetective.Cli.csproj" />
   </ItemGroup>
 
-  <!-- The fixture solutions are opened by the loader under test, not compiled into it. -->
-  <ItemGroup>
-    <Compile Remove="Fixtures\**\*.cs" />
-    <None Include="Fixtures\**\*.cs" />
-  </ItemGroup>
-
   <!-- Shared with CacheDetective.Core.Tests by linking the file, not by referencing that project: one
        file in two compilations beats a test project depending on another test project. -->
   <ItemGroup>

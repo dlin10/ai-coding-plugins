@@ -1,0 +1,31 @@
+name: build-common
+
+# A branch push and its pull request are the same commit, and an unfiltered `push` matches every
+# ref — tags included, which would re-run this whole suite on a commit `main` had just tested.
+# Restricting push to the default branch leaves each commit checked once: on its pull request, then
+# on the merge.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
+      - '.github/workflows/build-common.yml'
+  pull_request:
+    paths:
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
+      - '.github/workflows/build-common.yml'
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test plugins/Common/Common.Tests/Common.Tests.csproj -c Release --nologo

@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using CacheDetective.Configuration;
 using CacheDetective.Mcp;
+using Common.Mcp;
 
 namespace CacheDetective.Serialization;
 

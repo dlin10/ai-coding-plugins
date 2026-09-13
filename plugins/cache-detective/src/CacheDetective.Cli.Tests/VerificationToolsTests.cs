@@ -5,6 +5,7 @@ using CacheDetective.Mcp;
 using CacheDetective.Rules;
 using CacheDetective.Serialization;
 using CacheDetective.Verification;
+using Common.Mcp;
 using StackExchange.Redis;
 using Xunit;
 

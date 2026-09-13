@@ -30,6 +30,15 @@ Consumers today are `cache-detective` and `concurrency-hunter`. `plan-forge-flow
 umbrella solution and the root package versions now, and becomes a consumer only if its vendor
 runner is extracted into a `Common.Agents` that `concurrency-hunter` decides to use.
 
+One item on the list above stays copied: the launcher. A marketplace installs the plugin's own
+directory and nothing beside it, so `bin/<exe>-launcher.cmd` runs where `plugins/Common` does not
+exist and has to carry everything itself. Each plugin keeps its own copy and a launcher fix is
+applied to every copy by hand; a template rendered at packaging time was considered on 2026-09-13
+and declined as machinery for a sixty-line file that rarely changes. The adapter code has a test
+project of its own, `Common.Tests`, holding the envelope, fragmentation and loader cases that began
+life in cache-detective's suite; the consumers' baselines remain the gate for their recorded
+behaviour, and `Common.Tests` is the gate for the adapter itself.
+
 Rejected: copying, which leaves two loaders and two build-host fixes to drift apart. Rejected: a
 NuGet package, a third release artifact for two consumers in one repository. Rejected: the umbrella
 solution as the gate, for the reasons above.

@@ -5,20 +5,23 @@ name: Build Plan Forge Flow
 # push to the default branch leaves each commit checked once: on its pull request, then on the merge.
 #
 # Both jobs below build and package one plugin, so `paths` holds them to it: a README edit or a
-# change under another plugin has nothing here to check. The filter is complete because nothing
-# outside the plugin feeds the build — global.json and Directory.Build.props live inside it, not at
-# the repository root. Adding required status checks would break this: a filtered workflow never
-# reports, and a required check that never reports blocks the merge forever.
+# change under another plugin has nothing here to check. The filter is not quite complete: the root
+# plugins/Directory.Packages.props feeds this build too, and is listed below for it, while
+# global.json and Directory.Build.props still live inside the plugin, not at the repository root.
+# Adding required status checks would break this: a filtered workflow never reports, and a required
+# check that never reports blocks the merge forever.
 on:
   push:
     branches:
       - main
     paths:
       - 'plugins/plan-forge-flow/**'
+      - 'plugins/Directory.Packages.props'
       - '.github/workflows/build-plan-forge-flow.yml'
   pull_request:
     paths:
       - 'plugins/plan-forge-flow/**'
+      - 'plugins/Directory.Packages.props'
       - '.github/workflows/build-plan-forge-flow.yml'
 
 jobs:

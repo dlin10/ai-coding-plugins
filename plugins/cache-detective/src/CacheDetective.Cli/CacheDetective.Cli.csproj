@@ -40,6 +40,8 @@
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="StackExchange.Redis" />
     <ProjectReference Include="..\CacheDetective.Core\CacheDetective.Core.csproj" />
+    <ProjectReference Include="..\..\..\Common\Common.Mcp\Common.Mcp.csproj" />
+    <ProjectReference Include="..\..\..\Common\Common.Roslyn\Common.Roslyn.csproj" />
   </ItemGroup>
 
 </Project>

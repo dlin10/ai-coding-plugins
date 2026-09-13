@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/Common/">
+    <Project Path="Common/Common.Mcp/Common.Mcp.csproj" />
+    <Project Path="Common/Common.Roslyn/Common.Roslyn.csproj" />
+    <Project Path="Common/Common.Tests/Common.Tests.csproj" />
+  </Folder>
+  <Folder Name="/cache-detective/">
+    <Project Path="cache-detective/src/CacheDetective.Core/CacheDetective.Core.csproj" />
+    <Project Path="cache-detective/src/CacheDetective.Core.Tests/CacheDetective.Core.Tests.csproj" />
+    <Project Path="cache-detective/src/CacheDetective.Cli/CacheDetective.Cli.csproj" />
+    <Project Path="cache-detective/src/CacheDetective.Cli.Tests/CacheDetective.Cli.Tests.csproj" />
+  </Folder>
+  <Folder Name="/plan-forge-flow/">
+    <Project Path="plan-forge-flow/src/PlanForge/PlanForge.csproj" />
+    <Project Path="plan-forge-flow/src/PlanForge.Tests/PlanForge.Tests.csproj" />
+  </Folder>
+</Solution>

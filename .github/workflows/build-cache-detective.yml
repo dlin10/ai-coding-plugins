@@ -6,10 +6,16 @@ on:
       - main
     paths:
       - 'plugins/cache-detective/**'
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
       - '.github/workflows/build-cache-detective.yml'
   pull_request:
     paths:
       - 'plugins/cache-detective/**'
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
       - '.github/workflows/build-cache-detective.yml'
 
 jobs:

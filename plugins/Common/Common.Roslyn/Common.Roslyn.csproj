@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Common.Roslyn</RootNamespace>
+    <!-- MSBuild and Microsoft.CodeAnalysis.Workspaces.MSBuild are reflection through and through:
+         trimming this library would cut the very APIs MSBuildLocator and MSBuildWorkspace resolve
+         at run time. -->
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Common.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Build.Locator" />
+    <!-- Microsoft.Build.Locator refuses (MSBL001) unless MSBuild assemblies are kept out of the
+         output: they must come from the installed SDK at run time, not from bin. -->
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" />
+    <!-- The C# language services MSBuildWorkspace needs to open and compile a C# project. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <ProjectReference Include="..\Common.Mcp\Common.Mcp.csproj" />
+  </ItemGroup>
+
+</Project>

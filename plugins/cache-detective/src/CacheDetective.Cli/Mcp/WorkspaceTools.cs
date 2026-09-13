@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using CacheDetective.Serialization;
 using CacheDetective.Configuration;
+using Common.Mcp;
 using ModelContextProtocol.Server;
 
 namespace CacheDetective.Mcp;

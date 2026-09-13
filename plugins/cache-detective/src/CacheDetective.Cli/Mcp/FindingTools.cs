@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using CacheDetective.Serialization;
+using Common.Mcp;
 using ModelContextProtocol.Server;
 
 namespace CacheDetective.Mcp;

@@ -4,6 +4,7 @@ using CacheDetective.Caching;
 using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Rules;
+using Common.Mcp;
 
 namespace CacheDetective.Mcp;
 

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using CacheDetective.Mcp;
+using Common.Mcp;
 using Xunit;
 
 namespace CacheDetective.Tests;

@@ -4,6 +4,7 @@ using CacheDetective.Mcp;
 using CacheDetective.Serialization;
 using CacheDetective.Graph;
 using CacheDetective.Rules;
+using Common.Mcp;
 using Xunit;
 
 namespace CacheDetective.Tests;

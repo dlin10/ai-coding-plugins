@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Common.Tests</AssemblyName>
+    <RootNamespace>Common.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Transitive pinning makes this a direct reference, and Microsoft.Build.Locator refuses
+         (MSBL001) unless MSBuild assemblies are kept out of the output: they must come from the
+         installed SDK at run time, not from bin. -->
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Brings Microsoft.CodeAnalysis.CSharp.Workspaces transitively. -->
+    <ProjectReference Include="..\Common.Mcp\Common.Mcp.csproj" />
+    <ProjectReference Include="..\Common.Roslyn\Common.Roslyn.csproj" />
+  </ItemGroup>
+
+  <!-- The fixture solution is opened by the loader under test, not compiled into it. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures\**\*.cs" />
+    <None Include="Fixtures\**\*.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,6 +1,7 @@
 using CacheDetective.Graph;
 using CacheDetective.Mcp;
 using CacheDetective.Rules;
+using Common.Mcp;
 using Xunit;
 
 namespace CacheDetective.Tests;

@@ -3,7 +3,8 @@ using CacheDetective.Configuration;
 using CacheDetective.Events;
 using CacheDetective.Graph;
 using CacheDetective.Indexing;
-using CacheDetective.Workspaces;
+using Common.Mcp;
+using Common.Roslyn;
 using System.Diagnostics.CodeAnalysis;
 
 namespace CacheDetective.Mcp;

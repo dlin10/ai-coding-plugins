@@ -2,12 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
-namespace CacheDetective.Mcp;
+namespace Common.Mcp;
 
-internal sealed record PageArguments
+public sealed record PageArguments
 {
-    internal const int DefaultPage = 1;
-    internal const int DefaultPageSize = 50;
+    public const int DefaultPage = 1;
+    public const int DefaultPageSize = 50;
 
     [JsonPropertyName("page")]
     public int Page { get; init; } = DefaultPage;
@@ -16,7 +16,7 @@ internal sealed record PageArguments
     public int PageSize { get; init; } = DefaultPageSize;
 }
 
-internal sealed record ListEnvelope<T>(
+public sealed record ListEnvelope<T>(
     [property: JsonPropertyName("total")] int Total,
     [property: JsonPropertyName("page")] int Page,
     [property: JsonPropertyName("pages")] int Pages,
@@ -24,14 +24,14 @@ internal sealed record ListEnvelope<T>(
     [property: JsonPropertyName("notice")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Notice = null);
 
-internal static class ResponseEnvelope
+public static class ResponseEnvelope
 {
-    internal const int MaximumSerializedBytes = 8 * 1024;
+    public const int MaximumSerializedBytes = 8 * 1024;
 
-    internal static ListEnvelope<T> Create<T>(IReadOnlyList<T> source,
-                                              PageArguments? arguments,
-                                              JsonTypeInfo<ListEnvelope<T>> typeInfo,
-                                              int reserve = 0)
+    public static ListEnvelope<T> Create<T>(IReadOnlyList<T> source,
+                                            PageArguments? arguments,
+                                            JsonTypeInfo<ListEnvelope<T>> typeInfo,
+                                            int reserve = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(typeInfo);

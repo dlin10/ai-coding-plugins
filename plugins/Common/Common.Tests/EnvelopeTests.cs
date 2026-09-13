@@ -1,9 +1,8 @@
 using System.Text.Json;
-using CacheDetective.Mcp;
-using CacheDetective.Serialization;
+using Common.Mcp;
 using Xunit;
 
-namespace CacheDetective.Tests;
+namespace Common.Tests;
 
 public sealed class EnvelopeTests
 {
@@ -12,7 +11,7 @@ public sealed class EnvelopeTests
     {
         var source = Enumerable.Range(1, 125).Select(value => value.ToString()).ToList();
 
-        var envelope = ResponseEnvelope.Create(source, null, CacheDetectiveJsonContext.Default.ListEnvelopeString);
+        var envelope = ResponseEnvelope.Create(source, null, TestJsonContext.Default.ListEnvelopeString);
 
         Assert.Equal(125, envelope.Total);
         Assert.Equal(1, envelope.Page);
@@ -30,9 +29,9 @@ public sealed class EnvelopeTests
         var arguments = new PageArguments { Page = 1, PageSize = 20 };
 
         var envelope = ResponseEnvelope.Create(
-            source, arguments, CacheDetectiveJsonContext.Default.ListEnvelopeString);
+            source, arguments, TestJsonContext.Default.ListEnvelopeString);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(
-            envelope, CacheDetectiveJsonContext.Default.ListEnvelopeString);
+            envelope, TestJsonContext.Default.ListEnvelopeString);
 
         Assert.True(bytes.Length <= ResponseEnvelope.MaximumSerializedBytes);
         Assert.InRange(envelope.Items.Count, 1, 19);
@@ -47,7 +46,7 @@ public sealed class EnvelopeTests
         var source = Enumerable.Range(1, 12).Select(value => $"{value:D2}:{new string('x', 3_000)}").ToList();
         var pages = Enumerable.Range(1, 12)
                               .Select(page => ResponseEnvelope.Create(source, new PageArguments { Page = page, PageSize = 5 },
-                                  CacheDetectiveJsonContext.Default.ListEnvelopeString))
+                                  TestJsonContext.Default.ListEnvelopeString))
                               .TakeWhile(envelope => envelope.Page <= envelope.Pages)
                               .ToArray();
 

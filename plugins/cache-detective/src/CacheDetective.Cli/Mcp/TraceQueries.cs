@@ -6,6 +6,7 @@ using CacheDetective.Configuration;
 using CacheDetective.Serialization;
 using CacheDetective.Graph;
 using CacheDetective.Rules;
+using Common.Mcp;
 
 namespace CacheDetective.Mcp;
 

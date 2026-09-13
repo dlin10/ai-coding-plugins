@@ -8,7 +8,7 @@ using CacheDetective.Indexing;
 using CacheDetective.Events;
 using CacheDetective.Mcp;
 using CacheDetective.Serialization;
-using CacheDetective.Workspaces;
+using Common.Roslyn;
 using Xunit;
 
 namespace CacheDetective.Tests;

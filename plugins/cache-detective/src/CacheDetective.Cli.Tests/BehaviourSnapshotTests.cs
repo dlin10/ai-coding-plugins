@@ -8,7 +8,7 @@ using CacheDetective.Graph;
 using CacheDetective.Indexing;
 using CacheDetective.Rules;
 using CacheDetective.Tests.Database;
-using CacheDetective.Workspaces;
+using Common.Roslyn;
 using Xunit;
 
 namespace CacheDetective.Tests;

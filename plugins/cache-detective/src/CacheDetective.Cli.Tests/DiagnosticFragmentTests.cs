@@ -1,7 +1,7 @@
-using System.Text;
 using System.Text.Json;
 using CacheDetective.Mcp;
 using CacheDetective.Serialization;
+using Common.Mcp;
 using Microsoft.CodeAnalysis;
 using Xunit;
 
@@ -14,47 +14,6 @@ namespace CacheDetective.Tests;
 /// </summary>
 public sealed class DiagnosticFragmentTests
 {
-    [Fact]
-    public void A_long_cyrillic_message_pages_without_an_empty_page()
-    {
-        var message = string.Concat(Enumerable.Repeat("Не удалось загрузить проект: ", 200));
-        Assert.True(message.Length > 4000, $"the fixture message was only {message.Length} characters");
-
-        var described = WorkspaceSession.Describe([new FakeDiagnostic(message)]);
-
-        Assert.All(described, fragment => Assert.NotEmpty(fragment.Message));
-        Assert.All(described, fragment => Assert.True(Size(fragment) <= ResponseEnvelope.MaximumSerializedBytes,
-                                                       $"a fragment serialized to {Size(fragment)} bytes"));
-        Assert.Equal(message, string.Concat(described.OrderBy(fragment => fragment.Part).Select(fragment => fragment.Message)));
-    }
-
-    /// <summary>Every page of the paged result carries at least one fragment: an oversized item is what
-    /// produced an empty page, and there are none left.</summary>
-    [Fact]
-    public void Every_page_of_a_long_message_carries_something()
-    {
-        var described = WorkspaceSession.Describe([new FakeDiagnostic(string.Concat(Enumerable.Repeat("Ошибка сборки. ", 400)))]);
-
-        for (var page = 1; page <= described.Count; page++)
-        {
-            var envelope = WorkspaceSession.PageDiagnostics(described, new PageArguments { Page = page, PageSize = 1 });
-            Assert.NotEmpty(envelope.Items);
-        }
-    }
-
-    /// <summary>A cut never lands between the halves of a surrogate pair, or the rejoined text would differ from the original by two broken characters.</summary>
-    [Fact]
-    public void A_surrogate_pair_is_never_split()
-    {
-        var message = string.Concat(Enumerable.Repeat("🧭семь", 900));
-
-        var described = WorkspaceSession.Describe([new FakeDiagnostic(message)]);
-
-        Assert.All(described, fragment => Assert.False(char.IsHighSurrogate(fragment.Message[^1]),
-                                                        "a fragment ended on an unpaired high surrogate"));
-        Assert.Equal(message, string.Concat(described.OrderBy(fragment => fragment.Part).Select(fragment => fragment.Message)));
-    }
-
     /// <summary>
     /// A whole index result stays inside the response limit, not only the diagnostics nested in it. A
     /// solution with hundreds of unloadable projects carries a missingProjects list that can exceed the
@@ -299,9 +258,6 @@ public sealed class DiagnosticFragmentTests
 
     private static int Size(IndexSolutionResult result) =>
         JsonSerializer.SerializeToUtf8Bytes(result, CacheDetectiveJsonContext.Default.IndexSolutionResult).Length;
-
-    private static int Size(WorkspaceDiagnosticResult fragment) =>
-        JsonSerializer.SerializeToUtf8Bytes(fragment, CacheDetectiveJsonContext.Default.WorkspaceDiagnosticResult).Length;
 
     private sealed class FakeDiagnostic(string message) : WorkspaceDiagnostic(WorkspaceDiagnosticKind.Failure, message);
 }

@@ -18,6 +18,7 @@ on:
       - 'plan-forge-flow-v*'
     paths:
       - 'plugins/plan-forge-flow/**'
+      - 'plugins/Directory.Packages.props'
       - '.github/workflows/release.yml'
 
 permissions:
