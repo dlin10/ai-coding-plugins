@@ -1,0 +1,296 @@
+{
+  "schemaVersion": "1",
+  "findings": [
+    {
+      "id": "static-field-unlocked-read-write/post-self",
+      "phase": "1a",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController", "accessPath": ["_lastVisitor"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController.Post(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "static-field-unlocked-read-write/post-get",
+      "phase": "1a",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController", "accessPath": ["_lastVisitor"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "di-singleton-controller-vs-worker/post-self",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DiSingletonControllerVsWorker.VisitorStats@Singleton", "accessPath": ["LastPath"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DiSingletonControllerVsWorker.VisitsController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DiSingletonControllerVsWorker.VisitsController.Post(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "di-singleton-controller-vs-worker/post-worker",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DiSingletonControllerVsWorker.VisitorStats@Singleton", "accessPath": ["LastPath"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DiSingletonControllerVsWorker.VisitsController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DiSingletonControllerVsWorker.StatsResetWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "minimal-api-read-write/set-self",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.MinimalApiReadWrite.FeatureFlags@Singleton", "accessPath": ["Mode"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MinimalApiReadWrite.FeatureFlagEndpoints.Set(FeatureFlags, string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MinimalApiReadWrite.FeatureFlagEndpoints.Set(FeatureFlags, string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "minimal-api-read-write/set-get",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.MinimalApiReadWrite.FeatureFlags@Singleton", "accessPath": ["Mode"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MinimalApiReadWrite.FeatureFlagEndpoints.Set(FeatureFlags, string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MinimalApiReadWrite.FeatureFlagEndpoints.Get(FeatureFlags)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "action-self-overlap",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ActionSelfOverlap.ThemeSettings@Singleton", "accessPath": ["Theme"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ActionSelfOverlap.ThemeController.Put(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ActionSelfOverlap.ThemeController.Put(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "static-field-http-vs-worker",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticFieldHttpVsWorker.Heartbeat", "accessPath": ["LastBeat"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticFieldHttpVsWorker.HeartbeatWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaticFieldHttpVsWorker.HeartbeatController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "rmw-singleton-counter",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RmwSingletonCounter.HitStats@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RmwSingletonCounter.HitsController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RmwSingletonCounter.HitsController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "rmw-three-layers",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Domain.Cases.RmwThreeLayers.Inventory@Singleton", "accessPath": ["_reserved"] },
+      "accesses": [
+        { "symbol": "Demo.Domain.Cases.RmwThreeLayers.Inventory.Reserve(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Domain.Cases.RmwThreeLayers.Inventory.Reserve(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "alias-two-fields",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.AliasTwoFields.Holder..ctor()#Demo.Web.Cases.AliasTwoFields.Box", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AliasTwoFields.Holder.WritePrimary(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.AliasTwoFields.Holder.ReadMirror()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "interface-dispatch-di",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceDispatchDi.LastVisitSink@Singleton", "accessPath": ["_lastPath"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceDispatchDi.LastVisitSink.Record(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.InterfaceDispatchDi.LastVisitSink.Record(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "virtual-dispatch-points-to/loud-handler",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.VirtualDispatchPointsTo.HandlerHost..ctor()#Demo.Web.Cases.VirtualDispatchPointsTo.LoudHandler", "accessPath": ["_last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.VirtualDispatchPointsTo.LoudHandler.Handle(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.VirtualDispatchPointsTo.LoudHandler.Handle(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "delegate-field",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DelegateField.VisitTracker@Singleton", "accessPath": ["_lastPath"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DelegateField.VisitTracker.Remember(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DelegateField.VisitTracker.Remember(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "lambda-and-local-function/local-function",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LambdaAndLocalFunction.Profile@Singleton", "accessPath": ["Name"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LambdaAndLocalFunction.ProfileController.Update(string, string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LambdaAndLocalFunction.ProfileController.Update(string, string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "lambda-and-local-function/lambda",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LambdaAndLocalFunction.Profile@Singleton", "accessPath": ["Email"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LambdaAndLocalFunction.ProfileController.Update(string, string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LambdaAndLocalFunction.ProfileController.Update(string, string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-into-singleton/registry",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.EscapeIntoSingleton.DraftRegistry@Singleton", "accessPath": ["Current"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeIntoSingleton.DraftWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeIntoSingleton.DraftsController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "escape-into-singleton/escaped-draft",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeIntoSingleton.DraftWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.EscapeIntoSingleton.Draft", "accessPath": ["Body"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeIntoSingleton.DraftWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeIntoSingleton.DraftsController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "factory-returns-shared-static",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.FactoryReturnsSharedStatic.SharedBoxes..cctor()#Demo.Web.Cases.FactoryReturnsSharedStatic.Box", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FactoryReturnsSharedStatic.FirstBoxWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FactoryReturnsSharedStatic.SecondBoxWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    }
+  ],
+  "notDefects": [
+    {
+      "id": "static-field-same-lock",
+      "phase": "1a",
+      "resource": { "region": "static:Demo.Web.Cases.StaticFieldSameLock.GuardedVisitorController", "accessPath": ["_lastVisitor"] }
+    },
+    {
+      "id": "di-scoped-per-request",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.DiScopedPerRequest.RequestNotes@Scoped", "accessPath": ["Note"] }
+    },
+    {
+      "id": "di-transient",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.DiTransient.DraftBuffer@Transient", "accessPath": ["Text"] }
+    },
+    {
+      "id": "di-singleton-same-lock-on-instance",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.DiSingletonSameLockOnInstance.Ledger@Singleton", "accessPath": ["LastEntry"] }
+    },
+    {
+      "id": "startup-write-before-run",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.StartupWriteBeforeRun.SiteBanner@Singleton", "accessPath": ["Text"] }
+    },
+    {
+      "id": "virtual-dispatch-points-to/quiet-handler",
+      "phase": "2",
+      "resource": { "region": "static:Demo.Web.Cases.VirtualDispatchPointsTo.QuietHandler", "accessPath": ["LastInput"] }
+    },
+    {
+      "id": "owned-local-allocation",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.OwnedLocalAllocation.ScratchController.Post(string)#Demo.Web.Cases.OwnedLocalAllocation.Scratch", "accessPath": ["Text"] }
+    },
+    {
+      "id": "distinct-allocation-sites/left",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.DistinctAllocationSites.Pair..ctor()#Demo.Web.Cases.DistinctAllocationSites.Box", "accessPath": ["Value"] }
+    },
+    {
+      "id": "distinct-allocation-sites/right",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.DistinctAllocationSites.Pair..ctor()#Demo.Web.Cases.DistinctAllocationSites.Box#2", "accessPath": ["Value"] }
+    },
+    {
+      "id": "receiver-sensitivity/first",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.ReceiverSensitivity.FirstTallyWorker..ctor()#Demo.Web.Cases.ReceiverSensitivity.Tally", "accessPath": ["_markedBy"] }
+    },
+    {
+      "id": "receiver-sensitivity/second",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.ReceiverSensitivity.SecondTallyWorker..ctor()#Demo.Web.Cases.ReceiverSensitivity.Tally", "accessPath": ["_markedBy"] }
+    },
+    {
+      "id": "factory-distinct-call-sites",
+      "phase": "2",
+      "resource": { "region": "alloc:Demo.Web.Cases.FactoryDistinctCallSites.LabelFactory.Create()#Demo.Web.Cases.FactoryDistinctCallSites.Label", "accessPath": ["Text"] }
+    },
+    {
+      "id": "same-lock-via-field",
+      "phase": "2",
+      "resource": { "region": "di:Demo.Web.Cases.SameLockViaField.Sequence@Singleton", "accessPath": ["_next"] }
+    },
+    {
+      "id": "lock-held-by-caller",
+      "phase": "2",
+      "resource": { "region": "di:Demo.Web.Cases.LockHeldByCaller.Tokens@Singleton", "accessPath": ["_issued"] }
+    },
+    {
+      "id": "singleton-configured-in-constructor",
+      "phase": "2",
+      "resource": { "region": "di:Demo.Web.Cases.SingletonConfiguredInConstructor.SiteCatalog@Singleton", "accessPath": ["Title"] }
+    },
+    {
+      "id": "unreachable-static-writer",
+      "phase": "2",
+      "resource": { "region": "static:Demo.Web.Cases.UnreachableStaticWriter.LegacyImporter", "accessPath": ["LastFile"] }
+    }
+  ]
+}

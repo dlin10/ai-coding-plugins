@@ -1,0 +1,6 @@
+<!-- Stops the search for a central package file above this folder; the demo references no packages. -->
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

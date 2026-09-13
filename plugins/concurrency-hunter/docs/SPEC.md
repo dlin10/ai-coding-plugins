@@ -827,7 +827,18 @@ Contract tests каждой реализации: positive/negative discovery, s
 
 ### 12.2. Ground-truth corpus
 
-`demo/` содержит один маленький файл на supported construct и на правило, positive и hard negative рядом: per-request/scoped state, distinct allocation sites, alias через два поля, same/different locks, sequential awaits, disjoint indices, mutually exclusive paths, semaphore с неизвестной capacity, fire-and-forget против awaited handle, reflection/`dynamic`/unknown-library cases с ожидаемыми accepted/rejected inferences, DB/ORM examples без DB verdicts. `expected-findings.json` пишется руками до реализации и никогда не генерируется из результата анализатора. High findings eShopOnContainers и nopCommerce разбираются вручную с записанным adjudication в `skills/hunt/evals/<corpus>/expected.json`.
+`demo/` содержит один маленький файл на supported construct и на правило, positive и hard negative рядом: per-request/scoped state, distinct allocation sites, alias через два поля, same/different locks, sequential awaits, disjoint indices, mutually exclusive paths, semaphore с неизвестной capacity, fire-and-forget против awaited handle, reflection/`dynamic`/unknown-library cases с ожидаемыми accepted/rejected inferences, DB/ORM examples без DB verdicts. `expected-findings.json` пишется руками до реализации и никогда не генерируется из результата анализатора.
+
+Формат `expected-findings.json`:
+
+- `findings[]` и `notDefects[]`; у каждой записи уникальный `id` вида `<case>` или `<case>/<suffix>`, где `<case>` это kebab-имя файла case-а.
+- Идентичность находки: `rule`, `resource` и неупорядоченная пара `accesses`. Roots и `id` в неё не входят. `resource.region` пишется символьно: `static:<Type>`, `di:<ImplementationType>@<Lifetime>`, `alloc:<ContainingMethod>#<CreatedType>[#n]`, где `#n` это порядок `new` этого типа в методе, а инициализаторы полей принадлежат `..ctor(…)` или `..cctor()`. Регион без контекста совпадает с регионом анализатора из этого сайта в любом `ContextKey`. `resource.accessPath` называет поля и auto-properties по имени. `access.symbol` это ближайший обычный член, в теле которого стоит access, включая лямбды и локальные функции; `access.operation` из TD-071. Self-pair repeated root записывается двумя одинаковыми accesses.
+- Запись `notDefects` без `accesses` запрещает любую находку на resource, с `accesses` только на этой паре.
+- `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе.
+- `confidence` (метка, без score) проверяется отдельно от идентичности, с фазы `max(phase, 2)`. Case-ы фаз 1–2 не содержат guards, spawn sites и вызовов, способных стать semantic gap, поэтому поздние фазы их метку не меняют.
+- Гейт demo это точное совпадение по записям с `phase ≤ N`, стабильное на трёх прогонах; recall и precision High по G1/G3 печатаются, но гейт не ослабляют.
+
+High findings eShopOnContainers и nopCommerce разбираются вручную с записанным adjudication в `skills/hunt/evals/<corpus>/expected.json`.
 
 ### 12.3. Regression policy
 
@@ -901,7 +912,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 | Фаза | Что сдаётся | Gate фазы |
 |---|---|---|
 | **0** | Этот документ, PRD, `CONTEXT.md`, ADR; `demo/` с expectations для фаз 1–2 | Приёмка владельца |
-| **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, скрипты, launcher; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; DCA1001 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
+| **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, скрипты, launcher; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
 | **1b** | IR в финальной форме; providers `AspNetCore` и `Hosting` с registry и fixture; DI provider; `DiInstance`-регионы; overlap между roots; must-hold `lock` по CFG; skeleton отчёта полный | Demo фазы 1 целиком |
 | **2** | Совместный fixpoint: summaries, граф вызовов всех видов, allocation-site points-to с hybrid contexts и константами, ownership/escape, reachable set, RMW и DCA1002, bucket index, группы, fingerprints | Demo через три слоя; первый `metrics` на eShop |
 | **3** | Execution model: все spawn sites TD-065, join/happens-before по handle, exception paths, timers и `PeriodicTimer`, gRPC root | Demo TC-12 |

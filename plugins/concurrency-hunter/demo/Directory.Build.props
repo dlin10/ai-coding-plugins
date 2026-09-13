@@ -1,0 +1,11 @@
+<!-- Deliberately does not import a parent: the product's build settings must never change how the
+     planted races compile, or the hand-written expectations would drift without an edit here. -->
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,12 @@
+<!-- Deliberately racy code lives here, so this workspace is not part of src/ConcurrencyHunter.slnx:
+     a race planted on purpose must never be able to break the product build. -->
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="expected-findings.json" />
+  </Folder>
+  <Project Path="Demo.Application/Demo.Application.csproj" />
+  <Project Path="Demo.Domain/Demo.Domain.csproj" />
+  <Project Path="Demo.Web/Demo.Web.csproj" />
+</Solution>
