@@ -291,6 +291,8 @@ function validateSync() {
     if (!entry.isDirectory()) continue;
     // Shared code, not a plugin, nothing ships it. See docs/adr/0001.
     if (entry.name === 'Common') continue;
+    // IDE caches such as .vs are not plugins.
+    if (entry.name.startsWith('.')) continue;
     const claudeManifest = join(pluginsDir, entry.name, '.claude-plugin', 'plugin.json');
     const cursorManifest = join(pluginsDir, entry.name, '.cursor-plugin', 'plugin.json');
     const codexManifest = join(pluginsDir, entry.name, '.codex-plugin', 'plugin.json');
@@ -383,6 +385,8 @@ function validateCatalogCoverage() {
     if (!entry.isDirectory()) continue;
     // Shared code, not a plugin, nothing ships it. See docs/adr/0001.
     if (entry.name === 'Common') continue;
+    // IDE caches such as .vs are not plugins.
+    if (entry.name.startsWith('.')) continue;
     const pluginDir = join(pluginsDir, entry.name);
     const shipped = hosts.filter((host) => existsSync(join(pluginDir, host.manifest, 'plugin.json')));
     if (shipped.length === 0) {
