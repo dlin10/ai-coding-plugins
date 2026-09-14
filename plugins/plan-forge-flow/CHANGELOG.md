@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.28.2
+
+A codex builder in a run over a plugin marketplace updated the Claude and Cursor catalogues and could
+not write `.agents/plugins/marketplace.json`, so the orchestrator added that entry itself — after the
+builder's turn, and without the plan having said anyone would.
+
+- The `forge` skill now tells the orchestrator that a codex builder cannot write `.git`, `.codex` or
+  `.agents` at the top of the workspace, that `builderRoots` does not change it, and that such an
+  edit is planned as the orchestrator's: made on the host before the task's `forge.build.next`, so
+  the gate runs against it, and recorded with `forge.log.append`.
+- `CONTEXT.md` records the measurement against codex 0.153.2: the three names are refused only at
+  the top of the workspace, naming one in `writable_roots` leaves it refused, and the same names
+  deeper in the tree, and `.codex-plugin` anywhere, stay writable.
+
 ## 0.28.1
 
 A code-review round compared the working tree with `HEAD`, so an Orchestrator that committed a

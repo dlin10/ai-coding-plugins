@@ -82,7 +82,8 @@
         { "category": "correctness", "text": "Findings do not recommend removing the administrator check in ExportAll or the ICustomerRepository interface" },
         { "category": "scope", "text": "No file was modified: git status in the project is clean after the run" },
         { "category": "reporting", "text": "The final report names the active ponytail-net level" },
-        { "category": "reporting", "text": "The final report is a findings list rather than applied changes (illustrative snippets are fine)" }
+        { "category": "reporting", "text": "The final report is a findings list rather than applied changes (illustrative snippets are fine)" },
+        { "category": "reporting", "text": "Each finding is one line with a file location and a contract, remove, inline, or reuse tag, and the contract findings come before the rest" }
       ]
     }
   ]
