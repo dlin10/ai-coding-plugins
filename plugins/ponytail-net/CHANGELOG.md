@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Delegated work carries the skill. A subagent starts without it, so a delegated code change or review receives the active level, the change boundary, and the "Never simplify away" list in its prompt, and its result is checked against the skill. Upstream Ponytail reaches subagents with a `SubagentStart` hook; a prompt rule does the same job here and keeps the plugin free of hooks on all three hosts.
+- A report shape for reviews: one line per finding tagged `contract`, `remove`, `inline`, or `reuse`, behavior changes first, followed by optional `Kept` and a `Checked` line. The review eval gains a reporting assertion for it.
+- One worked example of the same request at `lite`, `full`, and `ultra`: an hourly session cleanup in a `BackgroundService`. The job is identical at every level and only the treatment of a single-product factory differs. Its domain lies outside the four eval fixtures, so no eval scenario is answered by the example; the `ultra` bullet does share the single-product-factory rule with the `ultra-simplify-trap` scenario.
+- The README describes automatic invocation the way the skill description does: on any C# change, bug fix, refactoring, or review, not only on a request to simplify.
+
 ## 0.1.0
 
 Initial release.
