@@ -13,13 +13,13 @@ The concept comes from DietrichGebert's [Ponytail](https://github.com/DietrichGe
 | `ultra` | Also challenge indirection in the affected flow and remove it when the task and every consumer allow, with reference evidence; broader refactors become follow-ups. |
 | `off` | Disabled for this task until re-enabled. |
 
-An explicit level carries through follow-ups on the same task. The skill restates the active level at the top of every report, so it does not drift in a long session. Every level keeps required behavior and verification; a requested feature is never "speculative" because a smaller one would be easier.
+An explicit level carries through follow-ups on the same task. The skill restates the active level at the top of every report, so it does not drift in a long session, and a review comes back as one tagged line per finding with behavior changes first. A subagent does not inherit the skill, so the level, the change boundary, and the never-simplify list go into the prompt of any delegated change or review. Every level keeps required behavior and verification; a requested feature is never "speculative" because a smaller one would be easier.
 
 ## Invocation
 
 | Host | How |
 |---|---|
-| Claude Code | `/ponytail-net:ponytail-net [lite\|full\|ultra\|off]`, or automatically when a request asks to simplify C# code |
+| Claude Code | `/ponytail-net:ponytail-net [lite\|full\|ultra\|off]`, or automatically on a C# change, bug fix, refactoring, or review |
 | Codex | `$ponytail-net` with the level in the request text |
 | Cursor | the `ponytail-net` skill, by name or automatically |
 

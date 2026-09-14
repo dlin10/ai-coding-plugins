@@ -44,6 +44,11 @@ request. Name the active level in each report so it survives a long session.
 Do not create hooks, change model settings, or edit global instructions to keep
 a level active.
 
+A subagent starts without this skill. When you delegate a code change or a
+review, put the active level, the change boundary you established, and the
+"Never simplify away" list into the delegate's prompt, and check its result
+against this skill before you use it.
+
 Every level preserves required behavior and verification. An explicitly
 requested feature is not speculative because a smaller feature would be easier
 to build. A request to simplify, at any level including ultra, does not by
@@ -51,6 +56,28 @@ itself authorize dropping support for existing behavior or a public member.
 An assumption about what the user intends is not evidence that a member is
 unneeded; the evidence is the consumer accounting described under "Establish
 the change boundary".
+
+### One request at each level
+
+Request: "Delete expired sessions every hour." The project has no scheduler
+package. The scoped `SessionService.PurgeExpiredAsync` already deletes expired
+sessions, and the admin endpoint reaches it through `SessionServiceFactory`, an
+internal factory whose only product is `SessionService` and whose only caller
+is that endpoint.
+
+Every level delivers the same job: one `BackgroundService` that waits on a
+one-hour `PeriodicTimer` with the stopping token and creates a scope for each
+run, because the hosted service is a singleton and `SessionService` is scoped.
+The levels differ only in the code around the job:
+
+- lite: the job reaches `SessionService` through the factory, as the admin
+  endpoint does, and the report names resolving it directly as the simpler
+  route.
+- full: the job resolves `SessionService` from its scope; the factory stays
+  for the admin endpoint and is listed under `Skipped`.
+- ultra: as full, and the factory goes as well, with the admin endpoint taking
+  `SessionService` from DI, once the references show that endpoint is the
+  factory's only consumer.
 
 ## Establish the change boundary
 
@@ -162,7 +189,8 @@ Whatever the level, keep:
 
 ## Report
 
-Keep the explanation proportional to the change and lead with the outcome:
+Keep the explanation proportional to the work and lead with the outcome. After
+a change:
 
 ```
 ponytail-net (<level>): <what changed and why this shape fits>
@@ -171,10 +199,27 @@ Skipped: <simpler or fuller alternative not taken, and when to revisit>
 Limits: <verification not done, assumptions that matter>
 ```
 
-Omit the last two lines when there is nothing to put in them. Link edited files
-rather than repeating whole files in chat. Give the fuller explanation when the
-user asks for it. If no change is needed, say so with the evidence instead of
-manufacturing a diff.
+After a review, give one line per finding, `contract` findings first:
+
+```
+ponytail-net (<level>) review of <target>
+<file>:<line>: <tag>: <what the code does now>. <what to do instead>.
+Kept: <what looks removable but stays, with the evidence>
+Checked: <how references and behavior were established>
+```
+
+| Tag | Finding |
+| --- | --- |
+| contract | A simplification changed behavior: a rule under "C# decisions that need care" or an item under "Never simplify away" no longer holds. |
+| remove | Dead code, an unused member, or a speculative option, with the reference evidence. |
+| inline | An interface, factory, options class, or layer without a present responsibility. |
+| reuse | Code the codebase, the BCL, or an adopted library already provides; name the replacement. |
+
+Omit `Skipped`, `Limits`, and `Kept` when there is nothing to put in them. Link
+edited files rather than repeating whole files in chat. Give the fuller
+explanation when the user asks for it. When no change is needed or a review
+finds nothing, say so with the evidence instead of manufacturing a diff or a
+finding.
 
 Concept inspired by [Ponytail](https://github.com/DietrichGebert/ponytail/blob/356918eba965ee1eac64bd3a7f0dd02108350de5/skills/ponytail/SKILL.md)
 by DietrichGebert; the upstream MIT notice is kept in
