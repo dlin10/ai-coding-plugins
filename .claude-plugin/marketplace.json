@@ -34,6 +34,11 @@
       "name": "ponytail-net",
       "source": "./plugins/ponytail-net",
       "description": "Simplest complete C#/.NET solutions — a reuse-first, contract-preserving simplification skill with lite/full/ultra levels for Codex, Claude Code, and Cursor."
+    },
+    {
+      "name": "concurrency-hunter",
+      "source": "./plugins/concurrency-hunter",
+      "description": "Race and lost-update detection for .NET: finds unprotected shared state between concurrent execution roots and reports it with deterministic evidence."
     }
   ]
 }

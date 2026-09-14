@@ -14,6 +14,12 @@
     <Project Path="cache-detective/src/CacheDetective.Cli/CacheDetective.Cli.csproj" />
     <Project Path="cache-detective/src/CacheDetective.Cli.Tests/CacheDetective.Cli.Tests.csproj" />
   </Folder>
+  <Folder Name="/concurrency-hunter/">
+    <Project Path="concurrency-hunter/src/ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj" />
+    <Project Path="concurrency-hunter/src/ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj" />
+    <Project Path="concurrency-hunter/src/ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
+    <Project Path="concurrency-hunter/src/ConcurrencyHunter.Cli.Tests/ConcurrencyHunter.Cli.Tests.csproj" />
+  </Folder>
   <Folder Name="/plan-forge-flow/">
     <Project Path="plan-forge-flow/src/PlanForge/PlanForge.csproj" />
     <Project Path="plan-forge-flow/src/PlanForge.Tests/PlanForge.Tests.csproj" />

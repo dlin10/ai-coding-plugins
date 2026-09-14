@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>ConcurrencyHunter.Cli.Tests</AssemblyName>
+    <RootNamespace>ConcurrencyHunter.Cli.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Transitive pinning makes this a direct reference, and Microsoft.Build.Locator refuses
+         (MSBL001) unless MSBuild assemblies are kept out of the output: they must come from the
+         installed SDK at run time, not from bin. Mirrors ConcurrencyHunter.Cli. -->
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/FixtureSolution.cs"
+             Link="Fixtures/FixtureSolution.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/RepositoryFiles.cs"
+             Link="Fixtures/RepositoryFiles.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/DemoWorkspace.cs"
+             Link="Fixtures/DemoWorkspace.cs" />
+  </ItemGroup>
+
+</Project>

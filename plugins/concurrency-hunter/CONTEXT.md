@@ -107,6 +107,12 @@ The synchronizer identity and mode an access must hold, as proved on every path 
 protection that may hold is evidence, never proof.
 _Avoid_: lock (one of its kinds), guard (a guard is a path condition), synchronization
 
+**Confidence label**:
+The `High`, `Medium` or `Low` band a finding's confidence score falls in; the report's three
+finding sections are confidence labels, and a group's label decides whether its **Narrative** is
+mandatory.
+_Avoid_: severity (the impact of a finding, assessed separately and never deciding either of those), level, priority
+
 ### What the analysis could not settle
 
 **Semantic gap**:
@@ -172,7 +178,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Semantic gap** never changes a **Terminal status**; only a phase that did not finish does.
 - Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
-- A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a High or Medium group without a **Narrative** makes the run `Incomplete`, a Low group without one does not.
+- A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
 
 ## Example dialogue
 
@@ -189,6 +195,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - "Sharing is decided by DI lifetime" was proposed and rejected: a lifetime is one source of evidence
   for a region's **Ownership**, and objects that never pass through DI need the same identity. See
   `docs/adr/0002`.
+- "High and Medium groups" in the SPEC could be read as severity or as confidence. Resolved: they are
+  **Confidence labels**; severity is impact, is assessed separately, and neither orders the report's
+  sections nor makes a narrative mandatory.
 - "Material gap" was a status condition in the draft (a material gap forced `Incomplete`). Resolved:
   **Materiality** is a rank, `Incomplete` means a phase did not finish, and the queue of **Gap
   packets** has no budget other than the **Deadline**.

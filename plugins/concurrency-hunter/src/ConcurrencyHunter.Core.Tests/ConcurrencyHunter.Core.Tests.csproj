@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>ConcurrencyHunter.Core.Tests</AssemblyName>
+    <RootNamespace>ConcurrencyHunter.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Transitive pinning makes this a direct reference, and Microsoft.Build.Locator refuses
+         (MSBL001) unless MSBuild assemblies are kept out of the output: they must come from the
+         installed SDK at run time, not from bin. -->
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ConcurrencyHunter.Core\ConcurrencyHunter.Core.csproj" />
+    <ProjectReference Include="..\..\..\Common\Common.Roslyn\Common.Roslyn.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -18,6 +18,11 @@ plugins/plan-forge-flow/bin/win-x64/planforge.exe
 plugins/cache-detective/bin/win-x64/cachedet.exe
 plugins/cache-detective/bin/win-x64/BuildHost-*/
 plugins/cache-detective/bin/win-x64/BuildHost-*/**
+!plugins/concurrency-hunter/bin/
+!plugins/concurrency-hunter/bin/**
+plugins/concurrency-hunter/bin/win-x64/concurrency-hunter.exe
+plugins/concurrency-hunter/bin/win-x64/BuildHost-*/
+plugins/concurrency-hunter/bin/win-x64/BuildHost-*/**
 plugins/plan-forge-flow/artifacts/
 plugins/plan-forge-flow/docs/plan-forge-flow-cli.html
 *.user

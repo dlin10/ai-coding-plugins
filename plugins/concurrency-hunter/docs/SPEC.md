@@ -1,4 +1,4 @@
-# Implementation Specification: Concurrency Hunter
+﻿# Implementation Specification: Concurrency Hunter
 
 | Поле | Значение |
 |---|---|
@@ -630,6 +630,8 @@ Skill требует от composer следующий порядок в narrativ
 
 Валидатор фрагмента проверяет: все cited evidence ids существуют и принадлежат группе; нет source locations, symbols, runtime values или events вне evidence; есть пометка `verify manually` и непустые проверки у каждой рекомендации; размер в пределах константы сервера. Skeleton уже содержит пути, evidence и сценарий; narrative их не пересказывает.
 
+Соглашения фрагмента: ссылки на evidence записываются как `[E:<id>]`; narrative группы ссылается хотя бы на одно evidence каждого finding, который `get_groups` показал для этой группы; раздел `Remediation` задаётся Markdown-заголовком уровня 1–6, а каждая рекомендация содержит `verify manually` и вложенный пункт `Check:` с непустой проверкой. Source location вида `File.cs:line`, включая путь с пробелами, всегда заключается в backticks, совпадает по целым конечным сегментам с evidence path и указывает строку внутри evidence span; любое упоминание `.cs` вне backticks запрещено. Другие токены в backticks, если они имеют форму идентификатора, должны совпадать с evidence symbol, его допустимым suffix, region type, field, held protection, evidence id или `DCA1001`–`DCA1004`; также разрешён словарь синхронизации `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`, `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`, `readonly`, `static`, `const`, `async`, `await`, `Task`. Unicode и verbatim-идентификаторы проверяются по тем же правилам; лимит фрагмента — 8192 байта UTF-8.
+
 ## 9. Plugin integration и artifacts
 
 ### 9.1. Target resolution
@@ -638,7 +640,7 @@ Skill требует от composer следующий порядок в narrativ
 /concurrency-hunter [target]
 ```
 
-Без аргумента: единственная `.sln`/`.slnx` под корнем workspace, иначе project graph из корня. При неоднозначности skill один раз спрашивает пользователя до `run_start`; без ответа или в non-interactive режиме `Failed` с diagnostic report и списком вариантов. Subcommands нет; повторная проверка это новый run.
+Skill передаёт `run_start` абсолютный путь: аргумент команды или корень workspace. Файл `.sln`, `.slnx` или `.csproj` это target; каталог с ровно одним `.sln` или `.slnx` на верхнем уровне разрешается в него; несколько дают `candidates[]` без запуска run, и skill один раз спрашивает пользователя; путь длиннее 1024 байт в JSON-экранировании, включая путь к solution после разрешения каталога, отклоняется ошибкой `targetPathTooLong` без запуска run; всё остальное даёт run со статусом `Failed` и диагностикой. Project graph из корня без solution появится в следующих фазах. Subcommands нет; повторная проверка это новый run.
 
 ### 9.2. Tool contract сервера
 
@@ -646,7 +648,7 @@ Skill требует от composer следующий порядок в narrativ
 
 | Tool | Вход | Выход | Замечания |
 |---|---|---|---|
-| `run_start` | `target?` | `run_id`, `deadline`, `resolvedTarget`, `candidates[]` при неоднозначности | Запускает job |
+| `run_start` | `target`: абсолютный путь | `run_id`, `deadline`, `resolvedTarget`, `candidates[]` при неоднозначности | Запускает job |
 | `run_poll` | | `phase`, `state: running \| awaiting_gaps \| awaiting_narrative \| done \| failed`, `counts`, `elapsed`, `remaining`, `warnings[]` | Skill опрашивает с backoff |
 | `get_gaps` | `page` | пакеты TD-035 по materiality, `round` | После deadline `deadlineExceeded` |
 | `submit_inferences` | `inferences[]` | `accepted[]`, `rejected[{id, reasons}]`, `late[]` | Один повтор на пакет |
@@ -695,7 +697,7 @@ Skill требует от composer следующий порядок в narrativ
 
 ### 9.7. Packaging
 
-Плагин содержит: `src/ConcurrencyHunter.slnx` с проектами `ConcurrencyHunter.Core`, `ConcurrencyHunter.Cli`, тестами; ссылки на `plugins/Common/Common.Roslyn` и `Common.Mcp`; `bin/` с launcher по образцу cache-detective; `build/package.ps1` и `build/check-test-baseline.ps1` из Common; `skills/hunt/SKILL.md` с evals; `demo/`; манифесты `.claude-plugin`, `.codex-plugin`, `.cursor-plugin`. Publish: один self-extracting framework-dependent exe win-x64 по образцу cache-detective ADR 0001 с `IncludeNativeLibrariesForSelfExtract` для `libz3`. Корневые `plugins/Directory.Build.props` и `plugins/Directory.Packages.props`, общая `plugins/AiCodingPlugins.slnx` для IDE; gates и packaging на `src/ConcurrencyHunter.slnx`. Installation/update не запускают анализ.
+Плагин содержит: `src/ConcurrencyHunter.slnx` с проектами `ConcurrencyHunter.Core`, `ConcurrencyHunter.Cli`, тестами; ссылки на `plugins/Common/Common.Roslyn` и `Common.Mcp`; `bin/` с launcher по образцу cache-detective; `build/package.ps1` и `build/check-test-baseline.ps1` из Common; `skills/hunt/SKILL.md` с evals; `demo/`; манифесты `.claude-plugin`, `.codex-plugin`, `.cursor-plugin`. MCP-конфиг Codex лежит в `codex.mcp.json`, а не в `.mcp.json`, как у других плагинов репо: Claude Code читает `.mcp.json` и из родительских папок, и сессия, открытая в `demo/`, получала бы проектный сервер с путём `.\bin`, который от её папки не разрешается. Publish: один self-extracting framework-dependent exe win-x64 по образцу cache-detective ADR 0001 с `IncludeNativeLibrariesForSelfExtract` для `libz3`. Корневые `plugins/Directory.Build.props` и `plugins/Directory.Packages.props`, общая `plugins/AiCodingPlugins.slnx` для IDE; gates и packaging на `src/ConcurrencyHunter.slnx`. Installation/update не запускают анализ.
 
 ## 10. Precision strategy и бюджеты
 
@@ -907,12 +909,12 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 ### 14.3. Фазы реализации
 
-Каждая фаза это один или несколько forge-ранов по 5–8 задач; каждая задача имеет gate из baseline-скрипта и проверки, что снапшоты не перезаписаны; каждая фаза заканчивается работающим плагином и записанным `metrics`-прогоном.
+Каждая фаза это один или несколько forge-ранов по 5–8 задач; каждая задача имеет gate из baseline-скрипта и проверки, что снапшоты не перезаписаны; каждая фаза заканчивается работающим плагином и записанным `metrics`-прогоном. Фазы 1a и 1b заканчиваются без `metrics`-прогона: подкоманда `metrics` появляется в фазе 2.
 
 | Фаза | Что сдаётся | Gate фазы |
 |---|---|---|
 | **0** | Этот документ, PRD, `CONTEXT.md`, ADR; `demo/` с expectations для фаз 1–2 | Приёмка владельца |
-| **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, `Common.Tests`, скрипты; launcher копируется по образцу cache-detective, не разделяется; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
+| **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, `Common.Tests`, скрипты; launcher копируется по образцу cache-detective, не разделяется; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001; группы временно по правилу и ресурсу, confidence по TD-103 с path feasibility 0 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
 | **1b** | IR в финальной форме; providers `AspNetCore` и `Hosting` с registry и fixture; DI provider; `DiInstance`-регионы; overlap между roots; must-hold `lock` по CFG; skeleton отчёта полный | Demo фазы 1 целиком |
 | **2** | Совместный fixpoint: summaries, граф вызовов всех видов, allocation-site points-to с hybrid contexts и константами, ownership/escape, reachable set, RMW и DCA1002, bucket index, группы, fingerprints | Demo через три слоя; первый `metrics` на eShop |
 | **3** | Execution model: все spawn sites TD-065, join/happens-before по handle, exception paths, timers и `PeriodicTimer`, gRPC root | Demo TC-12 |

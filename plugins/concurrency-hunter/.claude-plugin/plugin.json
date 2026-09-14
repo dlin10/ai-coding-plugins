@@ -1,0 +1,22 @@
+{
+  "name": "concurrency-hunter",
+  "version": "0.1.0",
+  "description": "Find races and lost updates in .NET code, with deterministic evidence, confidence, and a server-rendered report.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": {
+    "concurrency-hunter": {
+      "type": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${CLAUDE_PLUGIN_ROOT}\\bin\\concurrency-hunter-launcher.cmd"
+      ],
+      "timeout": 600000
+    }
+  }
+}

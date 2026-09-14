@@ -1,0 +1,23 @@
+{
+  "name": "concurrency-hunter",
+  "version": "0.1.0",
+  "description": "Find races and lost updates in .NET code, with deterministic evidence, confidence, and a server-rendered report.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./codex.mcp.json",
+  "interface": {
+    "displayName": "Concurrency Hunter",
+    "shortDescription": "Find races and lost updates in a .NET solution",
+    "longDescription": "Finds races and lost updates across concurrent execution roots in a .NET solution, tracing shared state and synchronization to deterministic source evidence. Results include confidence and a server-rendered report so uncertain analysis remains explicit.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Interactive"
+    ],
+    "defaultPrompt": "Run /concurrency-hunter:hunt on this repository and report races with their evidence."
+  }
+}

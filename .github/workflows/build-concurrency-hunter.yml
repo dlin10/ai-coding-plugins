@@ -1,0 +1,34 @@
+name: build-concurrency-hunter
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/concurrency-hunter/**'
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
+      - '.github/workflows/build-concurrency-hunter.yml'
+  pull_request:
+    paths:
+      - 'plugins/concurrency-hunter/**'
+      - 'plugins/Common/**'
+      - 'plugins/Directory.Build.props'
+      - 'plugins/Directory.Packages.props'
+      - '.github/workflows/build-concurrency-hunter.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/concurrency-hunter
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish and test
+        shell: pwsh
+        run: ./build/package.ps1

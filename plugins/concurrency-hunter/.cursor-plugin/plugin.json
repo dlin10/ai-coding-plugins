@@ -1,0 +1,34 @@
+{
+  "name": "concurrency-hunter",
+  "displayName": "Concurrency Hunter",
+  "version": "0.1.0",
+  "description": "Find races and lost updates in .NET code, with deterministic evidence, confidence, and a server-rendered report.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "category": "developer-tools",
+  "keywords": [
+    "concurrency",
+    "race-condition",
+    "thread-safety",
+    "csharp",
+    "dotnet"
+  ],
+  "tags": [
+    "debugging",
+    "diagnostics",
+    "developer-tools"
+  ],
+  "mcpServers": {
+    "concurrency-hunter": {
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${CURSOR_PLUGIN_ROOT}\\bin\\concurrency-hunter-launcher.cmd"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "concurrency-hunter": {
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        ".\\bin\\concurrency-hunter-launcher.cmd"
+      ],
+      "cwd": ".",
+      "tool_timeout_sec": 600
+    }
+  }
+}
