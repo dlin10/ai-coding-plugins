@@ -163,6 +163,12 @@ and the builder's self-report is all you have. So:
 - A gate that needs something outside the workspace — a sibling checkout, a database — needs the
   path or the connection string in `gateEnvironment`, and if the builder must *write* there, the
   path in `builderRoots` too.
+- A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace —
+  `.agents/plugins/marketplace.json` among them — and `builderRoots` does not change that; the same
+  names deeper in the tree are writable. When a task on a codex builder needs such an edit, say in
+  the task that you make it, make it on the host **before** that task's `forge.build.next`, so the
+  gate runs against it, and record it with `forge.log.append`. Left to the builder, the refusal
+  shows up only in its report, after a gate that depends on the edit has already failed.
 
 ```markdown
 Builder: cursor / gpt-5.3-codex / high
