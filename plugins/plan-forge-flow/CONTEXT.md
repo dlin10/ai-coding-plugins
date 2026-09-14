@@ -28,7 +28,7 @@ these terms replace it.
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label — the server then runs it on the host after the builder's turn (the task gate after `forge.build.next`, the run-wide gates after `forge.review.fix`) and its exit code decides; otherwise a **condition**, left to the builder's word and, for `## Gates`, to the orchestrator after the last task. See `docs/adr/0015`. |
 | **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, or no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
 | **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
-| **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. |
+| **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. Builder roots do not reopen `.git`, `.codex` or `.agents` at the top of the workspace, which a codex builder cannot write. |
 | **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. Only `done` is progress. A `blocked` or `gate_failed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
@@ -154,6 +154,28 @@ done; `--ephemeral` writes no rollout at all and makes resume impossible.
 its own process environment before `shell_environment_policy` is applied — measured, by handing it a
 sanitised `PATH` through that key and watching it resolve the old value anyway. The only lever is
 the environment of the process this server starts, which is what `docs/adr/0013` uses.
+
+## A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace
+
+Measured against `codex` 0.153.2 with `windows.sandbox = "elevated"` on 2026-09-14, through
+`codex sandbox -c sandbox_mode="workspace-write"` in a scratch workspace. It surfaced in a run over
+`C:\Dev\CodexPlugins`, where the builder updated `.claude-plugin/marketplace.json` and
+`.cursor-plugin/marketplace.json` and could not touch `.agents/plugins/marketplace.json`, so the
+orchestrator wrote that one itself.
+
+- A write into `.git`, `.codex` or `.agents` directly under the workspace — at any depth below them —
+  is refused with access denied. Codex holds them read-only so that a worker cannot rewrite its own
+  configuration, skills and plugin catalogues, or the repository's history.
+- **`builderRoots` does not lift it.** Naming `<workspace>\.agents` itself in
+  `sandbox_workspace_write.writable_roots` leaves it refused.
+- The protection is for those names at the top of the workspace only. `plugins\p\.agents`,
+  `plugins\p\.codex`, and a `.agents` the sandboxed command created deeper in the tree were all
+  writable, and so is `.codex-plugin` at any depth.
+- Like every sandbox refusal, it does not reach the exit code (see above); the builder's report is
+  the only place it shows.
+
+So an edit there is the orchestrator's on a codex builder, and it has to be planned as one: made on
+the host before the task's `forge.build.next`, or the task's gate runs against a tree without it.
 
 ## Each vendor keeps the critic read-only by a different mechanism
 
