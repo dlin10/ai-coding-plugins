@@ -12,7 +12,6 @@ namespace PlanForge.Vendors.Codex;
 /// </summary>
 internal sealed class CodexCliSession : IVendorSession
 {
-    private static readonly TimeSpan RUN_TIMEOUT = TimeSpan.FromMinutes(20);
     private const string SELF_PLUGIN_DISABLE =
         "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false";
 
@@ -63,7 +62,7 @@ internal sealed class CodexCliSession : IVendorSession
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
 
-            await foreach (var line in StreamingProcess.RunAsync(spec, RUN_TIMEOUT, ct))
+            await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
             {
                 if (!TryParse(line, out var document)) continue;
                 using (document) Observe(document.RootElement);
@@ -103,6 +102,11 @@ internal sealed class CodexCliSession : IVendorSession
     /// whole diff and would exceed the Windows command-line limit. Static and internal so a test
     /// can pin the exact order without starting a process.
     /// </summary>
+    /// <param name="role">The worker role and its contract.</param>
+    /// <param name="selection">The selected model and effort.</param>
+    /// <param name="sessionId">The builder session to resume, when one exists.</param>
+    /// <param name="schemaPath">The output-schema file path.</param>
+    /// <param name="resultPath">The file where Codex writes the final result.</param>
     internal static List<string> BuildArguments(RoleSpec role,
                                                  Selection selection,
                                                  string? sessionId,
@@ -171,6 +175,7 @@ internal sealed class CodexCliSession : IVendorSession
     /// Turns one line of `codex exec --json` into events. Internal so the tests can drive it
     /// directly, as they already drive the Claude and Cursor sessions.
     /// </summary>
+    /// <param name="root">The parsed JSONL message.</param>
     internal void Observe(JsonElement root)
     {
         if (root.ValueKind is not JsonValueKind.Object)
@@ -233,6 +238,7 @@ internal sealed class CodexCliSession : IVendorSession
     }
 
     /// <summary>The command's fields, carried only when their property is present.</summary>
+    /// <param name="item">The completed command-execution item.</param>
     private static List<(string Name, string? Value)>? CommandExecutionDetail(JsonElement item)
     {
         List<(string Name, string? Value)>? detail = null;
@@ -271,6 +277,9 @@ internal sealed class CodexCliSession : IVendorSession
     /// <see cref="Claude.ClaudeCliSession"/>'s helper of the same name: a shape nobody predicted
     /// must cost a skipped block, not the run.
     /// </summary>
+    /// <param name="element">The JSON value that may be an object.</param>
+    /// <param name="name">The property name to read.</param>
+    /// <param name="value">Receives the property value when present.</param>
     private static bool TryRead(JsonElement element, string name, out JsonElement value)
     {
         if (element.ValueKind is JsonValueKind.Object) return element.TryGetProperty(name, out value);

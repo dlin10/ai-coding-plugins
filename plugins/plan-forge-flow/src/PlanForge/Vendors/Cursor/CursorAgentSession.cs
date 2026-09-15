@@ -14,8 +14,6 @@ internal sealed class CursorAgentSession : IVendorSession
     private const string CallSuffix = "ToolCall";
     internal const string SelfExclusionEnvironment = "PLANFORGE_SELF_EXCLUDED";
 
-    private static readonly TimeSpan _runTimeout = TimeSpan.FromMinutes(20);
-
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
@@ -79,7 +77,7 @@ internal sealed class CursorAgentSession : IVendorSession
     internal async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct)
     {
         var result = string.Empty;
-        await foreach (var line in StreamingProcess.RunAsync(spec, _runTimeout, ct))
+        await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
         {
             JsonDocument message;
             try { message = JsonDocument.Parse(line); }
@@ -92,6 +90,7 @@ internal sealed class CursorAgentSession : IVendorSession
     }
 
     /// <summary>Returns the run's final text when this message carries it.</summary>
+    /// <param name="root">The parsed JSONL message.</param>
     internal string? Observe(JsonElement root)
     {
         // Same hazard as ClaudeCliSession.Observe (issue #41): a line that parses as JSON but not
@@ -129,6 +128,7 @@ internal sealed class CursorAgentSession : IVendorSession
     /// its kind as well as its suffix. Until this was read the session kept only the final text,
     /// so a run whose every shell call failed reached the log looking like a clean one.
     /// </summary>
+    /// <param name="root">The parsed tool-call message.</param>
     private void ObserveToolCall(JsonElement root)
     {
         if (!root.TryGetProperty("subtype", out var subtype)
@@ -160,6 +160,7 @@ internal sealed class CursorAgentSession : IVendorSession
     }
 
     /// <summary>The command for the shell tool, the raw arguments for the rest — cut, not dropped.</summary>
+    /// <param name="call">The vendor-specific tool-call object.</param>
     private static List<(string Name, string? Value)>? Arguments(JsonElement call)
     {
         if (!call.TryGetProperty("args", out var args) || args.ValueKind is not JsonValueKind.Object) return null;
@@ -175,6 +176,7 @@ internal sealed class CursorAgentSession : IVendorSession
     /// Only "success" counts as success, so a failure shape nobody has seen yet still reaches the
     /// log as a failure rather than as silence.
     /// </summary>
+    /// <param name="call">The vendor-specific tool-call object.</param>
     private static List<(string Name, string? Value)>? Outcome(JsonElement call)
     {
         if (!call.TryGetProperty("result", out var result) || result.ValueKind is not JsonValueKind.Object) return null;
@@ -193,6 +195,7 @@ internal sealed class CursorAgentSession : IVendorSession
     /// cursor-agent has no system-prompt flag (measured against 2026.08.11-e8db854: the help lists
     /// none), so the role instructions ride at the head of the prompt — the one channel it offers.
     /// </summary>
+    /// <param name="prompt">The act-specific prompt.</param>
     internal string WithRoleInstructions(string prompt) => $"{_role.SystemPrompt}\n\n{prompt}";
 
     internal List<string> BuildArguments()

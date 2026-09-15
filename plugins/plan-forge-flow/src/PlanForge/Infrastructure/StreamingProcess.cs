@@ -20,6 +20,7 @@ internal static class StreamingProcess
 {
     private const int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
     private const string SOURCE = "process";
+    private static readonly TimeSpan _workerIdleTimeout = TimeSpan.FromMinutes(30);
 
     /// <summary>
     /// How much of stdout is held back for a failure report. The bound <see cref="RunLog"/> gives a
@@ -56,19 +57,37 @@ internal static class StreamingProcess
     /// </summary>
     private static readonly TimeSpan _stderrDrain = TimeSpan.FromSeconds(2);
 
-    /// <param name="exitDrain">
-    /// Overrides <see cref="_exitDrain"/> for this call, which is how the drain is tested: a
-    /// per-call argument rather than a settable static, because this suite runs processes in
-    /// parallel and a narrowed window is exactly what drops another test's output.
-    /// </param>
-    public static async IAsyncEnumerable<string> RunAsync(ProcessSpec spec,
-                                                          TimeSpan timeout,
-                                                          [EnumeratorCancellation] CancellationToken ct,
-                                                          TimeSpan? exitDrain = null)
+    /// <summary>Runs a non-worker process under a fixed wall-clock timeout.</summary>
+    /// <param name="spec">The executable, arguments, working directory, stdin and environment.</param>
+    /// <param name="timeout">The maximum wall-clock duration of the process.</param>
+    /// <param name="ct">Cancels the process on behalf of the caller.</param>
+    /// <param name="exitDrain">Overrides <see cref="_exitDrain"/> for this call, which is how the
+    /// drain is tested: a per-call argument rather than a settable static, because this suite runs
+    /// processes in parallel and a narrowed window is exactly what drops another test's output.</param>
+    public static IAsyncEnumerable<string> RunAsync(ProcessSpec spec,
+                                                    TimeSpan timeout,
+                                                    CancellationToken ct,
+                                                    TimeSpan? exitDrain = null) =>
+        RunCoreAsync(spec, timeout, null, ct, exitDrain);
+
+    public static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec, CancellationToken ct) =>
+        RunWorkerAsync(spec, _workerIdleTimeout, ct);
+
+    internal static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec,
+                                                            TimeSpan idleTimeout,
+                                                            CancellationToken ct) =>
+        RunCoreAsync(spec, null, idleTimeout, ct, null);
+
+    private static async IAsyncEnumerable<string> RunCoreAsync(ProcessSpec spec,
+                                                               TimeSpan? timeout,
+                                                               TimeSpan? idleTimeout,
+                                                               [EnumeratorCancellation] CancellationToken ct,
+                                                               TimeSpan? exitDrain)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(timeout);
+        if (timeout is { } wallClockTimeout) deadline.CancelAfter(wallClockTimeout);
         var token = deadline.Token;
+        var idle = new IdleExpiration();
 
         using var process = new Process();
         process.StartInfo = Build(spec);
@@ -80,7 +99,8 @@ internal static class StreamingProcess
             ("exec", spec.FileName),
             ("args", string.Join(' ', spec.Arguments)),
             ("cwd", spec.WorkingDirectory),
-            ("timeout", timeout.ToString()));
+            ("timeout", timeout?.ToString()),
+            ("idleTimeout", idleTimeout?.ToString()));
 
         if (!process.Start())
         {
@@ -101,12 +121,15 @@ internal static class StreamingProcess
             // Inside the try because a vendor that never drains its stdin blocks this write, and
             // blocking outside it would leave the process alive and the log with nothing but a
             // launch line to explain the wait.
-            await process.StandardInput.WriteAsync(spec.StandardInput.AsMemory(), token).ConfigureAwait(false);
+            await WithIdleTimeoutAsync(process.StandardInput.WriteAsync(spec.StandardInput.AsMemory(), token),
+                                       idleTimeout, idle, spec.FileName, token).ConfigureAwait(false);
             process.StandardInput.Close();
 
             while (await NextLineAsync(process.StandardOutput, exited, spec.FileName,
-                                       exitDrain ?? _exitDrain, token).ConfigureAwait(false) is { } line)
+                                       exitDrain ?? _exitDrain, idleTimeout, idle, token).ConfigureAwait(false) is { } line)
             {
+                idle.RecordOutput();
+                WorkerActivity.RecordOutput();
                 seen += line.Length;
                 stdout.Add(line);
 
@@ -129,6 +152,7 @@ internal static class StreamingProcess
                 // disposed with the process still alive — and only the flag separates that from a
                 // genuine cap breach, so a consumer's own exception is not billed to the vendor.
                 var reason = ct.IsCancellationRequested ? "cancelled"
+                    : idle.Expired ? "idle"
                     : deadline.IsCancellationRequested ? "timeout"
                     : capped ? "output-cap" : "abandoned";
 
@@ -193,15 +217,50 @@ internal static class StreamingProcess
     /// handle-holding path it is the ordinary end of a stream and nothing was lost; on a starved
     /// machine it is the line to grep for.
     /// </remarks>
+    /// <param name="stdout">The process's redirected standard output.</param>
+    /// <param name="exited">Completes when the process exits.</param>
+    /// <param name="exec">The executable name used in diagnostics.</param>
+    /// <param name="drain">How long to drain stdout after the process exits.</param>
+    /// <param name="idleTimeout">The worker's maximum silence, or <see langword="null"/> for none.</param>
+    /// <param name="idle">Tracks the worker's last stdout line and whether its idle window expired.</param>
+    /// <param name="ct">Cancels the read on behalf of the caller or wall-clock deadline.</param>
     private static async Task<string?> NextLineAsync(StreamReader stdout,
                                                      Task exited,
                                                      string exec,
                                                      TimeSpan drain,
+                                                     TimeSpan? idleTimeout,
+                                                     IdleExpiration idle,
                                                      CancellationToken ct)
     {
         var read = stdout.ReadLineAsync(ct).AsTask();
-        if (await Task.WhenAny(read, exited).ConfigureAwait(false) == read)
+        using var idleDeadline = idleTimeout is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var idleWait = idleTimeout is { } silence
+            ? Task.Delay(idle.Remaining(silence), idleDeadline!.Token)
+            : null;
+        Task completed;
+        try
+        {
+            completed = idleWait is null
+                ? await Task.WhenAny(read, exited).ConfigureAwait(false)
+                : await Task.WhenAny(read, exited, idleWait).ConfigureAwait(false);
+        }
+        finally
+        {
+            idleDeadline?.Cancel();
+        }
+
+        if (completed == read)
             return await read.ConfigureAwait(false);
+
+        if (completed == idleWait)
+        {
+            await completed.ConfigureAwait(false);
+            idle.Expire();
+            Observe(read);
+            throw IdleFailure(exec, idleTimeout!.Value);
+        }
 
         try
         {
@@ -221,6 +280,33 @@ internal static class StreamingProcess
         }
     }
 
+    private static async Task WithIdleTimeoutAsync(Task operation,
+                                                   TimeSpan? idleTimeout,
+                                                   IdleExpiration idle,
+                                                   string exec,
+                                                   CancellationToken ct)
+    {
+        try
+        {
+            if (idleTimeout is { } silence)
+                await operation.WaitAsync(idle.Remaining(silence), ct).ConfigureAwait(false);
+            else
+                await operation.ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            idle.Expire();
+            Observe(operation);
+            throw IdleFailure(exec, idleTimeout!.Value);
+        }
+    }
+
+    private static VendorException IdleFailure(string exec, TimeSpan idleTimeout) =>
+        new($"{exec} produced no stdout for {idleTimeout.TotalMinutes:0.##} minutes");
+
+    private static void Observe(Task abandoned) =>
+        _ = abandoned.ContinueWith(static task => _ = task.Exception, TaskScheduler.Default);
+
     /// <summary>
     /// Reads stderr without letting the read decide the outcome. On a kill the stream is cancelled
     /// rather than closed, and the tail we wanted is the reason we were killing — losing it to the
@@ -230,6 +316,7 @@ internal static class StreamingProcess
     /// costs a log line rather than an answer, so this bound is the shorter one and its expiry
     /// stays silent.
     /// </summary>
+    /// <param name="stderr">The pending read of the process's redirected standard error.</param>
     private static async Task<string> DrainAsync(Task<string> stderr)
     {
         try
@@ -256,6 +343,10 @@ internal static class StreamingProcess
     /// not smaller than what it writes while working, and neither belongs in an exception message
     /// whole.
     /// </remarks>
+    /// <param name="exec">The executable name used in the failure message.</param>
+    /// <param name="exitCode">The process's non-zero exit code.</param>
+    /// <param name="stderr">The captured standard error.</param>
+    /// <param name="stdout">The bounded tail of standard output.</param>
     private static string Failure(string exec, int exitCode, string stderr, OutputTail stdout)
     {
         if (!string.IsNullOrWhiteSpace(stderr)) return $"{exec} exited {exitCode}: {RunLog.Tail(stderr)}";
@@ -349,5 +440,22 @@ internal static class StreamingProcess
             var text = string.Join('\n', _lines).TrimEnd();
             return text.Length == 0 ? null : RunLog.Tail(text);
         }
+    }
+
+    private sealed class IdleExpiration
+    {
+        private long _lastOutput = Stopwatch.GetTimestamp();
+
+        public bool Expired { get; private set; }
+
+        public void RecordOutput() => _lastOutput = Stopwatch.GetTimestamp();
+
+        public TimeSpan Remaining(TimeSpan timeout)
+        {
+            var remaining = timeout - Stopwatch.GetElapsedTime(_lastOutput);
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        }
+
+        public void Expire() => Expired = true;
     }
 }

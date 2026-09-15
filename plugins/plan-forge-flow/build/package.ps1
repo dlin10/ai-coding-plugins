@@ -170,7 +170,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         # The canvas is two halves that only work together: the tool has to point at the resource,
@@ -219,6 +219,12 @@ function Test-PublishedServer([string]$Executable) {
         }
         foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred', 'userGrantedRound')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
+        }
+        $workCancel = $tools | Where-Object { $_.name -eq 'forge.work.cancel' } | Select-Object -First 1
+        $workCancelProperties = @($workCancel.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('workspaceRoot', 'runId', 'jobId')) {
+            if ($workCancelProperties -notcontains $parameter) { throw "forge.work.cancel schema is missing $parameter" }
+            if (@($workCancel.inputSchema.required) -notcontains $parameter) { throw "forge.work.cancel schema must require $parameter" }
         }
         # The gate settings travel with the approval, as structured arguments: an object and an array
         # the SDK cannot describe without this assembly's own contract, so their absence here means

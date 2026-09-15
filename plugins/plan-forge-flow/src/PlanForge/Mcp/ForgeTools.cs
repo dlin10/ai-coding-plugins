@@ -64,6 +64,7 @@ internal sealed class ForgeTools
     /// The clientInfo name from the MCP handshake, verbatim. The skill branches its model-selection
     /// flow on the host, and the orchestrator's own idea of where it runs is a guess; this is not.
     /// </summary>
+    /// <param name="server">The MCP server carrying the negotiated client information.</param>
     private static string ClientName(McpServer server) =>
         server.ClientInfo?.Name is { Length: > 0 } name ? name : "unknown";
 
@@ -72,6 +73,12 @@ internal sealed class ForgeTools
     /// a cold call probes on the spot and waits. A probe failure is a value here, not an error —
     /// the interview's reaction to a dead vendor is to drop it, not to stop.
     /// </summary>
+    /// <param name="catalogs">The process-lifetime vendor catalogue cache.</param>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run to read.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="vendor">The vendor to return, or <see langword="null"/> for every vendor.</param>
     [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it.")]
     public static async Task<string> Models(CatalogCache catalogs,
                                             SessionRoots roots,
@@ -108,6 +115,11 @@ internal sealed class ForgeTools
     /// a 50–90 KB draft had finished streaming into the call that then ran the critic for minutes:
     /// the link arrived with the critique it was meant to precede. See docs/adr/0014.
     /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose plan is written.</param>
+    /// <param name="planDraft">The complete current plan draft.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     [McpServerTool(Name = "forge.plan.write"), Description("Writes the current plan draft to `PLAN.md` and returns it under `documents`, without running a critic. Call it before every review round, show the user the path it returns, and then run the round with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> WritePlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -130,6 +142,17 @@ internal sealed class ForgeTools
     /// One round only. The critic judges the draft; revising it and calling again is the
     /// orchestrator's job, because the revision needs the interview context.
     /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose plan is reviewed.</param>
+    /// <param name="model">The critic model.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="planDraft">A draft to write before review, or <see langword="null"/> to read the written plan.</param>
+    /// <param name="effort">The optional critic effort level.</param>
+    /// <param name="vendor">The critic vendor, defaulting to Claude.</param>
+    /// <param name="revision">The orchestrator's account of changes after the previous round.</param>
+    /// <param name="deferred">Findings the orchestrator deferred, with reasons.</param>
+    /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     [McpServerTool(Name = "forge.plan.review"), Description("Runs one round of plan review and returns the critique, plus the run's flow log and plan under `documents`. Write the draft with forge.plan.write first and omit `planDraft` here, so the user has the plan for the minutes the round runs; pass `planDraft` only to write it here instead. A round run against an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> ReviewPlan(SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -171,6 +194,11 @@ internal sealed class ForgeTools
     /// description sends Text-profile hosts to the chat rather than here: the result would be the
     /// plan they already hold, rendered by nobody. See docs/adr/0008.
     /// </remarks>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose plan is shown.</param>
+    /// <param name="plan">The complete plan to render.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead.")]
     public static async Task<string> ShowPlan(SessionRoots roots,
                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -198,6 +226,14 @@ internal sealed class ForgeTools
     /// saying no from a host that answered on their behalf without rendering anything. Nothing here
     /// is enforced — see docs/adr/0003.
     /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose decision is recorded.</param>
+    /// <param name="plan">The complete plan presented for approval.</param>
+    /// <param name="approved">The user's approval decision.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="gateEnvironment">Optional environment variables required by gate commands.</param>
+    /// <param name="builderRoots">Optional extra paths the builder may write.</param>
     [McpServerTool(Name = "forge.plan.confirm"), Description("Records the user's decision on the plan, and records the approved tasks when it is yes. Pass with the approval what the plan's gate commands need on this host — environment variables in `gateEnvironment`, paths outside the workspace the builder must write to in `builderRoots` — because the server runs every task's gate command itself after the builder's turn. A re-approval replaces both.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -266,6 +302,14 @@ internal sealed class ForgeTools
     /// excluded disproved that, so the orchestrator now takes a turn between critic and builder —
     /// see docs/adr/0005.
     /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose code is reviewed.</param>
+    /// <param name="model">The critic model.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="effort">The optional critic effort level.</param>
+    /// <param name="vendor">The critic vendor, defaulting to Claude.</param>
+    /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     [McpServerTool(Name = "forge.review.code"), Description("Runs one round of code review: the critic judges the working diff, excluding `CONTEXT.md` and `docs/adr/**`, against the approved plan and returns the critique. Filter the findings yourself, then pass the kept ones to forge.review.fix.")]
     public static async Task<string> ReviewCode(SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -383,7 +427,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds. A `running` result is not the end of the wait: call this again with the same job id.")]
+    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds, and reports its last stdout activity and recognised event. A `running` result is not the end of the wait: call this again with the same job id.")]
     public static Task<string> PollWork(JobRegistry registry,
                                         SessionRoots roots,
                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -409,11 +453,29 @@ internal sealed class ForgeTools
                     .ConfigureAwait(false);
                 RequireJob(record, jobId);
 
-                return JsonSerializer.Serialize(
-                    new WorkPollResult(record!.Id, record.Act, StateName(record.State), ElapsedSeconds(record),
-                                       record.State == JobState.Failed ? record.Error : null, NextCall(record.State),
-                                       Documents(run)),
+                return JsonSerializer.Serialize(PollResult(record!, run),
                     ForgeToolJson.Default.WorkPollResult);
+            });
+    }
+
+    [McpServerTool(Name = "forge.work.cancel"), Description("Requests cancellation of one background worker job and returns its current state and liveness. Call this only after the user explicitly asks to cancel, or after showing them the job's liveness and receiving confirmation. Cancellation is non-blocking: while the returned state is `running`, continue with forge.work.poll and then forge.work.fetch. Cancelling a terminal job succeeds without changing it.")]
+    public static async Task<string> CancelWork(JobRegistry registry,
+                                                 SessionRoots roots,
+                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                 [Description("Run id from forge.begin.")] string runId,
+                                                 [Description("Job id returned by forge.work.start.")] string jobId,
+                                                 CancellationToken ct)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, "forge.work.cancel", [("jobId", jobId)],
+            () =>
+            {
+                ValidateJobId(jobId);
+                var record = registry.Cancel(run.Path, jobId);
+                RequireJob(record, jobId);
+
+                return Task.FromResult(JsonSerializer.Serialize(PollResult(record!, run),
+                    ForgeToolJson.Default.WorkPollResult));
             });
     }
 
@@ -443,7 +505,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing: under `run`, the plan-review and code-review rounds against their caps, whether the plan is approved, the tasks completed, and the capability profile; under `driftedFiles`, the working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`; under `activeJob`, any background worker act still running, with its id and elapsed seconds. Call it before you show the user the plan to approve, and before you ask them to grant a round past a cap, so the question carries its numbers.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing: under `run`, the plan-review and code-review rounds against their caps, whether the plan is approved, the tasks completed, and the capability profile; under `driftedFiles`, the working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`; under `activeJob`, any background worker act still running, with its id, elapsed seconds, last stdout activity and last recognised event. Call it before you show the user the plan to approve, and before you ask them to grant a round past a cap, so the question carries its numbers.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -458,7 +520,8 @@ internal sealed class ForgeTools
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
                 var active = registry.Get(run.Path) is { State: JobState.Running } job
-                    ? new ActiveJob(job.Id, job.Act, StateName(job.State), ElapsedSeconds(job))
+                    ? new ActiveJob(job.Id, job.Act, StateName(job.State), ElapsedSeconds(job),
+                                    job.LastActivityAt, job.LastEvent)
                     : null;
 
                 return JsonSerializer.Serialize(new StatusResult(state, drifted, active), ForgeToolJson.Default.StatusResult);
@@ -477,6 +540,13 @@ internal sealed class ForgeTools
     /// same containment check every other write passes, keeps the format one thing rather than one
     /// per agent, and leaves the "do not hand-edit anything under `.forge/`" rule intact.
     /// </remarks>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run whose log receives the entry.</param>
+    /// <param name="message">The one-line description of what happened.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="level">The optional diagnostic level.</param>
+    /// <param name="detail">Optional longer diagnostic detail.</param>
     [McpServerTool(Name = "forge.log.append"), Description("Appends one entry to the run's diagnostic log at `.forge/<runId>/forge.log`. Use it to record what you selected, retried, or decided; never edit the file directly.")]
     public static async Task<string> AppendLog(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -506,6 +576,7 @@ internal sealed class ForgeTools
     /// The review log and the diagnostic log are deliberately absent — the first is critic input,
     /// the second is for the orchestrator, and neither is written to be read by a person here.
     /// </remarks>
+    /// <param name="run">The run whose user-facing files are described.</param>
     private static RunDocuments Documents(RunDirectory run) => new(File.Exists(run.FlowLogPath)
                                                                        ? new RunDocument(run.FlowLogPath,
                                                                                          "show this file to the user now — it is the run's user-facing timeline — "
@@ -532,9 +603,15 @@ internal sealed class ForgeTools
     /// <c>running</c> as the end of the wait: it hands the turn back and asks the user to resume a
     /// job that never needed them.
     /// </summary>
+    /// <param name="state">The current job state.</param>
     private static string NextCall(JobState state) => state == JobState.Running
                                                           ? "the job is still running: call forge.work.poll again now with this job id. Do not end your turn, and do not ask the user to continue."
                                                           : "call forge.work.fetch with this job id.";
+
+    private static WorkPollResult PollResult(JobRecord record, RunDirectory run) =>
+        new(record.Id, record.Act, StateName(record.State), ElapsedSeconds(record), record.LastActivityAt,
+            record.LastEvent, record.State == JobState.Failed ? record.Error : null, NextCall(record.State),
+            Documents(run));
 
     private static double ElapsedSeconds(JobRecord record) => Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
 
@@ -567,6 +644,10 @@ internal sealed class ForgeTools
     /// <see cref="RunLog.Current"/> rather than being handed one, which is what keeps the log out
     /// of every signature between here and a process launch.
     /// </remarks>
+    /// <param name="run">The run whose diagnostic log receives the call.</param>
+    /// <param name="tool">The MCP tool name.</param>
+    /// <param name="arguments">The tool arguments safe to record.</param>
+    /// <param name="act">The operation that produces the serialized tool result.</param>
     private static async Task<string> LoggedAsync(RunDirectory run,
                                                   string tool,
                                                   (string Name, string? Value)[] arguments,
@@ -629,7 +710,12 @@ internal sealed record PlanViewResult(string RunId,
 /// </summary>
 internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob);
 
-internal sealed record ActiveJob(string JobId, string Act, string State, double ElapsedSeconds);
+internal sealed record ActiveJob(string JobId,
+                                 string Act,
+                                 string State,
+                                 double ElapsedSeconds,
+                                 DateTimeOffset? LastActivityAt,
+                                 string? LastEvent);
 
 /// <summary>
 /// A started job, and the run's files as they stand at that moment. The documents travel with the
@@ -656,7 +742,15 @@ internal sealed record BuildNextResult(BuildOutcome Build, RunDocuments Document
 internal sealed record ReviewFixResult(BuildResult Fix, RunDocuments Documents);
 
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
-internal sealed record WorkPollResult(string JobId, string Act, string State, double ElapsedSeconds, string? Error, string Next, RunDocuments Documents);
+internal sealed record WorkPollResult(string JobId,
+                                      string Act,
+                                      string State,
+                                      double ElapsedSeconds,
+                                      DateTimeOffset? LastActivityAt,
+                                      string? LastEvent,
+                                      string? Error,
+                                      string Next,
+                                      RunDocuments Documents);
 
 internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error, RunDocuments Documents);
 

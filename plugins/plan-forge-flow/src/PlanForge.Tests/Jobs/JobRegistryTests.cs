@@ -1,3 +1,4 @@
+using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 using PlanForge.Jobs;
 using PlanForge.Run;
@@ -186,6 +187,25 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Failed, result?.State);
         Assert.Equal("boom", result?.Error);
+    }
+
+    [Fact]
+    public async Task Terminal_job_persists_its_last_worker_activity()
+    {
+        using var workspace = new TestWorkspace();
+        var registry = new JobRegistry();
+        var start = registry.Start(workspace.RunPath, "plan", _ =>
+        {
+            WorkerActivity.RecordOutput();
+            WorkerActivity.RecordEvent("command_execution: dotnet test");
+            return Task.FromResult("done");
+        });
+
+        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        var persisted = new JobRegistry().Get(workspace.RunPath, start.JobId);
+
+        Assert.NotNull(persisted?.LastActivityAt);
+        Assert.Equal("command_execution: dotnet test", persisted?.LastEvent);
     }
 
     [Fact]

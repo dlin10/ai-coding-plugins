@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 using PlanForge.Acts;
+using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
@@ -196,6 +198,8 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Equal("running", running["state"]!.GetValue<string>());
         Assert.Contains("forge.work.poll", running["next"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.NotNull(running["lastActivityAt"]);
+        Assert.Equal("command_execution: dotnet test", running["lastEvent"]!.GetValue<string>());
 
         vendor.Release();
         var settled = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
@@ -203,6 +207,33 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Equal("succeeded", settled["state"]!.GetValue<string>());
         Assert.Contains("forge.work.fetch", settled["next"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cancel_is_non_blocking_and_the_job_settles_as_a_persisted_failure()
+    {
+        var run = NewRun("cancel");
+        var vendor = new BlockingVendor();
+        var registry = new JobRegistry();
+        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+            "plan.review", "critic", null, "claude", "## draft", null, null, null, false,
+            CancellationToken.None, () => vendor))!;
+        var jobId = start["jobId"]!.GetValue<string>();
+
+        var cancelled = JsonNode.Parse(await ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId,
+            jobId, CancellationToken.None))!;
+        var settled = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
+            jobId, CancellationToken.None))!;
+        var repeated = JsonNode.Parse(await ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId,
+            jobId, CancellationToken.None))!;
+        var persisted = new JobRegistry().Get(run.Path, jobId);
+
+        Assert.Contains("forge.work.poll", cancelled["next"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Equal("failed", settled["state"]!.GetValue<string>());
+        Assert.Equal("job was cancelled", settled["error"]!.GetValue<string>());
+        Assert.Equal("failed", repeated["state"]!.GetValue<string>());
+        Assert.Equal(JobState.Failed, persisted?.State);
+        Assert.Equal("job was cancelled", persisted?.Error);
     }
 
     /// <summary>
@@ -307,7 +338,7 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     [Fact]
-    public async Task An_unknown_valid_job_id_is_rejected_by_poll_and_fetch()
+    public async Task An_unknown_valid_job_id_is_rejected_by_poll_fetch_and_cancel()
     {
         var run = NewRun("unknown");
         var registry = new JobRegistry();
@@ -316,6 +347,8 @@ public sealed class WorkToolsTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
             jobId, CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
+            jobId, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId,
             jobId, CancellationToken.None));
     }
 
@@ -329,10 +362,13 @@ public sealed class WorkToolsTests : IDisposable
             "not-a-job", CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
             "not-a-job", CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId,
+            "not-a-job", CancellationToken.None));
 
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
         Assert.Contains("forge.work.poll", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
         Assert.Contains("forge.work.fetch", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
+        Assert.Contains("forge.work.cancel", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
     private RunDirectory NewRun(string runId)
@@ -367,7 +403,11 @@ public sealed class WorkToolsTests : IDisposable
 
         public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
         {
-            await release.Task;
+            WorkerActivity.RecordOutput();
+            var events = Channel.CreateUnbounded<VendorEvent>();
+            events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolUse, "command_execution",
+                [("command", "dotnet test")]));
+            await release.Task.WaitAsync(ct);
             return (T)(object)new Critique("approve", [], "released");
         }
 

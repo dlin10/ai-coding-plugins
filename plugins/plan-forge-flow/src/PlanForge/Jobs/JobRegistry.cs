@@ -21,7 +21,9 @@ internal sealed record JobRecord(
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt,
     string? ResultPayload,
-    string? Error)
+    string? Error,
+    DateTimeOffset? LastActivityAt = null,
+    string? LastEvent = null)
 {
     public string JobId => Id;
 }
@@ -72,14 +74,16 @@ internal sealed class JobRegistry
 
             if (_active.TryGetValue(canonicalRunPath, out var current))
             {
-                return new JobStartResult(current.Record.Id, false, current.Record);
+                var record = current.Snapshot();
+                return new JobStartResult(record.Id, false, record);
             }
 
             _active.Add(canonicalRunPath, entry);
         }
 
+        var started = entry.Snapshot();
         _ = Task.Run(() => ExecuteAsync(canonicalRunPath, entry));
-        return new JobStartResult(entry.Record.Id, true, entry.Record);
+        return new JobStartResult(started.Id, true, started);
     }
 
     public JobRecord? Get(string runPath)
@@ -90,7 +94,7 @@ internal sealed class JobRegistry
         {
             if (_active.TryGetValue(canonicalRunPath, out var active))
             {
-                return active.Record;
+                return active.Snapshot();
             }
 
             if (TryGetTerminal(canonicalRunPath, out var terminal))
@@ -112,7 +116,7 @@ internal sealed class JobRegistry
             {
                 if (active.Record.Id == jobId)
                 {
-                    return active.Record;
+                    return active.Snapshot();
                 }
             }
 
@@ -124,6 +128,33 @@ internal sealed class JobRegistry
         }
 
         return Read(canonicalRunPath, jobId);
+    }
+
+    public JobRecord? Cancel(string runPath, string jobId)
+    {
+        var canonicalRunPath = Canonicalize(runPath);
+        Entry? active = null;
+        JobRecord? snapshot = null;
+
+        lock (_gate)
+        {
+            if (_active.TryGetValue(canonicalRunPath, out var candidate) && candidate.Record.Id == jobId)
+            {
+                candidate.MarkCancellation("job was cancelled");
+                active = candidate;
+                snapshot = candidate.Snapshot();
+            }
+            else if (_terminal.TryGetValue(canonicalRunPath, out var terminal) &&
+                     terminal.TryGetValue(jobId, out var completed))
+            {
+                return completed;
+            }
+        }
+
+        if (active is null) return Read(canonicalRunPath, jobId);
+
+        active.Cancel();
+        return snapshot;
     }
 
     public Task CloseAsync()
@@ -181,11 +212,12 @@ internal sealed class JobRegistry
 
     private async Task ExecuteAsync(string runPath, Entry entry)
     {
+        using var activity = WorkerActivity.Use(entry.Activity);
         JobRecord terminal;
         try
         {
             var result = await entry.Work(entry.Cancellation.Token).ConfigureAwait(false);
-            terminal = entry.Record with
+            terminal = entry.Snapshot() with
             {
                 State = JobState.Completed,
                 CompletedAt = DateTimeOffset.UtcNow,
@@ -193,9 +225,19 @@ internal sealed class JobRegistry
                 Error = null
             };
         }
+        catch (OperationCanceledException) when (entry.CancellationRequested)
+        {
+            terminal = entry.Snapshot() with
+            {
+                State = JobState.Failed,
+                CompletedAt = DateTimeOffset.UtcNow,
+                ResultPayload = null,
+                Error = entry.CancellationError
+            };
+        }
         catch (Exception exception)
         {
-            terminal = entry.Record with
+            terminal = entry.Snapshot() with
             {
                 State = JobState.Failed,
                 CompletedAt = DateTimeOffset.UtcNow,
@@ -211,6 +253,17 @@ internal sealed class JobRegistry
                 return;
             }
 
+            if (entry.CancellationRequested)
+            {
+                terminal = entry.Snapshot() with
+                {
+                    State = JobState.Failed,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    ResultPayload = null,
+                    Error = entry.CancellationError
+                };
+            }
+
             entry.Record = terminal;
             _active.Remove(runPath);
             RememberTerminal(terminal);
@@ -224,7 +277,8 @@ internal sealed class JobRegistry
     {
         foreach (var entry in entries)
         {
-            entry.Cancellation.Cancel();
+            entry.MarkCancellation("job was cancelled at shutdown");
+            entry.Cancel();
         }
 
         if (entries.Count == 0)
@@ -254,7 +308,7 @@ internal sealed class JobRegistry
                     continue;
                 }
 
-                var terminal = entry.Record with
+                var terminal = entry.Snapshot() with
                 {
                     State = JobState.Failed,
                     CompletedAt = DateTimeOffset.UtcNow,
@@ -292,7 +346,9 @@ internal sealed class JobRegistry
             ["startedAt"] = record.StartedAt,
             ["completedAt"] = record.CompletedAt,
             ["resultPayload"] = record.ResultPayload,
-            ["error"] = record.Error
+            ["error"] = record.Error,
+            ["lastActivityAt"] = record.LastActivityAt,
+            ["lastEvent"] = record.LastEvent
         }.ToJsonString();
 
         AtomicFile.Write(path, json);
@@ -405,11 +461,17 @@ internal sealed class JobRegistry
             json["startedAt"]?.GetValue<DateTimeOffset>() ?? throw new JsonException("Job start time is missing."),
             json["completedAt"]?.GetValue<DateTimeOffset?>(),
             json["resultPayload"]?.GetValue<string>(),
-            json["error"]?.GetValue<string>());
+            json["error"]?.GetValue<string>(),
+            json["lastActivityAt"]?.GetValue<DateTimeOffset?>(),
+            json["lastEvent"]?.GetValue<string>());
     }
 
     private sealed class Entry
     {
+        private readonly object _cancellationGate = new();
+        private bool _cancellationRequested;
+        private string? _cancellationError;
+
         public Entry(JobRecord record, Func<CancellationToken, Task<string>> work)
         {
             Record = record;
@@ -419,7 +481,46 @@ internal sealed class JobRegistry
         public JobRecord Record { get; set; }
         public Func<CancellationToken, Task<string>> Work { get; }
         public CancellationTokenSource Cancellation { get; } = new();
+        public WorkerActivity Activity { get; } = new();
         public TaskCompletionSource<JobRecord> Signal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool CancellationRequested
+        {
+            get
+            {
+                lock (_cancellationGate) return _cancellationRequested;
+            }
+        }
+
+        public string CancellationError
+        {
+            get
+            {
+                lock (_cancellationGate) return _cancellationError ?? "job was cancelled";
+            }
+        }
+
+        public void MarkCancellation(string error)
+        {
+            lock (_cancellationGate)
+            {
+                if (_cancellationRequested) return;
+                _cancellationRequested = true;
+                _cancellationError = error;
+            }
+        }
+
+        public void Cancel() => Cancellation.Cancel();
+
+        public JobRecord Snapshot()
+        {
+            var activity = Activity.Snapshot();
+            return Record with
+            {
+                LastActivityAt = activity.LastActivityAt,
+                LastEvent = activity.LastEvent
+            };
+        }
     }
 }

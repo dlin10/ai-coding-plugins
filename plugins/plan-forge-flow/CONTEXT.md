@@ -10,7 +10,8 @@ these terms replace it.
 | **Act** | A major stage of a run. The four delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`. The interview is not an act class; it lives in the orchestrator. |
 | **Worker** | A separate Vendor process acting as a Critic or Builder for one delegated act. Never the Orchestrator. |
 | **Self-plugin exclusion** | A Worker cannot reach Plan Forge Flow itself, so it cannot enter another Run. Every other capability inherited from the host remains available. Codex disables the plugin by config, Claude by one-process settings, and Cursor marks the child environment so the self MCP launcher exits before starting. The explicitly invoked `forge` skill is manual-only and absent from automatic model context. |
-| **Job** | One delegated act running in the background, keyed by `jobId` and started, watched and collected through `forge.work.start` / `poll` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
+| **Job** | One delegated act running in the background, keyed by `jobId` and started, watched, optionally cancelled and collected through `forge.work.start` / `poll` / `cancel` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
+| **Worker liveness** | The most recent sign that a Job's Worker is still progressing: the time of its last output line and a bounded description of its last recognised Vendor event; silence is absence of output, not elapsed runtime. |
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
@@ -287,20 +288,30 @@ redesign was taken — see [docs/adr/0006](docs/adr/0006-worker-acts-as-jobs-on-
 One round per call becomes one round per job on this path; the orchestrator's mandatory turn between
 rounds, which is what docs/adr/0005 is about, is untouched.
 
-## A backgrounded vendor process has only two things left that can end it
+## A backgrounded vendor process has three reapers while the server lives
 
-Read out of `StreamingProcess.RunAsync` rather than measured: the kill-tree lives in the enumerator's
-`finally`, so it fires only while the server process is alive and something has cancelled the token.
-Under the one-call tools the host's own timeout was that something — Cursor cancelling at 60 seconds
-took the vendor process down with it, which is why a run that died there left no orphan.
+Read out of `StreamingProcess` rather than measured: the kill-tree lives in the enumerator's
+`finally`, so it fires only while the server process is alive. Under the old one-call Cursor path the
+host's timeout reached that block by cancelling at 60 seconds, which is why a run that died there
+left no orphan.
 
 A job is deliberately detached from its `tools/call` token; that detachment is the whole point, and
-it removes the reaper. What remains is the vendor's own `RunTimeout` — 20 minutes per attempt — and
-the server's shutdown, so `ApplicationStopping` cancels every active job and a graceful exit still
-reaps the children. A server killed outright orphans them: nothing here uses a Windows job object,
-and on Windows a child does not die with its parent. For a critic that is harmless, since every
-vendor keeps it read-only. For a builder it means edits landing in a workspace whose run is already
-gone.
+it removes the host as reaper. Three things remain while the server lives: `StreamingProcess` stops
+each vendor attempt after 30 minutes without a stdout line, `forge.work.cancel` cancels the job after
+an explicit user decision, and `ApplicationStopping` cancels every active job so a graceful exit
+still reaps the children. There is no fixed wall-clock limit on a critic or builder. Every stdout
+line resets the idle window, recognised event or not.
+
+`forge.work.poll` and `forge.status.activeJob` expose that distinction as `lastActivityAt`, the time
+of the last stdout line, and `lastEvent`, a bounded description of the last recognised vendor event.
+An unrecognised line advances only the first. Neither field is a licence to cancel automatically:
+the idle reaper owns automatic stopping; the orchestrator cancels only when the user asks, or after
+showing these fields and obtaining confirmation.
+
+A server killed outright can still orphan a worker that is producing output: nothing here uses a
+Windows job object, and on Windows a child does not die with its parent. For a critic that is
+harmless, since every vendor keeps it read-only. For a builder it means edits landing in a workspace
+whose run is already gone.
 
 ## The post-exit drain bounds this machine as well as the pipe
 
@@ -343,10 +354,10 @@ Measured on 2026-08-18 against Claude Code CLI 2.1.234, headless, with the same 
 
 Hence `.claude-plugin/plugin.json` sets `"timeout": 3600000` on the server entry — the hour the
 Codex host grants through `tool_timeout_sec` — raising the wall clock and lifting the idle floor
-for this server alone. The documented stdio defaults (≈28 h wall clock, 30 min idle) would
-otherwise abort a worker call whose two 20-minute vendor attempts run back to back. The field was
-measured through `--mcp-config`; the plugin manifest declares its server with the same entry
-schema, which is the one assumption not yet measured end to end.
+for this server alone. It is a host bound on the one-call surface, not a vendor-attempt timeout: a
+continuously active worker can now outlive it, while a silent attempt is reaped by the server after
+30 minutes. The field was measured through `--mcp-config`; the plugin manifest declares its server
+with the same entry schema, which is the one assumption not yet measured end to end.
 
 ## Verification is self-reported; where the gate is a command, the host's run of it decides
 
@@ -400,7 +411,8 @@ duration of a call:
 
 - the tool surface — every call with its arguments, and its result, exception or cancellation;
 - `StreamingProcess` — the executable, the full argument list, the working directory, the pid, the
-  exit code, a killed process's reason (cancelled, timeout, output cap) and a bounded stderr tail;
+  exit code, a killed process's reason (cancelled, idle, timeout, output cap) and a bounded stderr
+  tail;
 - `Microsoft.Extensions.Logging`, bridged by `RunFileLoggerProvider`, which is how the MCP SDK's
   own dispatch and transport entries survive a call that dies before any act writes anything.
   `ClearProviders()` used to discard them; stdout carries the protocol, so the run folder is the
