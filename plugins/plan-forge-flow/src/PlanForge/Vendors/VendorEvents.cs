@@ -32,11 +32,23 @@ internal static class VendorEvents
 
     private static void Record(string vendor, VendorEvent raised)
     {
+        WorkerActivity.RecordEvent(Description(raised));
+
         var fields = new (string Name, string? Value)[1 + (raised.Fields?.Count ?? 0)];
         fields[0] = ("text", raised.Text);
         for (var i = 0; i < (raised.Fields?.Count ?? 0); i++) fields[i + 1] = raised.Fields![i];
 
         RunLog.Current?.Write(raised.Kind is VendorEventKind.Failed ? "error" : "info",
             vendor, $"vendor.{raised.Kind.ToString().ToLowerInvariant()}", fields);
+    }
+
+    private static string Description(VendorEvent raised)
+    {
+        if (raised.Kind is not VendorEventKind.ToolUse and not VendorEventKind.ToolResult)
+            return $"{raised.Kind.ToString().ToLowerInvariant()}: {raised.Text}";
+
+        var detail = raised.Fields?.FirstOrDefault(field => field.Name == "command").Value
+            ?? raised.Fields?.FirstOrDefault(field => !string.IsNullOrWhiteSpace(field.Value)).Value;
+        return detail is null ? raised.Text : $"{raised.Text}: {detail}";
     }
 }

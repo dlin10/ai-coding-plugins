@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
+using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Repo;
@@ -24,14 +25,24 @@ public sealed class StatusJobTests : IDisposable
         var ct = CancellationToken.None;
         var run = await NewRun("status");
         var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activeReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var registry = new JobRegistry();
-        var start = registry.Start(run.Path, "plan.review", _ => gate.Task);
+        var start = registry.Start(run.Path, "plan.review", async ct =>
+        {
+            WorkerActivity.RecordOutput();
+            WorkerActivity.RecordEvent("command_execution: dotnet test");
+            activeReady.SetResult();
+            return await gate.Task.WaitAsync(ct);
+        });
+        await activeReady.Task;
 
         var active = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
 
         Assert.Equal(start.JobId, active["activeJob"]!["jobId"]!.GetValue<string>());
         Assert.Equal("plan.review", active["activeJob"]!["act"]!.GetValue<string>());
         Assert.Equal("running", active["activeJob"]!["state"]!.GetValue<string>());
+        Assert.NotNull(active["activeJob"]!["lastActivityAt"]);
+        Assert.Equal("command_execution: dotnet test", active["activeJob"]!["lastEvent"]!.GetValue<string>());
 
         gate.SetResult("done");
         await registry.WaitAsync(run.Path, start.JobId, TimeSpan.FromSeconds(1), ct);

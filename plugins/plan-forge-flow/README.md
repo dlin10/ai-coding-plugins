@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.28.2
+# Plan Forge Flow 0.29.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes fourteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes fifteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -24,9 +24,10 @@ are separate model processes, and neither ever revises the plan.
 | `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
 | `forge.review.fix` | Hands the findings the orchestrator kept to the builder, logs the deferred ones with reasons, then runs the plan's executable `## Gates` on the host |
-| `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**` |
+| `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline and any active job's latest stdout activity and recognised event |
 | `forge.work.start` | On Cursor hosts, starts one worker act as a background job |
-| `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call |
+| `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
+| `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the terminal result of a background worker act |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
 
