@@ -84,13 +84,12 @@ public sealed class WorkerIdleTimeoutTests : IDisposable
         : new ProcessSpec("/bin/sh", ["-c", "sleep 30"], _directory, string.Empty);
 
     private ProcessSpec Speaking() => OperatingSystem.IsWindows()
-        ? new ProcessSpec("powershell.exe",
-            ["-NoProfile", "-Command",
-             "[Console]::Out.WriteLine('first'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
-             "[Console]::Out.WriteLine('second'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
-             "[Console]::Out.WriteLine('third'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
-             "[Console]::Out.WriteLine('fourth'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
-             "[Console]::Out.WriteLine('fifth'); [Console]::Out.Flush()"],
+        ? new ProcessSpec("cmd.exe",
+            ["/d", "/s", "/c",
+             "echo first& ping -n 2 -w 1000 127.0.0.1 >nul& echo second& " +
+             "ping -n 2 -w 1000 127.0.0.1 >nul& echo third& " +
+             "ping -n 2 -w 1000 127.0.0.1 >nul& echo fourth& " +
+             "ping -n 2 -w 1000 127.0.0.1 >nul& echo fifth"],
             _directory, string.Empty)
         : new ProcessSpec("/bin/sh",
             ["-c", "echo first; sleep 1; echo second; sleep 1; echo third; sleep 1; echo fourth; sleep 1; echo fifth"],
