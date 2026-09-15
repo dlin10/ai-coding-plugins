@@ -31,9 +31,10 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. The server then runs the plan's executable `## Gates` entries. |
-| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift. |
+| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift and any active job's liveness. |
 | `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
-| `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
+| `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
+| `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
@@ -54,7 +55,7 @@ else, and on Cursor `forge.work.start` and every `forge.work.poll` carry it too.
 exists. What to do with them is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
-use the three work tools above so the surviving server can rejoin a detached worker; on every other
+use start → poll → fetch so the surviving server can rejoin a detached worker; on every other
 host, use the one-call worker tools. One `forge.work.poll` waits 45 seconds, so an act that takes
 minutes needs many of them in a row: keep calling it, in the same turn, until the state is no longer
 `running`, and only then fetch. Each poll result says which call it wants next. A `running` poll is
@@ -62,6 +63,13 @@ not a result, not narration-worthy, and never a reason to end your turn — neve
 the user to continue, because there is nothing for them to answer. If the originating server process
 exits, an in-flight job id is unknown to a new server and cannot be rejoined; after restart, start a
 new act. Persisted terminal results remain under `.forge/<runId>/`.
+
+`lastActivityAt` is the last stdout line, including output the parser did not recognise;
+`lastEvent` is a short description of the last recognised vendor event. Use them to explain what a
+running job is doing, never to invent an automatic cancellation policy: every vendor attempt already
+stops after 30 minutes with no stdout. Call `forge.work.cancel` only on the user's explicit request,
+or show both fields and obtain confirmation first. Cancellation is nonblocking, so continue with
+poll → fetch until the failed terminal result is persisted.
 
 ## Act 1: the interview
 

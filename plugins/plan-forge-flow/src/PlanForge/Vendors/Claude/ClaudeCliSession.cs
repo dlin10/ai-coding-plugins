@@ -10,8 +10,6 @@ internal sealed class ClaudeCliSession : IVendorSession
     private const string StructuredOutputTool = "StructuredOutput";
     private const string SelfPluginSettings =
         """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
-    private static readonly TimeSpan RunTimeout = TimeSpan.FromMinutes(20);
-
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
@@ -44,7 +42,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
 
         JsonElement? structured = null;
-        await foreach (var line in StreamingProcess.RunAsync(spec, RunTimeout, ct))
+        await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
         {
             if (!TryParse(line, out var message)) continue;
             using (message)
@@ -71,6 +69,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     }
 
     /// <summary>Returns the structured payload when this message carries it.</summary>
+    /// <param name="root">The parsed JSONL message.</param>
     internal JsonElement? Observe(JsonElement root)
     {
         // A line can parse as JSON without being a message — a bare string, for one. Asking such a
@@ -181,6 +180,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     }
 
     /// <summary>The command for Bash-shaped tools, the raw input for the rest — cut, not dropped.</summary>
+    /// <param name="block">The tool-use content block.</param>
     private static List<(string Name, string? Value)>? ToolInput(JsonElement block)
     {
         if (!block.TryGetProperty("input", out var input)) return null;
@@ -193,6 +193,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     }
 
     /// <summary>A tool result's content is either a plain string or an array of text blocks.</summary>
+    /// <param name="block">The tool-result content block.</param>
     private static string? ResultText(JsonElement block)
     {
         if (!block.TryGetProperty("content", out var content)) return null;
@@ -218,6 +219,9 @@ internal sealed class ClaudeCliSession : IVendorSession
     /// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> throws on anything that is
     /// not an object and a shape nobody predicted should cost a skipped block, not the run.
     /// </summary>
+    /// <param name="element">The JSON value that may be an object.</param>
+    /// <param name="name">The property name to read.</param>
+    /// <param name="value">Receives the property value when present.</param>
     private static bool TryRead(JsonElement element, string name, out JsonElement value)
     {
         if (element.ValueKind is JsonValueKind.Object) return element.TryGetProperty(name, out value);

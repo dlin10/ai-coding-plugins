@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.29.0
+
+Critics and builders that were still making progress stopped after a fixed 20-minute vendor window,
+while a truly silent worker gave the orchestrator no evidence to distinguish slow work from a hang
+(issue #85).
+
+- Every Codex, Claude, and Cursor worker attempt now has no fixed wall-clock limit and is stopped
+  only after 30 minutes without a stdout line; every line resets the idle window, recognised or not,
+  and the diagnostic kill reason is `idle`.
+- `forge.work.poll` and `forge.status.activeJob` report `lastActivityAt` and a bounded `lastEvent`,
+  and terminal job persistence keeps both fields.
+- New `forge.work.cancel` requests cancellation without blocking, treats a terminal job as a
+  successful no-op, and persists a cancelled running job as failed. The skill reserves it for an
+  explicit user request or a confirmed decision after showing the liveness fields.
+
 ## 0.28.2
 
 A codex builder in a run over a plugin marketplace updated the Claude and Cursor catalogues and could
