@@ -10,10 +10,12 @@ internal sealed record PollResult(string? Error, string? Phase, string? State, b
                                   int NarrativesAccepted, long ElapsedSeconds, long RemainingSeconds,
                                   IReadOnlyList<string> Warnings, int WarningsTotal);
 
-internal sealed record DigestAccess(string Role, string Symbol, string Operation, string Path, int Line);
+internal sealed record DigestAccess(string Role, string Symbol, string Operation, string Path, int Line, string Root,
+                                    IReadOnlyList<string> HeldProtection);
 
 internal sealed record DigestFinding(string FindingId, string ProtectionResult, IReadOnlyList<string> EvidenceIds,
-                                     IReadOnlyList<DigestAccess> Accesses);
+                                     IReadOnlyList<DigestAccess> Accesses, IReadOnlyList<string> BindingEvidence,
+                                     IReadOnlyList<string> OverlapEvidence);
 
 internal sealed record GroupDigest(string GroupId, string RuleId, string ConfidenceLabel, string Region,
                                    IReadOnlyList<string> AccessPath, int FindingCount,

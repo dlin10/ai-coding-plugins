@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 
 namespace ConcurrencyHunter.Core.Tests.Expectations;
@@ -35,7 +36,7 @@ internal static class ExpectationMatcher
         Matches(finding.Resource, entry.Resource) &&
         (entry.Accesses is null || Matches(finding, entry.Accesses));
 
-    private static bool Matches(ResourceId resource, ExpectationResource expected) =>
+    private static bool Matches(AccessResource resource, ExpectationResource expected) =>
         resource.Region == expected.Region &&
         resource.AccessPath.SequenceEqual(expected.AccessPath, StringComparer.Ordinal);
 

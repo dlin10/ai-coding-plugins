@@ -15,7 +15,7 @@ public sealed class DemoExpectationTests
     };
 
     [Fact]
-    public async Task Demo_matches_every_phase_1a_expectation_on_three_runs()
+    public async Task Demo_matches_every_phase_1b_expectation_on_three_runs()
     {
         await DemoWorkspace.EnsureRestoredAsync();
         var solutionPath = RepositoryFiles.FindRepositoryFile(
@@ -44,16 +44,10 @@ public sealed class DemoExpectationTests
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "1a");
+            "1b");
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
             $"False positives: {string.Join(", ", report.FalsePositives)}");
-        Assert.Equal(2, finalResult.Findings.Count);
-        var group = Assert.Single(finalResult.Groups);
-        Assert.Equal("High", group.ConfidenceLabel);
-        Assert.Equal(
-            "static:Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController",
-            group.Resource.Region);
     }
 }

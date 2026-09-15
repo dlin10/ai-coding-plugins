@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ConcurrencyHunter.Analysis\ConcurrencyHunter.Analysis.csproj" />
     <ProjectReference Include="..\ConcurrencyHunter.Core\ConcurrencyHunter.Core.csproj" />
     <ProjectReference Include="..\..\..\Common\Common.Roslyn\Common.Roslyn.csproj" />
   </ItemGroup>

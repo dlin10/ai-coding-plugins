@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
 
 namespace ConcurrencyHunter.Core.Tests;
@@ -9,8 +10,7 @@ internal static class ReportingTestData
     {
         var findings = new List<Finding>();
         var groups = new List<FindingGroup>();
-        var roots = new List<ExecutionRoot>();
-        var accesses = new List<StaticAccess>();
+
         for (var index = 0; index < confidenceLabels.Length; index++)
         {
             var number = index + 1;
@@ -18,19 +18,12 @@ internal static class ReportingTestData
             var groupId = $"G{number}";
             var confidenceLabel = confidenceLabels[index];
             var score = confidenceLabel == "High" ? 85 : confidenceLabel == "Medium" ? 65 : 40;
-            var resource = new ResourceId(
-                "Fixture",
-                $"static:Ns.Controller{number}",
-                [$"_value{number}"]);
-            var root = new ExecutionRoot(
-                $"root-{number}",
-                $"Ns.Controller{number}.Post()",
-                $"ControllerBase action Ns.Controller{number}.Post()");
-            var accessA = new StaticAccess(
+            var resource = FindingTestData.Resource($"static:Ns.Controller{number}", $"_value{number}");
+            var accessA = FindingTestData.Access(
                 resource,
                 AccessOperation.Write,
-                root,
-                root.Symbol,
+                $"root-{number}",
+                $"Ns.Controller{number}.Post()",
                 new SourceSpan($"src/Controller{number}.cs", 10 + index, 5, 10 + index, 12),
                 ["static:Ns.Sync.Gate"],
                 ["Fixture:static:Ns.Sync.Gate"]);
@@ -62,19 +55,10 @@ internal static class ReportingTestData
                     "B observes either the old or the new value"],
                 ["Path feasibility is not analyzed in this version."],
                 evidence));
-            groups.Add(new FindingGroup(
-                groupId,
-                $"stable-{groupId}",
-                "DCA1001",
-                confidenceLabel,
-                resource,
-                [findingId]));
-            roots.Add(root);
-            accesses.Add(accessA);
-            accesses.Add(accessB);
+            groups.Add(FindingTestData.Group(groupId, confidenceLabel, resource, [findingId]));
         }
 
-        return new AnalysisResult(roots, accesses, findings, groups);
+        return FindingTestData.Result(findings, groups);
     }
 
     internal static RunReport CreateReport(AnalysisResult? analysis,

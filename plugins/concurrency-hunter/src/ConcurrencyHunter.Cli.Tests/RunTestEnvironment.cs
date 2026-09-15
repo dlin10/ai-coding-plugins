@@ -36,6 +36,18 @@ internal sealed class RunTestEnvironment : IDisposable
                 private static int _value;
                 public void Set() { _value = 1; }
             }
+            """), ("Startup.cs", """
+            using Microsoft.AspNetCore.Builder;
+            using Microsoft.AspNetCore.Routing;
+            using Microsoft.Extensions.DependencyInjection;
+            public static class Startup
+            {
+                public static void Configure(IServiceCollection services, IEndpointRouteBuilder app)
+                {
+                    services.AddControllers();
+                    app.MapControllers();
+                }
+            }
             """));
         var result = await PhaseOneAnalyzer.AnalyzeAsync(
             solution,

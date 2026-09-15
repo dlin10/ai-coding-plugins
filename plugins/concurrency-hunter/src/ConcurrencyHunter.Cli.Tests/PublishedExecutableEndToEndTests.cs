@@ -97,56 +97,61 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             while (DateTimeOffset.UtcNow < expiresAt);
             Assert.Equal("awaiting_narrative", poll.GetProperty("state").GetString());
 
-            server.Send(ToolCall(4, "get_groups", new { run_id = runId, page = 1 }));
-            var groups = ToolPayload(await server.ReadResponseAsync("get_groups", HANDSHAKE_TIMEOUT));
-            var group = Assert.Single(groups.GetProperty("items").EnumerateArray());
-            Assert.Equal("DCA1001", group.GetProperty("ruleId").GetString());
-            Assert.Equal("High", group.GetProperty("confidenceLabel").GetString());
-            Assert.Equal(
-                "static:Demo.Web.Cases.StaticFieldUnlockedReadWrite.LastVisitorController",
-                group.GetProperty("region").GetString());
-            var groupId = group.GetProperty("groupId").GetString()!;
-
-            var groupNarrative = string.Join('\n',
-                "### What can be lost",
-                "A visitor name written by one request can be overwritten or read mid-update by another [E:F1.A] [E:F2.B].",
-                "### Remediation",
-                "- Guard every access to `_lastVisitor` with one `lock` on a static gate object; verify manually.",
-                "  - Check: every read and write of the field sits inside that lock [E:F1.P].");
-            server.Send(ToolCall(5, "submit_narrative", new
+            var requestId = 4;
+            var groups = new List<JsonElement>();
+            for (var page = 1; ; page++)
             {
-                run_id = runId,
-                target = groupId,
-                text = groupNarrative
-            }));
-            var groupSubmission = ToolPayload(
-                await server.ReadResponseAsync("submit_narrative group", HANDSHAKE_TIMEOUT));
-            Assert.Equal("accepted", groupSubmission.GetProperty("status").GetString());
+                server.Send(ToolCall(requestId++, "get_groups", new { run_id = runId, page }));
+                var payload = ToolPayload(await server.ReadResponseAsync($"get_groups page {page}", HANDSHAKE_TIMEOUT));
+                groups.AddRange(payload.GetProperty("items").EnumerateArray());
+                if (page >= payload.GetProperty("pages").GetInt32())
+                    break;
+            }
 
-            server.Send(ToolCall(6, "submit_narrative", new
+            Assert.NotEmpty(groups);
+            Assert.Contains(groups, group => group.GetProperty("region").GetString()!.StartsWith("di:", StringComparison.Ordinal));
+            var narrated = groups.Where(group => group.GetProperty("confidenceLabel").GetString() is "High" or "Medium").ToArray();
+            Assert.NotEmpty(narrated);
+            foreach (var group in narrated)
+            {
+                var groupId = group.GetProperty("groupId").GetString()!;
+                server.Send(ToolCall(requestId++, "submit_narrative", new
+                {
+                    run_id = runId,
+                    target = groupId,
+                    text = GroupNarrative(group)
+                }));
+                var submission = ToolPayload(await server.ReadResponseAsync($"submit_narrative {groupId}", HANDSHAKE_TIMEOUT));
+                Assert.True(submission.GetProperty("status").GetString() == "accepted",
+                            $"Narrative for {groupId} was not accepted: {submission.GetRawText()}");
+            }
+
+            var firstEvidence = narrated[0].GetProperty("findings")[0].GetProperty("evidenceIds")[0].GetString();
+            server.Send(ToolCall(requestId++, "submit_narrative", new
             {
                 run_id = runId,
                 target = "summary",
-                text = "One group of unprotected static state was found [E:F1.R]."
+                text = $"The demo holds {groups.Count} groups of shared state that concurrent roots can corrupt [E:{firstEvidence}]."
             }));
             var summarySubmission = ToolPayload(
                 await server.ReadResponseAsync("submit_narrative summary", HANDSHAKE_TIMEOUT));
-            Assert.Equal("accepted", summarySubmission.GetProperty("status").GetString());
+            Assert.True(summarySubmission.GetProperty("status").GetString() == "accepted",
+                        $"Summary was not accepted: {summarySubmission.GetRawText()}");
 
-            server.Send(ToolCall(7, "render_report", new { run_id = runId }));
+            server.Send(ToolCall(requestId, "render_report", new { run_id = runId }));
             var rendered = ToolPayload(await server.ReadResponseAsync("render_report", HANDSHAKE_TIMEOUT));
             Assert.Equal("CompleteWithFindings", rendered.GetProperty("status").GetString());
-            Assert.Equal(2, rendered.GetProperty("counts").GetProperty("findings").GetInt32());
             var bundlePath = rendered.GetProperty("bundlePath").GetString()!;
             Assert.Equal(
                 ["findings.json", "report.md", "run-metadata.json"],
                 Directory.GetFiles(bundlePath).Select(Path.GetFileName).Order(StringComparer.Ordinal));
-            Assert.Contains("Guard every access to", await File.ReadAllTextAsync(
-                Path.Combine(bundlePath, "report.md")));
             using var findings = JsonDocument.Parse(await File.ReadAllTextAsync(
                 Path.Combine(bundlePath, "findings.json")));
-            Assert.Equal(2, findings.RootElement.GetProperty("findings").GetArrayLength());
-
+            var findingElements = findings.RootElement.GetProperty("findings").EnumerateArray().ToArray();
+            Assert.Equal(rendered.GetProperty("counts").GetProperty("findings").GetInt32(), findingElements.Length);
+            Assert.Contains(findingElements, finding => finding.GetProperty("ruleId").GetString() == "DCA1002");
+            Assert.Contains("verify manually", await File.ReadAllTextAsync(Path.Combine(bundlePath, "report.md")),
+                            StringComparison.Ordinal);
             await server.CompleteAsync(HANDSHAKE_TIMEOUT);
         }
         finally
@@ -156,6 +161,20 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>A narrative built from a group digest alone: it cites an evidence id of every finding the digest lists
+    /// and names no symbol or location, so the validator's grounding rules have nothing to reject.</summary>
+    private static string GroupNarrative(JsonElement group)
+    {
+        var citations = group.GetProperty("findings").EnumerateArray()
+                             .Select(finding => $"[E:{finding.GetProperty("evidenceIds")[0].GetString()}]")
+                             .ToArray();
+        return string.Join('\n',
+            "### What can be lost",
+            $"Concurrent roots can overwrite or observe a half-finished update of this shared state {string.Join(' ', citations)}.",
+            "### Remediation",
+            $"- Make every access to this state go through one synchronization primitive; verify manually {citations[0]}.",
+            $"  - Check: every read and write in the listed accesses holds that one primitive {citations[^1]}.");
+    }
     private static async Task InitializeAsync(PublishedServer server)
     {
         server.Send(new

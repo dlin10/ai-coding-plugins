@@ -15,6 +15,7 @@
     <Project Path="cache-detective/src/CacheDetective.Cli.Tests/CacheDetective.Cli.Tests.csproj" />
   </Folder>
   <Folder Name="/concurrency-hunter/">
+    <Project Path="concurrency-hunter/src/ConcurrencyHunter.Analysis/ConcurrencyHunter.Analysis.csproj" />
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj" />
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj" />
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />

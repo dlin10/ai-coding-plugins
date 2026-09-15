@@ -3,6 +3,7 @@
     <File Path="../../Directory.Build.props" />
     <File Path="../../Directory.Packages.props" />
   </Folder>
+  <Project Path="ConcurrencyHunter.Analysis/ConcurrencyHunter.Analysis.csproj" />
   <Project Path="ConcurrencyHunter.Cli.Tests/ConcurrencyHunter.Cli.Tests.csproj" />
   <Project Path="ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
   <Project Path="ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj" />

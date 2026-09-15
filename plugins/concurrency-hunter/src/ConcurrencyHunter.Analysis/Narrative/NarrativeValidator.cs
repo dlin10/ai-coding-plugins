@@ -1,0 +1,285 @@
+using System.Text;
+using System.Text.RegularExpressions;
+using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Analysis;
+
+namespace ConcurrencyHunter.Narrative;
+
+public static class NarrativeValidator
+{
+    public const int MAXIMUM_BYTES = 8192;
+
+    private static readonly Regex CITATION_PATTERN = new(@"\[E:([A-Za-z0-9.]+)\]");
+    private static readonly Regex REMEDIATION_HEADING_PATTERN = new(@"^#{1,6}\s+Remediation\s*$", RegexOptions.IgnoreCase);
+    private static readonly Regex HEADING_PATTERN = new(@"^#{1,6}\s");
+    private static readonly Regex RECOMMENDATION_PATTERN = new(@"^(?:[-*]|\d+\.)\s+\S");
+    private static readonly Regex CHECK_PATTERN = new(@"^\s+(?:[-*]|\d+\.)\s+Check:\s*\S", RegexOptions.IgnoreCase);
+    private static readonly Regex BACKTICK_PATTERN = new(@"`([^`\r\n]+)`");
+    private static readonly Regex UNBACKTICKED_LOCATION_PATTERN = new(@"\.cs\b", RegexOptions.IgnoreCase);
+    private static readonly Regex LOCATION_PATTERN = new(@"^(.+\.cs)(?::(\d+))?$", RegexOptions.IgnoreCase);
+    private static readonly Regex IDENTIFIER_PATTERN = new(@"^@?[\p{L}\p{Nl}_][\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*" +
+                                                           @"(?:\.@?[\p{L}\p{Nl}_][\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)*" +
+                                                           @"(?:\([^()]*\))?$");
+    private static readonly Regex VERBATIM_IDENTIFIER_PREFIX_PATTERN = new(@"(?<![\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}])@(?=[\p{L}\p{Nl}_])");
+
+    private static readonly HashSet<string> SYNCHRONIZATION_VOCABULARY = new(StringComparer.Ordinal)
+    {
+        "lock",
+        "Monitor",
+        "Interlocked",
+        "Volatile",
+        "volatile",
+        "SemaphoreSlim",
+        "ReaderWriterLockSlim",
+        "Lock",
+        "Mutex",
+        "ConcurrentDictionary",
+        "ConcurrentQueue",
+        "ConcurrentBag",
+        "ConcurrentStack",
+        "ImmutableInterlocked",
+        "ThreadLocal",
+        "AsyncLocal",
+        "readonly",
+        "static",
+        "const",
+        "async",
+        "await",
+        "Task"
+    };
+
+    public static NarrativeVerdict Validate(string? text, NarrativeScope scope)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new NarrativeVerdict(false, ["empty"]);
+
+        var reasons = new List<string>();
+        var seenReasons = new HashSet<string>(StringComparer.Ordinal);
+        void AddReason(string reason)
+        {
+            if (seenReasons.Add(reason))
+                reasons.Add(reason);
+        }
+
+        if (Encoding.UTF8.GetByteCount(text) > MAXIMUM_BYTES)
+            AddReason("sizeExceeded");
+
+        ValidateCitations(text, scope, AddReason);
+        ValidateRemediation(text, scope, AddReason);
+
+        var backticks = BACKTICK_PATTERN.Matches(text).ToArray();
+        ValidateUnbacktickedLocations(text, backticks, AddReason);
+        ValidateLocations(backticks, scope, AddReason);
+        ValidateIdentifiers(backticks, scope, AddReason);
+
+        return new NarrativeVerdict(reasons.Count == 0, reasons.ToArray());
+    }
+
+    private static void ValidateCitations(string text, NarrativeScope scope, Action<string> addReason)
+    {
+        var citations = CITATION_PATTERN.Matches(text).ToArray();
+        if (!scope.IsSummary && citations.Length == 0)
+            addReason("noCitation");
+
+        var evidenceIds = scope.Findings.SelectMany(finding => finding.Evidence)
+                               .Select(evidence => evidence.Id)
+                               .ToHashSet(StringComparer.Ordinal);
+        foreach (var citation in citations)
+        {
+            var id = citation.Groups[1].Value;
+            if (!evidenceIds.Contains(id))
+                addReason($"unknownEvidence:{id}");
+        }
+        var citedIds = citations.Select(citation => citation.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        foreach (var findingId in scope.FindingsToCite)
+        {
+            var finding = scope.Findings.Single(item => item.FindingId == findingId);
+            if (!finding.Evidence.Any(evidence => citedIds.Contains(evidence.Id)))
+                addReason($"uncitedFinding:{findingId}");
+        }
+    }
+
+    private static void ValidateRemediation(string text, NarrativeScope scope, Action<string> addReason)
+    {
+        var lines = Regex.Split(text, "\r\n|\r|\n");
+        var sectionStart = Array.FindIndex(lines, line => REMEDIATION_HEADING_PATTERN.IsMatch(line));
+        if (sectionStart < 0)
+        {
+            if (!scope.IsSummary)
+                addReason("missingRemediation");
+            return;
+        }
+
+        var sectionEnd = Array.FindIndex(lines, sectionStart + 1, line => HEADING_PATTERN.IsMatch(line));
+        if (sectionEnd < 0)
+            sectionEnd = lines.Length;
+
+        var starts = Enumerable.Range(sectionStart + 1, sectionEnd - sectionStart - 1)
+                               .Where(index => RECOMMENDATION_PATTERN.IsMatch(lines[index]))
+                               .ToArray();
+        if (!scope.IsSummary && starts.Length == 0)
+            addReason("missingRemediation");
+
+        for (var recommendationIndex = 0; recommendationIndex < starts.Length; recommendationIndex++)
+        {
+            var start = starts[recommendationIndex];
+            var end = recommendationIndex + 1 < starts.Length ? starts[recommendationIndex + 1] : sectionEnd;
+            var recommendationLines = lines[start..end];
+            var number = recommendationIndex + 1;
+            if (!recommendationLines.Any(line => line.Contains("verify manually", StringComparison.OrdinalIgnoreCase)))
+                addReason($"recommendationWithoutVerifyManually:{number}");
+            if (!recommendationLines.Any(line => CHECK_PATTERN.IsMatch(line)))
+                addReason($"recommendationWithoutCheck:{number}");
+        }
+    }
+
+    private static void ValidateUnbacktickedLocations(string text, IReadOnlyList<Match> backticks,
+                                                       Action<string> addReason)
+    {
+        var remaining = text.ToCharArray();
+        foreach (var backtick in backticks)
+            Array.Fill(remaining, ' ', backtick.Index, backtick.Length);
+
+        var withoutBackticks = new string(remaining);
+        foreach (Match location in UNBACKTICKED_LOCATION_PATTERN.Matches(withoutBackticks))
+        {
+            var start = location.Index;
+            while (start > 0 && !char.IsWhiteSpace(withoutBackticks[start - 1]))
+                start--;
+            var end = location.Index + location.Length;
+            while (end < withoutBackticks.Length && !char.IsWhiteSpace(withoutBackticks[end]))
+                end++;
+            addReason($"unbacktickedLocation:{withoutBackticks[start..end]}");
+        }
+    }
+
+    private static void ValidateLocations(IReadOnlyList<Match> backticks, NarrativeScope scope, Action<string> addReason)
+    {
+        var sources = scope.Findings.SelectMany(finding => new[] { finding.AccessA.Source, finding.AccessB.Source }).ToArray();
+        foreach (var backtick in backticks)
+        {
+            var token = backtick.Groups[1].Value.Trim();
+            var match = LOCATION_PATTERN.Match(token);
+            if (!match.Success)
+                continue;
+
+            var hasLine = match.Groups[2].Success;
+            var line = 0;
+            var lineIsValid = !hasLine || int.TryParse(match.Groups[2].Value, out line);
+            var accepted = lineIsValid && sources.Any(source =>
+                IsPathSuffix(match.Groups[1].Value, source.Path) &&
+                (!hasLine || line >= source.StartLine && line <= source.EndLine));
+            if (!accepted)
+                addReason($"inventedLocation:{token}");
+        }
+    }
+
+    private static void ValidateIdentifiers(IReadOnlyList<Match> backticks, NarrativeScope scope,
+                                            Action<string> addReason)
+    {
+        var evidenceIds = scope.Findings.SelectMany(finding => finding.Evidence)
+                               .Select(evidence => evidence.Id)
+                               .ToHashSet(StringComparer.Ordinal);
+        var accesses = scope.Findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB }).ToArray();
+        var symbols = accesses.SelectMany(access => new[] { access.Symbol, access.Root.Symbol }).ToArray();
+        var exactSymbols = symbols.Select(NormalizeVerbatimIdentifiers)
+                                  .ToHashSet(StringComparer.Ordinal);
+        var suffixTargets = symbols.Select(symbol => WithoutParameters(NormalizeVerbatimIdentifiers(symbol)))
+                                    .Concat(scope.Findings.SelectMany(ResourceTargets))
+                                    .Concat(accesses.SelectMany(ProtectionTargets))
+                                    .Distinct(StringComparer.Ordinal)
+                                    .ToArray();
+
+        foreach (var backtick in backticks)
+        {
+            var token = backtick.Groups[1].Value.Trim();
+            if (LOCATION_PATTERN.IsMatch(token) || !IDENTIFIER_PATTERN.IsMatch(token))
+                continue;
+
+            var normalized = NormalizeVerbatimIdentifiers(token);
+            var withoutParameters = WithoutParameters(normalized);
+            var firstSegmentEnd = normalized.IndexOfAny(['.', '(']);
+            var firstSegment = firstSegmentEnd < 0 ? normalized : normalized[..firstSegmentEnd];
+            var accepted = exactSymbols.Contains(normalized) ||
+                           suffixTargets.Any(target => IsDotSuffix(withoutParameters, target)) ||
+                           evidenceIds.Contains(normalized) ||
+                           Regex.IsMatch(normalized, @"^DCA100[1-4]$") ||
+                           SYNCHRONIZATION_VOCABULARY.Contains(firstSegment);
+            if (!accepted)
+                addReason($"inventedSymbol:{token}");
+        }
+    }
+
+    private static IEnumerable<string> ResourceTargets(Finding finding)
+    {
+        var regionType = NormalizeVerbatimIdentifiers(RegionType(finding.Resource.Region));
+        yield return regionType;
+        yield return $"{regionType}.{NormalizeVerbatimIdentifiers(finding.Resource.AccessPath[^1])}";
+    }
+
+    // A held protection name is a region or member, optionally "<region> as <service type>" and a trailing
+    // parenthesized note; a receiver lock reads "this <type>". Each named type or member is a target.
+    private static IEnumerable<string> ProtectionTargets(Access access) =>
+        access.HeldProtection.SelectMany(protection =>
+        {
+            var note = protection.IndexOf(" (", StringComparison.Ordinal);
+            var name = note < 0 ? protection : protection[..note];
+            if (name.StartsWith("this ", StringComparison.Ordinal))
+                name = name["this ".Length..];
+            return name.Split(" as ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                       .Select(part => NormalizeVerbatimIdentifiers(RegionType(part)));
+        });
+
+    /// <summary>A region's type: <c>static:T</c> and <c>di:T@Lifetime</c> both give <c>T</c>.</summary>
+    private static string RegionType(string region)
+    {
+        if (region.StartsWith("static:", StringComparison.Ordinal))
+            return region["static:".Length..];
+        if (!region.StartsWith("di:", StringComparison.Ordinal))
+            return region;
+
+        var type = region["di:".Length..];
+        var lifetime = type.LastIndexOf('@');
+        return lifetime < 0 ? type : type[..lifetime];
+    }
+
+    private static bool IsPathSuffix(string narrativePath, string evidencePath)
+    {
+        var narrativeSegments = PathSegments(narrativePath);
+        var evidenceSegments = PathSegments(evidencePath);
+        if (narrativeSegments.Length == 0 || narrativeSegments.Length > evidenceSegments.Length)
+            return false;
+
+        var offset = evidenceSegments.Length - narrativeSegments.Length;
+        return narrativeSegments.Select((segment, index) => (segment, index))
+                                .All(item => string.Equals(
+                                    item.segment,
+                                    evidenceSegments[offset + item.index],
+                                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string[] PathSegments(string path) => path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+    private static bool IsDotSuffix(string candidate, string target)
+    {
+        var candidateSegments = candidate.Split('.');
+        var targetSegments = target.Split('.');
+        if (candidateSegments.Length > targetSegments.Length)
+            return false;
+
+        var offset = targetSegments.Length - candidateSegments.Length;
+        return candidateSegments.Select((segment, index) => (segment, index))
+                                .All(item => string.Equals(
+                                    item.segment,
+                                    targetSegments[offset + item.index],
+                                    StringComparison.Ordinal));
+    }
+
+    private static string WithoutParameters(string value)
+    {
+        var parenthesis = value.IndexOf('(');
+        return parenthesis < 0 ? value : value[..parenthesis];
+    }
+
+    private static string NormalizeVerbatimIdentifiers(string value) => VERBATIM_IDENTIFIER_PREFIX_PATTERN.Replace(value, string.Empty);
+}

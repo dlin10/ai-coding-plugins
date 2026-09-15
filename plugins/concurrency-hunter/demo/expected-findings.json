@@ -209,6 +209,72 @@
         { "symbol": "Demo.Web.Cases.FactoryReturnsSharedStatic.FirstBoxWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.FactoryReturnsSharedStatic.SecondBoxWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "hosted-start-vs-action",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.HostedStartVsAction.WarmupState@Singleton", "accessPath": ["Stage"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.HostedStartVsAction.WarmupService.StartAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.HostedStartVsAction.WarmupController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "background-stop-reads-own-field",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.BackgroundStopReadsOwnField.ProgressWorker@Singleton", "accessPath": ["_lastItem"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.BackgroundStopReadsOwnField.ProgressWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.BackgroundStopReadsOwnField.ProgressWorker.StopAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "poco-controller-self-overlap",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PocoControllerSelfOverlap.ShelfState@Singleton", "accessPath": ["Label"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PocoControllerSelfOverlap.ShelfController.Put(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.PocoControllerSelfOverlap.ShelfController.Put(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "primary-constructor-injection",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PrimaryConstructorInjection.QuotaState@Singleton", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PrimaryConstructorInjection.QuotaController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.PrimaryConstructorInjection.QuotaController.Post(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "from-services-action-parameter",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FromServicesActionParameter.RelayState@Singleton", "accessPath": ["Target"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FromServicesActionParameter.RelayController.Post(RelayState, string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FromServicesActionParameter.RelayController.Post(RelayState, string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "shared-library-static/web-self",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Domain.Cases.SharedLibraryStatic.LastSync", "accessPath": ["Source"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -291,6 +357,25 @@
       "id": "unreachable-static-writer",
       "phase": "2",
       "resource": { "region": "static:Demo.Web.Cases.UnreachableStaticWriter.LegacyImporter", "accessPath": ["LastFile"] }
+    },
+    {
+      "id": "monitor-enter-exit-same-gate",
+      "phase": "1b",
+      "resource": { "region": "static:Demo.Web.Cases.MonitorEnterExitSameGate.WriterLog", "accessPath": ["LastWriter"] }
+    },
+    {
+      "id": "ambiguous-registration-scoped-wins",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.AmbiguousRegistrationScopedWins.CartDraft@Singleton", "accessPath": ["Item"] }
+    },
+    {
+      "id": "shared-library-static/worker-vs-web",
+      "phase": "1b",
+      "resource": { "region": "static:Demo.Domain.Cases.SharedLibraryStatic.LastSync", "accessPath": ["Source"] },
+      "accesses": [
+        { "symbol": "Demo.Worker.Cases.SharedLibraryStatic.SyncWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" }
+      ]
     }
   ]
 }

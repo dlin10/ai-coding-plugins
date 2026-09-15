@@ -20,12 +20,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../ConcurrencyHunter.Analysis/ConcurrencyHunter.Analysis.csproj" />
     <ProjectReference Include="../ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/FixtureSolution.cs"
              Link="Fixtures/FixtureSolution.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/FindingTestData.cs"
+             Link="Fixtures/FindingTestData.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/StubAssemblies.cs"
+             Link="Fixtures/StubAssemblies.cs" />
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/RepositoryFiles.cs"
              Link="Fixtures/RepositoryFiles.cs" />
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/DemoWorkspace.cs"

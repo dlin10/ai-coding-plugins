@@ -1,5 +1,7 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Expectations;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests;
@@ -145,7 +147,7 @@ public sealed class ExpectationMatcherTests
     private static Finding Finding(string id, (string Symbol, string Operation) first,
                                    (string Symbol, string Operation) second)
     {
-        var resource = new ResourceId("Fixture", "static:Demo.State", ["Value"]);
+        var resource = FindingTestData.Resource("static:Demo.State", "Value");
         var accessA = Access(resource, first, 1);
         var accessB = Access(resource, second, 2);
         return new Finding(
@@ -164,7 +166,7 @@ public sealed class ExpectationMatcherTests
             []);
     }
 
-    private static StaticAccess Access(ResourceId resource, (string Symbol, string Operation) expected, int line)
+    private static Access Access(AccessResource resource, (string Symbol, string Operation) expected, int line)
     {
         var operation = expected.Operation switch
         {
@@ -173,9 +175,7 @@ public sealed class ExpectationMatcherTests
             "read-modify-write" => AccessOperation.ReadModifyWrite,
             _ => throw new ArgumentOutOfRangeException(nameof(expected))
         };
-        var root = new ExecutionRoot($"root:{expected.Symbol}", expected.Symbol,
-            $"ControllerBase action {expected.Symbol}");
-        return new StaticAccess(resource, operation, root, expected.Symbol,
-            new SourceSpan("Controller.cs", line, 1, line, 2), [], []);
+        return FindingTestData.Access(resource, operation, $"root:{expected.Symbol}", expected.Symbol,
+            new SourceSpan("Controller.cs", line, 1, line, 2));
     }
 }

@@ -234,6 +234,8 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-062.** HTTP invocations, включая gRPC, потенциально concurrent друг с другом внутри процесса. Sharing зависит от DI lifetime/escape/resource identity.
 
+**TD-062a.** Process scope: исполняемый проект с загружаемыми им проектами; тестовые проекты не scopes; пары accesses только внутри одного scope. См. ADR 0005.
+
 **TD-063.** Core получает framework roots только через `IExecutionRootProvider`; контракт в разделе 11.
 
 **TD-064.** Один `BackgroundService.ExecuteAsync` на одном доказанном instance не размножается автоматически; overlap с HTTP, другими hosted services и своими spawns.
@@ -630,7 +632,7 @@ Skill требует от composer следующий порядок в narrativ
 
 Валидатор фрагмента проверяет: все cited evidence ids существуют и принадлежат группе; нет source locations, symbols, runtime values или events вне evidence; есть пометка `verify manually` и непустые проверки у каждой рекомендации; размер в пределах константы сервера. Skeleton уже содержит пути, evidence и сценарий; narrative их не пересказывает.
 
-Соглашения фрагмента: ссылки на evidence записываются как `[E:<id>]`; narrative группы ссылается хотя бы на одно evidence каждого finding, который `get_groups` показал для этой группы; раздел `Remediation` задаётся Markdown-заголовком уровня 1–6, а каждая рекомендация содержит `verify manually` и вложенный пункт `Check:` с непустой проверкой. Source location вида `File.cs:line`, включая путь с пробелами, всегда заключается в backticks, совпадает по целым конечным сегментам с evidence path и указывает строку внутри evidence span; любое упоминание `.cs` вне backticks запрещено. Другие токены в backticks, если они имеют форму идентификатора, должны совпадать с evidence symbol, его допустимым suffix, region type, field, held protection, evidence id или `DCA1001`–`DCA1004`; также разрешён словарь синхронизации `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`, `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`, `readonly`, `static`, `const`, `async`, `await`, `Task`. Unicode и verbatim-идентификаторы проверяются по тем же правилам; лимит фрагмента — 8192 байта UTF-8.
+Соглашения фрагмента: ссылки на evidence записываются как `[E:<id>]`; narrative группы ссылается хотя бы на одно evidence каждого finding, который `get_groups` показал для этой группы; раздел `Remediation` задаётся Markdown-заголовком уровня 1–6, а каждая рекомендация содержит `verify manually` и вложенный пункт `Check:` с непустой проверкой. Source location вида `File.cs:line`, включая путь с пробелами, всегда заключается в backticks, совпадает по целым конечным сегментам с evidence path и указывает строку внутри evidence span; любое упоминание `.cs` вне backticks запрещено. Другие токены в backticks, если они имеют форму идентификатора, должны совпадать с evidence symbol или символом root entry, их допустимым suffix, типом region без префикса `static:`/`di:` и суффикса `@<Lifetime>`, field, именем held protection без того же префикса, суффикса и пояснения в скобках, evidence id или `DCA1001`–`DCA1004`; сам lifetime, например `Singleton`, не принимается; также разрешён словарь синхронизации `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`, `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`, `readonly`, `static`, `const`, `async`, `await`, `Task`. Unicode и verbatim-идентификаторы проверяются по тем же правилам; лимит фрагмента — 8192 байта UTF-8.
 
 ## 9. Plugin integration и artifacts
 
@@ -653,7 +655,7 @@ Skill передаёт `run_start` абсолютный путь: аргумен
 | `get_gaps` | `page` | пакеты TD-035 по materiality, `round` | После deadline `deadlineExceeded` |
 | `submit_inferences` | `inferences[]` | `accepted[]`, `rejected[{id, reasons}]`, `late[]` | Один повтор на пакет |
 | `run_continue` | | `state` | Продолжает job после resolver |
-| `get_groups` | `page`, `level?` | дайджесты `FindingGroup` в порядке High, Medium, Low | ~1,5 КБ на группу |
+| `get_groups` | `page`, `level?` | дайджесты `FindingGroup` в порядке High, Medium, Low; у каждого finding оба access с display своего root и held protection, binding evidence и overlap evidence | ~1,5 КБ на группу, сокращается через `ResponseBudget`, не более 4 КБ |
 | `submit_narrative` | `target: group_id \| summary`, `text` | `accepted \| rejected{reasons}` | Один повтор на цель |
 | `render_report` | | `status`, `counts`, `bundlePath`, `reportPath` | Terminal |
 | `run_cancel` | | `status: Cancelled` | Останавливает job |
@@ -697,7 +699,7 @@ Skill передаёт `run_start` абсолютный путь: аргумен
 
 ### 9.7. Packaging
 
-Плагин содержит: `src/ConcurrencyHunter.slnx` с проектами `ConcurrencyHunter.Core`, `ConcurrencyHunter.Cli`, тестами; ссылки на `plugins/Common/Common.Roslyn` и `Common.Mcp`; `bin/` с launcher по образцу cache-detective; `build/package.ps1` и `build/check-test-baseline.ps1` из Common; `skills/hunt/SKILL.md` с evals; `demo/`; манифесты `.claude-plugin`, `.codex-plugin`, `.cursor-plugin`. MCP-конфиг Codex лежит в `codex.mcp.json`, а не в `.mcp.json`, как у других плагинов репо: Claude Code читает `.mcp.json` и из родительских папок, и сессия, открытая в `demo/`, получала бы проектный сервер с путём `.\bin`, который от её папки не разрешается. Publish: один self-extracting framework-dependent exe win-x64 по образцу cache-detective ADR 0001 с `IncludeNativeLibrariesForSelfExtract` для `libz3`. Корневые `plugins/Directory.Build.props` и `plugins/Directory.Packages.props`, общая `plugins/AiCodingPlugins.slnx` для IDE; gates и packaging на `src/ConcurrencyHunter.slnx`. Installation/update не запускают анализ.
+Плагин содержит: `src/ConcurrencyHunter.slnx` с проектами `ConcurrencyHunter.Analysis` (IR, root/DI/scope model, engines, narrative and report; no Roslyn reference, enforced by the build), `ConcurrencyHunter.Core` (Roslyn frontend and built-in providers), `ConcurrencyHunter.Cli`, тестами; ссылки на `plugins/Common/Common.Roslyn` и `Common.Mcp`; `bin/` с launcher по образцу cache-detective; `build/package.ps1` и `build/check-test-baseline.ps1` из Common; `skills/hunt/SKILL.md` с evals; `demo/`; манифесты `.claude-plugin`, `.codex-plugin`, `.cursor-plugin`. MCP-конфиг Codex лежит в `codex.mcp.json`, а не в `.mcp.json`, как у других плагинов репо: Claude Code читает `.mcp.json` и из родительских папок, и сессия, открытая в `demo/`, получала бы проектный сервер с путём `.\bin`, который от её папки не разрешается. Publish: один self-extracting framework-dependent exe win-x64 по образцу cache-detective ADR 0001 с `IncludeNativeLibrariesForSelfExtract` для `libz3`. Корневые `plugins/Directory.Build.props` и `plugins/Directory.Packages.props`, общая `plugins/AiCodingPlugins.slnx` для IDE; gates и packaging на `src/ConcurrencyHunter.slnx`. Installation/update не запускают анализ.
 
 ## 10. Precision strategy и бюджеты
 

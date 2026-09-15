@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ConcurrencyHunter</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ConcurrencyHunter.Core" />
+    <InternalsVisibleTo Include="ConcurrencyHunter.Core.Tests" />
+    <InternalsVisibleTo Include="ConcurrencyHunter.Cli" />
+    <InternalsVisibleTo Include="ConcurrencyHunter.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

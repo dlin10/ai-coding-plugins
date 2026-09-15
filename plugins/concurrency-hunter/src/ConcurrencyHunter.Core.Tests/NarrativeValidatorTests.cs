@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Narrative;
 using Xunit;
 
@@ -27,7 +28,7 @@ public sealed class NarrativeValidatorTests
     [Fact]
     public void Text_over_the_size_limit_is_rejected()
     {
-        var text = ValidGroupText(new string('é', NarrativeValidator.MaximumBytes));
+        var text = ValidGroupText(new string('é', NarrativeValidator.MAXIMUM_BYTES));
 
         var verdict = NarrativeValidator.Validate(text, GroupScope(CreateFinding()));
 
@@ -298,7 +299,7 @@ public sealed class NarrativeValidatorTests
     public void Every_reason_is_reported_together()
     {
         var text = $"""
-            {new string('x', NarrativeValidator.MaximumBytes)}
+            {new string('x', NarrativeValidator.MAXIMUM_BYTES)}
             Race [E:BAD]
             Inspect Unrelated.CS:999
             ## Remediation
@@ -321,6 +322,71 @@ public sealed class NarrativeValidatorTests
             verdict.Reasons);
     }
 
+    [Fact]
+    public void Di_region_type_is_accepted_without_its_prefix_and_lifetime_suffix()
+    {
+        var scope = GroupScope(CreateFinding(region: "di:Ns.Ledger@Singleton", field: "Entry"));
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Share `Ns.Ledger`, `Ledger` and `Ledger.Entry`."), scope);
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Lifetime_suffix_and_region_prefix_on_their_own_are_not_accepted()
+    {
+        var scope = GroupScope(CreateFinding(region: "di:Ns.Ledger@Singleton", field: "Entry",
+                                             protection: ["di:Ns.Ledger@Singleton as Ns.Ledger"]));
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Do not name `Singleton`, `di` or `static`."), scope);
+
+        Assert.Equal(["inventedSymbol:Singleton", "inventedSymbol:di"], verdict.Reasons);
+    }
+
+    [Fact]
+    public void Held_protection_names_are_accepted_without_region_prefix_lifetime_suffix_or_note()
+    {
+        var scope = GroupScope(CreateFinding(protection:
+        [
+            "di:Ns.Gate@Singleton as Ns.IGate (not one object per process)",
+            "this Ns.Worker (not one object per process)",
+            "static:Ns.Sync.Mutable (not one object per process)"
+        ]));
+
+        var accepted = NarrativeValidator.Validate(
+            ValidGroupText("Lock `Ns.Gate`, `IGate`, `Worker` and `Sync.Mutable`."), scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `process` or `Singleton`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedSymbol:process", "inventedSymbol:Singleton"], rejected.Reasons);
+    }
+
+    [Fact]
+    public void Root_entry_symbol_is_accepted_like_an_access_symbol()
+    {
+        var scope = GroupScope(CreateFinding(symbol: "Ns.Ledger.Reserve(int)", rootSymbol: "Ns.LedgerWorker.ExecuteAsync(CancellationToken)"));
+
+        var accepted = NarrativeValidator.Validate(
+            ValidGroupText("From `Ns.LedgerWorker.ExecuteAsync(CancellationToken)` and `LedgerWorker.ExecuteAsync` to `Ledger.Reserve`."),
+            scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `LedgerWorker.StopAsync`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedSymbol:LedgerWorker.StopAsync"], rejected.Reasons);
+    }
+
+    [Fact]
+    public void Static_region_type_is_still_accepted_without_its_prefix()
+    {
+        var scope = GroupScope(CreateFinding(region: "static:Ns.Heartbeat", field: "LastBeat"));
+
+        var accepted = NarrativeValidator.Validate(ValidGroupText("Guard `Heartbeat.LastBeat`."), scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `static:Ns.Heartbeat` as `Ns.Heartbeats`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedSymbol:Ns.Heartbeats"], rejected.Reasons);
+    }
+
     private static NarrativeScope GroupScope(Finding finding) =>
         NarrativeScope.ForGroup(CreateResult(finding), finding.GroupId, 3);
 
@@ -335,39 +401,30 @@ public sealed class NarrativeValidatorTests
     private static AnalysisResult CreateResult(params Finding[] findings)
     {
         var groups = findings.GroupBy(finding => finding.GroupId)
-                             .Select(group => new FindingGroup(
-                                 group.Key,
-                                 $"stable-{group.Key}",
-                                 "DCA1001",
-                                 "High",
-                                 group.First().Resource,
-                                 group.Select(finding => finding.FindingId).ToArray()))
+                             .Select(group => FindingTestData.Group(group.Key, "High", group.First().Resource,
+                                                                    group.Select(finding => finding.FindingId).ToArray()))
                              .ToArray();
-        return new AnalysisResult(
-            findings.SelectMany(finding => new[] { finding.AccessA.Root, finding.AccessB.Root }).ToArray(),
-            findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB }).ToArray(),
-            findings,
-            groups);
+        return FindingTestData.Result(findings, groups);
     }
 
     private static Finding CreateFinding(string findingId = "F1", string groupId = "G1",
                                          string path = "src/A/Controller.cs", int startLine = 17,
                                          int endLine = 17, string symbol = "Ns.Controller.Post(string)",
                                          string region = "static:Ns.Controller", string field = "_value",
-                                         IReadOnlyList<string>? protection = null)
+                                         IReadOnlyList<string>? protection = null, string? rootSymbol = null)
     {
-        var resource = new ResourceId("Fixture", region, [field]);
-        var root = new ExecutionRoot("root", symbol, $"ControllerBase action {symbol}");
+        var resource = FindingTestData.Resource(region, field);
         var source = new SourceSpan(path, startLine, 1, endLine, 20);
         var heldProtection = protection ?? [];
-        var accessA = new StaticAccess(
+        var accessA = FindingTestData.Access(
             resource,
             AccessOperation.Write,
-            root,
+            "root",
             symbol,
             source,
             heldProtection,
             heldProtection.Select(item => $"Fixture:{item}").ToArray());
+        accessA = accessA with { Root = accessA.Root with { Symbol = rootSymbol ?? accessA.Root.Symbol } };
         var accessB = accessA with { Operation = AccessOperation.Read };
         var evidence = new[] { "A", "B", "R", "O", "P", "S" }
             .Select(suffix => new EvidenceItem($"{findingId}.{suffix}", suffix, suffix))

@@ -101,7 +101,7 @@ public sealed class ReportRendererTests
         Assert.Contains("- Resource: Fixture · static:Ns.Controller1 · _value1", markdown);
         Assert.Contains("- Protection: partial", markdown);
         Assert.Contains("- Scenario: A writes `_value1`; B reads `_value1` at the same time", markdown);
-        Assert.Contains("- Confidence: High (85) · Path feasibility is not analyzed in this version.", markdown);
+        Assert.Contains("- Uncertainty: Path feasibility is not analyzed in this version.\n- Confidence: High (85)\n", markdown);
         Assert.Contains("- Evidence: F1.A, F1.B, F1.R, F1.O, F1.P, F1.S", markdown);
     }
 

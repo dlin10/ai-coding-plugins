@@ -2,6 +2,8 @@
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
 using Demo.Web.Cases.AliasTwoFields;
+using Demo.Web.Cases.AmbiguousRegistrationScopedWins;
+using Demo.Web.Cases.BackgroundStopReadsOwnField;
 using Demo.Web.Cases.DelegateField;
 using Demo.Web.Cases.DiScopedPerRequest;
 using Demo.Web.Cases.DiSingletonControllerVsWorker;
@@ -11,10 +13,15 @@ using Demo.Web.Cases.DiTransient;
 using Demo.Web.Cases.EscapeIntoSingleton;
 using Demo.Web.Cases.FactoryDistinctCallSites;
 using Demo.Web.Cases.FactoryReturnsSharedStatic;
+using Demo.Web.Cases.FromServicesActionParameter;
+using Demo.Web.Cases.HostedStartVsAction;
 using Demo.Web.Cases.InterfaceDispatchDi;
 using Demo.Web.Cases.LambdaAndLocalFunction;
 using Demo.Web.Cases.LockHeldByCaller;
 using Demo.Web.Cases.MinimalApiReadWrite;
+using Demo.Web.Cases.MonitorEnterExitSameGate;
+using Demo.Web.Cases.PocoControllerSelfOverlap;
+using Demo.Web.Cases.PrimaryConstructorInjection;
 using Demo.Web.Cases.ReceiverSensitivity;
 using Demo.Web.Cases.RmwSingletonCounter;
 using Demo.Web.Cases.RmwThreeLayers;
@@ -49,7 +56,14 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddFactoryDistinctCallSites()
                 .AddSameLockViaField()
                 .AddLockHeldByCaller()
-                .AddSingletonConfiguredInConstructor();
+                .AddSingletonConfiguredInConstructor()
+                .AddHostedStartVsAction()
+                .AddBackgroundStopReadsOwnField()
+                .AddPocoControllerSelfOverlap()
+                .AddPrimaryConstructorInjection()
+                .AddFromServicesActionParameter()
+                .AddMonitorEnterExitSameGate()
+                .AddAmbiguousRegistrationScopedWins();
 
 var app = builder.Build();
 

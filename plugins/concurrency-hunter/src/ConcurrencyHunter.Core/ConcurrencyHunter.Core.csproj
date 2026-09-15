@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <ProjectReference Include="..\ConcurrencyHunter.Analysis\ConcurrencyHunter.Analysis.csproj" />
   </ItemGroup>
 
 </Project>

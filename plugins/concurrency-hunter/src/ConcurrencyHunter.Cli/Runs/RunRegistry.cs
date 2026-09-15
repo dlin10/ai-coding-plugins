@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Narrative;
 using ConcurrencyHunter.Reporting;
@@ -10,6 +11,10 @@ namespace ConcurrencyHunter.Runs;
 
 internal sealed class RunRegistry
 {
+    private const int DIGEST_LIST_LIMIT = 3;
+    private const int DIGEST_TARGET_BYTES = 1536;
+    private const int DIGEST_MAXIMUM_BYTES = 4096;
+
     private static readonly TimeSpan DEADLINE = TimeSpan.FromMinutes(30);
     private static readonly UTF8Encoding UTF8_WITHOUT_BOM = new(false);
 
@@ -330,13 +335,18 @@ internal sealed class RunRegistry
         }
     }
 
+    // The richest variant within the ~1.5 KB a digest is meant to take (SPEC 9.2); a group whose evidence cannot
+    // fit that gets the richest variant within the hard 4 KB ceiling instead.
     private static GroupDigest BuildDigest(FindingGroup group, AnalysisResult result)
     {
-        foreach (var variant in new[] { (3, 200), (1, 200), (1, 100), (1, 48) })
+        foreach (var budget in new[] { DIGEST_TARGET_BYTES, DIGEST_MAXIMUM_BYTES })
         {
-            var digest = BuildDigest(group, result, variant.Item1, variant.Item2);
-            if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(digest)) <= 4096)
-                return digest;
+            foreach (var variant in new[] { (3, 200), (2, 200), (1, 200), (1, 100), (1, 48) })
+            {
+                var digest = BuildDigest(group, result, variant.Item1, variant.Item2);
+                if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(digest)) <= budget)
+                    return digest;
+            }
         }
 
         return BuildDigest(group, result, 1, 48);
@@ -353,7 +363,10 @@ internal sealed class RunRegistry
                                                                        {
                                                                            DigestAccess("A", finding.AccessA, stringLimit),
                                                                            DigestAccess("B", finding.AccessB, stringLimit)
-                                                                       }))
+                                                                       },
+                                                                       BindingEvidence(finding, stringLimit),
+                                                                       finding.ConcurrencyEvidence.Take(DIGEST_LIST_LIMIT)
+                                                                              .Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray()))
                                   .ToArray();
         var scenario = allFindings.FirstOrDefault()?.Scenario.Select(step => ResponseBudget.Fit(step, stringLimit)).ToArray() ?? [];
         return new GroupDigest(ResponseBudget.Fit(group.GroupId, stringLimit), ResponseBudget.Fit(group.RuleId, stringLimit),
@@ -362,12 +375,24 @@ internal sealed class RunRegistry
                                findings, scenario);
     }
 
-    private static DigestAccess DigestAccess(string role, StaticAccess access, int stringLimit) => new(ResponseBudget.Fit(role, stringLimit),
+    private static DigestAccess DigestAccess(string role, Access access, int stringLimit) => new(ResponseBudget.Fit(role, stringLimit),
                                                                                                        ResponseBudget.Fit(access.Symbol, stringLimit),
                                                                                                        ResponseBudget.Fit(access.Operation.ToWireName(),
                                                                                                         stringLimit),
                                                                                                        ResponseBudget.Fit(access.Source.Path, stringLimit),
-                                                                                                       access.Source.StartLine);
+                                                                                                       access.Source.StartLine,
+                                                                                                       ResponseBudget.Fit(access.Root.Display, stringLimit),
+                                                                                                       access.HeldProtection.Take(DIGEST_LIST_LIMIT)
+                                                                                                             .Select(item => ResponseBudget.Fit(item, stringLimit))
+                                                                                                             .ToArray());
+
+    private static IReadOnlyList<string> BindingEvidence(Finding finding, int stringLimit) =>
+        finding.AccessA.BindingEvidence.Concat(finding.AccessB.BindingEvidence)
+               .Select(item => $"{item.Text} at {item.Source.Path}:{item.Source.StartLine}")
+               .Distinct(StringComparer.Ordinal)
+               .Take(DIGEST_LIST_LIMIT)
+               .Select(item => ResponseBudget.Fit(item, stringLimit))
+               .ToArray();
 
     private static SubmissionState GetSubmission(RunEntry run, string target)
     {

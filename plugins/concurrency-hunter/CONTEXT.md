@@ -64,6 +64,12 @@ spawn site; a body outside it cannot execute in the process and is neither lower
 against coverage.
 _Avoid_: scope, analyzed code, hot code
 
+**Process scope**:
+One application as it runs in one OS process: an executable project together with the projects it
+loads; a test project is not one. A static field or a singleton reached from two process scopes is
+two objects.
+_Avoid_: solution, app, deployment, app domain
+
 ### The heap
 
 **Heap region**:
@@ -178,6 +184,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Semantic gap** never changes a **Terminal status**; only a phase that did not finish does.
 - Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
+- An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
 
 ## Example dialogue
@@ -201,3 +208,5 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - "Material gap" was a status condition in the draft (a material gap forced `Incomplete`). Resolved:
   **Materiality** is a rank, `Incomplete` means a phase did not finish, and the queue of **Gap
   packets** has no budget other than the **Deadline**.
+- Phase 1a read the whole solution as one program. Resolved: a solution may hold several
+  applications, and the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.

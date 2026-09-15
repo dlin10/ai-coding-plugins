@@ -5,6 +5,33 @@ use this convention for finding `Fk`: `[E:Fk.A]` and `[E:Fk.B]` are the two acce
 `[E:Fk.R]` is the resource, `[E:Fk.O]` is execution overlap, `[E:Fk.P]` is protection, and
 `[E:Fk.S]` is the scenario.
 
+## Reading the evidence
+
+- **`Fk.R`, the resource.** It names the field, the region that holds it, the process scope and the
+  binding evidence. A `static:<Type>` region is a static field: one object for the whole process. A
+  `di:<Type>@<Lifetime>` region is an object the dependency injection container creates, such as
+  `di:Ledger@Singleton`; the text says which service type it was registered as and gives the
+  registration and constructor-assignment locations that prove the object reaches the access. Two
+  accesses pair only inside one process scope, which is an executable project and the projects it
+  loads, so a static field shared by two applications is two objects and never one finding. When you
+  name the region's type in backticks, write the type alone, `Ledger`, not `di:`, `static:` or the
+  `@Singleton` suffix.
+- **`Fk.O`, the overlap.** It says either that one root may run concurrently with itself, for example
+  an HTTP action serving two requests at once, or that two different roots may run concurrently in the
+  scope, for example an action and a hosted service. Two lifecycle methods of one hosted service, such
+  as `ExecuteAsync` and `StopAsync`, pair because the host can stop the service while it is still
+  executing; their relative order is not analyzed, and the finding's uncertainty says so.
+- **`Fk.P`, the protection.** It gives the result (`unprotected`, `partial` when only one side holds a
+  lock, `different-identity` when both hold locks but not a common one) and what A and B each hold. A
+  lock marked as not one object per process, such as a lock on a per-request field or on `this` in a
+  controller, is a different object in every invocation, so it excludes nothing between two requests
+  and protects nothing; say so rather than calling it a lock that failed. Name a held lock the way you
+  name a region type, without its prefix, suffix or note.
+- **`DCA1002`, a lost update.** One side is a read-modify-write, such as `Hits++` or `Total += n`: it
+  reads the value, computes a new one and writes it back. When the other side writes in between, the
+  write-back overwrites that update and it is lost. `DCA1001` is any other unsynchronized write paired
+  with a read or a write.
+
 ## Group narrative
 
 Use these `###` headings in this exact order, and support each section with the relevant evidence
@@ -34,10 +61,12 @@ Follow every validation rule:
   ignoring case; when present, the line must lie inside that access's evidence span. Do not mention
   any `.cs` location outside backticks.
 - Backticked identifiers are checked, including Unicode names and verbatim `@` identifiers on every
-  segment. Use only an exact evidence access symbol; a dot-suffix of an evidence symbol without its
-  parameters; the evidenced region type, field, or held protection; an evidence id; `DCA1001`
-  through `DCA1004`; or the synchronization vocabulary below. Backticked snippets that do not match
-  the identifier pattern are not checked.
+  segment. Use only an exact evidence access symbol or root entry symbol; a dot-suffix of either
+  without its parameters; the evidenced region type without its `static:` or `di:` prefix and
+  `@<Lifetime>` suffix; the field; a held protection name without that prefix, suffix or its trailing
+  note; an evidence id; `DCA1001` through `DCA1004`; or the synchronization vocabulary below. The
+  lifetime on its own, such as `Singleton`, is not accepted. Backticked snippets that do not match the
+  identifier pattern are not checked.
 - An identifier is also accepted when its first segment, before `.` or `(`, is in this vocabulary:
   `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`,
   `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`,

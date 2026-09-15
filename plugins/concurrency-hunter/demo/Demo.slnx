@@ -9,4 +9,5 @@
   <Project Path="Demo.Application/Demo.Application.csproj" />
   <Project Path="Demo.Domain/Demo.Domain.csproj" />
   <Project Path="Demo.Web/Demo.Web.csproj" />
+  <Project Path="Demo.Worker/Demo.Worker.csproj" />
 </Solution>

@@ -1,6 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Mcp;
 using ConcurrencyHunter.Runs;
 using Xunit;
@@ -159,6 +162,49 @@ public sealed class RunToolsTests
     }
 
     [Fact]
+    public async Task Group_digest_with_binding_and_overlap_evidence_stays_within_budget()
+    {
+        using var environment = new RunTestEnvironment();
+        var realistic = WithEvidence(CreateAnalysis("High", findingsPerGroup: 4), 1);
+        var oversized = WithEvidence(CreateAnalysis(Enumerable.Range(1, 12).Select(_ => "High").ToArray(), 4), 600);
+        var realisticRegistry = environment.Registry((_, _) => Task.FromResult(Success(realistic)));
+        var oversizedRegistry = environment.Registry((_, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
+        var realisticRun = Start(realisticRegistry, environment.SolutionPath);
+        await realisticRegistry.WaitForAnalysisAsync(realisticRun);
+
+        var realisticResponse = RunTools.get_groups(realisticRegistry, realisticRun);
+        var digest = Assert.Single(Parse(realisticResponse).GetProperty("items").EnumerateArray());
+        var finding = digest.GetProperty("findings")[0];
+        var access = finding.GetProperty("accesses")[0];
+        Assert.True(Encoding.UTF8.GetByteCount(digest.GetRawText()) <= 1536, $"Digest was {Encoding.UTF8.GetByteCount(digest.GetRawText())} bytes.");
+        Assert.Equal("action Ns.Type1.Post() of controller Ns.Type1", access.GetProperty("root").GetString());
+        Assert.Equal(["static:Ns.Sync.Gate"], access.GetProperty("heldProtection").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal(["AddSingleton registers Ns.State at src/Startup.cs:12"],
+                     finding.GetProperty("bindingEvidence").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal(["The root action Ns.Type1.Post() may run concurrently with itself in scope Web."],
+                     finding.GetProperty("overlapEvidence").EnumerateArray().Select(item => item.GetString()));
+
+        var oversizedRun = Start(oversizedRegistry, environment.SolutionPath);
+        await oversizedRegistry.WaitForAnalysisAsync(oversizedRun);
+        var seen = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var response = RunTools.get_groups(oversizedRegistry, oversizedRun, page);
+            AssertFits(response);
+            var payload = Parse(response);
+            if (page > payload.GetProperty("pages").GetInt32())
+                break;
+            var items = payload.GetProperty("items").EnumerateArray().ToArray();
+            Assert.NotEmpty(items);
+            Assert.All(items, item => Assert.True(Encoding.UTF8.GetByteCount(item.GetRawText()) <= 4096));
+            Assert.All(items, item => Assert.NotEmpty(item.GetProperty("findings")[0].GetProperty("bindingEvidence").EnumerateArray()));
+            seen.AddRange(items.Select(item => item.GetProperty("groupId").GetString()!));
+        }
+
+        Assert.Equal(12, seen.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public async Task Rejection_with_600_long_unknown_citations_stays_under_8_KB()
     {
         using var environment = new RunTestEnvironment();
@@ -254,32 +300,24 @@ public sealed class RunToolsTests
 
     private static AnalysisResult CreateAnalysis(IReadOnlyList<string> labels, int findingsPerGroup)
     {
-        var roots = new List<ExecutionRoot>();
-        var accesses = new List<StaticAccess>();
         var findings = new List<Finding>();
         var groups = new List<FindingGroup>();
         var findingNumber = 0;
         for (var groupIndex = 0; groupIndex < labels.Count; groupIndex++)
         {
             var groupId = $"G{groupIndex + 1}";
-            var resource = new ResourceId("Fixture", $"static:Ns.Type{groupIndex + 1}", [$"Field{groupIndex + 1}"]);
+            var resource = FindingTestData.Resource($"static:Ns.Type{groupIndex + 1}", $"Field{groupIndex + 1}");
             var groupFindingIds = new List<string>();
             for (var index = 0; index < findingsPerGroup; index++)
             {
                 findingNumber++;
                 var findingId = $"F{findingNumber}";
-                var root = new ExecutionRoot(
-                    $"root-{findingNumber}",
-                    $"Ns.Type{groupIndex + 1}.Post()",
-                    $"ControllerBase action Ns.Type{groupIndex + 1}.Post()");
-                var accessA = new StaticAccess(
+                var accessA = FindingTestData.Access(
                     resource,
                     AccessOperation.Write,
-                    root,
-                    root.Symbol,
-                    new SourceSpan($"src/Type{groupIndex + 1}.cs", 10 + index, 1, 10 + index, 8),
-                    [],
-                    []);
+                    $"root-{findingNumber}",
+                    $"Ns.Type{groupIndex + 1}.Post()",
+                    new SourceSpan($"src/Type{groupIndex + 1}.cs", 10 + index, 1, 10 + index, 8));
                 var accessB = accessA with { Operation = AccessOperation.Read };
                 var evidence = new[] { "A", "B", "R", "O", "P", "S" }
                     .Select(suffix => new EvidenceItem($"{findingId}.{suffix}", suffix, suffix))
@@ -299,27 +337,40 @@ public sealed class RunToolsTests
                     ["Path feasibility is not analyzed in this version."],
                     evidence));
                 groupFindingIds.Add(findingId);
-                roots.Add(root);
-                accesses.Add(accessA);
-                accesses.Add(accessB);
             }
 
-            groups.Add(new FindingGroup(
-                groupId,
-                $"stable-{groupId}",
-                "DCA1001",
-                labels[groupIndex],
-                resource,
-                groupFindingIds));
+            groups.Add(FindingTestData.Group(groupId, labels[groupIndex], resource, groupFindingIds));
         }
 
-        return new AnalysisResult(roots, accesses, findings, groups);
+        return FindingTestData.Result(findings, groups);
+    }
+
+    /// <summary>Gives every access a root display, a held protection and binding evidence, and every finding overlap
+    /// evidence; <paramref name="repeat"/> above 1 pads each text with that many Cyrillic letters.</summary>
+    private static AnalysisResult WithEvidence(AnalysisResult analysis, int repeat)
+    {
+        var padding = repeat > 1 ? new string('я', repeat) : "";
+        Access Enrich(Access access) => access with
+        {
+            Root = access.Root with { Display = $"action {access.Symbol[..access.Symbol.IndexOf(".Post", StringComparison.Ordinal)]}.Post() of controller " +
+                                                $"{access.Symbol[..access.Symbol.IndexOf(".Post", StringComparison.Ordinal)]}{padding}" },
+            HeldProtection = [$"static:Ns.Sync.Gate{padding}"],
+            BindingEvidence = [new BindingEvidence("registration", $"AddSingleton registers Ns.State{padding}", new SourceSpan("src/Startup.cs", 12, 1, 12, 30))]
+        };
+
+        var findings = analysis.Findings.Select(finding => finding with
+        {
+            AccessA = Enrich(finding.AccessA),
+            AccessB = Enrich(finding.AccessB),
+            ConcurrencyEvidence = [$"The root action {finding.AccessA.Symbol} may run concurrently with itself in scope Web.{padding}"]
+        }).ToArray();
+        return analysis with { Findings = findings };
     }
 
     private static AnalysisResult WithOversizedFirstGroup(AnalysisResult analysis, string text)
     {
         var original = analysis.Findings[0];
-        var resource = new ResourceId(text, $"static:{text}", [text, text, text, text]);
+        var resource = FindingTestData.Resource($"static:{text}", text, text) with { AccessPath = [text, text, text, text] };
         var root = original.AccessA.Root with { Symbol = text, Display = text };
         var accessA = original.AccessA with
         {
