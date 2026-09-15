@@ -49,7 +49,7 @@ public sealed class WorkerIdleTimeoutTests : IDisposable
             lines = await CollectAsync(Speaking(), TimeSpan.FromSeconds(3));
         }
 
-        Assert.Equal(["first", "second", "third"], lines);
+        Assert.Equal(["first", "second", "third", "fourth", "fifth"], lines);
         Assert.NotNull(activity.Snapshot().LastActivityAt);
         Assert.Null(activity.Snapshot().LastEvent);
     }
@@ -85,9 +85,15 @@ public sealed class WorkerIdleTimeoutTests : IDisposable
 
     private ProcessSpec Speaking() => OperatingSystem.IsWindows()
         ? new ProcessSpec("powershell.exe",
-            ["-NoProfile", "-Command", "Write-Output first; Start-Sleep -Seconds 2; Write-Output second; Start-Sleep -Seconds 2; Write-Output third"],
+            ["-NoProfile", "-Command",
+             "[Console]::Out.WriteLine('first'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
+             "[Console]::Out.WriteLine('second'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
+             "[Console]::Out.WriteLine('third'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
+             "[Console]::Out.WriteLine('fourth'); [Console]::Out.Flush(); Start-Sleep -Seconds 1; " +
+             "[Console]::Out.WriteLine('fifth'); [Console]::Out.Flush()"],
             _directory, string.Empty)
-        : new ProcessSpec("/bin/sh", ["-c", "echo first; sleep 2; echo second; sleep 2; echo third"],
+        : new ProcessSpec("/bin/sh",
+            ["-c", "echo first; sleep 1; echo second; sleep 1; echo third; sleep 1; echo fourth; sleep 1; echo fifth"],
             _directory, string.Empty);
 
     private static IReadOnlyList<JsonElement> Read(RunDirectory run) =>
