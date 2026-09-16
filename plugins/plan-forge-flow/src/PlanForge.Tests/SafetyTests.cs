@@ -45,6 +45,74 @@ public sealed class SafetyTests
         SensitiveInput.Guard("Add a test that the token endpoint rejects an expired password.", "the plan");
     }
 
+    /// <summary>
+    /// Issue #88. Every line here is ordinary code that assigns an expression to a name the keyword
+    /// list recognises, and the guard called each one a secret: the value is 20-odd characters with
+    /// no quote, space or comma in it, and a capital and a digit anywhere inside were the whole of
+    /// the "three character classes" rule. The run that found it had the review refused over a
+    /// <em>context</em> line of a file it had not touched, and the only way past was to rename a
+    /// local in production code.
+    /// </summary>
+    [Theory]
+    [InlineData("            var token = backtick.Groups[1].Value.Trim();")]
+    [InlineData("    var token = context.Request.Headers2;")]
+    [InlineData("        var tokenSource = CancellationTokenSource.CreateLinkedTokenSource2(ct);")]
+    [InlineData("     private_key = ReadAllText(path).Trim2();")]
+    public void Passes_code_that_assigns_an_expression_to_a_secret_sounding_name(string line) =>
+        SensitiveInput.Guard(line, "the diff under review");
+
+    /// <summary>
+    /// The other half of the same change: what the guard is for. A literal has no call, no index
+    /// and no dotted path of short identifiers, which is what tells it from an expression — and a
+    /// JWT stays a secret because its dot-separated segments are far longer than an identifier is.
+    /// </summary>
+    [Theory]
+    [InlineData("api_key = \"sk_live_4eC39HqLyjWDarjtT1zdp7dc\"")]
+    [InlineData("+  api_key: \"sk-Lq83Hd0PzX7vNm41RbTuKcWy\",")]
+    [InlineData("access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r")]
+    [InlineData("SECRET=9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c")]
+    public void Still_refuses_a_real_secret(string line) =>
+        Assert.Throws<SensitiveContentException>(() => SensitiveInput.Guard(line, "the diff under review"));
+
+    /// <summary>
+    /// A refusal that names nothing cannot be judged: the orchestrator cannot tell a real secret
+    /// from a false positive, and the run that filed issue #88 had to replay the check by hand to
+    /// find the line. The value itself is never named — that is the one thing being withheld.
+    /// </summary>
+    [Fact]
+    public void Names_the_file_the_line_and_the_field_of_a_withheld_value()
+    {
+        var diff = """
+                   diff --git a/src/Secrets.cs b/src/Secrets.cs
+                   --- a/src/Secrets.cs
+                   +++ b/src/Secrets.cs
+                   @@ -40,6 +40,7 @@ public sealed class Secrets
+                        public void Configure()
+                        {
+                   +        api_key = "sk-Lq83Hd0PzX7vNm41RbTuKcWy";
+                        }
+                   """;
+
+        var error = Assert.Throws<SensitiveContentException>(() => SensitiveInput.Guard(diff, "the diff under review"));
+
+        Assert.Contains("the diff under review", error.Message, StringComparison.Ordinal);
+        Assert.Contains("src/Secrets.cs", error.Message, StringComparison.Ordinal);
+        Assert.Contains("42", error.Message, StringComparison.Ordinal);
+        Assert.Contains("api_key", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-Lq83", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Text that is not a diff still says where, counted in the text it was handed.</summary>
+    [Fact]
+    public void Names_the_line_when_the_text_is_not_a_diff()
+    {
+        var plan = "# Plan\n\nStep one.\napi_key = \"sk-Lq83Hd0PzX7vNm41RbTuKcWy\"\n";
+
+        var error = Assert.Throws<SensitiveContentException>(() => SensitiveInput.Guard(plan, "the plan under review"));
+
+        Assert.Contains("line 4", error.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("../escape")]
     [InlineData("run/../../elsewhere")]
