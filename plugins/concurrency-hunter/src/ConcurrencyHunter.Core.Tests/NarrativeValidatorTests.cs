@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Narrative;
@@ -385,6 +386,59 @@ public sealed class NarrativeValidatorTests
 
         Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
         Assert.Equal(["inventedSymbol:Ns.Heartbeats"], rejected.Reasons);
+    }
+
+    [Fact]
+    public void Alloc_region_created_type_is_accepted_without_site_and_ordinal()
+    {
+        var scope = GroupScope(CreateFinding(region: "alloc:Ns.Editor..ctor()#Ns.Memo#2", field: "Title"));
+
+        var accepted = NarrativeValidator.Validate(ValidGroupText("Share `Ns.Memo`, `Memo` and `Memo.Title`."), scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `Memo.Owner`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedSymbol:Memo.Owner"], rejected.Reasons);
+    }
+
+    [Fact]
+    public void Alloc_region_owner_method_alone_is_not_accepted()
+    {
+        var scope = GroupScope(CreateFinding(region: "alloc:Ns.Factory.Make()#Ns.Memo", field: "Title"));
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Not `Ns.Factory.Make` or `Factory`."), scope);
+
+        Assert.Equal(["inventedSymbol:Ns.Factory.Make", "inventedSymbol:Factory"], verdict.Reasons);
+    }
+
+    [Fact]
+    public void Call_step_symbol_is_accepted_like_an_access_symbol()
+    {
+        var finding = CreateFinding(symbol: "Ns.Inventory.Reserve(int)");
+        var step = new CodeFlowStep("call", "calls Ns.OrderService.Place() on di:Ns.OrderService@Singleton", finding.AccessA.Source);
+        finding = finding with { AccessA = finding.AccessA with { CodeFlow = [step] } };
+        var scope = GroupScope(finding);
+
+        var accepted = NarrativeValidator.Validate(
+            ValidGroupText("Through `Ns.OrderService.Place()` and `OrderService.Place` to `Inventory.Reserve`."), scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `OrderService.Cancel`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedSymbol:OrderService.Cancel"], rejected.Reasons);
+    }
+
+    [Fact]
+    public void Read_source_location_of_a_read_modify_write_is_accepted()
+    {
+        var finding = CreateFinding(symbol: "Ns.Tallies.SetLevel(int)");
+        var read = new ReadSource("Ns.Tallies.GetLevel()", new SourceSpan("src/A/Tallies.cs", 9, 1, 9, 20), []);
+        finding = finding with { AccessA = finding.AccessA with { Operation = AccessOperation.ReadModifyWrite, ReadSources = [read] } };
+        var scope = GroupScope(finding);
+
+        var accepted = NarrativeValidator.Validate(ValidGroupText("Read at `Tallies.cs:9` in `Tallies.GetLevel`."), scope);
+        var rejected = NarrativeValidator.Validate(ValidGroupText("Not `Tallies.cs:10`."), scope);
+
+        Assert.True(accepted.Accepted, string.Join(", ", accepted.Reasons));
+        Assert.Equal(["inventedLocation:Tallies.cs:10"], rejected.Reasons);
     }
 
     private static NarrativeScope GroupScope(Finding finding) =>

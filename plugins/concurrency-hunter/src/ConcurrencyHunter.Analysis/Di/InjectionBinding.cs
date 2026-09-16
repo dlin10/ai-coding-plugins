@@ -20,5 +20,11 @@ public sealed record InjectionBinding(string Type, string DeclaringType, string 
                                       DiResolution Resolution, IReadOnlyList<BindingEvidence> Evidence,
                                       string? DeclaringTypeIdentity = null);
 
+/// <summary><see cref="ConstructorParameters"/> lists every parameter of the constructor the container selects, whether or not a
+/// member holds it, and is empty when the type has no single public constructor.</summary>
 public sealed record TypeInjectionBindings(string Type, IReadOnlyList<InjectionBinding> Bindings,
-                                           IReadOnlyList<DiDiagnostic> Diagnostics, string TypeKey);
+                                           IReadOnlyList<DiDiagnostic> Diagnostics, string TypeKey,
+                                           IReadOnlyList<ConstructorParameterResolution> ConstructorParameters);
+
+/// <summary>A parameter of the constructor the container selects, with its type key and what the container passes it.</summary>
+public sealed record ConstructorParameterResolution(string Name, int Ordinal, string TypeKey, DiResolution Resolution);

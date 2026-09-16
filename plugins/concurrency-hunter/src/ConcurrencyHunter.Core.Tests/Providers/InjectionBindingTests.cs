@@ -492,6 +492,23 @@ public sealed class InjectionBindingTests
     }
 
     [Fact]
+    public void Constructor_parameter_not_stored_in_a_member_is_listed_with_its_resolution()
+    {
+        var result = Bind("Holder", """
+            public sealed class Holder
+            {
+                private readonly string _name;
+                public Holder(IGate other, Gate gate) { _name = gate.ToString()!; }
+            }
+            """, "services.AddSingleton<Gate>();");
+
+        Assert.Empty(result.Bindings);
+        Assert.Equal([("other", 0, "Fixture:IGate", DiResolutionKind.Unregistered), ("gate", 1, "Fixture:Gate", DiResolutionKind.Bound)],
+                     result.ConstructorParameters.Select(parameter => (parameter.Name, parameter.Ordinal, parameter.TypeKey, parameter.Resolution.Kind)));
+        Assert.Equal("di:Gate@Singleton", result.ConstructorParameters[1].Resolution.Binding!.RegionId);
+    }
+
+    [Fact]
     public void Discover_binds_every_concrete_source_class_of_the_scope()
     {
         var (compilations, index) = Compile("""

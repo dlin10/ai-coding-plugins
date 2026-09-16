@@ -7,7 +7,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 public sealed class MustHeldLockTests
 {
-    private const string G_ID = "scope:Fixture|Fixture:static:Gates.G";
+    private const string G_ID = "scope:Fixture|alloc|body:Fixture:M:Gates.#cctor#0|System.Private.CoreLib:object|type-initializer:Fixture:Gates";
 
     private const string Shared = """
         public static class Gates
@@ -27,7 +27,7 @@ public sealed class MustHeldLockTests
         var write = Action("lock (Gates.G) { State.Value = 1; }").Single("Value", AccessOperation.Write);
 
         Assert.Equal([G_ID], write.HeldProtectionIds);
-        Assert.Equal(["static:Gates.G"], write.HeldProtection);
+        Assert.Equal(["alloc:Gates..cctor()#object"], write.HeldProtection);
         Assert.Contains(write.CodeFlow, step => step.Kind == "acquire");
     }
 
@@ -165,12 +165,13 @@ public sealed class MustHeldLockTests
     public void Lambda_inside_a_lock_starts_with_nothing_held()
     {
         var run = Action("""
+            Action write;
             lock (Gates.G)
             {
-                Action write = () => State.Value = 1;
+                write = () => State.Value = 1;
                 State.Other = 1;
-                write();
             }
+            write();
             """);
 
         Assert.Empty(run.Single("Value", AccessOperation.Write).HeldProtectionIds);
@@ -180,10 +181,10 @@ public sealed class MustHeldLockTests
     [Fact]
     public void Static_non_readonly_lock_is_held_but_not_a_single_object()
     {
-        var write = Action("lock (Gates.Mutable) { State.Value = 1; }").Single("Value", AccessOperation.Write);
+        var write = Action("Gates.Mutable = new object(); lock (Gates.Mutable) { State.Value = 1; }").Single("Value", AccessOperation.Write);
 
         Assert.Empty(write.HeldProtectionIds);
-        Assert.Equal(["static:Gates.Mutable (not one object per process)"], write.HeldProtection);
+        Assert.Equal(["alloc:Gates..cctor()#object#3, alloc:LockController.Post(bool)#object (not one object per process)"], write.HeldProtection);
     }
 
     [Fact]
@@ -201,7 +202,8 @@ public sealed class MustHeldLockTests
         var write = Analyze(Shared + Worker("lock (this) { State.Value = 1; }") +
                             Startup("services.AddHostedService<Worker>();")).Single("Value", AccessOperation.Write);
 
-        Assert.Equal(["scope:Fixture|Microsoft.Extensions.Hosting.Abstractions:Microsoft.Extensions.Hosting.IHostedService|di:Fixture:Worker@Singleton"], write.HeldProtectionIds);
+        Assert.Equal(["scope:Fixture|di|Microsoft.Extensions.Hosting.Abstractions:Microsoft.Extensions.Hosting.IHostedService|Fixture:Worker@Singleton|singleton"],
+                     write.HeldProtectionIds);
     }
 
     [Fact]
@@ -228,7 +230,7 @@ public sealed class MustHeldLockTests
             }
             """ + Startup("services.AddSingleton<Ledger>();")).Single("LastEntry", AccessOperation.Write);
 
-        Assert.Equal(["scope:Fixture|Fixture:Ledger|di:Fixture:Ledger@Singleton"], write.HeldProtectionIds);
+        Assert.Equal(["scope:Fixture|di|Fixture:Ledger|Fixture:Ledger@Singleton|singleton"], write.HeldProtectionIds);
     }
 
     [Fact]
@@ -238,7 +240,7 @@ public sealed class MustHeldLockTests
 
         var inside = run.Single("Value", AccessOperation.Write);
         var held = Assert.Single(inside.HeldProtection);
-        Assert.Contains("identity unknown", held, StringComparison.Ordinal);
+        Assert.Contains("not one object per process", held, StringComparison.Ordinal);
         Assert.Empty(inside.HeldProtectionIds);
         Assert.Empty(run.Single("Other", AccessOperation.Write).HeldProtection);
 
@@ -253,7 +255,7 @@ public sealed class MustHeldLockTests
         var run = Action("var gate = condition ? Gates.G : Gates.H; lock (gate) { State.Value = 1; } State.Other = 1;");
 
         var inside = run.Single("Value", AccessOperation.Write);
-        Assert.Contains("identity unknown", Assert.Single(inside.HeldProtection), StringComparison.Ordinal);
+        Assert.Contains("not one object per process", Assert.Single(inside.HeldProtection), StringComparison.Ordinal);
         Assert.Empty(inside.HeldProtectionIds);
         Assert.Empty(run.Single("Other", AccessOperation.Write).HeldProtection);
     }
@@ -264,7 +266,7 @@ public sealed class MustHeldLockTests
         var write = Action("object gate = new object(); lock (gate) { State.Value = 1; }").Single("Value", AccessOperation.Write);
 
         Assert.Empty(write.HeldProtectionIds);
-        Assert.Contains("identity unknown", Assert.Single(write.HeldProtection), StringComparison.Ordinal);
+        Assert.Contains("not one object per process", Assert.Single(write.HeldProtection), StringComparison.Ordinal);
     }
 
     [Fact]

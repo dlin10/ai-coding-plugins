@@ -75,6 +75,7 @@ public static class InjectionBindings
         private readonly string _typeName = SymbolNames.Type(type);
         private readonly List<InjectionBinding> _bindings = [];
         private readonly List<DiDiagnostic> _diagnostics = [];
+        private IReadOnlyList<ConstructorParameterResolution> _constructorParameters = [];
 
         internal TypeInjectionBindings Bind()
         {
@@ -89,6 +90,11 @@ public static class InjectionBindings
             }
 
             var constructor = publicConstructors[0];
+            _constructorParameters = constructor.Parameters
+                                                .Select(parameter => new ConstructorParameterResolution(
+                                                    parameter.Name, parameter.Ordinal, SymbolNames.TypeKey(parameter.Type),
+                                                    index.Resolve(SymbolNames.TypeKey(parameter.Type))))
+                                                .ToArray();
             var origins = new Dictionary<IParameterSymbol, IParameterSymbol>(SymbolEqualityComparer.Default);
             foreach (var parameter in constructor.Parameters.Where(parameter => !IsWrittenInConstructor(type, constructor, parameter)))
                 origins[parameter] = parameter;
@@ -129,7 +135,7 @@ public static class InjectionBindings
             return Result();
         }
 
-        private TypeInjectionBindings Result() => new(_typeName, _bindings, _diagnostics, SymbolNames.TypeKey(type));
+        private TypeInjectionBindings Result() => new(_typeName, _bindings, _diagnostics, SymbolNames.TypeKey(type), _constructorParameters);
 
         /// <summary>Binds the members <paramref name="declaringType"/> declares. <paramref name="constructedType"/> is that type as
         /// the bound type inherits it (a closed generic base), which is how lowering names the members' containing type.</summary>

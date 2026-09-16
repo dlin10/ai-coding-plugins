@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FlowAnalysis;
 using Microsoft.CodeAnalysis.Operations;
+using Microsoft.CodeAnalysis.Text;
 
 namespace ConcurrencyHunter.Frontend;
 
@@ -13,73 +14,86 @@ public sealed record IrLoweredMethod(IrBody Body, IReadOnlyList<IrBody> NestedBo
 
 public static class IrLowering
 {
+    private const string THIS_KEY = "this";
+
     private static readonly System.Text.RegularExpressions.Regex NESTED_BODY_SUFFIX =
         new(@"(?:#lambda\d+|#local:[^#~]+(?:~\d+)?)+$");
 
+    /// <summary>Lowers a member with a source body. A constructor's body runs its type's initializers (unless it chains to
+    /// <c>this(...)</c>), then the base or <c>this</c> call, then its own body; a type initializer runs the static initializers,
+    /// then the static constructor body; an auto-property accessor loads or stores its backing field.</summary>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
                                         CancellationToken cancellationToken)
     {
-        var declarationReference = method.DeclaringSyntaxReferences.FirstOrDefault();
-        if (declarationReference is null)
-            throw new ArgumentException("The method has no source body.", nameof(method));
+        var plan = Plan(method, compilation, cancellationToken);
+        var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
+        var functions = new List<(ControlFlowGraph Graph, IMethodSymbol[] LocalFunctions, IFlowAnonymousFunctionOperation[] AnonymousFunctions)>();
+        foreach (var segment in plan.Segments.OfType<GraphSegment>())
+        {
+            var lambdas = functions.Sum(function => function.AnonymousFunctions.Length);
+            var (localFunctions, anonymousFunctions, ids) = AssignNestedIds(segment.Graph, plan.BodyId, nestedIds, lambdas);
+            nestedIds = ids;
+            functions.Add((segment.Graph, localFunctions, anonymousFunctions));
+        }
 
-        var declaration = declarationReference.GetSyntax(cancellationToken);
-        var semanticModel = compilation.GetSemanticModel(declaration.SyntaxTree);
-        var graph = ControlFlowGraph.Create(declaration, semanticModel, cancellationToken);
-        if (graph is null)
-            throw new ArgumentException("The method has no source body.", nameof(method));
-
-        var bodyId = RootBodyId(method);
-        return LowerGraph(
-            method,
-            graph,
-            bodyId,
-            SymbolNames.Method(method),
-            !method.IsStatic,
-            new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default),
-            rootDirectory,
-            cancellationToken);
+        var context = new LoweringContext(plan.BodyId, new SiteOrdinals(plan.Roots, compilation, cancellationToken), rootDirectory,
+                                          cancellationToken);
+        var ownerSymbol = SymbolNames.Method(method);
+        var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
+        var nestedBodies = new List<IrBody>();
+        foreach (var (graph, localFunctions, anonymousFunctions) in functions)
+            nestedBodies.AddRange(LowerNestedFunctions(graph, localFunctions, anonymousFunctions, ownerSymbol, !method.IsStatic, nestedIds, context));
+        return new IrLoweredMethod(body, nestedBodies);
     }
 
     /// <summary>The IR body id of every lambda and local function nested in <paramref name="method"/>, at any depth,
     /// keyed by the span of the nested function's declaring syntax; the ids are those <see cref="Lower"/> assigns.</summary>
-    public static IReadOnlyDictionary<(SyntaxTree Tree, Microsoft.CodeAnalysis.Text.TextSpan Span), string> NestedBodyIds(
+    public static IReadOnlyDictionary<(SyntaxTree Tree, TextSpan Span), string> NestedBodyIds(
         IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
     {
-        var declaration = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(cancellationToken)
-                          ?? throw new ArgumentException("The method has no source body.", nameof(method));
-        var graph = ControlFlowGraph.Create(declaration, compilation.GetSemanticModel(declaration.SyntaxTree), cancellationToken)
-                    ?? throw new ArgumentException("The method has no source body.", nameof(method));
-        var ids = new Dictionary<(SyntaxTree, Microsoft.CodeAnalysis.Text.TextSpan), string>();
-        CollectNestedBodyIds(graph, RootBodyId(method), new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default),
-                             ids, cancellationToken);
+        var plan = Plan(method, compilation, cancellationToken);
+        var ids = new Dictionary<(SyntaxTree, TextSpan), string>();
+        var outerIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
+        var lambdas = 0;
+        foreach (var segment in plan.Segments.OfType<GraphSegment>())
+        {
+            var (localFunctions, anonymousFunctions, nestedIds) = AssignNestedIds(segment.Graph, plan.BodyId, outerIds, lambdas);
+            CollectNestedBodyIds(segment.Graph, localFunctions, anonymousFunctions, nestedIds, ids, cancellationToken);
+            outerIds = nestedIds;
+            lambdas += anonymousFunctions.Length;
+        }
+
         return ids;
     }
 
-    private static void CollectNestedBodyIds(ControlFlowGraph graph, string bodyId, IReadOnlyDictionary<IMethodSymbol, string> outerIds,
-                                             Dictionary<(SyntaxTree, Microsoft.CodeAnalysis.Text.TextSpan), string> ids,
-                                             CancellationToken cancellationToken)
+    private static void CollectNestedBodyIds(ControlFlowGraph graph, IMethodSymbol[] localFunctions,
+                                             IFlowAnonymousFunctionOperation[] anonymousFunctions,
+                                             Dictionary<IMethodSymbol, string> nestedIds,
+                                             Dictionary<(SyntaxTree, TextSpan), string> ids, CancellationToken cancellationToken)
     {
-        var (localFunctions, anonymousFunctions, nestedIds) = AssignNestedIds(graph, bodyId, outerIds);
         foreach (var localFunction in localFunctions)
         {
             if (localFunction.DeclaringSyntaxReferences.FirstOrDefault() is { } reference)
                 ids[(reference.SyntaxTree, reference.Span)] = nestedIds[localFunction];
-            CollectNestedBodyIds(graph.GetLocalFunctionControlFlowGraph(localFunction, cancellationToken), nestedIds[localFunction],
-                                 nestedIds, ids, cancellationToken);
+            var nestedGraph = graph.GetLocalFunctionControlFlowGraph(localFunction, cancellationToken);
+            var nested = AssignNestedIds(nestedGraph, nestedIds[localFunction], nestedIds, 0);
+            CollectNestedBodyIds(nestedGraph, nested.LocalFunctions, nested.AnonymousFunctions, nested.NestedIds, ids, cancellationToken);
         }
 
         foreach (var anonymousFunction in anonymousFunctions)
         {
             ids[(anonymousFunction.Syntax.SyntaxTree, anonymousFunction.Syntax.Span)] = nestedIds[anonymousFunction.Symbol];
-            CollectNestedBodyIds(graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, cancellationToken),
-                                 nestedIds[anonymousFunction.Symbol], nestedIds, ids, cancellationToken);
+            var nestedGraph = graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, cancellationToken);
+            var nested = AssignNestedIds(nestedGraph, nestedIds[anonymousFunction.Symbol], nestedIds, 0);
+            CollectNestedBodyIds(nestedGraph, nested.LocalFunctions, nested.AnonymousFunctions, nested.NestedIds, ids, cancellationToken);
         }
     }
 
+    /// <summary>Assigns the ids of a graph's own lambdas and local functions; lambdas are numbered from
+    /// <paramref name="lambdaOffset"/> + 1, so the graphs of one constructor body never repeat a number.</summary>
     private static (IMethodSymbol[] LocalFunctions, IFlowAnonymousFunctionOperation[] AnonymousFunctions,
                     Dictionary<IMethodSymbol, string> NestedIds) AssignNestedIds(
-        ControlFlowGraph graph, string bodyId, IReadOnlyDictionary<IMethodSymbol, string> outerIds)
+        ControlFlowGraph graph, string bodyId, IReadOnlyDictionary<IMethodSymbol, string> outerIds, int lambdaOffset)
     {
         var localFunctions = graph.LocalFunctions.ToArray();
         var localCounts = localFunctions.GroupBy(local => local.Name, StringComparer.Ordinal)
@@ -96,38 +110,44 @@ public static class IrLowering
 
         var anonymousFunctions = AnonymousFunctions(graph).ToArray();
         for (var index = 0; index < anonymousFunctions.Length; index++)
-            nestedIds.Add(anonymousFunctions[index].Symbol, $"{bodyId}#lambda{index + 1}");
+            nestedIds.Add(anonymousFunctions[index].Symbol, $"{bodyId}#lambda{lambdaOffset + index + 1}");
         return (localFunctions, anonymousFunctions, nestedIds);
     }
 
     private static IrLoweredMethod LowerGraph(IMethodSymbol method, ControlFlowGraph graph, string bodyId,
                                               string ownerSymbol, bool hasReceiver,
-                                              IReadOnlyDictionary<IMethodSymbol, string> outerIds,
-                                              string rootDirectory, CancellationToken cancellationToken)
+                                              IReadOnlyDictionary<IMethodSymbol, string> outerIds, LoweringContext context)
     {
-        var (localFunctions, anonymousFunctions, nestedIds) = AssignNestedIds(graph, bodyId, outerIds);
+        var (localFunctions, anonymousFunctions, nestedIds) = AssignNestedIds(graph, bodyId, outerIds, 0);
 
         var body = new BodyLowerer(
             method,
-            graph,
+            [new GraphSegment(graph, null)],
             bodyId,
             ownerSymbol,
             hasReceiver,
             nestedIds,
-            rootDirectory,
-            cancellationToken).Lower();
+            context).Lower();
+        return new IrLoweredMethod(body, LowerNestedFunctions(graph, localFunctions, anonymousFunctions, ownerSymbol, hasReceiver,
+                                                              nestedIds, context));
+    }
+
+    private static List<IrBody> LowerNestedFunctions(ControlFlowGraph graph, IMethodSymbol[] localFunctions,
+                                                     IFlowAnonymousFunctionOperation[] anonymousFunctions, string ownerSymbol,
+                                                     bool hasReceiver, IReadOnlyDictionary<IMethodSymbol, string> nestedIds,
+                                                     LoweringContext context)
+    {
         var nestedBodies = new List<IrBody>();
         foreach (var localFunction in localFunctions)
         {
             var nested = LowerGraph(
                 localFunction,
-                graph.GetLocalFunctionControlFlowGraph(localFunction, cancellationToken),
+                graph.GetLocalFunctionControlFlowGraph(localFunction, context.CancellationToken),
                 nestedIds[localFunction],
                 ownerSymbol,
                 hasReceiver,
                 nestedIds,
-                rootDirectory,
-                cancellationToken);
+                context);
             nestedBodies.Add(nested.Body);
             nestedBodies.AddRange(nested.NestedBodies);
         }
@@ -136,18 +156,17 @@ public static class IrLowering
         {
             var nested = LowerGraph(
                 anonymousFunction.Symbol,
-                graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, cancellationToken),
+                graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, context.CancellationToken),
                 nestedIds[anonymousFunction.Symbol],
                 ownerSymbol,
                 hasReceiver,
                 nestedIds,
-                rootDirectory,
-                cancellationToken);
+                context);
             nestedBodies.Add(nested.Body);
             nestedBodies.AddRange(nested.NestedBodies);
         }
 
-        return new IrLoweredMethod(body, nestedBodies);
+        return nestedBodies;
     }
 
     private static IEnumerable<IFlowAnonymousFunctionOperation> AnonymousFunctions(ControlFlowGraph graph)
@@ -174,56 +193,298 @@ public static class IrLowering
     internal static string RootBodyId(IMethodSymbol method) =>
         $"body:{method.ContainingAssembly.Name}:{method.GetDocumentationCommentId() ?? method.ToDisplayString()}";
 
+    internal static bool IsMonitorEnterOrExit(IMethodSymbol method) => IsMonitorEnter(method) || IsMonitorExit(method);
+
+    private static bool IsMonitorEnter(IMethodSymbol method) =>
+        IsMonitor(method) && method.Name == "Enter" &&
+        (method.Parameters.Length == 1 ||
+         method.Parameters is [{ Type.SpecialType: SpecialType.System_Object },
+             { Type.SpecialType: SpecialType.System_Boolean, RefKind: RefKind.Ref }]);
+
+    private static bool IsMonitorExit(IMethodSymbol method) => IsMonitor(method) && method.Name == "Exit" && method.Parameters.Length == 1;
+
+    private static bool IsMonitor(IMethodSymbol method) =>
+        method.IsStatic && method.ContainingType?.ToDisplayString() == "System.Threading.Monitor";
+
+    /// <summary>A source property whose accessors all lack bodies and which is neither abstract, extern nor an interface
+    /// member: its accessors have synthesized bodies over its backing field.</summary>
+    internal static bool IsAutoProperty(IPropertySymbol property, CancellationToken cancellationToken) =>
+        !property.IsAbstract && !property.IsExtern && property.ContainingType.TypeKind != TypeKind.Interface &&
+        property.DeclaringSyntaxReferences.Length != 0 &&
+        property.DeclaringSyntaxReferences.All(reference =>
+            reference.GetSyntax(cancellationToken) is PropertyDeclarationSyntax { AccessorList: { Accessors.Count: > 0 } accessors } &&
+            accessors.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null));
+
+    /// <summary>The field and property initializers of <paramref name="type"/> with the member each initializes, instance or
+    /// static, ordered by file path (ordinal) and span start.</summary>
+    internal static IReadOnlyList<(EqualsValueClauseSyntax Clause, ISymbol Member)> Initializers(
+        INamedTypeSymbol type, bool isStatic, Compilation compilation, CancellationToken cancellationToken)
+    {
+        var initializers = new List<(EqualsValueClauseSyntax, ISymbol)>();
+        foreach (var declaration in type.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax(cancellationToken))
+                                        .OfType<TypeDeclarationSyntax>())
+        {
+            var model = compilation.GetSemanticModel(declaration.SyntaxTree);
+            foreach (var member in declaration.Members)
+            {
+                switch (member)
+                {
+                    case FieldDeclarationSyntax field:
+                        foreach (var variable in field.Declaration.Variables)
+                        {
+                            if (variable.Initializer is not null &&
+                                model.GetDeclaredSymbol(variable, cancellationToken) is IFieldSymbol { IsConst: false } symbol &&
+                                symbol.IsStatic == isStatic)
+                            {
+                                initializers.Add((variable.Initializer, symbol));
+                            }
+                        }
+                        break;
+                    case PropertyDeclarationSyntax { Initializer: { } initializer } property
+                        when model.GetDeclaredSymbol(property, cancellationToken) is { } symbol && symbol.IsStatic == isStatic:
+                        initializers.Add((initializer, symbol));
+                        break;
+                }
+            }
+        }
+
+        return initializers.OrderBy(initializer => initializer.Item1.SyntaxTree.FilePath, StringComparer.Ordinal)
+                           .ThenBy(initializer => initializer.Item1.SpanStart)
+                           .ToArray();
+    }
+
+    private static MemberPlan Plan(IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
+    {
+        var segments = new List<Segment>();
+        var roots = new List<SyntaxNode>();
+        var declaration = method.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(cancellationToken);
+        var type = method.ContainingType;
+
+        void AddGraph(SyntaxNode node, ISymbol? initializerOwner)
+        {
+            var graph = ControlFlowGraph.Create(node, compilation.GetSemanticModel(node.SyntaxTree), cancellationToken)
+                        ?? throw new ArgumentException("The method has no source body.", nameof(method));
+            segments.Add(new GraphSegment(graph, initializerOwner));
+            roots.Add(node);
+        }
+
+        void AddInitializers(bool isStatic)
+        {
+            foreach (var (clause, member) in Initializers(type, isStatic, compilation, cancellationToken))
+                AddGraph(clause, member);
+        }
+
+        void AddImplicitBaseCall(SyntaxNode syntax)
+        {
+            var constructor = type is { TypeKind: TypeKind.Class, BaseType: { } baseType }
+                ? baseType.InstanceConstructors.Where(candidate => candidate.Parameters.All(parameter => parameter.IsOptional || parameter.IsParams))
+                          .OrderBy(candidate => candidate.Parameters.Length)
+                          .FirstOrDefault()
+                : null;
+            if (constructor is not null)
+                segments.Add(new ImplicitBaseCallSegment(constructor, syntax));
+        }
+
+        switch (method.MethodKind)
+        {
+            case MethodKind.Constructor when declaration is ConstructorDeclarationSyntax constructor:
+                if (constructor.Initializer?.IsKind(SyntaxKind.ThisConstructorInitializer) != true)
+                    AddInitializers(false);
+                AddGraph(constructor, null);
+                break;
+            case MethodKind.Constructor when declaration is TypeDeclarationSyntax primary:
+                var captured = CapturedPrimaryConstructorParameters(type, method, compilation, cancellationToken);
+                if (captured.Count != 0)
+                    segments.Add(new PrimaryConstructorParametersSegment(captured));
+                AddInitializers(false);
+                if (compilation.GetSemanticModel(primary.SyntaxTree).GetOperation(primary, cancellationToken) is not null)
+                    AddGraph(primary, null);
+                else
+                    AddImplicitBaseCall(primary);
+                break;
+            case MethodKind.Constructor when declaration is null && method.IsImplicitlyDeclared && method.Parameters.Length == 0 &&
+                                            FirstDeclaration(type, cancellationToken) is { } typeDeclaration:
+                AddInitializers(false);
+                AddImplicitBaseCall(typeDeclaration);
+                break;
+            case MethodKind.StaticConstructor when type.DeclaringSyntaxReferences.Length != 0:
+                AddInitializers(true);
+                if (declaration is not null)
+                    AddGraph(declaration, null);
+                break;
+            case MethodKind.PropertyGet or MethodKind.PropertySet
+                when method.AssociatedSymbol is IPropertySymbol property && IsAutoProperty(property, cancellationToken):
+                segments.Add(new AutoAccessorSegment(property, declaration ?? property.DeclaringSyntaxReferences[0].GetSyntax(cancellationToken)));
+                break;
+            default:
+                if (declaration is null)
+                    throw new ArgumentException("The method has no source body.", nameof(method));
+                AddGraph(declaration, null);
+                break;
+        }
+
+        // Only an implicit struct constructor without initializers has an empty body.
+        if (segments.Count == 0 && method.MethodKind != MethodKind.Constructor)
+            throw new ArgumentException("The method has no source body.", nameof(method));
+        return new MemberPlan(RootBodyId(method), segments, roots);
+    }
+
+    private static SyntaxNode? FirstDeclaration(INamedTypeSymbol type, CancellationToken cancellationToken) =>
+        type.DeclaringSyntaxReferences.OrderBy(reference => reference.SyntaxTree.FilePath, StringComparer.Ordinal)
+            .ThenBy(reference => reference.Span.Start)
+            .FirstOrDefault()?.GetSyntax(cancellationToken);
+
+    /// <summary>The primary constructor parameters the type captures: those referenced outside its initializers and the
+    /// primary constructor's base argument list. A reference inside a lambda or local function an initializer declares is a
+    /// capture too: that nested body reads the parameter through the type, so the constructor must store it there.</summary>
+    private static IReadOnlyList<IParameterSymbol> CapturedPrimaryConstructorParameters(INamedTypeSymbol type, IMethodSymbol constructor,
+                                                                                      Compilation compilation,
+                                                                                      CancellationToken cancellationToken)
+    {
+        var declarations = type.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax(cancellationToken))
+                               .OfType<TypeDeclarationSyntax>()
+                               .ToArray();
+        return constructor.Parameters.Where(parameter => declarations.Any(declaration =>
+        {
+            var model = compilation.GetSemanticModel(declaration.SyntaxTree);
+            return declaration.DescendantNodes().OfType<IdentifierNameSyntax>().Any(identifier =>
+                identifier.Identifier.ValueText == parameter.Name &&
+                !identifier.Ancestors().Any(ancestor => ancestor is PrimaryConstructorBaseTypeSyntax) &&
+                !IsDirectlyInInitializer(identifier) &&
+                SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier, cancellationToken).Symbol, parameter));
+        })).ToArray();
+    }
+
+    /// <summary>Whether a reference sits in a field or property initializer and not in a lambda or local function that initializer
+    /// declares; the constructor runs such a reference itself, so it is not a capture.</summary>
+    private static bool IsDirectlyInInitializer(SyntaxNode reference)
+    {
+        foreach (var ancestor in reference.Ancestors())
+        {
+            if (ancestor is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)
+                return false;
+            if (ancestor is EqualsValueClauseSyntax
+                {
+                    Parent: VariableDeclaratorSyntax { Parent.Parent: FieldDeclarationSyntax } or PropertyDeclarationSyntax
+                })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private sealed record MemberPlan(string BodyId, IReadOnlyList<Segment> Segments, IReadOnlyList<SyntaxNode> Roots);
+
+    private abstract record Segment;
+
+    private sealed record GraphSegment(ControlFlowGraph Graph, ISymbol? InitializerOwner) : Segment;
+
+    private sealed record PrimaryConstructorParametersSegment(IReadOnlyList<IParameterSymbol> Parameters) : Segment;
+
+    private sealed record ImplicitBaseCallSegment(IMethodSymbol Constructor, SyntaxNode Syntax) : Segment;
+
+    private sealed record AutoAccessorSegment(IPropertySymbol Property, SyntaxNode Syntax) : Segment;
+
+    private sealed record LoweringContext(string RootBodyId, SiteOrdinals SiteOrdinals, string RootDirectory,
+                                          CancellationToken CancellationToken);
+
+    /// <summary>The 1-based source order of each allocation among those of its created type, and of each delegate creation,
+    /// within one member: its roots in segment order, then span start, then operation-tree order.</summary>
+    private sealed class SiteOrdinals
+    {
+        private readonly Dictionary<(SyntaxTree Tree, TextSpan Span, OperationKind Kind), int> _ordinals = [];
+
+        internal SiteOrdinals(IEnumerable<SyntaxNode> roots, Compilation compilation, CancellationToken cancellationToken)
+        {
+            var allocations = new Dictionary<string, int>(StringComparer.Ordinal);
+            var delegates = 0;
+            foreach (var root in roots)
+            {
+                var operation = compilation.GetSemanticModel(root.SyntaxTree).GetOperation(root, cancellationToken);
+                if (operation is null)
+                    continue;
+
+                var ordered = operation.DescendantsAndSelf()
+                                       .Select((descendant, index) => (Operation: descendant, Index: index))
+                                       .OrderBy(item => item.Operation.Syntax.SpanStart)
+                                       .ThenBy(item => item.Index)
+                                       .Select(item => item.Operation);
+                foreach (var descendant in ordered)
+                {
+                    switch (descendant)
+                    {
+                        case IObjectCreationOperation or IArrayCreationOperation when descendant.Type is not null:
+                            var typeKey = SymbolNames.TypeKey(descendant.Type!);
+                            var ordinal = allocations.GetValueOrDefault(typeKey) + 1;
+                            allocations[typeKey] = ordinal;
+                            _ordinals.TryAdd(Key(descendant), ordinal);
+                            break;
+                        case IDelegateCreationOperation:
+                            _ordinals.TryAdd(Key(descendant), ++delegates);
+                            break;
+                    }
+                }
+            }
+        }
+
+        internal int Of(IOperation operation) => _ordinals.GetValueOrDefault(Key(operation));
+
+        private static (SyntaxTree, TextSpan, OperationKind) Key(IOperation operation) =>
+            (operation.Syntax.SyntaxTree, operation.Syntax.Span, operation.Kind);
+    }
+
     private sealed class BodyLowerer
     {
         private readonly IMethodSymbol _method;
-        private readonly ControlFlowGraph _graph;
+        private readonly IReadOnlyList<Segment> _segments;
         private readonly string _bodyId;
         private readonly string _ownerSymbol;
         private readonly bool _hasReceiver;
         private readonly IReadOnlyDictionary<IMethodSymbol, string> _nestedIds;
+        private readonly LoweringContext _context;
         private readonly string _rootDirectory;
         private readonly CancellationToken _cancellationToken;
-        private readonly EffectiveFlowGraph _flowGraph;
-        private readonly SsaPlan _ssaPlan;
         private readonly List<IrValue> _values = [];
         private readonly List<IrRegion> _regions = [];
         private readonly Dictionary<ControlFlowRegion, int> _regionIds = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<ISymbol, int> _symbolValues = new(SymbolEqualityComparer.Default);
+        private readonly Dictionary<ISymbol, int> _symbolVersions = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<SsaVariable, int> _ssaVersions = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<CaptureId, int> _captureValues = [];
         private readonly Dictionary<SsaToken, int> _tokenValues = [];
         private readonly Dictionary<SsaVariable, int> _definitionPositions = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<(SyntaxTree Tree, int Start, int Length), int> _coalesceLoads = [];
         private readonly Dictionary<CaptureId, IOperation> _capturedTargets = [];
+        private readonly Dictionary<IParameterSymbol, int> _parameterValues = new(SymbolEqualityComparer.Default);
+        private ControlFlowGraph _graph = null!;
+        private EffectiveFlowGraph _flowGraph = null!;
+        private SsaPlan _ssaPlan = null!;
+        private int _offset;
         private List<IrOperation> _operations = [];
         private int _currentBlockOrdinal;
         private int? _receiverValue;
         private int _nextValueId;
         private int _nextOperationId;
 
-        internal BodyLowerer(IMethodSymbol method, ControlFlowGraph graph, string bodyId, string ownerSymbol,
-                             bool hasReceiver, IReadOnlyDictionary<IMethodSymbol, string> nestedIds,
-                             string rootDirectory, CancellationToken cancellationToken)
+        internal BodyLowerer(IMethodSymbol method, IReadOnlyList<Segment> segments, string bodyId, string ownerSymbol,
+                             bool hasReceiver, IReadOnlyDictionary<IMethodSymbol, string> nestedIds, LoweringContext context)
         {
             _method = method;
-            _graph = graph;
+            _segments = segments;
             _bodyId = bodyId;
             _ownerSymbol = ownerSymbol;
             _hasReceiver = hasReceiver;
             _nestedIds = nestedIds;
-            _rootDirectory = Path.GetFullPath(rootDirectory);
-            _cancellationToken = cancellationToken;
-            _flowGraph = EffectiveFlowGraph.Create(graph);
-            _ssaPlan = SsaPlan.Create(method, graph, _flowGraph);
+            _context = context;
+            _rootDirectory = Path.GetFullPath(context.RootDirectory);
+            _cancellationToken = context.CancellationToken;
         }
 
         internal IrBody Lower()
         {
-            AddInitialValues();
-            AllocateSsaValues();
-            AddRegion(_graph.Root, null);
-            var blocks = _graph.Blocks.Select(LowerBlock).ToArray();
+            var blocks = _segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments();
             var body = new IrBody(
                 _bodyId,
                 BodyKind(_method),
@@ -231,23 +492,151 @@ public static class IrLowering
                 SymbolNames.Method(_method),
                 _values,
                 blocks,
-                _regions);
+                _regions)
+            {
+                Parameters = _method.Parameters
+                                    .Select(parameter => new IrParameter(parameter.Name, TypeName(parameter.Type), RefKindOf(parameter.RefKind),
+                                                                         parameter.Ordinal, _parameterValues[parameter]))
+                                    .ToArray()
+            };
             var problems = IrValidator.Validate(body);
             if (problems.Count != 0)
                 throw new InvalidOperationException("Lowered IR is invalid: " + string.Join("; ", problems));
             return body;
         }
 
+        private IrBlock[] LowerSingleGraph(GraphSegment segment)
+        {
+            EnterSegment(segment, 0);
+            AddInitialValues();
+            AllocateSsaValues();
+            AddRegion(_graph.Root, null);
+            return _graph.Blocks.Select(LowerBlock).ToArray();
+        }
+
+        /// <summary>A body of several graphs and synthesized steps, run in order: a synthesized entry, each graph with its entry and
+        /// exit turned into ordinary blocks, each synthesized step as one block, and a synthesized exit. Every variable enters a
+        /// graph with the value it had when the previous graph ended.</summary>
+        private IrBlock[] LowerSegments()
+        {
+            if (_hasReceiver)
+                _receiverValue = AddValue(IrValueKind.Receiver, _method.ContainingType, "this", 0, THIS_KEY);
+            var current = new Dictionary<ISymbol, int>(SymbolEqualityComparer.Default);
+            foreach (var parameter in _method.Parameters)
+            {
+                var value = AddValue(IrValueKind.Parameter, parameter.Type, parameter.Name, 0, SymbolKey(parameter));
+                _parameterValues[parameter] = value;
+                current[parameter] = value;
+            }
+
+            var count = 2 + _segments.Sum(segment => segment is GraphSegment graph ? graph.Graph.Blocks.Length : 1);
+            _regions.Add(new IrRegion(0, IrRegionKind.Root, null, 0, count - 1, null));
+            var blocks = new List<IrBlock> { new(0, IrBlockKind.Entry, 0, [], [], [], null, Jump(IrBranchKind.Regular, 1)) };
+            foreach (var segment in _segments)
+            {
+                var offset = blocks.Count;
+                var entry = new IrFlowPredecessor(offset - 1, IrEdgeKind.Explicit);
+                if (segment is GraphSegment graphSegment)
+                {
+                    EnterSegment(graphSegment, offset);
+                    _regionIds[_graph.Root] = 0;
+                    foreach (var nested in _graph.Root.NestedRegions)
+                        AddRegion(nested, 0);
+                    foreach (var variable in _ssaPlan.Variables.Where(variable => variable.IsIncoming))
+                    {
+                        var value = variable.Symbol is { } symbol && current.TryGetValue(symbol, out var carried)
+                            ? carried
+                            : AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable));
+                        _tokenValues.Add(variable.Incoming, value);
+                    }
+
+                    AllocateSsaValues();
+                    var lowered = _graph.Blocks.Select(LowerBlock).ToArray();
+                    lowered[0] = lowered[0] with { Kind = IrBlockKind.Block, Predecessors = [offset - 1], FlowPredecessors = [entry] };
+                    lowered[^1] = lowered[^1] with
+                    {
+                        Kind = IrBlockKind.Block,
+                        FallThroughBranch = Jump(IrBranchKind.Regular, offset + lowered.Length)
+                    };
+                    blocks.AddRange(lowered);
+                    var exit = _graph.Blocks[^1].Ordinal;
+                    foreach (var variable in _ssaPlan.Variables.Where(variable => variable.Symbol is not null))
+                        current[variable.Symbol!] = ResolveToken(_ssaPlan.Entry(exit, variable));
+                }
+                else
+                {
+                    _operations = [];
+                    var branch = LowerSynthesized(segment, current);
+                    blocks.Add(new IrBlock(offset, IrBlockKind.Block, 0, [offset - 1], [entry], _operations, null, Jump(branch, offset + 1)));
+                }
+            }
+
+            blocks.Add(new IrBlock(count - 1, IrBlockKind.Exit, 0, [count - 2], [new IrFlowPredecessor(count - 2, IrEdgeKind.Explicit)],
+                                   [], null, null));
+            return blocks.ToArray();
+        }
+
+        private IrBranchKind LowerSynthesized(Segment segment, IReadOnlyDictionary<ISymbol, int> current)
+        {
+            switch (segment)
+            {
+                case PrimaryConstructorParametersSegment primary:
+                    foreach (var parameter in primary.Parameters)
+                    {
+                        var location = GetPrimaryConstructorParameterLocation(parameter);
+                        var syntax = parameter.DeclaringSyntaxReferences[0].GetSyntax(_cancellationToken);
+                        _operations.Add(new IrStoreFieldOperation(
+                            NextOperation(), location.Receiver, location.Field, current[parameter], null,
+                            Provenance(syntax, "primary-constructor-parameter")));
+                    }
+                    return IrBranchKind.Regular;
+                case ImplicitBaseCallSegment baseCall:
+                    _operations.Add(Call(null, baseCall.Constructor, _receiverValue, LoweredArguments.None,
+                                         Provenance(baseCall.Syntax, "implicit-base-constructor")));
+                    return IrBranchKind.Regular;
+                case AutoAccessorSegment accessor:
+                {
+                    var field = PropertyField(accessor.Property);
+                    var provenance = Provenance(accessor.Syntax, "property-backing-field");
+                    if (_method.MethodKind == MethodKind.PropertyGet)
+                    {
+                        var result = AddTemporary(accessor.Property.Type);
+                        _operations.Add(new IrLoadFieldOperation(NextOperation(), result, _receiverValue, field, provenance));
+                        _operations.Add(new IrReturnOperation(NextOperation(), result, Provenance(accessor.Syntax, "return")));
+                        return IrBranchKind.Return;
+                    }
+
+                    _operations.Add(new IrStoreFieldOperation(NextOperation(), _receiverValue, field, current[_method.Parameters[^1]], null,
+                                                              provenance));
+                    return IrBranchKind.Regular;
+                }
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(segment), segment.GetType().FullName);
+            }
+        }
+
+        private static IrBranch Jump(IrBranchKind kind, int destination) => new(kind, destination, null, null, [], [], []);
+
+        private void EnterSegment(GraphSegment segment, int offset)
+        {
+            _graph = segment.Graph;
+            _flowGraph = EffectiveFlowGraph.Create(_graph);
+            _ssaPlan = SsaPlan.Create(_method, _graph, _flowGraph, segment.InitializerOwner);
+            _offset = offset;
+            _capturedTargets.Clear();
+        }
+
         private void AddInitialValues()
         {
             if (_hasReceiver)
-                _receiverValue = AddValue(IrValueKind.Receiver, _method.ContainingType, "this", 0);
+                _receiverValue = AddValue(IrValueKind.Receiver, _method.ContainingType, "this", 0, THIS_KEY);
 
             foreach (var variable in _ssaPlan.Variables.Where(variable => variable.IsIncoming))
             {
-                var value = AddValue(variable.Kind, variable.Type, variable.Name, 0);
+                var value = AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable));
                 _tokenValues.Add(variable.Incoming, value);
-                _ssaVersions.Add(variable, 0);
+                if (variable.Symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, _method))
+                    _parameterValues[parameter] = value;
             }
         }
 
@@ -270,8 +659,8 @@ public static class IrLowering
                 id,
                 RegionKind(region.Kind),
                 parent,
-                region.FirstBlockOrdinal,
-                region.LastBlockOrdinal,
+                region.FirstBlockOrdinal + _offset,
+                region.LastBlockOrdinal + _offset,
                 region.ExceptionType is null ? null : SymbolNames.Type(region.ExceptionType)));
             foreach (var nested in region.NestedRegions)
                 AddRegion(nested, id);
@@ -292,7 +681,7 @@ public static class IrLowering
             {
                 var inputs = _ssaPlan.PhiInputs(block.Ordinal, variable)
                     .Select(input => new IrPhiInput(
-                        new IrFlowPredecessor(input.Edge.Source, input.Edge.Kind),
+                        new IrFlowPredecessor(input.Edge.Source + _offset, input.Edge.Kind),
                         ResolveToken(input.Token)))
                     .ToArray();
                 _operations.Add(new IrPhiOperation(
@@ -306,7 +695,10 @@ public static class IrLowering
                 {
                     _operations.Add(new IrCaptureOperation(
                         NextOperation(), ResolveToken(variable.Incoming), _bodyId,
-                        Provenance(variable.FirstReference ?? _graph.OriginalOperation, "capture")));
+                        Provenance(variable.FirstReference ?? _graph.OriginalOperation, "capture"))
+                    {
+                        SymbolKey = KeyOf(variable)
+                    });
                 }
             }
 
@@ -322,12 +714,12 @@ public static class IrLowering
                     Provenance(block.BranchValue ?? block.Operations.LastOrDefault() ?? _graph.OriginalOperation, "return")));
             }
 
-            var predecessors = block.Predecessors.Select(predecessor => predecessor.Source.Ordinal).ToArray();
+            var predecessors = block.Predecessors.Select(predecessor => predecessor.Source.Ordinal + _offset).ToArray();
             var flowPredecessors = _flowGraph.Predecessors(block.Ordinal)
-                                                   .Select(edge => new IrFlowPredecessor(edge.Source, edge.Kind))
+                                                   .Select(edge => new IrFlowPredecessor(edge.Source + _offset, edge.Kind))
                                                    .ToArray();
             return new IrBlock(
-                block.Ordinal,
+                block.Ordinal + _offset,
                 BlockKind(block.Kind),
                 _regionIds[block.EnclosingRegion],
                 predecessors,
@@ -345,7 +737,7 @@ public static class IrLowering
 
             return new IrBranch(
                 BranchKind(branch.Semantics),
-                branch.Destination?.Ordinal,
+                branch.Destination?.Ordinal + _offset,
                 condition,
                 jumpIfTrue,
                 branch.EnteringRegions.Select(region => _regionIds[region]).ToArray(),
@@ -405,6 +797,7 @@ public static class IrLowering
                 IFlowCaptureReferenceOperation capture => LowerCaptureReference(capture),
                 IInvocationOperation invocation => LowerInvocation(invocation),
                 IObjectCreationOperation creation => LowerObjectCreation(creation),
+                IArrayCreationOperation creation => LowerArrayCreation(creation),
                 IAwaitOperation awaitOperation => LowerAwait(awaitOperation),
                 IArrayElementReferenceOperation element => LowerElementLoad(element),
                 IIsNullOperation isNull => LowerNullTest(isNull, isNull.Operand, "null-test"),
@@ -654,8 +1047,7 @@ public static class IrLowering
             if (getter is null)
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
-            var arguments = property.Arguments.Select(LowerArgument).Where(value => value.HasValue).Select(value => value!.Value).ToArray();
-            return AddCall(property, getter, receiver, arguments, property.Type);
+            return AddCall(property, getter, receiver, LowerArguments(property.Arguments), property.Type);
         }
 
         private int LowerPropertyStore(IPropertyReferenceOperation property, int value, IOperation source,
@@ -665,14 +1057,13 @@ public static class IrLowering
             if (setter is null)
                 return Unknown(source, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
-            var arguments = property.Arguments.Select(LowerArgument)
-                                               .Where(argument => argument.HasValue)
-                                               .Select(argument => argument!.Value)
-                                               .Append(value)
-                                               .ToArray();
-            _operations.Add(new IrCallOperation(
-                NextOperation(), null, CallKind(setter), SymbolNames.Method(setter), receiver, arguments,
-                Provenance(source, transformation)));
+            var arguments = LowerArguments(property.Arguments);
+            arguments = arguments with
+            {
+                Values = [.. arguments.Values, value],
+                Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
+            };
+            _operations.Add(Call(null, setter, receiver, arguments, Provenance(source, transformation)));
             return value;
         }
 
@@ -771,37 +1162,40 @@ public static class IrLowering
                 return monitorResult;
 
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
-            var arguments = invocation.Arguments.Select(LowerArgument)
-                                                 .Where(argument => argument.HasValue)
-                                                 .Select(argument => argument!.Value)
-                                                 .ToArray();
-            return AddCall(invocation, invocation.TargetMethod, receiver, arguments, invocation.Type);
+            return AddCall(invocation, invocation.TargetMethod, receiver, LowerArguments(invocation.Arguments), invocation.Type);
         }
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
-                            IReadOnlyList<int> arguments, ITypeSymbol? resultType)
+                            LoweredArguments arguments, ITypeSymbol? resultType)
         {
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
-            var methodName = _nestedIds.GetValueOrDefault(method.OriginalDefinition) ?? SymbolNames.Method(method);
-            _operations.Add(new IrCallOperation(
-                NextOperation(), result, CallKind(method), methodName, receiver, arguments,
-                Provenance(source, "call")));
+            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")));
             return result ?? Constant(source, null, "void");
+        }
+
+        private IrCallOperation Call(int? result, IMethodSymbol method, int? receiver, LoweredArguments arguments,
+                                     IrProvenance provenance)
+        {
+            var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
+            return new IrCallOperation(
+                NextOperation(), result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
+                provenance)
+            {
+                ArgumentParameterOrdinals = arguments.Ordinals,
+                RefResults = arguments.RefResults,
+                TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
+                TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
+                TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
+            };
         }
 
         private bool TryLowerMonitor(IInvocationOperation invocation, out int result)
         {
             var method = invocation.TargetMethod;
-            var isMonitor = method.IsStatic &&
-                            method.ContainingType.ToDisplayString() == "System.Threading.Monitor";
-            var isEnter = isMonitor && method.Name == "Enter" &&
-                          (method.Parameters.Length == 1 ||
-                           method.Parameters is [{ Type.SpecialType: SpecialType.System_Object },
-                               { Type.SpecialType: SpecialType.System_Boolean, RefKind: RefKind.Ref }]);
-            var isExit = isMonitor && method.Name == "Exit" && method.Parameters.Length == 1;
-            if (!isEnter && !isExit)
+            var isEnter = IsMonitorEnter(method);
+            if (!isEnter && !IsMonitorExit(method))
             {
                 result = 0;
                 return false;
@@ -830,6 +1224,46 @@ public static class IrLowering
             return true;
         }
 
+        /// <summary>Lowers the arguments in evaluation order, then defines a new version of every local or parameter passed by
+        /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds.</summary>
+        private LoweredArguments LowerArguments(IEnumerable<IArgumentOperation> arguments)
+        {
+            var values = new List<int>();
+            var ordinals = new List<int>();
+            var passedByReference = new List<(int Ordinal, ISymbol Symbol)>();
+            foreach (var argument in arguments)
+            {
+                var ordinal = argument.Parameter?.Ordinal ?? -1;
+                if (LowerArgument(argument) is int value)
+                {
+                    values.Add(value);
+                    ordinals.Add(ordinal);
+                }
+
+                if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentSymbol(argument) is { } symbol)
+                    passedByReference.Add((ordinal, symbol));
+            }
+
+            var refResults = new Dictionary<int, int>();
+            foreach (var (ordinal, symbol) in passedByReference)
+            {
+                if (!_ssaPlan.TryGetVariable(symbol, out var variable))
+                    throw new InvalidOperationException($"No SSA variable was planned for '{symbol.Name}'.");
+                var defined = ResolveToken(NextDefinition(variable));
+                SetCurrent(variable, defined);
+                refResults[ordinal] = defined;
+            }
+
+            return new LoweredArguments(values, ordinals, refResults);
+        }
+
+        private ISymbol? RefArgumentSymbol(IArgumentOperation argument) => UnwrapTarget(argument.Value) switch
+        {
+            ILocalReferenceOperation local => local.Local,
+            IParameterReferenceOperation parameter when !IsPrimaryConstructorParameter(parameter.Parameter) => parameter.Parameter,
+            _ => null
+        };
+
         private int? LowerArgument(IArgumentOperation argument)
         {
             if (argument.Parameter?.RefKind is not (RefKind.Ref or RefKind.Out or RefKind.In or RefKind.RefReadOnlyParameter))
@@ -853,19 +1287,49 @@ public static class IrLowering
         {
             var result = AddTemporary(creation.Type);
             var provenance = Provenance(creation, "object-creation");
-            _operations.Add(new IrAllocateOperation(
-                NextOperation(), result, TypeName(creation.Type), provenance));
-            if (creation.Constructor is not null)
+            _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(creation.Type), provenance)
             {
-                var arguments = creation.Arguments.Select(LowerArgument)
-                                                  .Where(argument => argument.HasValue)
-                                                  .Select(argument => argument!.Value)
-                                                  .ToArray();
-                _operations.Add(new IrCallOperation(
-                    NextOperation(), null, IrCallKind.Constructor, SymbolNames.Method(creation.Constructor),
-                    result, arguments, provenance));
-            }
+                AllocatedTypeKey = TypeKeyOf(creation.Type),
+                SiteOrdinal = _context.SiteOrdinals.Of(creation)
+            });
+            if (creation.Constructor is not null)
+                _operations.Add(Call(null, creation.Constructor, result, LowerArguments(creation.Arguments), provenance));
             return result;
+        }
+
+        /// <summary>An array creation evaluates its sizes, allocates the array and stores each initializer element in order.</summary>
+        private int LowerArrayCreation(IArrayCreationOperation creation)
+        {
+            foreach (var size in creation.DimensionSizes)
+                LowerValue(size);
+            var result = AddTemporary(creation.Type);
+            _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(creation.Type), Provenance(creation, "array-creation"))
+            {
+                AllocatedTypeKey = TypeKeyOf(creation.Type),
+                SiteOrdinal = _context.SiteOrdinals.Of(creation)
+            });
+            if (creation.Initializer is not null)
+                StoreElements(result, creation.Initializer, [], creation.DimensionSizes[0].Type);
+            return result;
+        }
+
+        private void StoreElements(int array, IArrayInitializerOperation initializer, IReadOnlyList<int> outerIndices,
+                                   ITypeSymbol? indexType)
+        {
+            for (var position = 0; position < initializer.ElementValues.Length; position++)
+            {
+                var element = initializer.ElementValues[position];
+                var index = AddValue(IrValueKind.Constant, indexType, position.ToString(CultureInfo.InvariantCulture), 0);
+                if (element is IArrayInitializerOperation nested)
+                {
+                    StoreElements(array, nested, [.. outerIndices, index], indexType);
+                    continue;
+                }
+
+                var value = LowerValue(element);
+                _operations.Add(new IrStoreElementOperation(
+                    NextOperation(), array, [.. outerIndices, index], value, Provenance(element, "array-initializer")));
+            }
         }
 
         private int LowerAwait(IAwaitOperation awaitOperation)
@@ -992,26 +1456,52 @@ public static class IrLowering
             var result = AddTemporary(delegateCreation.Type);
             string? targetBodyId = null;
             string? targetMethod = null;
+            IMethodSymbol? target = null;
+            IReadOnlyList<string> captured = [];
             int? receiver = null;
             switch (delegateCreation.Target)
             {
                 case IFlowAnonymousFunctionOperation anonymousFunction:
                     targetBodyId = _nestedIds.GetValueOrDefault(anonymousFunction.Symbol);
+                    captured = CapturedSymbolKeys(anonymousFunction.Symbol,
+                                                  _graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, _cancellationToken));
                     break;
                 case IMethodReferenceOperation methodReference:
-                    if (_nestedIds.TryGetValue(methodReference.Method.OriginalDefinition, out var localBodyId))
+                    var method = methodReference.Method.OriginalDefinition;
+                    if (_nestedIds.TryGetValue(method, out var localBodyId))
+                    {
                         targetBodyId = localBodyId;
+                        captured = CapturedSymbolKeys(method, _graph.GetLocalFunctionControlFlowGraphInScope(method, _cancellationToken));
+                    }
                     else
+                    {
                         targetMethod = SymbolNames.Method(methodReference.Method);
+                        target = methodReference.Method;
+                    }
                     receiver = methodReference.Instance is null ? null : LowerValue(methodReference.Instance);
                     break;
             }
 
             _operations.Add(new IrCreateDelegateOperation(
                 NextOperation(), result, targetBodyId, targetMethod, receiver,
-                Provenance(delegateCreation, "delegate-creation")));
+                Provenance(delegateCreation, "delegate-creation"))
+            {
+                CapturedSymbolKeys = captured,
+                SiteOrdinal = _context.SiteOrdinals.Of(delegateCreation),
+                TargetMethodId = target is null ? null : RootBodyId(target.OriginalDefinition),
+                TargetContainingTypeKey = target is null ? null : SymbolNames.TypeKey(target.ContainingType),
+                TargetMethodTypeArgumentKeys = target is null ? [] : target.TypeArguments.Select(SymbolNames.TypeKey).ToArray()
+            });
             return result;
         }
+
+        /// <summary>The keys of the variables the body of <paramref name="function"/> captures, in the order its capture
+        /// operations name them.</summary>
+        private IReadOnlyList<string> CapturedSymbolKeys(IMethodSymbol function, ControlFlowGraph graph) =>
+            SsaPlan.Create(function, graph, EffectiveFlowGraph.Create(graph))
+                   .CapturedVariables
+                   .Select(variable => SymbolKey(variable.Symbol!))
+                   .ToArray();
 
         private int Constant(IOperation operation, string transformation) =>
             Constant(operation, operation.ConstantValue.HasValue ? operation.ConstantValue.Value : null, transformation);
@@ -1078,21 +1568,19 @@ public static class IrLowering
                     SymbolNames.TypeIdentity(field.ContainingType)));
         }
 
-        private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference)
-        {
-            var property = reference.Property;
-            return new FieldLocation(
-                reference.Instance is null ? null : LowerValue(reference.Instance),
-                new IrFieldRef(
-                    property.ContainingAssembly.Name,
-                    SymbolNames.Type(property.ContainingType),
-                    property.Name,
-                    IrFieldKind.PropertyBackingField,
-                    property.IsStatic,
-                    property.SetMethod is null,
-                    SymbolNames.Type(property.Type),
-                    SymbolNames.TypeIdentity(property.ContainingType)));
-        }
+        private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference) =>
+            new(reference.Instance is null ? null : LowerValue(reference.Instance), PropertyField(reference.Property));
+
+        private static IrFieldRef PropertyField(IPropertySymbol property) =>
+            new(
+                property.ContainingAssembly.Name,
+                SymbolNames.Type(property.ContainingType),
+                property.Name,
+                IrFieldKind.PropertyBackingField,
+                property.IsStatic,
+                property.SetMethod is null,
+                SymbolNames.Type(property.Type),
+                SymbolNames.TypeIdentity(property.ContainingType));
 
         private bool IsAutomatic(IPropertySymbol property)
         {
@@ -1174,28 +1662,53 @@ public static class IrLowering
             return value;
         }
 
+        /// <summary>Versions count per variable, and per symbol across the graphs of one body.</summary>
         private int AddSsaValue(SsaVariable variable)
         {
-            var version = _ssaVersions.GetValueOrDefault(variable) + 1;
-            _ssaVersions[variable] = version;
-            return AddValue(variable.Kind, variable.Type, variable.Name, version);
+            int version;
+            if (variable.Symbol is { } symbol)
+            {
+                version = _symbolVersions.GetValueOrDefault(symbol) + 1;
+                _symbolVersions[symbol] = version;
+            }
+            else
+            {
+                version = _ssaVersions.GetValueOrDefault(variable) + 1;
+                _ssaVersions[variable] = version;
+            }
+
+            return AddValue(variable.Kind, variable.Type, variable.Name, version, KeyOf(variable));
         }
 
         private int AddTemporary(ITypeSymbol? type) =>
             AddValue(IrValueKind.Temporary, type, $"t{_nextValueId}", 0);
 
-        private int AddValue(IrValueKind kind, ITypeSymbol? type, string name, int version)
+        private int AddValue(IrValueKind kind, ITypeSymbol? type, string name, int version, string? symbolKey = null)
         {
             var id = _nextValueId++;
-            _values.Add(new IrValue(id, kind, TypeName(type), name, version));
+            _values.Add(new IrValue(id, kind, TypeName(type), name, version) { SymbolKey = symbolKey });
             return id;
+        }
+
+        private string? KeyOf(SsaVariable variable) => variable.Symbol is null ? null : SymbolKey(variable.Symbol);
+
+        /// <summary>A local's or parameter's identity: the body declaring it, its name and its declaration's span start.</summary>
+        private string SymbolKey(ISymbol symbol)
+        {
+            var declaringBody = symbol.ContainingSymbol is IMethodSymbol containing && _nestedIds.TryGetValue(containing, out var nestedId)
+                ? nestedId
+                : _context.RootBodyId;
+            var start = symbol.DeclaringSyntaxReferences.FirstOrDefault()?.Span.Start ?? -1;
+            return string.Create(CultureInfo.InvariantCulture, $"{declaringBody}|{symbol.Name}|{start}");
         }
 
         private int NextOperation() => _nextOperationId++;
 
-        private IrProvenance Provenance(IOperation operation, string transformation)
+        private IrProvenance Provenance(IOperation operation, string transformation) => Provenance(operation.Syntax, transformation);
+
+        private IrProvenance Provenance(SyntaxNode syntax, string transformation)
         {
-            var lineSpan = operation.Syntax.GetLocation().GetLineSpan();
+            var lineSpan = syntax.GetLocation().GetLineSpan();
             var fullPath = Path.GetFullPath(lineSpan.Path);
             var relativePath = Path.GetRelativePath(_rootDirectory, fullPath);
             var outsideRoot = relativePath == ".." ||
@@ -1208,7 +1721,7 @@ public static class IrLowering
                 lineSpan.StartLinePosition.Character + 1,
                 lineSpan.EndLinePosition.Line + 1,
                 lineSpan.EndLinePosition.Character + 1);
-            return new IrProvenance(span, SymbolNames.Method(_method), operation.Syntax.Kind().ToString(), transformation);
+            return new IrProvenance(span, SymbolNames.Method(_method), syntax.Kind().ToString(), transformation);
         }
 
         private static IrBodyKind BodyKind(IMethodSymbol method) => method.MethodKind switch
@@ -1216,6 +1729,15 @@ public static class IrLowering
             MethodKind.AnonymousFunction => IrBodyKind.Lambda,
             MethodKind.LocalFunction => IrBodyKind.LocalFunction,
             _ => IrBodyKind.Method
+        };
+
+        private static IrRefKind RefKindOf(RefKind kind) => kind switch
+        {
+            RefKind.Ref => IrRefKind.Ref,
+            RefKind.Out => IrRefKind.Out,
+            RefKind.In => IrRefKind.In,
+            RefKind.RefReadOnlyParameter => IrRefKind.RefReadOnly,
+            _ => IrRefKind.None
         };
 
         private static IrBlockKind BlockKind(BasicBlockKind kind) => kind switch
@@ -1274,6 +1796,14 @@ public static class IrLowering
 
         private static string TypeName(ITypeSymbol? type) => type is null ? "?" : SymbolNames.Type(type);
 
+        private static string? TypeKeyOf(ITypeSymbol? type) => type is null ? null : SymbolNames.TypeKey(type);
+
         private readonly record struct FieldLocation(int? Receiver, IrFieldRef Field);
+
+        private sealed record LoweredArguments(IReadOnlyList<int> Values, IReadOnlyList<int> Ordinals,
+                                               IReadOnlyDictionary<int, int> RefResults)
+        {
+            internal static LoweredArguments None { get; } = new([], [], new Dictionary<int, int>());
+        }
     }
 }

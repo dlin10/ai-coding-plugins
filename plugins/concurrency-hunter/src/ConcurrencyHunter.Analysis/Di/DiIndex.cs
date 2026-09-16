@@ -10,12 +10,21 @@ public enum DiLifetime
     Transient
 }
 
+/// <summary>How a registration produces its object: the container constructs the implementation type, calls a factory, or
+/// hands out an instance built elsewhere.</summary>
+public enum DiRegistrationForm
+{
+    Type,
+    Factory,
+    Instance
+}
+
 /// <summary>One registration call. <see cref="ServiceType"/> is null when the service type is a <c>Type</c> value
 /// the analysis cannot determine; such a registration may override any binding of its scope. The type keys
 /// (<see cref="DiIndex.TypeKey"/>) identify the types; the type names are for display.</summary>
 public sealed record DiRegistration(string? ServiceType, string? ImplementationType, DiLifetime Lifetime, bool IsHostedService,
                                     string Method, SourceSpan Source, string? UnsupportedReason, string? ServiceTypeKey,
-                                    string? ImplementationTypeKey)
+                                    string? ImplementationTypeKey, DiRegistrationForm Form = DiRegistrationForm.Type)
 {
     public bool IsSupported => UnsupportedReason is null;
 }

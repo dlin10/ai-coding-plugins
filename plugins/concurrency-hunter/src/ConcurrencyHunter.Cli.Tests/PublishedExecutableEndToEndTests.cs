@@ -110,6 +110,8 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 
             Assert.NotEmpty(groups);
             Assert.Contains(groups, group => group.GetProperty("region").GetString()!.StartsWith("di:", StringComparison.Ordinal));
+            Assert.Contains(groups, group => group.GetProperty("region").GetString()!.StartsWith("alloc:", StringComparison.Ordinal));
+            Assert.Contains(groups, group => group.GetProperty("confidenceLabel").GetString() == "Medium");
             var narrated = groups.Where(group => group.GetProperty("confidenceLabel").GetString() is "High" or "Medium").ToArray();
             Assert.NotEmpty(narrated);
             foreach (var group in narrated)

@@ -1,5 +1,6 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Ir;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -29,7 +30,7 @@ public sealed class AccessExtractionTests
         Assert.Equal(("Fixture", "scope:Fixture", "static:HitsController"), (access.Resource.Assembly, access.Resource.Scope, access.Resource.Region));
         Assert.Equal(["_hits"], access.Resource.AccessPath);
         Assert.Equal(new MemberKey("HitsController", "_hits", IrFieldKind.Field), access.Resource.Member);
-        Assert.Equal(SharingKeys.PROCESS, access.SharingKey);
+        Assert.Equal(OwnershipKind.Shared, access.Ownership);
         Assert.Equal("HitsController.Post()", access.Symbol);
         Assert.Equal(("aspnetcore", "controller-action", "scope:Fixture"), (access.Root.ProviderId, access.Root.RootKind, access.Root.Scope));
         Assert.Equal(["root", "access"], access.CodeFlow.Select(step => step.Kind));
@@ -54,8 +55,8 @@ public sealed class AccessExtractionTests
 
         var access = run.Single("Value", AccessOperation.Write);
         Assert.Equal("di:Gate@Singleton", access.Resource.Region);
-        Assert.Equal("process:Fixture:Gate", access.SharingKey);
-        Assert.Equal(0, run.Skipped(AccessExtraction.SKIP_UNBOUND_MEMBER));
+        Assert.Equal(OwnershipKind.Shared, access.Ownership);
+        Assert.Equal(0, run.Counter(CoverageCounters.NO_RECEIVER_OBJECT));
     }
 
     [Fact]
@@ -86,10 +87,9 @@ public sealed class AccessExtractionTests
 
         var access = run.Single("Target", AccessOperation.Write);
         Assert.Equal("di:Relay@Singleton", access.Resource.Region);
-        Assert.Equal("process:Fixture:Relay", access.SharingKey);
         Assert.Contains(access.BindingEvidence, evidence => evidence.Kind == "registration");
-        Assert.Empty(run.Of("_relay"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_LOCAL));
+        Assert.Equal("receiver:RelayController", run.Single("_relay", AccessOperation.Read).Resource.Region);
+        Assert.Contains(run.Accesses("_relay"), store => store is { Operation: AccessOperation.Write, IsConstructionLocal: true });
     }
 
     [Fact]
@@ -105,7 +105,9 @@ public sealed class AccessExtractionTests
 
         var access = run.Single("_lastItem", AccessOperation.Write);
         Assert.Equal("di:ProgressWorker@Singleton", access.Resource.Region);
-        Assert.Equal("process:Microsoft.Extensions.Hosting.Abstractions:Microsoft.Extensions.Hosting.IHostedService", access.SharingKey);
+        Assert.StartsWith("di|Microsoft.Extensions.Hosting.Abstractions:Microsoft.Extensions.Hosting.IHostedService|", access.Resource.RegionId,
+                          StringComparison.Ordinal);
+        Assert.Contains(access.BindingEvidence, evidence => evidence.Text.StartsWith("AddHostedService", StringComparison.Ordinal));
         Assert.Equal("hosting", access.Root.ProviderId);
     }
 
@@ -147,51 +149,6 @@ public sealed class AccessExtractionTests
     }
 
     [Fact]
-    public void Reassigned_action_parameter_binds_nothing()
-    {
-        var run = Analyze(Shared + """
-            public class RelayController : ControllerBase
-            {
-                public void Post([FromServices] Relay relay, string target)
-                {
-                    relay.Target = target;
-                    relay = new Relay();
-                }
-            }
-            """ + Startup("services.AddSingleton<Relay>();"));
-
-        Assert.Empty(run.Of("Target"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_REASSIGNED_PARAMETER));
-    }
-
-    [Fact]
-    public void Parameter_passed_by_ref_binds_nothing_and_its_lock_holds_nothing()
-    {
-        var run = Analyze(Shared + """
-            public static class State { public static int Value; }
-            public class RelayController : ControllerBase
-            {
-                public void Post([FromServices] Relay gate)
-                {
-                    Replace(ref gate);
-                    lock (gate)
-                    {
-                        gate.Target = "locked";
-                        State.Value = 1;
-                    }
-                }
-                private static void Replace(ref Relay gate) => gate = new Relay();
-            }
-            """ + Startup("services.AddSingleton<Relay>();"));
-
-        Assert.Empty(run.Of("Target"));
-        Assert.True(run.Skipped(AccessExtraction.SKIP_REASSIGNED_PARAMETER) >= 1);
-        var write = run.Single("Value", AccessOperation.Write);
-        Assert.Contains("identity unknown", Assert.Single(write.HeldProtection), StringComparison.Ordinal);
-        Assert.Empty(write.HeldProtectionIds);
-    }
-
-    [Fact]
     public void From_services_struct_parameter_binds_nothing()
     {
         var run = Analyze(Shared + """
@@ -202,32 +159,6 @@ public sealed class AccessExtractionTests
             """ + Startup("services.AddSingleton(typeof(Point));"));
 
         Assert.Empty(run.Of("X"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_UNBOUND_PARAMETER));
-    }
-
-    [Fact]
-    public void Instance_method_group_handler_field_binds_nothing()
-    {
-        var run = Analyze(Shared + """
-            public sealed class RelayHandlers
-            {
-                private readonly Relay _relay;
-                public RelayHandlers(Relay relay) => _relay = relay;
-                public void Post(string target) => _relay.Target = target;
-            }
-            public static class Endpoints
-            {
-                public static void Configure(IServiceCollection services, IEndpointRouteBuilder app)
-                {
-                    services.AddSingleton<Relay>();
-                    var handlers = new RelayHandlers(new Relay());
-                    app.MapPost("/relay", handlers.Post);
-                }
-            }
-            """);
-
-        Assert.Empty(run.Of("Target"));
-        Assert.True(run.Skipped(AccessExtraction.SKIP_UNBOUND_MEMBER) >= 1);
     }
 
     [Fact]
@@ -241,103 +172,6 @@ public sealed class AccessExtractionTests
             """ + Startup());
 
         Assert.Empty(run.Of("Target"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_UNBOUND_PARAMETER));
-    }
-
-    [Fact]
-    public void Allocated_and_local_objects_are_not_accesses()
-    {
-        var run = Analyze(Shared + """
-            public class RelayController : ControllerBase
-            {
-                public void Post()
-                {
-                    new Relay().Target = "allocated";
-                    Relay local = null!;
-                    local.Target = "local";
-                }
-            }
-            """ + Startup());
-
-        Assert.Empty(run.Of("Target"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_ALLOCATION));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_LOCAL));
-    }
-
-    [Fact]
-    public void Call_result_and_nested_field_are_not_accesses()
-    {
-        var run = Analyze(Shared + """
-            public class RelayController : ControllerBase
-            {
-                private readonly Relay _relay;
-                public RelayController(Relay relay) => _relay = relay;
-                public void Post()
-                {
-                    Current().Target = "call";
-                    _relay.Inner!.Target = "nested";
-                }
-                private static Relay Current() => new();
-            }
-            """ + Startup("services.AddSingleton<Relay>();"));
-
-        Assert.DoesNotContain(run.Of("Target"), access => access.Operation == AccessOperation.Write);
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_CALL_RESULT));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_NESTED_FIELD));
-        Assert.Single(run.Of("Inner"));
-    }
-
-    [Fact]
-    public void Phi_of_two_services_is_not_an_access()
-    {
-        var run = Analyze(Shared + """
-            [ApiController]
-            public class RelayController : ControllerBase
-            {
-                public void Post([FromServices] Relay first, [FromServices] Relay second, bool useFirst)
-                {
-                    var chosen = useFirst ? first : second;
-                    chosen.Target = "x";
-                }
-            }
-            """ + Startup("services.AddSingleton<Relay>();"));
-
-        Assert.Empty(run.Of("Target"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_PHI));
-    }
-
-    [Fact]
-    public void Unboxing_conversion_stops_the_trace_but_reference_conversion_does_not()
-    {
-        var run = Analyze(Shared + """
-            public class PointController : ControllerBase
-            {
-                public int Get([FromServices] object boxed, [FromServices] object relay)
-                {
-                    ((Relay)relay).Target = "x";
-                    return ((Point)boxed).X;
-                }
-            }
-            """ + Startup("services.AddSingleton<object, Relay>();"));
-
-        Assert.Empty(run.Of("X"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_CONVERSION));
-        Assert.Equal("di:Relay@Singleton", run.Single("Target", AccessOperation.Write).Resource.Region);
-    }
-
-    [Fact]
-    public void Unbound_member_of_a_controller_is_not_an_access()
-    {
-        var run = Analyze(Shared + """
-            public class RelayController : ControllerBase
-            {
-                private readonly Relay _relay = new();
-                public void Post() => _relay.Target = "x";
-            }
-            """ + Startup("services.AddSingleton<Relay>();"));
-
-        Assert.Empty(run.Of("Target"));
-        Assert.Equal(1, run.Skipped(AccessExtraction.SKIP_UNBOUND_MEMBER));
     }
 
     [Fact]
@@ -375,5 +209,28 @@ public sealed class AccessExtractionTests
         var access = run.Single("LastPath", AccessOperation.Write);
         Assert.Equal(new MemberKey("VisitorStats", "LastPath", IrFieldKind.PropertyBackingField), access.Resource.Member);
         Assert.Equal("Case.cs", access.Source.Path);
+    }
+
+    [Fact]
+    public void Access_carries_its_region_ownership_and_evidence_chain()
+    {
+        var run = Analyze(Shared + """
+            public class RelayController : ControllerBase
+            {
+                public void Post() { var relay = new Relay(); relay.Target = "local"; GC.KeepAlive(relay); }
+            }
+            public sealed class RelayWorker(Relay relay) : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken stoppingToken) { relay.Target = "worker"; return Task.CompletedTask; }
+            }
+            """ + Startup("services.AddSingleton<Relay>().AddHostedService<RelayWorker>();"));
+
+        var local = Assert.Single(run.Of("Target"), access => access.Root.ProviderId == "aspnetcore");
+        Assert.Equal(OwnershipKind.ThreadConfined, local.Ownership);
+        Assert.NotEmpty(local.OwnershipEvidence);
+        var shared = Assert.Single(run.Of("Target"), access => access.Root.ProviderId == "hosting");
+        Assert.Equal(OwnershipKind.Shared, shared.Ownership);
+        Assert.NotEmpty(shared.OwnershipEvidence);
+        Assert.NotEqual(local.Resource.Identity, shared.Resource.Identity);
     }
 }

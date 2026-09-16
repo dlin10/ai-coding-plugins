@@ -7,7 +7,7 @@ namespace ConcurrencyHunter.Analysis;
 
 /// <summary>
 /// Findings from candidate pairs (R10): <c>DCA1002</c> when one side is a read-modify-write and the other writes, else
-/// <c>DCA1001</c>. Findings are grouped by rule and object: scope, assembly, region, path, member key and sharing key.
+/// <c>DCA1001</c>. Findings are grouped by rule and object: scope, assembly, region identity, path and member key.
 /// </summary>
 internal static class ConflictFindings
 {
@@ -15,8 +15,16 @@ internal static class ConflictFindings
     internal const string LOST_UPDATE_RULE = "DCA1002";
     internal const string PATH_UNCERTAINTY = "Path feasibility is not analyzed in this version.";
     internal const string LIFECYCLE_UNCERTAINTY = "Ordering between lifecycle methods of one hosted service is not analyzed in this version.";
+    internal const string WILDCARD_UNCERTAINTY = "The resource is a wildcard: an access path longer than the analysis limit was collapsed.";
 
     private const string HOSTING_PROVIDER = "hosting";
+    private const int RESOURCE_IDENTITY = 25;
+    private const int WILDCARD_RESOURCE_IDENTITY = 10;
+    private const int HIGH_MINIMUM = 80;
+    private const int MEDIUM_MINIMUM = 55;
+
+    internal static string MergedContextUncertainty(string method) =>
+        $"Contexts of {method} were merged; the objects involved may be more than one.";
 
     internal static (IReadOnlyList<Finding> Findings, IReadOnlyList<FindingGroup> Groups) Create(IEnumerable<AccessPair> pairs,
                                                                                                  CancellationToken cancellationToken)
@@ -24,7 +32,8 @@ internal static class ConflictFindings
         var candidates = pairs.Select(pair =>
                               {
                                   var (accessA, accessB) = Order(pair.First, pair.Second);
-                                  return new Candidate(GroupKey.From(Rule(accessA, accessB), accessA), accessA, accessB, pair.Protection);
+                                  return new Candidate(GroupKey.From(Rule(accessA, accessB), pair.Resource), pair.Resource, accessA, accessB,
+                                                       pair.Protection, pair.Uncertainties);
                               })
                               .OrderBy(candidate => candidate.AccessA.Source.Path, StringComparer.Ordinal)
                               .ThenBy(candidate => candidate.AccessA.Source.StartLine)
@@ -50,7 +59,6 @@ internal static class ConflictFindings
                                .ThenBy(group => group[0].Key.Region, StringComparer.Ordinal)
                                .ThenBy(group => group[0].Key.Path, StringComparer.Ordinal)
                                .ThenBy(group => group[0].Key.MemberKey, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.SharingKey, StringComparer.Ordinal)
                                .ThenBy(group => group[0].AccessA.Symbol, StringComparer.Ordinal)
                                .ThenBy(group => group[0].Key.Rule, StringComparer.Ordinal)
                                .ToArray();
@@ -66,8 +74,10 @@ internal static class ConflictFindings
                 groupFindings.Add(BuildFinding(candidate, groupId, $"F{findings.Count + groupFindings.Count + 1}"));
             findings.AddRange(groupFindings);
             var key = group[0].Key;
+            var owner = group[0].AccessB.Resource.Identity == group[0].Resource.Identity ? group[0].AccessB : group[0].AccessA;
+            owner = group[0].AccessA.Resource.Identity == group[0].Resource.Identity ? group[0].AccessA : owner;
             findingGroups.Add(new FindingGroup(groupId, StableId(key.Identity), key.Rule, HighestConfidence(groupFindings),
-                                               groupFindings[0].Resource, key.SharingKey,
+                                               groupFindings[0].Resource, owner.Ownership, owner.OwnershipEvidence,
                                                groupFindings.Select(finding => finding.FindingId).ToArray()));
         }
 
@@ -82,22 +92,37 @@ internal static class ConflictFindings
             _ => CONFLICT_RULE
         };
 
-    private static int Score(Candidate candidate) => 85;
+    private static int Score(Candidate candidate) => Score(Components(candidate));
+
+    private static int Score(ConfidenceComponents components) =>
+        components.ResourceIdentity + components.ExecutionOverlap + components.Operation + components.Protection + components.PathFeasibility;
+
+    /// <summary>The TD-103 components: a wildcard resource lowers resource identity; path feasibility is not analyzed.</summary>
+    private static ConfidenceComponents Components(Candidate candidate) =>
+        new(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20, 20, 0);
+
+    private static string Label(int score) => score >= HIGH_MINIMUM ? "High" : score >= MEDIUM_MINIMUM ? "Medium" : "Low";
 
     private static Finding BuildFinding(Candidate candidate, string groupId, string findingId)
     {
         var (accessA, accessB) = (candidate.AccessA, candidate.AccessB);
         var overlap = accessA.Root.RootId == accessB.Root.RootId
-            ? $"The root {accessA.Root.Display} may run concurrently with itself in scope {accessA.Resource.Scope}."
-            : $"The roots {accessA.Root.Display} and {accessB.Root.Display} may run concurrently in scope {accessA.Resource.Scope}.";
-        var scenario = Scenario(accessA, accessB);
+            ? $"The root {accessA.Root.Display} may run concurrently with itself in scope {candidate.Resource.Scope}."
+            : $"The roots {accessA.Root.Display} and {accessB.Root.Display} may run concurrently in scope {candidate.Resource.Scope}.";
+        var scenario = Scenario(candidate.Resource, accessA, accessB);
         var uncertainty = new List<string> { PATH_UNCERTAINTY };
         if (IsLifecyclePair(accessA.Root, accessB.Root))
             uncertainty.Add(LIFECYCLE_UNCERTAINTY);
-        uncertainty.AddRange(accessA.Uncertainties.Concat(accessB.Uncertainties).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
-        var confidence = new FindingConfidence("High", Score(candidate), new ConfidenceComponents(25, 20, 20, 20, 0));
-        var evidence = Evidence(findingId, accessA, accessB, candidate.Protection, overlap, scenario);
-        return new Finding(findingId, StableId(FindingIdentity(candidate)), groupId, candidate.Key.Rule, accessA.Resource, accessA,
+        if (candidate.Resource.IsWildcard)
+            uncertainty.Add(WILDCARD_UNCERTAINTY);
+        uncertainty.AddRange(accessA.Uncertainties.Concat(accessB.Uncertainties).Concat(candidate.Uncertainties)
+                                    .Except(uncertainty, StringComparer.Ordinal)
+                                    .Distinct(StringComparer.Ordinal)
+                                    .Order(StringComparer.Ordinal));
+        var components = Components(candidate);
+        var confidence = new FindingConfidence(Label(Score(components)), Score(components), components);
+        var evidence = Evidence(findingId, candidate.Resource, accessA, accessB, candidate.Protection, overlap, scenario);
+        return new Finding(findingId, StableId(FindingIdentity(candidate)), groupId, candidate.Key.Rule, candidate.Resource, accessA,
                            accessB, candidate.Protection, confidence, [overlap], scenario, uncertainty, evidence);
     }
 
@@ -106,10 +131,9 @@ internal static class ConflictFindings
         first.ProviderId == HOSTING_PROVIDER && second.ProviderId == HOSTING_PROVIDER && first.RootId != second.RootId &&
         first.ReceiverTypeKey is not null && first.ReceiverTypeKey == second.ReceiverTypeKey;
 
-    private static IReadOnlyList<EvidenceItem> Evidence(string findingId, Access accessA, Access accessB, string protection,
-                                                        string overlap, IReadOnlyList<string> scenario)
+    private static IReadOnlyList<EvidenceItem> Evidence(string findingId, AccessResource resource, Access accessA, Access accessB,
+                                                        string protection, string overlap, IReadOnlyList<string> scenario)
     {
-        var resource = accessA.Resource;
         var kind = resource.Region.StartsWith("static:", StringComparison.Ordinal)
             ? "static field"
             : resource.Member.Kind switch
@@ -124,11 +148,11 @@ internal static class ConflictFindings
                               .ToArray();
         return
         [
-            new EvidenceItem($"{findingId}.A", "access-a", AccessText("A", accessA)),
-            new EvidenceItem($"{findingId}.B", "access-b", AccessText("B", accessB)),
+            new EvidenceItem($"{findingId}.A", "access-a", AccessText("A", resource, accessA)),
+            new EvidenceItem($"{findingId}.B", "access-b", AccessText("B", resource, accessB)),
             new EvidenceItem($"{findingId}.R", "resource",
                              $"Resource: {kind} {resource.Member.DeclaringType}.{resource.Member.Name} in region {resource.Region} " +
-                             $"of scope {resource.Scope}, shared as {accessA.SharingKey}; binding evidence: " +
+                             $"of scope {resource.Scope}; ownership: {Ownership(ResourceAccess(resource, accessA, accessB))}; binding evidence: " +
                              $"{(bindings.Length == 0 ? "none" : string.Join("; ", bindings))}."),
             new EvidenceItem($"{findingId}.O", "overlap", overlap),
             new EvidenceItem($"{findingId}.P", "protection",
@@ -137,16 +161,32 @@ internal static class ConflictFindings
         ];
     }
 
-    private static string AccessText(string role, Access access) =>
-        $"Access {role}: {access.Symbol} performs {access.Operation.ToWireName()} on {Field(access.Resource)} at " +
-        $"{access.Source.Path}:{access.Source.StartLine} under root {access.Root.Display}; holds {Holdings(access)}.";
+    /// <summary>The access, and for a read-modify-write every load it depends on.</summary>
+    private static string AccessText(string role, AccessResource resource, Access access)
+    {
+        var reads = access.Operation == AccessOperation.ReadModifyWrite
+            ? string.Concat(access.ReadSources.Select(read => $"; reads it at {read.Source.Path}:{read.Source.StartLine} in {read.Symbol}"))
+            : "";
+        return $"Access {role}: {access.Symbol} performs {access.Operation.ToWireName()} on {Field(resource)} at " +
+               $"{access.Source.Path}:{access.Source.StartLine} under root {access.Root.Display}{reads}; holds {Holdings(access)}.";
+    }
+
+    /// <summary>The access whose resource is the one the pair is reported on, whose region's ownership the evidence names; an
+    /// open-region pair is reported on the closed side's resource.</summary>
+    private static Access ResourceAccess(AccessResource resource, Access accessA, Access accessB) =>
+        accessA.Resource.Identity != resource.Identity && accessB.Resource.Identity == resource.Identity ? accessB : accessA;
+
+    private static string Ownership(Access access) =>
+        access.OwnershipEvidence.Count == 0
+            ? access.Ownership.ToString()
+            : $"{access.Ownership} ({string.Join("; ", access.OwnershipEvidence)})";
 
     private static string Holdings(Access access) =>
         access.HeldProtection.Count == 0 ? "no protection" : string.Join(", ", access.HeldProtection);
 
-    private static IReadOnlyList<string> Scenario(Access accessA, Access accessB)
+    private static IReadOnlyList<string> Scenario(AccessResource resource, Access accessA, Access accessB)
     {
-        var field = $"`{Field(accessA.Resource)}`";
+        var field = $"`{Field(resource)}`";
         if (accessA.Operation == AccessOperation.ReadModifyWrite || accessB.Operation == AccessOperation.ReadModifyWrite)
         {
             var modification = accessA.Operation == AccessOperation.ReadModifyWrite ? "A" : "B";
@@ -210,15 +250,15 @@ internal static class ConflictFindings
 
     private static string Field(AccessResource resource) => resource.AccessPath[^1];
 
-    private sealed record GroupKey(string Rule, string Scope, string Assembly, string Region, string Path, string MemberKey,
-                                   string SharingKey)
+    private sealed record GroupKey(string Rule, string Scope, string Assembly, string Region, string Path, string MemberKey)
     {
-        internal string Identity => $"{Rule}|{Scope}|{Assembly}|{Region}|{Path}|{MemberKey}|{SharingKey}";
+        internal string Identity => $"{Rule}|{Scope}|{Assembly}|{Region}|{Path}|{MemberKey}";
 
-        internal static GroupKey From(string rule, Access access) =>
-            new(rule, access.Resource.Scope, access.Resource.Assembly, access.Resource.Region, string.Join(".", access.Resource.AccessPath),
-                access.Resource.Member.Identity, access.SharingKey);
+        internal static GroupKey From(string rule, AccessResource resource) =>
+            new(rule, resource.Scope, resource.Assembly, resource.RegionId ?? resource.Region, string.Join(".", resource.AccessPath),
+                resource.Member.Identity);
     }
 
-    private sealed record Candidate(GroupKey Key, Access AccessA, Access AccessB, string Protection);
+    private sealed record Candidate(GroupKey Key, AccessResource Resource, Access AccessA, Access AccessB, string Protection,
+                                    IReadOnlyList<string> Uncertainties);
 }

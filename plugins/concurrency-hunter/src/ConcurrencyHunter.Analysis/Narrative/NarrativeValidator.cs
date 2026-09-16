@@ -155,11 +155,13 @@ public static class NarrativeValidator
 
     private static void ValidateLocations(IReadOnlyList<Match> backticks, NarrativeScope scope, Action<string> addReason)
     {
-        var sources = scope.Findings.SelectMany(finding => new[] { finding.AccessA.Source, finding.AccessB.Source }).ToArray();
+        var sources = scope.Findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB })
+                           .SelectMany(access => access.ReadSources.Select(read => read.Source).Prepend(access.Source))
+                           .ToArray();
         foreach (var backtick in backticks)
         {
-            var token = backtick.Groups[1].Value.Trim();
-            var match = LOCATION_PATTERN.Match(token);
+            var quoted = backtick.Groups[1].Value.Trim();
+            var match = LOCATION_PATTERN.Match(quoted);
             if (!match.Success)
                 continue;
 
@@ -170,7 +172,7 @@ public static class NarrativeValidator
                 IsPathSuffix(match.Groups[1].Value, source.Path) &&
                 (!hasLine || line >= source.StartLine && line <= source.EndLine));
             if (!accepted)
-                addReason($"inventedLocation:{token}");
+                addReason($"inventedLocation:{quoted}");
         }
     }
 
@@ -181,7 +183,10 @@ public static class NarrativeValidator
                                .Select(evidence => evidence.Id)
                                .ToHashSet(StringComparer.Ordinal);
         var accesses = scope.Findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB }).ToArray();
-        var symbols = accesses.SelectMany(access => new[] { access.Symbol, access.Root.Symbol }).ToArray();
+        var symbols = accesses.SelectMany(access => new[] { access.Symbol, access.Root.Symbol }
+                                  .Concat(access.ReadSources.Select(read => read.Symbol))
+                                  .Concat(access.ReadSources.SelectMany(read => read.CodeFlow).Concat(access.CodeFlow).Select(CalleeSymbol).OfType<string>()))
+                              .ToArray();
         var exactSymbols = symbols.Select(NormalizeVerbatimIdentifiers)
                                   .ToHashSet(StringComparer.Ordinal);
         var suffixTargets = symbols.Select(symbol => WithoutParameters(NormalizeVerbatimIdentifiers(symbol)))
@@ -192,11 +197,11 @@ public static class NarrativeValidator
 
         foreach (var backtick in backticks)
         {
-            var token = backtick.Groups[1].Value.Trim();
-            if (LOCATION_PATTERN.IsMatch(token) || !IDENTIFIER_PATTERN.IsMatch(token))
+            var quoted = backtick.Groups[1].Value.Trim();
+            if (LOCATION_PATTERN.IsMatch(quoted) || !IDENTIFIER_PATTERN.IsMatch(quoted))
                 continue;
 
-            var normalized = NormalizeVerbatimIdentifiers(token);
+            var normalized = NormalizeVerbatimIdentifiers(quoted);
             var withoutParameters = WithoutParameters(normalized);
             var firstSegmentEnd = normalized.IndexOfAny(['.', '(']);
             var firstSegment = firstSegmentEnd < 0 ? normalized : normalized[..firstSegmentEnd];
@@ -206,7 +211,7 @@ public static class NarrativeValidator
                            Regex.IsMatch(normalized, @"^DCA100[1-4]$") ||
                            SYNCHRONIZATION_VOCABULARY.Contains(firstSegment);
             if (!accepted)
-                addReason($"inventedSymbol:{token}");
+                addReason($"inventedSymbol:{quoted}");
         }
     }
 
@@ -230,11 +235,29 @@ public static class NarrativeValidator
                        .Select(part => NormalizeVerbatimIdentifiers(RegionType(part)));
         });
 
-    /// <summary>A region's type: <c>static:T</c> and <c>di:T@Lifetime</c> both give <c>T</c>.</summary>
+    /// <summary>The callee of a <c>call</c> step: <c>calls M(…)</c>, optionally followed by <c> on &lt;receiver&gt;</c>.</summary>
+    private static string? CalleeSymbol(CodeFlowStep step)
+    {
+        if (step.Kind != "call" || !step.Text.StartsWith("calls ", StringComparison.Ordinal))
+            return null;
+        var callee = step.Text["calls ".Length..];
+        var receiver = callee.IndexOf(" on ", StringComparison.Ordinal);
+        return receiver < 0 ? callee : callee[..receiver];
+    }
+
+    /// <summary>A region's type: <c>static:T</c>, <c>di:T@Lifetime</c> and <c>alloc:M#T</c> (with or without a trailing
+    /// <c>#n</c>) all give <c>T</c>; the creating method of an <c>alloc:</c> region is not a type.</summary>
     private static string RegionType(string region)
     {
         if (region.StartsWith("static:", StringComparison.Ordinal))
             return region["static:".Length..];
+        if (region.StartsWith("alloc:", StringComparison.Ordinal))
+        {
+            var site = region.IndexOf('#');
+            if (site < 0)
+                return region;
+            return Regex.Replace(region[(site + 1)..], @"#\d+$", string.Empty);
+        }
         if (!region.StartsWith("di:", StringComparison.Ordinal))
             return region;
 

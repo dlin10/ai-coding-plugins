@@ -6,7 +6,7 @@
 | Дата | 2026-09-12 |
 | Продуктовые требования | [PRD](PRD.md) |
 | Словарь | [CONTEXT.md](../CONTEXT.md) |
-| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
+| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), [ADR 0005](adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md), [ADR 0006](adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
 
 ## 1. Назначение и статус
 
@@ -202,7 +202,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-041.** Points-to field-sensitive: `H1.Left.Value` и `H1.Right.Value` не считаются одним resource без alias/summary evidence. Один объект в двух полях, `_a = _b`, даёт один регион и один resource для одинаковых путей от него.
 
-**TD-042.** Access path depth ограничен константой сервера; при превышении путь сворачивается в wildcard region с явной потерей precision.
+**TD-042.** Access path depth ограничен константой сервера; при превышении путь сворачивается в wildcard resource `["*"]` на регионе, с которого путь начинается (не в wildcard region), с явной потерей precision.
 
 **TD-043.** Индексы arrays/spans и keys collections представлены `ElementSelector`: `Exact` для доказанно известного типизированного значения; `ExpressionOrRange` для простого символического выражения или консервативного диапазона с guards, где переменные связаны с canonical value identities и контекстом, а не с текстом имени; `Unknown` для wildcard. Неподдержанное выражение или превышение complexity budget расширяет selector до безопасного диапазона либо `Unknown`. Различие selectors доказывает только различие ячеек при доказанно непересекающихся значениях; объекты в разных ячейках всё ещё могут alias. Для spans/slices сравнение использует underlying region и offset. Numeric types, conversions и overflow моделируются в solver через `QF_BV`; без solver algebraic simplification не используется как доказательство. Equality keys определяется фактическим comparer коллекции; неизвестный или custom comparer это `Unknown` equality. Дешёвые сравнения constants/ranges выполняются до solver.
 
@@ -222,7 +222,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-054.** Conflicts над двумя доказанно разными owned regions не становятся candidates даже при одинаковом type/field.
 
-**TD-055.** `Unknown` ownership не трактуется как thread confined; uncertainty влияет на confidence и coverage.
+**TD-055.** `Unknown` ownership не трактуется как thread confined; uncertainty влияет на confidence и coverage. В фазе 2a `Unknown` из merged contexts называется в uncertainty без штрафа confidence (R11).
 
 ### 4.7. Execution и concurrency model
 
@@ -235,6 +235,8 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 **TD-062.** HTTP invocations, включая gRPC, потенциально concurrent друг с другом внутри процесса. Sharing зависит от DI lifetime/escape/resource identity.
 
 **TD-062a.** Process scope: исполняемый проект с загружаемыми им проектами; тестовые проекты не scopes; пары accesses только внутри одного scope. См. ADR 0005.
+
+**TD-062b.** Construction: обращения конструктора к создаваемому объекту и type initializer к статикам своего типа не образуют пар, если объект не опубликован; остальные обращения принадлежат исполнению, которое вызвало конструирование. См. ADR 0006.
 
 **TD-063.** Core получает framework roots только через `IExecutionRootProvider`; контракт в разделе 11.
 
@@ -837,6 +839,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 
 - `findings[]` и `notDefects[]`; у каждой записи уникальный `id` вида `<case>` или `<case>/<suffix>`, где `<case>` это kebab-имя файла case-а.
 - Идентичность находки: `rule`, `resource` и неупорядоченная пара `accesses`. Roots и `id` в неё не входят. `resource.region` пишется символьно: `static:<Type>`, `di:<ImplementationType>@<Lifetime>`, `alloc:<ContainingMethod>#<CreatedType>[#n]`, где `#n` это порядок `new` этого типа в методе, а инициализаторы полей принадлежат `..ctor(…)` или `..cctor()`. Регион без контекста совпадает с регионом анализатора из этого сайта в любом `ContextKey`. `resource.accessPath` называет поля и auto-properties по имени. `access.symbol` это ближайший обычный член, в теле которого стоит access, включая лямбды и локальные функции; `access.operation` из TD-071. Self-pair repeated root записывается двумя одинаковыми accesses.
+- `resource.accessPath` `["*"]` это wildcard resource на регионе, с которого начинается свёрнутый путь (TD-042). Read-modify-write записывается в месте своей записи. Factory- и instance-регистрации это `di:<ImplementationType>@<Lifetime>`, где тип это последний generic-аргумент регистрации.
 - Запись `notDefects` без `accesses` запрещает любую находку на resource, с `accesses` только на этой паре.
 - `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе.
 - `confidence` (метка, без score) проверяется отдельно от идентичности, с фазы `max(phase, 2)`. Case-ы фаз 1–2 не содержат guards, spawn sites и вызовов, способных стать semantic gap, поэтому поздние фазы их метку не меняют.
@@ -911,19 +914,29 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 ### 14.3. Фазы реализации
 
-Каждая фаза это один или несколько forge-ранов по 5–8 задач; каждая задача имеет gate из baseline-скрипта и проверки, что снапшоты не перезаписаны; каждая фаза заканчивается работающим плагином и записанным `metrics`-прогоном. Фазы 1a и 1b заканчиваются без `metrics`-прогона: подкоманда `metrics` появляется в фазе 2.
+Каждая фаза это один или несколько forge-ранов по 5–8 задач; каждая задача имеет gate из baseline-скрипта и проверки, что снапшоты не перезаписаны; каждая фаза заканчивается работающим плагином и записанным `metrics`-прогоном. Фазы 1a, 1b и 2a заканчиваются без `metrics`-прогона: подкоманда `metrics` появляется в фазе 2b.
 
 | Фаза | Что сдаётся | Gate фазы |
 |---|---|---|
 | **0** | Этот документ, PRD, `CONTEXT.md`, ADR; `demo/` с expectations для фаз 1–2 | Приёмка владельца |
 | **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, `Common.Tests`, скрипты; launcher копируется по образцу cache-detective, не разделяется; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001; группы временно по правилу и ресурсу, confidence по TD-103 с path feasibility 0 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
 | **1b** | IR в финальной форме; providers `AspNetCore` и `Hosting` с registry и fixture; DI provider; `DiInstance`-регионы; overlap между roots; must-hold `lock` по CFG; skeleton отчёта полный | Demo фазы 1 целиком |
-| **2** | Совместный fixpoint: summaries, граф вызовов всех видов, allocation-site points-to с hybrid contexts и константами, ownership/escape, reachable set, RMW и DCA1002, bucket index, группы, fingerprints | Demo через три слоя; первый `metrics` на eShop |
+| **2a** | Frontend: конструкторы, type initializers, массивы, `ref`/`out`, program index; reachable set по иерархии классов с construction triggers; summaries; совместный fixpoint с allocation-site points-to, hybrid contexts и dispatch; executions, construction intervals и ownership/escape (ADR 0006); interprocedural accesses, must-hold через вызовы, RMW и DCA1002; confidence TD-103 с wildcard resource и merged contexts; отчёт, tools, Validation Service и composing guidance на новом движке | Demo через три слоя на фазе 2 |
+| **2b** | Bucket index, группы TD-076, fingerprints, подкоманда `metrics`, eShop, константы, summary hashes, service locator и тела factory, прогон в трёх hosts | Первый `metrics` на eShop |
 | **3** | Execution model: все spawn sites TD-065, join/happens-before по handle, exception paths, timers и `PeriodicTimer`, gRPC root | Demo TC-12 |
 | **4** | Protection и selectors: Interlocked, volatile, `SemaphoreSlim`, RWLS, `Lock`, Mutex, TryEnter, таблица collections, DCA1003/1004, `ElementSelector`, guards, Z3 в пакете с деградацией | Demo TC-17; размер exe измерен |
 | **5** | Semantic gaps: unknown-call model, таблица библиотек, пакеты по callee, materiality, `get_gaps`/`submit_inferences`/`run_continue`, два rounds, `AI-Assisted`, Medium cap | Resolver evals; `metrics` eShop с числом пакетов |
 | **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14 |
 | **7** | Масштаб: nopCommerce, OrchardCore, eShopOnAbp до terminal status; performance targets; ручной triage High на eShop и nopCommerce; прогон skill в трёх hosts | `metrics` по PRD 6.1; `evals/*/expected.json` |
 | **8** | По PRD 8: incremental cache, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
+
+Временные границы фазы 2a и фазы, которые их снимают:
+
+- Opaque calls моделируются без эффекта, а делегаты, переданные в них, не вызываются никогда (3/5).
+- Virtual, interface и delegate calls без receiver object ничего не вызывают (5).
+- Startup constructions и type initializers, которые они используют, не образуют пар (3).
+- Element accesses не анализируются (4).
+- Тела factory, конструирование instance-регистраций, factory- и instance-регистрации с interface-типом и service locator не анализируются (2b).
+- `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5).
 
 Порядок последовательный; forge работает в одном working tree.

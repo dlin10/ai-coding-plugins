@@ -205,6 +205,45 @@ public sealed class RunToolsTests
     }
 
     [Fact]
+    public async Task Group_digest_with_ownership_and_call_steps_stays_within_budget()
+    {
+        using var environment = new RunTestEnvironment();
+        var realistic = WithOwnershipAndCalls(CreateAnalysis("High", findingsPerGroup: 4), 1);
+        var oversized = WithOwnershipAndCalls(CreateAnalysis(Enumerable.Range(1, 12).Select(_ => "High").ToArray(), 4), 600);
+        var realisticRegistry = environment.Registry((_, _) => Task.FromResult(Success(realistic)));
+        var oversizedRegistry = environment.Registry((_, _) => Task.FromResult(Success(oversized)), Path.Combine(environment.Root, "oversized"));
+        var realisticRun = Start(realisticRegistry, environment.SolutionPath);
+        await realisticRegistry.WaitForAnalysisAsync(realisticRun);
+
+        var digest = Assert.Single(Parse(RunTools.get_groups(realisticRegistry, realisticRun)).GetProperty("items").EnumerateArray());
+        Assert.True(Encoding.UTF8.GetByteCount(digest.GetRawText()) <= 1536, $"Digest was {Encoding.UTF8.GetByteCount(digest.GetRawText())} bytes.");
+        Assert.Equal("Shared: static:Ns.Type1 is static storage.", digest.GetProperty("ownership").GetString());
+        Assert.False(digest.TryGetProperty("sharingKey", out _));
+        Assert.Equal(["calls Ns.Service.Run() on di:Ns.Service@Singleton", "calls Ns.Store.Write() on di:Ns.Store@Singleton"],
+                     digest.GetProperty("findings")[0].GetProperty("accesses")[0].GetProperty("calls").EnumerateArray().Select(item => item.GetString()));
+
+        var oversizedRun = Start(oversizedRegistry, environment.SolutionPath);
+        await oversizedRegistry.WaitForAnalysisAsync(oversizedRun);
+        var seen = new List<string>();
+        for (var page = 1; ; page++)
+        {
+            var response = RunTools.get_groups(oversizedRegistry, oversizedRun, page);
+            AssertFits(response);
+            var payload = Parse(response);
+            if (page > payload.GetProperty("pages").GetInt32())
+                break;
+            var items = payload.GetProperty("items").EnumerateArray().ToArray();
+            Assert.NotEmpty(items);
+            Assert.All(items, item => Assert.True(Encoding.UTF8.GetByteCount(item.GetRawText()) <= 4096));
+            Assert.All(items, item => Assert.StartsWith("Shared: ", item.GetProperty("ownership").GetString(), StringComparison.Ordinal));
+            Assert.All(items, item => Assert.NotEmpty(item.GetProperty("findings")[0].GetProperty("accesses")[0].GetProperty("calls").EnumerateArray()));
+            seen.AddRange(items.Select(item => item.GetProperty("groupId").GetString()!));
+        }
+
+        Assert.Equal(12, seen.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public async Task Rejection_with_600_long_unknown_citations_stays_under_8_KB()
     {
         using var environment = new RunTestEnvironment();
@@ -365,6 +404,28 @@ public sealed class RunToolsTests
             ConcurrencyEvidence = [$"The root action {finding.AccessA.Symbol} may run concurrently with itself in scope Web.{padding}"]
         }).ToArray();
         return analysis with { Findings = findings };
+    }
+
+    /// <summary>Gives every access two call steps and every group's ownership evidence; <paramref name="repeat"/> above 1 pads each
+    /// text with that many Cyrillic letters.</summary>
+    private static AnalysisResult WithOwnershipAndCalls(AnalysisResult analysis, int repeat)
+    {
+        var padding = repeat > 1 ? new string('я', repeat) : "";
+        Access Enrich(Access access) => access with
+        {
+            CodeFlow =
+            [
+                new CodeFlowStep("root", $"action {access.Symbol} starts", access.Source),
+                new CodeFlowStep("call", $"calls Ns.Service.Run() on di:Ns.Service@Singleton{padding}", access.Source),
+                new CodeFlowStep("call", $"calls Ns.Store.Write() on di:Ns.Store@Singleton{padding}", access.Source),
+                new CodeFlowStep("access", "write field", access.Source)
+            ]
+        };
+
+        var findings = analysis.Findings.Select(finding => finding with { AccessA = Enrich(finding.AccessA), AccessB = Enrich(finding.AccessB) }).ToArray();
+        var groups = analysis.Groups.Select(group => group with { OwnershipEvidence = group.OwnershipEvidence.Select(item => item + padding).ToArray() })
+                             .ToArray();
+        return analysis with { Findings = findings, Groups = groups };
     }
 
     private static AnalysisResult WithOversizedFirstGroup(AnalysisResult analysis, string text)

@@ -1,6 +1,9 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Engine;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
 using Xunit;
@@ -34,7 +37,7 @@ public sealed class ReportSkeletonTests
     {
         var markdown = (await Render()).Bundle.ReportMarkdown;
 
-        Assert.Contains("| IR schema | 1.0 |\n", markdown, StringComparison.Ordinal);
+        Assert.Contains("| IR schema | 1.1 |\n", markdown, StringComparison.Ordinal);
         Assert.Contains("| Providers | aspnetcore (Microsoft.AspNetCore.Mvc.Core 8.0.0.0..11.0.0.0, Microsoft.AspNetCore.Mvc 8.0.0.0..11.0.0.0, " +
                         "Microsoft.AspNetCore.Routing 8.0.0.0..11.0.0.0, Microsoft.AspNetCore.Http.Abstractions 8.0.0.0..11.0.0.0, " +
                         "Microsoft.Extensions.DependencyInjection.Abstractions 8.0.0.0..11.0.0.0); " +
@@ -65,7 +68,7 @@ public sealed class ReportSkeletonTests
                         StringComparison.Ordinal);
         Assert.Contains("  - Registrations: 3\n", coverage, StringComparison.Ordinal);
         Assert.Contains("  - DI diagnostics: UnresolvedBinding LedgerWorker:", coverage, StringComparison.Ordinal);
-        Assert.Contains("  - Skipped accesses: allocation 1, local 1\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("  - startup-construction-access 1: accesses of constructions run at startup, not paired\n", coverage, StringComparison.Ordinal);
         Assert.Contains("  - Other diagnostics: No executable project was found; the whole solution is analyzed as one process scope.\n",
                         coverage, StringComparison.Ordinal);
     }
@@ -90,10 +93,10 @@ public sealed class ReportSkeletonTests
 
         foreach (var coverage in new[] { analyzed, unanalyzed })
         {
-            Assert.Contains("- Reachable set: not analyzed in this version\n" +
-                            "- Semantic gaps: not analyzed in this version\n" +
-                            "- Calls from roots: not analyzed in this version\n" +
-                            "- Path feasibility: not analyzed in this version\n", coverage, StringComparison.Ordinal);
+            Assert.Contains("- Not analyzed in this version: semantic gaps, path feasibility, spawn sites and ordering, element accesses\n", coverage,
+                            StringComparison.Ordinal);
+            Assert.DoesNotContain("Reachable set", coverage, StringComparison.Ordinal);
+            Assert.DoesNotContain("Calls from roots", coverage, StringComparison.Ordinal);
         }
 
         Assert.DoesNotContain("Process scope", unanalyzed, StringComparison.Ordinal);
@@ -147,13 +150,14 @@ public sealed class ReportSkeletonTests
         var block = Block(bundle.ReportMarkdown, partial.FindingId);
 
         Assert.Contains("- Code path A: action LedgerController.Post() of controller LedgerController starts (Case.cs:", block, StringComparison.Ordinal);
-        Assert.Contains("→ acquires static:Gates.G (Case.cs:", block, StringComparison.Ordinal);
+        Assert.Contains("→ acquires alloc:Gates..cctor()#object (Case.cs:", block, StringComparison.Ordinal);
         Assert.Contains("→ write Ledger.Entry (Case.cs:", block, StringComparison.Ordinal);
-        Assert.Contains("- Resource: Fixture · di:Ledger@Singleton · Entry · scope solution · shared as process:Fixture:Ledger\n", block, StringComparison.Ordinal);
+        Assert.Contains("- Resource: Fixture · di:Ledger@Singleton · Entry · scope solution · ownership Shared " +
+                        "(di:Ledger@Singleton is one container object for the whole scope (singleton).)\n", block, StringComparison.Ordinal);
         Assert.Contains("- Binding evidence: LedgerController.ledger holds constructor parameter ledger at Case.cs:", block, StringComparison.Ordinal);
         Assert.Contains("; AddSingleton registers Ledger at Case.cs:", block, StringComparison.Ordinal);
         Assert.Contains("A: Repeated/MayOverlap in solution; B: Unknown/Unknown in solution\n", block, StringComparison.Ordinal);
-        Assert.Contains("- Protection: partial; A holds static:Gates.G; B holds no protection; common single-object protection: none\n", block,
+        Assert.Contains("- Protection: partial; A holds alloc:Gates..cctor()#object; B holds no protection; common single-object protection: none\n", block,
                         StringComparison.Ordinal);
     }
 
@@ -194,7 +198,7 @@ public sealed class ReportSkeletonTests
         Assert.Equal(4, accessA.GetProperty("source").GetProperty("span").GetArrayLength());
         Assert.Equal("LedgerController.Post()", accessA.GetProperty("source").GetProperty("symbol").GetString());
         Assert.Equal(3, accessA.GetProperty("codeFlow").GetArrayLength());
-        Assert.Equal(["static:Gates.G"], accessA.GetProperty("heldProtection").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal(["alloc:Gates..cctor()#object"], accessA.GetProperty("heldProtection").EnumerateArray().Select(item => item.GetString()));
         Assert.Contains(finding.GetProperty("aliasEvidence").EnumerateArray(),
                         item => item.GetString()!.StartsWith("AddSingleton registers Ledger at Case.cs:", StringComparison.Ordinal));
         Assert.Equal("partial", finding.GetProperty("protectionAnalysis").GetProperty("result").GetString());
@@ -223,7 +227,6 @@ public sealed class ReportSkeletonTests
             var locations = element.GetProperty("representativeLocations").EnumerateArray().ToArray();
             Assert.InRange(locations.Length, 1, 3);
             Assert.All(locations, location => Assert.Equal("Case.cs", location.GetProperty("path").GetString()));
-            Assert.Equal(group.SharingKey, element.GetProperty("sharingKey").GetString());
         }
     }
 
@@ -242,10 +245,156 @@ public sealed class ReportSkeletonTests
         Assert.Equal(new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero), DateTimeOffset.Parse(startedAt, System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    private static async Task<(AnalysisResult Result, RenderedBundle Bundle)> Render(string extraRegistrations = "")
+    [Fact]
+    public async Task Coverage_lists_reachable_bodies_and_every_counter()
     {
-        var solution = FixtureSolution.Create(("Case.cs", EngineFixture.Usings + Source + EngineFixture.Startup(
-            "services.AddSingleton<Ledger>(); services.AddHostedService<LedgerWorker>(); services.AddSingleton<IHostedService, LedgerWorker>();" +
+        var (result, bundle) = await Render();
+        var coverage = Section(bundle.ReportMarkdown, "### Coverage");
+        var lines = coverage.Split('\n');
+
+        Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
+        var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
+                                               .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
+        Assert.Equal(9, counters.Length);
+        foreach (var counter in counters)
+            Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
+        var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));
+        Assert.StartsWith("    - Top opaque callees: ", lines[opaque + 1], StringComparison.Ordinal);
+        Assert.Contains("object..ctor() ", lines[opaque + 1], StringComparison.Ordinal);
+        var reached = Array.FindIndex(lines, line => line.StartsWith("  - Reachable bodies: ", StringComparison.Ordinal));
+        Assert.True(Array.FindIndex(lines, line => line.StartsWith("  - Other diagnostics: ", StringComparison.Ordinal)) < reached);
+        var notAnalyzed = Array.FindIndex(lines, line => line.StartsWith("- Not analyzed in this version: ", StringComparison.Ordinal));
+        Assert.StartsWith("  - Lowered but not reached (inventory, not counted against coverage): ", lines[notAnalyzed - 2], StringComparison.Ordinal);
+        Assert.StartsWith("  - Source bodies outside the lowered set (inventory, not counted against coverage): ", lines[notAnalyzed - 1], StringComparison.Ordinal);
+        Assert.True(Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.WILDCARD_ACCESS} ", StringComparison.Ordinal)) < notAnalyzed - 2);
+    }
+
+    [Fact]
+    public async Task Finding_block_shows_ownership_and_call_steps()
+    {
+        var (result, bundle) = await Render(source: """
+            public sealed class Journal { private string? _last; public void Append(string entry) => _last = entry; }
+            public sealed class JournalService(Journal journal) { public void Record(string entry) => journal.Append(entry); }
+            public class JournalController(JournalService service) : ControllerBase { public void Post(string entry) => service.Record(entry); }
+            """, registrations: "services.AddSingleton<Journal>(); services.AddSingleton<JournalService>();");
+        var finding = Assert.Single(result.Findings);
+        var block = Block(bundle.ReportMarkdown, finding.FindingId);
+
+        Assert.Contains("- Resource: Fixture · di:Journal@Singleton · _last · scope solution · ownership Shared " +
+                        "(di:Journal@Singleton is one container object for the whole scope (singleton).)\n", block, StringComparison.Ordinal);
+        Assert.Contains("→ calls JournalService.Record(string) on di:JournalService@Singleton (Case.cs:", block, StringComparison.Ordinal);
+        Assert.Contains("→ calls Journal.Append(string) on di:Journal@Singleton (Case.cs:", block, StringComparison.Ordinal);
+        Assert.Contains("ownership: Shared (di:Journal@Singleton is one container object for the whole scope (singleton).)",
+                        Assert.Single(finding.Evidence, item => item.Kind == "resource").Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Wildcard_resource_renders_its_path_as_a_star()
+    {
+        var chain = string.Concat(Enumerable.Range(1, 11).Select(level => $"public sealed class Level{level} {{ public Level{level + 1} Next {{ get; }} = new(); }}\n"));
+        var (result, bundle) = await Render(source: chain + """
+            public sealed class Level12 { public string? Value { get; set; } }
+            public sealed class DeepChain
+            {
+                public Level1 First { get; } = new();
+                public void Write(string value) => First.Next.Next.Next.Next.Next.Next.Next.Next.Next.Next.Next.Value = value;
+            }
+            public class DeepController(DeepChain chain) : ControllerBase { public void Put(string value) => chain.Write(value); }
+            """, registrations: "services.AddSingleton<DeepChain>();");
+        var wildcard = result.Findings.Where(item => item.Resource.IsWildcard).ToArray();
+
+        Assert.NotEmpty(wildcard);
+        foreach (var finding in wildcard)
+        {
+            Assert.Contains("- Resource: Fixture · di:DeepChain@Singleton · * · scope solution · ownership Shared " +
+                            "(di:DeepChain@Singleton is one container object for the whole scope (singleton).)\n", Block(bundle.ReportMarkdown, finding.FindingId),
+                            StringComparison.Ordinal);
+            Assert.Contains($"#### {finding.GroupId} · DCA1001 · * on di:DeepChain@Singleton (", bundle.ReportMarkdown, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Resource_line_shows_the_whole_escape_chain_of_an_escaped_object()
+    {
+        var (result, bundle) = await Render(source: """
+            public sealed class Slot { public string? Label; }
+            public sealed class Board { public readonly Slot?[] Slots = new Slot?[2]; }
+            public class BoardController(Board board) : ControllerBase
+            {
+                public void Post(string label) { var slot = new Slot(); board.Slots[0] = slot; slot.Label = label; }
+                public string? Get() => board.Slots[0]?.Label;
+            }
+            """, registrations: "services.AddSingleton<Board>();");
+        var finding = result.Findings.First(item => item.Resource.Member.Name == "Label");
+        Assert.Equal(OwnershipKind.Escaped, finding.AccessA.Ownership);
+        var chain = finding.AccessA.OwnershipEvidence;
+
+        Assert.Equal(2, chain.Count);
+        Assert.Contains("is stored into Slots of di:Board@Singleton at Case.cs:", chain[0], StringComparison.Ordinal);
+        Assert.Contains("is stored into [] of ", chain[1], StringComparison.Ordinal);
+        Assert.All(chain, hop => Assert.Matches(@" at Case\.cs:\d+\.$", hop));
+        Assert.Contains($"· ownership Escaped ({string.Join(" ", chain)})\n", Block(bundle.ReportMarkdown, finding.FindingId), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Read_modify_write_shows_its_read_sources()
+    {
+        var (result, bundle) = await Render();
+        var finding = Assert.Single(result.Findings, item => item.RuleId == "DCA1002");
+        var block = Block(bundle.ReportMarkdown, finding.FindingId);
+        var read = Assert.Single(finding.AccessA.ReadSources);
+
+        Assert.Contains($"- Read source of A: LedgerController.Post() reads at Case.cs:{read.Source.StartLine}; code path: action LedgerController.Post()", block,
+                        StringComparison.Ordinal);
+        Assert.Contains("→ read Hits.Count (Case.cs:", block, StringComparison.Ordinal);
+        Assert.Contains("- Read source of B: ", block, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Findings_json_carries_ownership_chain_read_sources_and_group_ownership()
+    {
+        var (result, bundle) = await Render();
+        using var json = JsonDocument.Parse(bundle.FindingsJson);
+        var root = json.RootElement;
+        var lostUpdate = result.Findings.Single(finding => finding.RuleId == "DCA1002").FindingId;
+
+        foreach (var finding in root.GetProperty("findings").EnumerateArray())
+        {
+            var ownership = finding.GetProperty("aliasEvidence").EnumerateArray().Select(item => item.GetString()!)
+                                   .Where(item => item.StartsWith("ownership ", StringComparison.Ordinal)).ToArray();
+            Assert.NotEmpty(ownership);
+            Assert.All(ownership, item => Assert.Matches(@"^ownership \w+: \S", item));
+            Assert.All(finding.GetProperty("accesses").EnumerateArray(), access => Assert.Equal(JsonValueKind.Array, access.GetProperty("readSources").ValueKind));
+        }
+
+        var readSources = root.GetProperty("findings").EnumerateArray().Single(item => item.GetProperty("findingId").GetString() == lostUpdate)
+                              .GetProperty("accesses")[0].GetProperty("readSources");
+        Assert.NotEmpty(readSources.EnumerateArray());
+        foreach (var read in readSources.EnumerateArray())
+        {
+            Assert.Equal("Case.cs", read.GetProperty("source").GetProperty("path").GetString());
+            Assert.Equal(4, read.GetProperty("source").GetProperty("span").GetArrayLength());
+            Assert.False(string.IsNullOrEmpty(read.GetProperty("symbol").GetString()));
+            Assert.NotEmpty(read.GetProperty("codeFlow").EnumerateArray());
+        }
+
+        foreach (var group in root.GetProperty("groups").EnumerateArray())
+        {
+            var ownership = group.GetProperty("ownership");
+            Assert.False(string.IsNullOrEmpty(ownership.GetProperty("kind").GetString()));
+            Assert.NotEmpty(ownership.GetProperty("evidence").EnumerateArray());
+            Assert.False(group.TryGetProperty("sharingKey", out _));
+        }
+
+        Assert.DoesNotContain("sharingKey", bundle.FindingsJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("shared as", bundle.ReportMarkdown, StringComparison.Ordinal);
+    }
+
+    private static async Task<(AnalysisResult Result, RenderedBundle Bundle)> Render(string extraRegistrations = "", string source = Source,
+                                                                                     string? registrations = null)
+    {
+        var solution = FixtureSolution.Create(("Case.cs", EngineFixture.Usings + source + EngineFixture.Startup(
+            (registrations ?? "services.AddSingleton<Ledger>(); services.AddHostedService<LedgerWorker>(); services.AddSingleton<IHostedService, LedgerWorker>();") +
             extraRegistrations)));
         var result = await PhaseOneAnalyzer.AnalyzeAsync(solution, EngineFixture.ROOT_DIRECTORY, CancellationToken.None);
         return (result, ReportRenderer.Render(ReportingTestData.CreateReport(result)));

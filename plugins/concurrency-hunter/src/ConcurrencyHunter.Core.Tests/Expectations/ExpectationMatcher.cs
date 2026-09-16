@@ -5,16 +5,30 @@ namespace ConcurrencyHunter.Core.Tests.Expectations;
 
 internal static class ExpectationMatcher
 {
+    private const string CONFIDENCE_PHASE = "2";
+
+    /// <summary>From phase 2 an active entry's confidence is compared too: a finding of the entry's identity with another label is a
+    /// confidence mismatch.</summary>
     internal static ExpectationReport Match(IReadOnlyList<Finding> findings, ExpectationFile file, string phase)
     {
         _ = PhaseOrder.Compare(phase, phase);
         var activeFindings = file.Findings.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
         var activeNotDefects = file.NotDefects.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
+        var comparesConfidence = PhaseOrder.Compare(phase, CONFIDENCE_PHASE) >= 0;
 
         var missing = activeFindings
             .Where(entry => !findings.Any(finding => Matches(finding, entry)))
             .Select(entry => entry.Id)
             .ToArray();
+        var confidenceMismatches = comparesConfidence
+            ? activeFindings
+                .Where(entry => !string.IsNullOrEmpty(entry.Confidence))
+                .SelectMany(entry => findings.Where(finding => Matches(finding, entry) &&
+                                                               !string.Equals(finding.Confidence.Label, entry.Confidence,
+                                                                              StringComparison.OrdinalIgnoreCase))
+                    .Select(finding => $"{entry.Id}: {finding.FindingId} is {finding.Confidence.Label}, expected {entry.Confidence}"))
+                .ToArray()
+            : [];
         var forbiddenHits = activeNotDefects
             .SelectMany(entry => findings.Where(finding => Matches(finding, entry))
                 .Select(finding => $"{entry.Id}: {finding.FindingId}"))
@@ -24,7 +38,7 @@ internal static class ExpectationMatcher
                               !file.NotDefects.Any(entry => Matches(finding, entry)))
             .Select(finding => finding.FindingId)
             .ToArray();
-        return new ExpectationReport(missing, forbiddenHits, falsePositives);
+        return new ExpectationReport(missing, forbiddenHits, falsePositives, confidenceMismatches);
     }
 
     private static bool Matches(Finding finding, FindingExpectation entry) =>
@@ -60,7 +74,8 @@ internal static class ExpectationMatcher
 }
 
 internal sealed record ExpectationReport(IReadOnlyList<string> Missing, IReadOnlyList<string> ForbiddenHits,
-                                         IReadOnlyList<string> FalsePositives)
+                                         IReadOnlyList<string> FalsePositives, IReadOnlyList<string> ConfidenceMismatches)
 {
-    internal bool IsExactMatch => Missing.Count == 0 && ForbiddenHits.Count == 0 && FalsePositives.Count == 0;
+    internal bool IsExactMatch =>
+        Missing.Count == 0 && ForbiddenHits.Count == 0 && FalsePositives.Count == 0 && ConfidenceMismatches.Count == 0;
 }

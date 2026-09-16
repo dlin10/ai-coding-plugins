@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
 
@@ -37,16 +38,23 @@ public sealed record Finding(string FindingId, string StableId, string GroupId, 
                              IReadOnlyList<string> Scenario, IReadOnlyList<string> Uncertainty,
                              IReadOnlyList<EvidenceItem> Evidence);
 
-/// <summary>Findings of one rule on one object: the same scope, resource and sharing key. Two singleton registrations
-/// of one implementation are two objects, so two groups.</summary>
+/// <summary>Findings of one rule on one object: the same scope and resource identity. Two singleton registrations
+/// of one implementation are two objects, so two groups. <see cref="Ownership"/> and its evidence are the resource region's.</summary>
 public sealed record FindingGroup(string GroupId, string StableId, string RuleId, string ConfidenceLabel,
-                                  AccessResource Resource, string SharingKey, IReadOnlyList<string> FindingIds);
+                                  AccessResource Resource, OwnershipKind Ownership, IReadOnlyList<string> OwnershipEvidence,
+                                  IReadOnlyList<string> FindingIds);
 
 /// <summary>What one process scope's analysis saw: roots by provider, diagnostics from scope discovery, providers, the
-/// DI index, injection bindings and lowering, the registrations indexed, and accesses skipped by reason.</summary>
+/// DI index, injection bindings and lowering, the registrations indexed, and the coverage counters (<see cref="CoverageCounters"/>).
+/// <see cref="LoweredNotReached"/> and <see cref="OutsideLoweredSet"/> are inventory, not counted against coverage.</summary>
 public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider,
                                    IReadOnlyList<string> Diagnostics, int Registrations,
-                                   IReadOnlyDictionary<string, int> Skips);
+                                   IReadOnlyDictionary<string, int> Skips)
+{
+    public IReadOnlyList<(string Callee, int Count)> TopOpaqueCallees { get; init; } = [];
+    public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
+    public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
+}
 
 public sealed record PairCounters(int Candidates, int Suppressed, IReadOnlyDictionary<string, int> Skips)
 {

@@ -275,6 +275,314 @@
         { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" }
       ]
+    },
+    {
+      "id": "di-factory-registration",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DiFactoryRegistration.RateCard@Singleton", "accessPath": ["Rate"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DiFactoryRegistration.RateCardController.Put(decimal)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DiFactoryRegistration.RateCardController.Put(decimal)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "di-instance-registration",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DiInstanceRegistration.PriceList@Singleton", "accessPath": ["Currency"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DiInstanceRegistration.PriceListWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DiInstanceRegistration.PriceListController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "minimal-api-lambda-handler",
+      "phase": "1b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.MinimalApiLambdaHandler.SignalState@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MinimalApiLambdaHandler.MinimalApiLambdaHandlerCase.MapMinimalApiLambdaHandler(WebApplication)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MinimalApiLambdaHandler.MinimalApiLambdaHandlerCase.MapMinimalApiLambdaHandler(WebApplication)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "rmw-forms/compound-assignment",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RmwForms.Tallies@Singleton", "accessPath": ["_compound"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddCompound(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddCompound(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "rmw-forms/property",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RmwForms.Tallies@Singleton", "accessPath": ["Views"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddView()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddView()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "rmw-forms/split",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RmwForms.Tallies@Singleton", "accessPath": ["_split"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddSplit(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.AddSplit(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "rmw-forms/through-methods",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RmwForms.Tallies@Singleton", "accessPath": ["_level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.SetLevel(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RmwForms.Tallies.SetLevel(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "controller-constructor-static-counter",
+      "phase": "2",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ControllerConstructorStaticCounter.CounterController", "accessPath": ["_created"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ControllerConstructorStaticCounter.CounterController..ctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ControllerConstructorStaticCounter.CounterController..ctor()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "stale-read-without-dependency/write-self",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StaleReadWithoutDependency.Headline@Singleton", "accessPath": ["_text"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaleReadWithoutDependency.Headline.Replace(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaleReadWithoutDependency.Headline.Replace(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "stale-read-without-dependency/read-write",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StaleReadWithoutDependency.Headline@Singleton", "accessPath": ["_text"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaleReadWithoutDependency.Headline.Replace(string)", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.StaleReadWithoutDependency.Headline.Replace(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "recursive-summary",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RecursiveSummary.DepthProbe@Singleton", "accessPath": ["_lastDepth"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RecursiveSummary.DepthProbe.Walk(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.RecursiveSummary.DepthProbe.Walk(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "generic-singleton-per-type-argument/same-type",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.GenericSingletonPerTypeArgument.Store<Demo.Web.Cases.GenericSingletonPerTypeArgument.Order>@Singleton", "accessPath": ["LastKey"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GenericSingletonPerTypeArgument.OrderWriterA.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.GenericSingletonPerTypeArgument.OrderWriterB.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-via-array-element",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeViaArrayElement.SlotWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.EscapeViaArrayElement.Slot", "accessPath": ["Label"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaArrayElement.SlotWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaArrayElement.SlotController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "escape-via-out-parameter/action-self",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeViaOutParameter.Editor..ctor()#Demo.Web.Cases.EscapeViaOutParameter.Memo", "accessPath": ["Title"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaOutParameter.EditorController.Put(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaOutParameter.EditorController.Put(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-via-out-parameter/action-worker",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeViaOutParameter.Editor..ctor()#Demo.Web.Cases.EscapeViaOutParameter.Memo", "accessPath": ["Title"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaOutParameter.EditorController.Put(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaOutParameter.Editor.Rename(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-via-captured-closure/captured-note",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.EscapeViaCapturedClosure.Note", "accessPath": ["Text"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-via-captured-closure/callback-slot",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.EscapeViaCapturedClosure.CallbackHolder@Singleton", "accessPath": ["OnMessage"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteController.Post(string)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "escape-via-static-assignment/static-slot",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.EscapeViaStaticAssignment.LatestSnapshot", "accessPath": ["Current"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaStaticAssignment.SnapshotWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaStaticAssignment.SnapshotController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "escape-via-static-assignment/escaped-object",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EscapeViaStaticAssignment.SnapshotWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.EscapeViaStaticAssignment.Snapshot", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaStaticAssignment.SnapshotWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaStaticAssignment.SnapshotController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "deep-access-path-wildcard/write-self",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.DeepAccessPathWildcard.DeepChain@Singleton", "accessPath": ["*"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DeepAccessPathWildcard.DeepChain.Write(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DeepAccessPathWildcard.DeepChain.Write(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "deep-access-path-wildcard/read-write",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.DeepAccessPathWildcard.DeepChain@Singleton", "accessPath": ["*"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DeepAccessPathWildcard.DeepChain.Write(string)", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.DeepAccessPathWildcard.DeepChain.Write(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "custom-lock-by-name",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.CustomLockByName.Journal@Singleton", "accessPath": ["_last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CustomLockByName.Journal.Append(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.CustomLockByName.Journal.Append(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "group-shared-helper-many-callers",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.GroupSharedHelperManyCallers.ActivityLog@Singleton", "accessPath": ["_lastAction"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GroupSharedHelperManyCallers.ActivityLog.Record(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.GroupSharedHelperManyCallers.ActivityLog.Record(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "construction-other-state/singleton-ctor",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ConstructionOtherState.Tracing", "accessPath": ["LastSource"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.Clock..ctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.StartupController.Source()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "construction-other-state/type-initializer",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ConstructionOtherState.Tracing", "accessPath": ["LastCulture"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.Defaults..cctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.StartupController.SetCulture(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "construction-other-state/action-self",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ConstructionOtherState.Tracing", "accessPath": ["LastCulture"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.StartupController.SetCulture(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConstructionOtherState.StartupController.SetCulture(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "constructor-leaks-this/published-field",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConstructorLeaksThis.Beacon@Singleton", "accessPath": ["Status"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.Beacon..ctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.BeaconController.Get(Beacon)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "constructor-leaks-this/registry-slot",
+      "phase": "2",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ConstructorLeaksThis.BeaconRegistry", "accessPath": ["Last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.Beacon..ctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.BeaconController.Get(Beacon)", "operation": "read" }
+      ]
     }
   ],
   "notDefects": [
@@ -376,6 +684,45 @@
         { "symbol": "Demo.Worker.Cases.SharedLibraryStatic.SyncWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.SharedLibraryStatic.SyncController.Post(string)", "operation": "write" }
       ]
+    },
+    {
+      "id": "non-action-public-method",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.NonActionPublicMethod.AuditTrail@Singleton", "accessPath": ["LastEntry"] }
+    },
+    {
+      "id": "hosted-service-registered-twice",
+      "phase": "1b",
+      "resource": { "region": "di:Demo.Web.Cases.HostedServiceRegisteredTwice.HeartbeatWorker@Singleton", "accessPath": ["LastBeat"] }
+    },
+    {
+      "id": "test-project-not-a-scope",
+      "phase": "1b",
+      "resource": { "region": "static:Demo.Domain.Cases.SharedLibraryStatic.LastSync", "accessPath": ["Source"] },
+      "accesses": [
+        { "symbol": "Demo.Tests.Cases.TestProjectNotAScope.ReplayWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Worker.Cases.SharedLibraryStatic.SyncWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "generic-singleton-per-type-argument/other-type",
+      "phase": "2",
+      "resource": { "region": "di:Demo.Web.Cases.GenericSingletonPerTypeArgument.Store<Demo.Web.Cases.GenericSingletonPerTypeArgument.Invoice>@Singleton", "accessPath": ["LastKey"] }
+    },
+    {
+      "id": "lock-identity-through-alias",
+      "phase": "2",
+      "resource": { "region": "di:Demo.Web.Cases.LockIdentityThroughAlias.Ledger@Singleton", "accessPath": ["_lastEntry"] }
+    },
+    {
+      "id": "static-constructor-initialization",
+      "phase": "2",
+      "resource": { "region": "static:Demo.Web.Cases.StaticConstructorInitialization.RegionDefaults", "accessPath": ["DefaultRegion"] }
+    },
+    {
+      "id": "hosted-constructor-before-roots",
+      "phase": "2",
+      "resource": { "region": "static:Demo.Web.Cases.HostedConstructorBeforeRoots.PrimedCache", "accessPath": ["Region"] }
     }
   ]
 }

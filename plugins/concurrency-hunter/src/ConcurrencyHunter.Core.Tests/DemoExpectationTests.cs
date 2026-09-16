@@ -15,12 +15,8 @@ public sealed class DemoExpectationTests
     };
 
     [Fact]
-    public async Task Demo_matches_every_phase_1b_expectation_on_three_runs()
+    public async Task Demo_matches_every_phase_2_expectation_on_three_runs()
     {
-        await DemoWorkspace.EnsureRestoredAsync();
-        var solutionPath = RepositoryFiles.FindRepositoryFile(
-            "plugins", "concurrency-hunter", "demo", "Demo.slnx");
-        var demoDirectory = Path.GetDirectoryName(solutionPath)!;
         var expectationPath = RepositoryFiles.FindRepositoryFile(
             "plugins", "concurrency-hunter", "demo", "expected-findings.json");
         var serializedRuns = new List<string>();
@@ -28,13 +24,7 @@ public sealed class DemoExpectationTests
 
         for (var run = 0; run < 3; run++)
         {
-            using var loaded = await new MsBuildSolutionLoader().LoadAsync(solutionPath);
-            Assert.True(loaded.Coverage.LoadComplete,
-                $"Missing demo projects: {string.Join(", ", loaded.Coverage.MissingProjects)}");
-            var result = await PhaseOneAnalyzer.AnalyzeAsync(
-                loaded.Solution,
-                demoDirectory,
-                CancellationToken.None);
+            var result = await AnalyzeDemoAsync();
             results.Add(result);
             serializedRuns.Add(JsonSerializer.Serialize(result.Findings, JsonOptions));
         }
@@ -44,10 +34,34 @@ public sealed class DemoExpectationTests
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "1b");
+            "2");
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
-            $"False positives: {string.Join(", ", report.FalsePositives)}");
+            $"False positives: {string.Join(", ", report.FalsePositives)}{Environment.NewLine}" +
+            $"Confidence mismatches: {string.Join(", ", report.ConfidenceMismatches)}");
+    }
+
+    [Fact]
+    public async Task Demo_test_project_is_not_a_process_scope()
+    {
+        var result = await AnalyzeDemoAsync();
+
+        Assert.Equal(["Demo.Web", "Demo.Worker"], result.Scopes.Select(scope => scope.Id).Order(StringComparer.Ordinal));
+        Assert.All(result.Scopes, scope => Assert.DoesNotContain(scope.Projects, project => project.Contains("Demo.Tests", StringComparison.Ordinal)));
+    }
+
+    private static async Task<AnalysisResult> AnalyzeDemoAsync()
+    {
+        await DemoWorkspace.EnsureRestoredAsync();
+        var solutionPath = RepositoryFiles.FindRepositoryFile(
+            "plugins", "concurrency-hunter", "demo", "Demo.slnx");
+        using var loaded = await new MsBuildSolutionLoader().LoadAsync(solutionPath);
+        Assert.True(loaded.Coverage.LoadComplete,
+            $"Missing demo projects: {string.Join(", ", loaded.Coverage.MissingProjects)}");
+        return await PhaseOneAnalyzer.AnalyzeAsync(
+            loaded.Solution,
+            Path.GetDirectoryName(solutionPath)!,
+            CancellationToken.None);
     }
 }

@@ -1,5 +1,8 @@
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.CallGraph;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Roots;
@@ -13,8 +16,9 @@ public static class PhaseOneAnalyzer
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken) =>
         AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken);
 
-    /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, lowering
-    /// (once per method across scopes), accesses and pairs; findings are built over the pairs of every scope.</summary>
+    /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, the program index,
+    /// the reachable set (lowering once per method across scopes), summaries, the whole-program heap, executions and ownership,
+    /// interprocedural accesses and pairs; findings are built over the pairs of every scope.</summary>
     public static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                           CancellationToken cancellationToken)
     {
@@ -75,18 +79,31 @@ public static class PhaseOneAnalyzer
             diagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
                                          .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
 
-            var bodies = Lower(compilations, scopeRoots, rootDirectory, lowered, diagnostics, cancellationToken);
-            var extraction = AccessExtraction.Extract(new ScopeAnalysisInput(scope.Id, scopeRoots, bodies, index, bindings));
-            var scopePairs = AccessPairing.Pair(extraction.Accesses);
+            var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
+            var members = Members(compilations, rootDirectory, lowered, diagnostics, cancellationToken);
+            var reachable = ReachableSet.Build(new ReachabilityInput(program, scopeRoots, index, bindings, members));
+            var summaries = new SummaryCache(reachable.Bodies, program, AnalysisLimits.Default);
+            var scopeProgram = new ScopeProgram(scope.Id, scopeRoots, reachable, summaries, program, index, bindings);
+            var heap = WholeProgram.Solve(scopeProgram, AnalysisLimits.Default);
+            var executions = ExecutionModel.Build(scopeProgram, heap);
+            var collection = InterproceduralAccesses.Collect(new InterproceduralInput(scopeProgram, heap, executions));
+            var scopePairs = InterproceduralPairing.Pair(collection.Accesses, executions, heap);
 
             roots.AddRange(scopeRoots);
-            accesses.AddRange(extraction.Accesses);
+            accesses.AddRange(collection.Accesses);
             pairs.AddRange(scopePairs.Pairs);
             candidates += scopePairs.CandidatePairs;
             suppressed += scopePairs.Suppressed;
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
-            coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count, extraction.Skips));
+            coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count, collection.Coverage.Counters)
+            {
+                TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
+                LoweredNotReached = collection.Coverage.LoweredNotReached,
+                OutsideLoweredSet = collection.Coverage.OutsideLoweredSet
+                                              .SelectMany(member => member.NestedBodyIds.Prepend(member.MemberId))
+                                              .ToArray()
+            });
         }
 
         var conflicts = ConflictFindings.Create(pairs, cancellationToken);
@@ -101,49 +118,46 @@ public static class PhaseOneAnalyzer
                                   new PairCounters(candidates, suppressed, pairSkips), providers);
     }
 
-    private static Dictionary<string, IrBody> Lower(IReadOnlyList<Compilation> compilations, IReadOnlyList<ExecutionRootDescriptor> roots,
-                                                    string rootDirectory, Dictionary<(Compilation Compilation, string BodyId), IrLoweredMethod?> lowered,
-                                                    List<string> diagnostics, CancellationToken cancellationToken)
+    /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,
+    /// lowered once and cached by compilation, since two projects can share an assembly name and a declaration, not a body.</summary>
+    private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
+                                                               Dictionary<(Compilation Compilation, string BodyId), IrLoweredMethod?> lowered,
+                                                               List<string> diagnostics, CancellationToken cancellationToken)
     {
-        var wanted = roots.Select(root => IrLowering.EnclosingMethodBodyId(root.Entry.BodyKey)).ToHashSet(StringComparer.Ordinal);
-        var bodies = new Dictionary<string, IrBody>(StringComparer.Ordinal);
+        var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
         foreach (var compilation in compilations)
         {
             foreach (var method in Methods(compilation.Assembly.GlobalNamespace))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var bodyId = IrLowering.RootBodyId(method);
-                if (!wanted.Remove(bodyId))
-                    continue;
-
-                // Keyed by compilation as well: two projects can share an assembly name and a declaration, not a body.
-                if (!lowered.TryGetValue((compilation, bodyId), out var loweredMethod))
-                {
-                    try
-                    {
-                        loweredMethod = IrLowering.Lower(method, compilation, rootDirectory, cancellationToken);
-                    }
-                    catch (Exception error) when (error is ArgumentException or InvalidOperationException)
-                    {
-                        loweredMethod = null;
-                        diagnostics.Add($"lowering: {bodyId}: {error.Message}");
-                    }
-
-                    lowered[(compilation, bodyId)] = loweredMethod;
-                }
-
-                foreach (var body in loweredMethod is null ? [] : loweredMethod.NestedBodies.Prepend(loweredMethod.Body))
-                    bodies[body.BodyId] = body;
-            }
+                methods.TryAdd(IrLowering.RootBodyId(method), (method, compilation));
         }
 
-        return bodies;
+        return bodyId =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!methods.TryGetValue(bodyId, out var member))
+                return [];
+            if (!lowered.TryGetValue((member.Compilation, bodyId), out var loweredMethod))
+            {
+                try
+                {
+                    loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken);
+                }
+                catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+                {
+                    loweredMethod = null;
+                    diagnostics.Add($"lowering: {bodyId}: {error.Message}");
+                }
+
+                lowered[(member.Compilation, bodyId)] = loweredMethod;
+            }
+
+            return loweredMethod is null ? [] : loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();
+        };
     }
 
     private static IEnumerable<IMethodSymbol> Methods(INamespaceSymbol @namespace) =>
         @namespace.GetTypeMembers().SelectMany(NestedAndSelf)
                   .SelectMany(type => type.GetMembers().OfType<IMethodSymbol>())
-                  .Where(method => method.DeclaringSyntaxReferences.Length != 0)
                   .Concat(@namespace.GetNamespaceMembers().SelectMany(Methods));
 
     private static IEnumerable<INamedTypeSymbol> NestedAndSelf(INamedTypeSymbol type) =>

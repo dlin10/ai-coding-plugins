@@ -130,6 +130,45 @@ public sealed class ExpectationMatcherTests
         Assert.Throws<ArgumentOutOfRangeException>(() => PhaseOrder.Compare("unknown", "8"));
     }
 
+    [Fact]
+    public void Confidence_is_not_compared_before_phase_2()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "1b", finding) with { Confidence = "low" }]);
+
+        var report = ExpectationMatcher.Match([finding], file, "1b");
+
+        Assert.True(report.IsExactMatch);
+        Assert.Empty(report.ConfidenceMismatches);
+    }
+
+    [Fact]
+    public void Confidence_mismatch_from_phase_2_fails_the_match()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var matching = ExpectationMatcher.Match([finding], File(findings: [Expected("expected", "2", finding) with { Confidence = "HIGH" }]), "2");
+        var mismatching = ExpectationMatcher.Match([finding], File(findings: [Expected("expected", "2", finding) with { Confidence = "medium" }]), "2");
+
+        Assert.True(matching.IsExactMatch);
+        Assert.False(mismatching.IsExactMatch);
+        Assert.Equal(["expected: F1 is High, expected medium"], mismatching.ConfidenceMismatches);
+        Assert.Empty(mismatching.Missing);
+        Assert.Empty(mismatching.FalsePositives);
+    }
+
+    [Fact]
+    public void Phase_1b_entry_confidence_is_compared_at_phase_2()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("older", "1b", finding) with { Confidence = "low" }]);
+
+        Assert.True(ExpectationMatcher.Match([finding], file, "1b").IsExactMatch);
+        var report = ExpectationMatcher.Match([finding], file, "2");
+
+        Assert.False(report.IsExactMatch);
+        Assert.Equal(["older: F1 is High, expected low"], report.ConfidenceMismatches);
+    }
+
     private static ExpectationFile File(IReadOnlyList<FindingExpectation>? findings = null,
                                         IReadOnlyList<NotDefectExpectation>? notDefects = null) =>
         new("1", findings ?? [], notDefects ?? []);

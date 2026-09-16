@@ -54,19 +54,14 @@
 | `startup-write-before-run` | negative | Единственная запись из `Program` до старта host | нет |
 | `monitor-enter-exit-same-gate` | negative | `Monitor.Enter`/`Exit` на одном gate | нет |
 | `ambiguous-registration-scoped-wins` | negative | Singleton и scoped регистрации одного типа, побеждает последняя | нет |
+| `di-factory-registration` | positive | `AddSingleton(_ => new RateCard())`, action пишет (PRD 3, TD-040) | DCA1001, self-pair |
+| `di-instance-registration` | positive | `AddSingleton(new PriceList())`, worker пишет, action читает (PRD 3, TD-040) | DCA1001 |
+| `minimal-api-lambda-handler` | positive | `MapPost(route, (SignalState state, string value) => state.Value = value)`: access в лямбде, symbol это метод `Map<Case>` (TD-121, 12.2) | DCA1001, self-pair |
+| `non-action-public-method` | negative | Public метод controller-а с `[NonAction]` пишет singleton; других записей нет (TD-121) | нет |
+| `hosted-service-registered-twice` | negative | `AddHostedService<W>()` дважды; `TryAddEnumerable` оставляет один экземпляр, `ExecuteAsync` пишет своё свойство (TD-064) | нет |
+| `test-project-not-a-scope` | negative | Проект `Demo.Tests` в `Demo.slnx` ссылается на Worker; его worker и worker Worker-а пишут статик общей библиотеки; пакеты xunit удлиняют restore (ADR 0005, TD-062a) | нет на паре test/worker |
 
-## Фаза 1b — дыры покрытия
-
-Функциональность фазы 1b (DI provider, `AspNetCoreRootProvider`, process scope), для которой кейсов нет. Пишутся первыми в фазе 2 с `phase: "1b"`; если текущий анализатор их не проходит, это дефект 1b по SPEC 12.3.
-
-| Кейс | Тип | Как устроен | Ожидание | Ссылки |
-|---|---|---|---|---|
-| `di-factory-registration` | positive | `AddSingleton(sp => new RateCard())`, action пишет | DCA1001, self-pair | PRD 3, TD-040 |
-| `di-instance-registration` | positive | `AddSingleton(new RateCard())`, worker пишет, action читает | DCA1001 | PRD 3, TD-040 |
-| `minimal-api-lambda-handler` | positive | `MapPost(route, (State s, string v) => s.Value = v)`: access в лямбде, symbol это метод `Map<Case>` | DCA1001, self-pair | TD-121, 12.2 |
-| `non-action-public-method` | negative | Public метод controller-а с `[NonAction]` пишет singleton; других записей нет | нет | TD-121 |
-| `hosted-service-registered-twice` | negative | `AddHostedService<W>()` дважды; `TryAddEnumerable` оставляет один экземпляр, `ExecuteAsync` пишет своё поле | нет | TD-064 |
-| `test-project-not-a-scope` | negative | Тестовый проект и Worker пишут статик общей библиотеки; нужен тестовый проект в `Demo.slnx`, пакеты xunit удлиняют restore | нет на паре test/worker | ADR 0005, TD-062a |
+Последние шесть строк закрывают дыры покрытия фазы 1b (DI provider, `AspNetCoreRootProvider`, process scope): они написаны первыми в фазе 2 с `phase: "1b"`; если текущий анализатор их не проходит, это дефект 1b по SPEC 12.3.
 
 ## Фаза 2 — написаны
 
@@ -81,6 +76,18 @@
 | `lambda-and-local-function` | positive | Записи в local function и в лямбде приписаны action | `/local-function`, `/lambda` DCA1001 |
 | `escape-into-singleton` | positive | Свежий объект публикуется в singleton до заполнения | `/registry`, `/escaped-draft` DCA1001 |
 | `factory-returns-shared-static` | positive | «Factory» возвращает один статический объект (TC-15) | DCA1001 |
+| `rmw-forms` | positive | Singleton, по action и полю на форму: `x += y`, свойство get-compute-set, чтение в local и запись через несколько statements (TD-014, FR-07) | `/compound-assignment`, `/property`, `/split` DCA1002 |
+| `rmw-forms/through-methods` | positive | Тот же singleton: `RaiseLevel` читает поле через private `GetLevel` и пишет через private `SetLevel`; RMW приписан `SetLevel` (TD-014) | DCA1002 |
+| `stale-read-without-dependency` | positive | Метод singleton-а, вызванный action, читает поле в local и пишет в него значение из запроса, не зависящее от прочитанного (TD-073) | `/write-self`, `/read-write` DCA1001, не DCA1002 |
+| `recursive-summary` | positive | Рекурсивный `Walk(depth)` singleton-а пишет `_lastDepth` на каждом уровне; action (TD-023) | DCA1001 |
+| `generic-singleton-per-type-argument` | оба | `Store<T>` singleton для `Order` и `Invoice`; два worker-а пишут `Store<Order>`, третий `Store<Invoice>` (TD-022) | `/same-type` DCA1001; `/other-type` нет |
+| `escape-via-array-element` | positive | Worker кладёт свежий объект в массив singleton-а и продолжает писать в него; action читает элемент (TD-052) | DCA1001 |
+| `escape-via-out-parameter` | positive | Метод singleton-а отдаёт внутренний объект через `out`; action пишет в него, worker пишет через поле (TD-052) | `/action-self`, `/action-worker` DCA1001 |
+| `escape-via-captured-closure` | positive | Worker захватывает локальный объект в лямбду и сохраняет её в поле singleton-а; action вызывает делегат, который пишет объект; worker пишет его же (TD-052, FR-06) | `/captured-note`, `/callback-slot` DCA1001 |
+| `escape-via-static-assignment` | positive | Worker создаёт объект, присваивает в статик и пишет в него; action читает через статик, поэтому каждая пара это настоящая гонка (TD-052) | `/static-slot`, `/escaped-object` DCA1001 |
+| `deep-access-path-wildcard` | positive | Цепочка из 13 сегментов глубже лимита TD-042, запись из action; ожидания верны для любого лимита от 1 до 11 (TD-042, TD-103) | `/write-self`, `/read-write` DCA1001, метка Medium, не High, uncertainty «wildcard» |
+| `custom-lock-by-name` | positive | Класс `SimpleLock` с `Lock()`/`Unlock()` без синхронизации внутри; оба writer-а «под ним» (TD-086, FR-09) | DCA1001 |
+| `group-shared-helper-many-callers` | positive | Три action вызывают один helper singleton-а, который пишет поле (TD-076) | DCA1001; одна finding group с occurrence count, проверка: тест отчёта, ждёт фазы 2b |
 | `owned-local-allocation` | negative | Объект на запрос, не escape-ится | нет |
 | `distinct-allocation-sites` | negative | Один тип и поле, два allocation site, по worker-у на каждый | `/left`, `/right` нет |
 | `receiver-sensitivity` | negative | Одно тело метода, два receiver-а (TC-15) | `/first`, `/second` нет |
@@ -89,24 +96,19 @@
 | `lock-held-by-caller` | negative | Lock берётся в root, access в callee | нет |
 | `singleton-configured-in-constructor` | negative | Свойство пишется только при конструировании singleton-а | нет |
 | `unreachable-static-writer` | negative | Запись вне reachable set (TC-07) | нет |
+| `lock-identity-through-alias` | negative | `_second = _gate` в конструкторе; один worker пишет под `lock (_gate)`, другой под `lock (_second)` (TD-045) | нет |
+| `static-constructor-initialization` | negative | Статик пишется только в `static` конструкторе, action читает | нет (ADR 0006) |
 
-## Фаза 2 — нужно написать
+## Фаза 2 — конструирование
 
-| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
-|---|---|---|---|---|---|
-| `rmw-forms` | positive | Singleton, по action и полю на форму: `x += y`, свойство get-compute-set, чтение в local и запись через несколько statements | `/compound-assignment`, `/property`, `/split` DCA1002 | TD-014, FR-07 | ⚠ `/property` и `/split`, если 1b видит там отдельные read и write |
-| `stale-read-without-dependency` | positive | Action читает поле в local и пишет в него значение из запроса, не зависящее от прочитанного | `/write-self`, `/read-write` DCA1001, не DCA1002 | TD-073 | — |
-| `recursive-summary` | positive | Рекурсивный `Walk(depth)` singleton-а пишет `_lastDepth` на каждом уровне; action | DCA1001 | TD-023 | — |
-| `generic-singleton-per-type-argument` | оба | `Store<T>` singleton для `Order` и `Invoice`; два worker-а пишут `Store<Order>`, третий `Store<Invoice>` | `/same-type` DCA1001; `/other-type` нет | TD-022 | nD |
-| `escape-via-array-element` | positive | Worker кладёт свежий объект в массив singleton-а и продолжает писать в него; action читает элемент | DCA1001 | TD-052 | — |
-| `escape-via-out-parameter` | positive | Метод singleton-а отдаёт внутренний объект через `out`; action пишет в него, worker пишет через поле | DCA1001 | TD-052 | — |
-| `escape-via-captured-closure` | positive | Worker захватывает локальный объект в лямбду и сохраняет её в поле singleton-а; action вызывает делегат, который пишет объект; worker пишет его же | DCA1001 | TD-052, FR-06 | — |
-| `escape-via-static-assignment` | positive | Action создаёт объект, присваивает в статик и пишет в него; другой action читает через статик | `/static-slot`, `/escaped-object` DCA1001 | TD-052 | — |
-| `lock-identity-through-alias` | negative | `_second = _gate` в конструкторе; один worker пишет под `lock (_gate)`, другой под `lock (_second)` | нет | TD-045 | nD |
-| `deep-access-path-wildcard` | positive | Цепочка полей глубже лимита TD-042, запись из action | DCA1001, метка не High, uncertainty «wildcard» | TD-042, TD-103 | — |
-| `custom-lock-by-name` | positive | Класс `SimpleLock` с `Lock()`/`Unlock()` без синхронизации внутри; оба writer-а «под ним» | DCA1001 | TD-086, FR-09 | — |
-| `static-constructor-initialization` | negative | Статик пишется только в `static` конструкторе, actions читают | нет (вопрос 8) | — | nD |
-| `group-shared-helper-many-callers` | positive | Три action вызывают один helper singleton-а, который пишет поле | DCA1001; одна finding group с occurrence count, проверка: тест отчёта | TD-076 | — |
+Кейсы правила [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md): доступы конструкции принадлежат execution, которое её запускает, а доступы к собственному объекту и статикам своего типа кандидатов не образуют, пока конструкция не публикует объект. Ответы окончательные для v1; `singleton-configured-in-constructor` и `static-constructor-initialization` выше следуют тому же правилу.
+
+| Кейс | Тип | Суть | Ожидание |
+|---|---|---|---|
+| `controller-constructor-static-counter` | positive | Конструктор controller-а делает `_created++` своего статика; конструктор выполняется внутри каждого action | DCA1002 |
+| `construction-other-state` | positive | Конструктор lazily resolved singleton-а и type initializer пишут статики другого типа; actions читают и пишут их | `/singleton-ctor`, `/type-initializer`, `/action-self` DCA1001 |
+| `hosted-constructor-before-roots` | negative | Конструктор hosted service пишет статик при старте host, до всех roots; action читает | нет |
+| `constructor-leaks-this` | positive | Конструктор singleton-а публикует `this` в статик и затем пишет своё свойство; action читает через статик | `/published-field`, `/registry-slot` DCA1001 |
 
 ## Фаза 3 — Execution model
 
@@ -244,7 +246,7 @@
 | 5 | Atomic операция против незащищённой записи: DCA1001 или DCA1003, то есть считается ли atomic защитой в `protectionAnalysis` | `interlocked-mixed-with-plain-write` | 4 |
 | 6 | Пользовательский `AsyncLock` с исходником: TD-086 запрещает считать его защитой, а межпроцедурный must-hold через возвращённый releaser мог бы её доказать | `custom-async-lock-releaser` | 4 |
 | 7 | Как результат `ChannelReader.ReadAsync` связывается с записанным объектом; фаза для `Channel<T>` в 14.3 не названа | `channel-handoff` | 5 |
-| 8 | Порядок `static` конструктора и ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal`: SPEC молчит, а словарь composer-а эти слова допускает | `static-constructor-initialization`; кейсов на thread-local нет | 2 |
+| 8 | Закрыт: конструкторы и type initializers решены в [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md); ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal` переносится в фазу 5 | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; кейсов на thread-local нет | 5 |
 | 9 | Корень репозитория для `.concurrency-hunter/suppressions.json`, когда demo лежит внутри репозитория CodexPlugins (14.1 п. 6) | `suppress-file-fingerprint` | 6 |
 | 10 | Получает ли `readonly` значение одного региона одну canonical identity в независимых instances, если TD-092 даёт им отдельные bindings | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
 | 11 | Как ввести ⚠-кейс, не покраснев на гейте предыдущей фазы: код кейса в одной задаче с классификацией, переключение константы фазы в той же задаче или правка матчера | все ⚠ | план каждой фазы |

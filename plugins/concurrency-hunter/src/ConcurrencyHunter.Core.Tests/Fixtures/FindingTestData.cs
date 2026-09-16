@@ -1,5 +1,6 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
 
@@ -21,11 +22,11 @@ public static class FindingTestData
         new(resource, operation,
             new AccessRoot(rootId, symbol, display ?? $"ControllerBase action {symbol}", "aspnetcore", "controller-action",
                            new InvocationPolicy(Multiplicity.Repeated, SelfOverlap.MayOverlap, resource.Scope), resource.Scope),
-            symbol, source, heldProtection ?? [], heldProtectionIds ?? [], SharingKeys.PROCESS, [], [], []);
+            symbol, source, heldProtection ?? [], heldProtectionIds ?? [], [], [], []);
 
     public static FindingGroup Group(string groupId, string confidenceLabel, AccessResource resource, IReadOnlyList<string> findingIds,
                                      string ruleId = "DCA1001") =>
-        new(groupId, $"stable-{groupId}", ruleId, confidenceLabel, resource, SharingKeys.PROCESS, findingIds);
+        new(groupId, $"stable-{groupId}", ruleId, confidenceLabel, resource, OwnershipKind.Shared, [$"{resource.Region} is static storage."], findingIds);
 
     public static AnalysisResult Result(IReadOnlyList<Finding> findings, IReadOnlyList<FindingGroup> groups)
     {

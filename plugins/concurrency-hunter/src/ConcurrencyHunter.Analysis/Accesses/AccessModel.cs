@@ -1,5 +1,6 @@
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Di;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
 
@@ -13,13 +14,17 @@ public sealed record MemberKey(string DeclaringType, string Name, IrFieldKind Ki
     public string Identity => $"{DeclaringTypeIdentity ?? DeclaringType}.{Name}:{Kind}";
 }
 
-/// <summary>What an access touches. <see cref="Identity"/> joins the scope, assembly, region and member key and is what
-/// pairing, grouping and stable ids use; <see cref="Region"/> and <see cref="AccessPath"/> keep the display format.</summary>
-public sealed record AccessResource(string Assembly, string Scope, string Region, IReadOnlyList<string> AccessPath, MemberKey Member)
+/// <summary>What an access touches. <see cref="Identity"/> joins the scope, assembly, region identity (<see cref="RegionId"/>, which carries
+/// the region's context) and member key and is what pairing, grouping and stable ids use; <see cref="Region"/> and
+/// <see cref="AccessPath"/> keep the display format. A wildcard resource has the path <c>*</c> and the member key <c>*</c>.</summary>
+public sealed record AccessResource(string Assembly, string Scope, string Region, IReadOnlyList<string> AccessPath, MemberKey Member,
+                                    string? RegionId = null, bool IsWildcard = false)
 {
-    public string Identity => $"{Scope}|{Assembly}|{Region}|{Member.Identity}";
+    public string Identity => $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}";
 }
 
+/// <summary>The root an access runs under. A construction or type-initializer execution, which has no root, is described as one:
+/// its execution id, display and at-most-once policy.</summary>
 public sealed record AccessRoot(string RootId, string Symbol, string Display, string ProviderId, string RootKind,
                                 InvocationPolicy Policy, string Scope, string? ReceiverType = null, string? ReceiverTypeKey = null)
 {
@@ -31,27 +36,24 @@ public sealed record AccessRoot(string RootId, string Symbol, string Display, st
 
 public sealed record CodeFlowStep(string Kind, string Text, SourceSpan Source);
 
+/// <summary>A load that feeds a read-modify-write store: its symbol, source and code flow.</summary>
+public sealed record ReadSource(string Symbol, SourceSpan Source, IReadOnlyList<CodeFlowStep> CodeFlow);
+
+/// <summary>An access as one execution runs it on one resource. It carries its region's ownership and evidence chain; a construction-local
+/// access touches the object its construction builds and never pairs; a read-modify-write lists the loads it depends on.</summary>
 public sealed record Access(AccessResource Resource, AccessOperation Operation, AccessRoot Root, string Symbol, SourceSpan Source,
-                            IReadOnlyList<string> HeldProtection, IReadOnlyList<string> HeldProtectionIds, string SharingKey,
+                            IReadOnlyList<string> HeldProtection, IReadOnlyList<string> HeldProtectionIds,
                             IReadOnlyList<BindingEvidence> BindingEvidence, IReadOnlyList<CodeFlowStep> CodeFlow,
-                            IReadOnlyList<string> Uncertainties);
-
-/// <summary>Everything the engines read for one process scope: its roots, every lowered body they reach by body key,
-/// its DI index and the injection bindings of its source types.</summary>
-public sealed record ScopeAnalysisInput(string ScopeId, IReadOnlyList<ExecutionRootDescriptor> Roots,
-                                        IReadOnlyDictionary<string, IrBody> Bodies, DiIndex DiIndex,
-                                        IReadOnlyList<TypeInjectionBindings> InjectionBindings);
-
-public sealed record AccessExtractionResult(IReadOnlyList<Access> Accesses, IReadOnlyDictionary<string, int> Skips);
-
-public static class SharingKeys
+                            IReadOnlyList<string> Uncertainties)
 {
-    public const string PROCESS = "process";
-    public const string INVOCATION = "invocation";
-
-    /// <summary>Prefix of a transient's key on the hosted-service instance whose constructor received it: every instance
-    /// gets its own, so one root never shares it with another invocation of itself.</summary>
-    public const string HOSTED_INSTANCE = "hosted";
+    public string ExecutionId { get; init; } = "";
+    public OwnershipKind Ownership { get; init; } = OwnershipKind.Unknown;
+    public IReadOnlyList<string> OwnershipEvidence { get; init; } = [];
+    public bool IsConstructionLocal { get; init; }
+    public IReadOnlyList<ReadSource> ReadSources { get; init; } = [];
+    public string BodyId { get; init; } = "";
+    public int OperationId { get; init; }
+    public string InstanceId { get; init; } = "";
 }
 
 public static class PairProtection
@@ -61,7 +63,13 @@ public static class PairProtection
     public const string DIFFERENT_IDENTITY = "different-identity";
 }
 
-public sealed record AccessPair(Access First, Access Second, string Protection);
+/// <summary>Two accesses that may race. <see cref="Resource"/> is the resource the pair is reported on, which differs from the first access's
+/// for a wildcard or open-region pair; <see cref="Uncertainties"/> come from how the two resources met.</summary>
+public sealed record AccessPair(Access First, Access Second, string Protection)
+{
+    public AccessResource Resource { get; init; } = First.Resource;
+    public IReadOnlyList<string> Uncertainties { get; init; } = [];
+}
 
 public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int CandidatePairs, int Suppressed,
                                   IReadOnlyDictionary<string, int> Skips);

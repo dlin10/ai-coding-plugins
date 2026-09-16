@@ -371,9 +371,12 @@ internal sealed class RunRegistry
         var scenario = allFindings.FirstOrDefault()?.Scenario.Select(step => ResponseBudget.Fit(step, stringLimit)).ToArray() ?? [];
         return new GroupDigest(ResponseBudget.Fit(group.GroupId, stringLimit), ResponseBudget.Fit(group.RuleId, stringLimit),
                                ResponseBudget.Fit(group.ConfidenceLabel, stringLimit), ResponseBudget.Fit(group.Resource.Region, stringLimit),
-                               group.Resource.AccessPath.Take(3).Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(), group.FindingIds.Count,
-                               findings, scenario);
+                               group.Resource.AccessPath.Take(3).Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(),
+                               ResponseBudget.Fit(Ownership(group), stringLimit), group.FindingIds.Count, findings, scenario);
     }
+
+    private static string Ownership(FindingGroup group) =>
+        group.OwnershipEvidence.Count == 0 ? group.Ownership.ToString() : $"{group.Ownership}: {string.Join("; ", group.OwnershipEvidence)}";
 
     private static DigestAccess DigestAccess(string role, Access access, int stringLimit) => new(ResponseBudget.Fit(role, stringLimit),
                                                                                                        ResponseBudget.Fit(access.Symbol, stringLimit),
@@ -384,6 +387,10 @@ internal sealed class RunRegistry
                                                                                                        ResponseBudget.Fit(access.Root.Display, stringLimit),
                                                                                                        access.HeldProtection.Take(DIGEST_LIST_LIMIT)
                                                                                                              .Select(item => ResponseBudget.Fit(item, stringLimit))
+                                                                                                             .ToArray(),
+                                                                                                       access.CodeFlow.Where(step => step.Kind == "call")
+                                                                                                             .Take(DIGEST_LIST_LIMIT)
+                                                                                                             .Select(step => ResponseBudget.Fit(step.Text, stringLimit))
                                                                                                              .ToArray());
 
     private static IReadOnlyList<string> BindingEvidence(Finding finding, int stringLimit) =>

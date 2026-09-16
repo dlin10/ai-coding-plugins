@@ -134,11 +134,17 @@ public static class DiIndexBuilder
             unsupported = typeOfs.Select(typeOf => typeOf.Unsupported).FirstOrDefault(reason => reason is not null);
         }
 
+        // A generic factory or instance form names its service and implementation in its type arguments, so it binds like
+        // the parameterless generic form; a non-generic one, or a hosted-service factory, does not.
+        var namesItsTypes = method.IsGenericMethod && !isHostedMethod;
+        var form = arguments.Any(argument => IsFactory(argument.Parameter!.Type)) ? DiRegistrationForm.Factory
+            : arguments.Any(argument => !IsSystemType(argument.Parameter!.Type)) ? DiRegistrationForm.Instance
+            : DiRegistrationForm.Type;
         if (method.Name.StartsWith("AddKeyed", StringComparison.Ordinal))
             unsupported = KEYED;
-        else if (arguments.Any(argument => IsFactory(argument.Parameter!.Type)))
+        else if (!namesItsTypes && form == DiRegistrationForm.Factory)
             unsupported = FACTORY;
-        else if (arguments.Any(argument => !IsSystemType(argument.Parameter!.Type)))
+        else if (!namesItsTypes && form == DiRegistrationForm.Instance)
             unsupported = INSTANCE;
 
         var isHosted = isHostedMethod ||
@@ -146,7 +152,8 @@ public static class DiIndexBuilder
         var serviceName = isHostedMethod ? HOSTED_SERVICE : service is null ? null : TypeName(service);
         var serviceKey = isHostedMethod ? DiIndex.HOSTED_SERVICE_KEY : service is null ? null : SymbolNames.TypeKey(service);
         return new DiRegistration(serviceName, implementation is null ? null : TypeName(implementation), lifetime, isHosted,
-                                  method.Name, source, unsupported, serviceKey, implementation is null ? null : SymbolNames.TypeKey(implementation));
+                                  method.Name, source, unsupported, serviceKey, implementation is null ? null : SymbolNames.TypeKey(implementation),
+                                  form);
     }
 
     private static (ITypeSymbol? Type, string? Unsupported) TypeOf(IOperation value)

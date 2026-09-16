@@ -1,4 +1,5 @@
-<!-- Stops the search for a central package file above this folder; the demo references no packages. -->
+<!-- Stops the search for a central package file above this folder; only Demo.Tests references packages, with
+     versions written in its project file. -->
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>

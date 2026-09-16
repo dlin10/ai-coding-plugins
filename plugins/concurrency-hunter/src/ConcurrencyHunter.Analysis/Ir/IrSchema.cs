@@ -4,7 +4,16 @@ namespace ConcurrencyHunter.Ir;
 
 public static class IrSchema
 {
-    public const string VERSION = "1.0";
+    public const string VERSION = "1.1";
+}
+
+public enum IrRefKind
+{
+    None,
+    Ref,
+    Out,
+    In,
+    RefReadOnly
 }
 
 public enum IrBodyKind
@@ -117,9 +126,21 @@ public enum IrConversionKind
 
 public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, string MethodSymbol,
                             IReadOnlyList<IrValue> Values, IReadOnlyList<IrBlock> Blocks,
-                            IReadOnlyList<IrRegion> Regions, string SchemaVersion = IrSchema.VERSION);
+                            IReadOnlyList<IrRegion> Regions, string SchemaVersion = IrSchema.VERSION)
+{
+    /// <summary>The body's parameters with their incoming value; the SSA versions of a parameter share its value's
+    /// <see cref="IrValue.SymbolKey"/>, so the value a <c>ref</c> or <c>out</c> parameter holds when the body ends can be read.</summary>
+    public IReadOnlyList<IrParameter> Parameters { get; init; } = [];
+}
 
-public sealed record IrValue(int Id, IrValueKind Kind, string Type, string Name, int SsaVersion);
+/// <summary><see cref="SymbolKey"/> identifies the local or parameter a value is a version of, across bodies: the id of the
+/// body declaring it, its name and its declaration's span start, or <c>this</c> for the receiver.</summary>
+public sealed record IrValue(int Id, IrValueKind Kind, string Type, string Name, int SsaVersion)
+{
+    public string? SymbolKey { get; init; }
+}
+
+public sealed record IrParameter(string Name, string Type, IrRefKind RefKind, int Ordinal, int Value);
 
 public sealed record IrFlowPredecessor(int BlockOrdinal, IrEdgeKind EdgeKind);
 

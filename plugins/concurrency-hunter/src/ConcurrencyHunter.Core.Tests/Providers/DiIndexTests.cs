@@ -65,7 +65,7 @@ public sealed class DiIndexTests
     }
 
     [Fact]
-    public void Factory_forms_are_unsupported()
+    public void Generic_factory_forms_bind_and_non_generic_stay_unsupported()
     {
         var index = Index("""
             services.AddSingleton<Gate>(_ => new Gate());
@@ -73,22 +73,22 @@ public sealed class DiIndexTests
             services.TryAddTransient<OtherGate>(_ => new OtherGate());
             """);
 
-        Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("Gate")).Kind);
+        Assert.Equal(("Gate", DiLifetime.Singleton), Target(Bound(index, Key("Gate"))));
         Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("IGate")).Kind);
-        Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("OtherGate")).Kind);
-        Assert.All(index.Registrations, registration => Assert.Equal("factory", registration.UnsupportedReason));
+        Assert.Equal(("OtherGate", DiLifetime.Transient), Target(Bound(index, Key("OtherGate"))));
+        Assert.Equal(new string?[] { null, "factory", null }, index.Registrations.Select(registration => registration.UnsupportedReason));
     }
 
     [Fact]
-    public void Instance_forms_are_unsupported()
+    public void Generic_instance_form_binds_and_non_generic_stays_unsupported()
     {
         var index = Index("""
             services.AddSingleton(new Gate());
             services.AddSingleton(typeof(IGate), new OtherGate());
             """);
 
-        Assert.Equal(["instance", "instance"], index.Registrations.Select(registration => registration.UnsupportedReason));
-        Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("Gate")).Kind);
+        Assert.Equal(new string?[] { null, "instance" }, index.Registrations.Select(registration => registration.UnsupportedReason));
+        Assert.Equal(("Gate", DiLifetime.Singleton), Target(Bound(index, Key("Gate"))));
         Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("IGate")).Kind);
     }
 
@@ -231,7 +231,7 @@ public sealed class DiIndexTests
     {
         var index = Index("""
             services.AddSingleton<Gate>();
-            services.AddSingleton<Gate>(_ => new Gate());
+            services.AddSingleton(typeof(Gate), _ => new Gate());
             """);
 
         Assert.Equal(DiResolutionKind.Unsupported, index.Resolve(Key("Gate")).Kind);

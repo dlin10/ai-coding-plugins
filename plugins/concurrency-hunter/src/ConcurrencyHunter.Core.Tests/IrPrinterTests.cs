@@ -144,7 +144,7 @@ public sealed class IrPrinterTests
     {
         var problems = IrValidator.Validate(WellFormedBody() with { SchemaVersion = "2.0" });
 
-        Assert.Contains(problems, problem => problem.Contains("expected '1.0'", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.Contains("expected '1.1'", StringComparison.Ordinal));
     }
 
     [Fact]

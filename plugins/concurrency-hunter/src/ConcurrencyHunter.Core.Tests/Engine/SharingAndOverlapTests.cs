@@ -1,5 +1,7 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Roots;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -27,7 +29,7 @@ public sealed class SharingAndOverlapTests
             """ + Startup("services.AddHostedService<Worker>();"));
 
         Assert.Empty(run.Pairs.Pairs);
-        Assert.Equal(3, run.Pairs.Skips[AccessPairing.SKIP_NO_SELF_OVERLAP]);
+        Assert.Equal(3, run.Skipped(InterproceduralPairing.SKIP_NO_OVERLAP));
     }
 
     [Fact]
@@ -89,10 +91,11 @@ public sealed class SharingAndOverlapTests
             }
             """ + Startup("services.AddScoped<Draft>();"));
 
-        Assert.All(run.Of("Text"), access => Assert.Equal(SharingKeys.INVOCATION, access.SharingKey));
+        Assert.All(run.Of("Text"), access => Assert.Equal(OwnershipKind.ThreadConfined, access.Ownership));
         Assert.Empty(run.Pairs.Pairs);
-        Assert.Equal(2, run.Pairs.Skips[AccessPairing.SKIP_INVOCATION]);
-        Assert.Equal(1, run.Pairs.Skips[AccessPairing.SKIP_READ_READ]);
+        Assert.Equal(2, run.Of("Text").Select(access => access.Resource.Identity).Distinct().Count());
+        Assert.Equal(1, run.Skipped(InterproceduralPairing.SKIP_CONFINED));
+        Assert.Equal(3, run.Skipped(InterproceduralPairing.SKIP_READ_READ));
     }
 
     [Fact]
@@ -109,7 +112,7 @@ public sealed class SharingAndOverlapTests
             }
             """ + Startup("services.AddScoped<Draft>().AddHostedService<FirstWorker>().AddHostedService<SecondWorker>();"));
 
-        Assert.All(run.Of("Text"), access => Assert.Equal("root-scope:Fixture:Draft", access.SharingKey));
+        Assert.All(run.Of("Text"), access => Assert.EndsWith("|root-scope", access.Resource.RegionId, StringComparison.Ordinal));
         var pair = Assert.Single(run.Pairs.Pairs);
         Assert.NotEqual(pair.First.Root.RootId, pair.Second.Root.RootId);
     }
@@ -127,7 +130,7 @@ public sealed class SharingAndOverlapTests
             }
             """ + Startup("services.AddTransient<Buffer>().AddHostedService<Worker>();"));
 
-        Assert.All(run.Of("Text"), access => Assert.Equal("hosted:Fixture:Worker:ctor:buffer", access.SharingKey));
+        Assert.Single(run.Of("Text").Select(access => access.Resource.Identity).Distinct());
         Assert.Single(run.Pairs.Pairs);
     }
 
@@ -185,7 +188,7 @@ public sealed class SharingAndOverlapTests
             """ + Startup("services.AddTransient<Buffer>().AddHostedService<Worker>();"));
 
         Assert.Empty(run.Pairs.Pairs);
-        Assert.Equal(1, run.Pairs.Skips[AccessPairing.SKIP_DIFFERENT_SHARING]);
+        Assert.Equal(2, run.Of("Text").Select(access => access.Resource.Identity).Distinct().Count());
     }
 
     [Fact]
@@ -203,7 +206,7 @@ public sealed class SharingAndOverlapTests
             }
             """ + Startup("services.AddHostedService<WarmupWorker>();"));
 
-        Assert.All(run.Of("Stage"), access => Assert.Equal("process:Microsoft.Extensions.Hosting.Abstractions:Microsoft.Extensions.Hosting.IHostedService", access.SharingKey));
+        Assert.Single(run.Of("Stage").Select(access => access.Resource.RegionId).Distinct());
         var pair = Assert.Single(run.Pairs.Pairs);
         Assert.NotEqual(pair.First.Root.ProviderId, pair.Second.Root.ProviderId);
     }
@@ -229,8 +232,8 @@ public sealed class SharingAndOverlapTests
             }
             """ + Startup("services.AddSingleton<IFirst, Gate>(); services.AddSingleton<ISecond, Gate>();"));
 
-        Assert.Single(run.Of("Value").Select(access => access.Resource.Identity).Distinct());
-        Assert.Equal(["process:Fixture:IFirst", "process:Fixture:ISecond"], run.Of("Value").Select(access => access.SharingKey).Order());
+        Assert.Single(run.Of("Value").Select(access => access.Resource.Region).Distinct());
+        Assert.Equal(2, run.Of("Value").Select(access => access.Resource.Identity).Distinct().Count());
         Assert.DoesNotContain(run.Pairs.Pairs, pair => pair.First.Root.RootId != pair.Second.Root.RootId);
     }
 
@@ -263,10 +266,11 @@ public sealed class SharingAndOverlapTests
                 public void Post() => State.Value = 1;
             }
             """;
-        var first = Analyze(source + Startup(), "scope:First");
-        var second = Analyze(source + Startup(), "scope:Second");
+        var first = AnalyzeScope(FixtureSolution.Create(("Case.cs", Usings + source + Startup())), "scope:First");
+        var second = AnalyzeScope(FixtureSolution.Create(("Case.cs", Usings + source + Startup())), "scope:Second");
 
-        var pairs = AccessPairing.Pair(first.Accesses.Concat(second.Accesses));
+        var pairs = InterproceduralPairing.Pair(first.Collection.Accesses.Concat(second.Collection.Accesses).ToArray(), first.Execution.Analysis,
+                                                first.Execution.Heap.Heap);
 
         Assert.All(pairs.Pairs, pair => Assert.Equal(pair.First.Resource.Scope, pair.Second.Resource.Scope));
         Assert.Equal(2, pairs.Pairs.Count);

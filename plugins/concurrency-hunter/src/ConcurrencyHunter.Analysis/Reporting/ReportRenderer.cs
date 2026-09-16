@@ -20,6 +20,18 @@ public static class ReportRenderer
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true
     };
+    private static readonly Dictionary<string, string> COUNTER_MEANINGS = new(StringComparer.Ordinal)
+    {
+        [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
+        [CoverageCounters.OPAQUE_CALL] = "calls without a source body, modelled without effect",
+        [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls, never invoked",
+        [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
+        [CoverageCounters.UNANALYSED_REGISTRATION] = "reached registrations whose factory or instance is not analyzed",
+        [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing",
+        [CoverageCounters.STARTUP_CONSTRUCTION_ACCESS] = "accesses of constructions run at startup, not paired",
+        [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
+        [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource"
+    };
     private static readonly Regex HEADING_PATTERN = new(@"^( {0,3})(#{1,6})(?=[ \t]|$)");
     private static readonly Regex FENCE_PATTERN = new("^ {0,3}(`{3,}|~{3,})");
 
@@ -55,10 +67,7 @@ public static class ReportRenderer
         Line($"- Execution roots: {Number(report.Analysis?.Roots.Count ?? 0)}");
         if (report.Analysis is not null)
             AppendScopes(markdown, report.Analysis);
-        Line("- Reachable set: not analyzed in this version");
-        Line("- Semantic gaps: not analyzed in this version");
-        Line("- Calls from roots: not analyzed in this version");
-        Line("- Path feasibility: not analyzed in this version");
+        Line("- Not analyzed in this version: semantic gaps, path feasibility, spawn sites and ordering, element accesses");
         Line();
 
         foreach (var label in new[] { "High", "Medium", "Low" })
@@ -120,10 +129,21 @@ public static class ReportRenderer
                 Line($"  - Diagnostics from {providerId}: {Items(WithPrefix(coverage.Diagnostics, providerId))}");
             Line($"  - Registrations: {Number(coverage.Registrations)}");
             Line($"  - DI diagnostics: {Items(WithPrefix(coverage.Diagnostics, "di"))}");
-            Line($"  - Skipped accesses: {Counts(coverage.Skips)}");
             var known = providerIds.Append("di").ToArray();
             var other = coverage.Diagnostics.Where(diagnostic => !known.Any(prefix => diagnostic.StartsWith(prefix + ": ", StringComparison.Ordinal)));
             Line($"  - Other diagnostics: {Items(other)}");
+            Line($"  - Reachable bodies: {Number(coverage.Skips.GetValueOrDefault(CoverageCounters.REACHABLE_BODIES))}");
+            foreach (var (counter, count) in coverage.Skips.Where(pair => pair.Key != CoverageCounters.REACHABLE_BODIES)
+                                                           .OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                var meaning = COUNTER_MEANINGS.TryGetValue(counter, out var text) ? $": {text}" : "";
+                Line($"  - {counter} {Number(count)}{meaning}");
+                if (counter == CoverageCounters.OPAQUE_CALL)
+                    Line($"    - Top opaque callees: {Items(coverage.TopOpaqueCallees.Select(callee => $"{callee.Callee} {Number(callee.Count)}"))}");
+            }
+
+            Line($"  - Lowered but not reached (inventory, not counted against coverage): {Items(coverage.LoweredNotReached)}");
+            Line($"  - Source bodies outside the lowered set (inventory, not counted against coverage): {Items(coverage.OutsideLoweredSet)}");
         }
     }
 
@@ -184,10 +204,12 @@ public static class ReportRenderer
         AppendAccess(markdown, "B", finding.AccessB);
         markdown.Append("- Code path A: ").Append(CodePath(finding.AccessA)).Append('\n');
         markdown.Append("- Code path B: ").Append(CodePath(finding.AccessB)).Append('\n');
+        AppendReadSources(markdown, "A", finding.AccessA);
+        AppendReadSources(markdown, "B", finding.AccessB);
         markdown.Append("- Resource: ").Append(finding.Resource.Assembly).Append(" · ")
                 .Append(finding.Resource.Region).Append(" · ")
                 .Append(string.Join(".", finding.Resource.AccessPath)).Append(" · scope ").Append(finding.Resource.Scope)
-                .Append(" · shared as ").Append(finding.AccessA.SharingKey).Append('\n');
+                .Append(" · ownership ").Append(Ownership(ResourceAccess(finding))).Append('\n');
         markdown.Append("- Binding evidence: ").Append(Items(BindingEvidence(finding))).Append('\n');
         markdown.Append("- Overlap: ").Append(string.Join(" ", finding.ConcurrencyEvidence)).Append(" A: ")
                 .Append(Policy(finding.AccessA.Root.Policy)).Append("; B: ").Append(Policy(finding.AccessB.Root.Policy)).Append('\n');
@@ -202,10 +224,39 @@ public static class ReportRenderer
                 .Append("\n\n");
     }
 
-    private static string CodePath(Access access) =>
-        access.CodeFlow.Count == 0
+    private static string CodePath(IReadOnlyList<CodeFlowStep> codeFlow) =>
+        codeFlow.Count == 0
             ? "not recorded"
-            : string.Join(" → ", access.CodeFlow.Select(step => $"{step.Text} ({step.Source.Path}:{Number(step.Source.StartLine)})"));
+            : string.Join(" → ", codeFlow.Select(step => $"{step.Text} ({step.Source.Path}:{Number(step.Source.StartLine)})"));
+
+    private static string CodePath(Access access) => CodePath(access.CodeFlow);
+
+    /// <summary>Each load a read-modify-write depends on, with its own code path.</summary>
+    private static void AppendReadSources(StringBuilder markdown, string role, Access access)
+    {
+        if (access.Operation != AccessOperation.ReadModifyWrite)
+            return;
+        foreach (var read in access.ReadSources)
+        {
+            markdown.Append("- Read source of ").Append(role).Append(": ").Append(read.Symbol).Append(" reads at ").Append(read.Source.Path)
+                    .Append(':').Append(Number(read.Source.StartLine)).Append("; code path: ").Append(CodePath(read.CodeFlow)).Append('\n');
+        }
+    }
+
+    /// <summary>The access whose resource is the finding's, whose region's ownership the finding reports.</summary>
+    private static Access ResourceAccess(Finding finding) =>
+        finding.AccessA.Resource.Identity == finding.Resource.Identity || finding.AccessB.Resource.Identity != finding.Resource.Identity
+            ? finding.AccessA
+            : finding.AccessB;
+
+    /// <summary>The ownership kind with the evidence chain that reaches the region, so the report shows it without findings.json.</summary>
+    private static string Ownership(Access access) =>
+        access.OwnershipEvidence.Count == 0
+            ? access.Ownership.ToString()
+            : $"{access.Ownership} ({string.Join(" ", access.OwnershipEvidence)})";
+
+    private static IEnumerable<string> OwnershipChain(Access access) =>
+        access.OwnershipEvidence.Select(item => $"ownership {access.Ownership}: {item}").DefaultIfEmpty($"ownership {access.Ownership}");
 
     private static IEnumerable<string> BindingEvidence(Finding finding) =>
         finding.AccessA.BindingEvidence.Concat(finding.AccessB.BindingEvidence)
@@ -281,8 +332,9 @@ public static class ReportRenderer
         finding.ConcurrencyEvidence,
         AliasEvidence = new[]
             {
-                $"both accesses reach region {finding.Resource.Region} in scope {finding.Resource.Scope} as {finding.AccessA.SharingKey}"
+                $"both accesses reach region {finding.Resource.Region} in scope {finding.Resource.Scope}"
             }
+            .Concat(OwnershipChain(ResourceAccess(finding)))
             .Concat(BindingEvidence(finding))
             .ToArray(),
         ProtectionAnalysis = new
@@ -328,9 +380,20 @@ public static class ReportRenderer
             },
             access.Symbol
         },
-        CodeFlow = access.CodeFlow.Select(step => $"{step.Text} ({step.Source.Path}:{Number(step.Source.StartLine)})").ToArray(),
-        access.HeldProtection
+        CodeFlow = CodeFlowJson(access.CodeFlow),
+        access.HeldProtection,
+        ReadSources = access.ReadSources.Select(read => new
+        {
+            Source = new { read.Source.Path, Span = Span(read.Source) },
+            read.Symbol,
+            CodeFlow = CodeFlowJson(read.CodeFlow)
+        }).ToArray()
     };
+
+    private static string[] CodeFlowJson(IReadOnlyList<CodeFlowStep> codeFlow) =>
+        codeFlow.Select(step => $"{step.Text} ({step.Source.Path}:{Number(step.Source.StartLine)})").ToArray();
+
+    private static int[] Span(SourceSpan source) => [source.StartLine, source.StartColumn, source.EndLine, source.EndColumn];
 
     private static object ResourceJson(AccessResource resource) => new
     {
@@ -356,7 +419,7 @@ public static class ReportRenderer
         Severity = (string?)null,
         ConfidenceLabel = group.ConfidenceLabel.ToLowerInvariant(),
         Resource = ResourceJson(group.Resource),
-        group.SharingKey,
+        Ownership = new { Kind = group.Ownership.ToString(), Evidence = group.OwnershipEvidence },
         group.FindingIds,
         OccurrenceCount = group.FindingIds.Count,
         RepresentativeLocations = group.FindingIds

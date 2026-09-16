@@ -11,14 +11,14 @@ internal sealed record PollResult(string? Error, string? Phase, string? State, b
                                   IReadOnlyList<string> Warnings, int WarningsTotal);
 
 internal sealed record DigestAccess(string Role, string Symbol, string Operation, string Path, int Line, string Root,
-                                    IReadOnlyList<string> HeldProtection);
+                                    IReadOnlyList<string> HeldProtection, IReadOnlyList<string> Calls);
 
 internal sealed record DigestFinding(string FindingId, string ProtectionResult, IReadOnlyList<string> EvidenceIds,
                                      IReadOnlyList<DigestAccess> Accesses, IReadOnlyList<string> BindingEvidence,
                                      IReadOnlyList<string> OverlapEvidence);
 
 internal sealed record GroupDigest(string GroupId, string RuleId, string ConfidenceLabel, string Region,
-                                   IReadOnlyList<string> AccessPath, int FindingCount,
+                                   IReadOnlyList<string> AccessPath, string Ownership, int FindingCount,
                                    IReadOnlyList<DigestFinding> Findings, IReadOnlyList<string> Scenario);
 
 internal sealed record GroupsResult(string? Error, IReadOnlyList<GroupDigest> Groups);

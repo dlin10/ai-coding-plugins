@@ -58,6 +58,14 @@ A task-returning call whose handle reaches no `await`, `Wait`, `WhenAll` or `Whe
 a handle stored and awaited elsewhere is a spawn with a join, not fire-and-forget.
 _Avoid_: unawaited call, dropped task, background task
 
+**Construction**:
+A constructor or type initializer running to produce an object or prepare a type. What it does to
+the object it produces, or a type initializer to its own type's statics, nobody else can see unless
+it publishes the object; everything else it touches belongs to the execution that triggered it: the
+request that builds a controller, the first resolution of a singleton, the host starting its hosted
+services, the first use of a type.
+_Avoid_: initialization (field initializers are part of a construction, not a separate thing), setup
+
 **Reachable set**:
 The method bodies a run analyzes: everything the call graph reaches from an execution root or a
 spawn site; a body outside it cannot execute in the process and is neither lowered nor counted
@@ -120,6 +128,11 @@ mandatory.
 _Avoid_: severity (the impact of a finding, assessed separately and never deciding either of those), level, priority
 
 ### What the analysis could not settle
+
+**Opaque call**:
+A call into a method whose body the run does not have and whose effects no built-in semantics
+describes; its effects are unknown, which is not the same as none.
+_Avoid_: external call, library call (a library method the built-in semantics describe is not opaque), unknown call
 
 **Semantic gap**:
 A call the deterministic analysis could not reduce and that touches a mutable non-owned region, a
@@ -184,6 +197,8 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Semantic gap** never changes a **Terminal status**; only a phase that did not finish does.
 - Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
+- A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
+- An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
 
@@ -208,5 +223,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - "Material gap" was a status condition in the draft (a material gap forced `Incomplete`). Resolved:
   **Materiality** is a rank, `Incomplete` means a phase did not finish, and the queue of **Gap
   packets** has no budget other than the **Deadline**.
+- Phase 1b showed a sharing key for each access (process, invocation, root scope, hosted instance).
+  Resolved: it stood in for **Ownership** before regions existed; once a region carries its ownership
+  and evidence chain, the sharing key is retired and ownership is the one account of who can reach a
+  region.
 - Phase 1a read the whole solution as one program. Resolved: a solution may hold several
   applications, and the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.

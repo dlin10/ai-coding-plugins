@@ -9,6 +9,7 @@ namespace ConcurrencyHunter.Frontend;
 internal sealed class SsaPlan
 {
     private readonly IMethodSymbol _method;
+    private readonly ISymbol? _initializerOwner;
     private readonly EffectiveFlowGraph _flowGraph;
     private readonly Dictionary<ISymbol, SsaVariable> _symbols = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<CaptureId, SsaVariable> _captures = [];
@@ -18,9 +19,10 @@ internal sealed class SsaPlan
     private readonly Dictionary<int, Dictionary<SsaVariable, SsaToken>> _exit = [];
     private readonly Dictionary<(int Block, SsaVariable Variable), SsaPhiToken> _phis = [];
 
-    private SsaPlan(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph)
+    private SsaPlan(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph, ISymbol? initializerOwner)
     {
         _method = method;
+        _initializerOwner = initializerOwner;
         _flowGraph = flowGraph;
         foreach (var parameter in method.Parameters)
             GetVariable(parameter, null);
@@ -40,8 +42,11 @@ internal sealed class SsaPlan
     internal SsaDefaultToken Default { get; } = new();
     internal SsaExceptionalToken Exceptional { get; } = new();
 
-    internal static SsaPlan Create(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph) =>
-        new(method, graph, flowGraph);
+    /// <summary><paramref name="initializerOwner"/> is the field or property whose initializer <paramref name="graph"/> is, when
+    /// the graph is part of <paramref name="method"/>'s constructor body: variables it declares are not captures.</summary>
+    internal static SsaPlan Create(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph,
+                                   ISymbol? initializerOwner = null) =>
+        new(method, graph, flowGraph, initializerOwner);
 
     internal bool TryGetVariable(ISymbol symbol, out SsaVariable variable) =>
         _symbols.TryGetValue(symbol, out variable!);
@@ -185,6 +190,12 @@ internal sealed class SsaPlan
             case IFlowCaptureReferenceOperation capture:
                 GetVariable(capture.Id, capture);
                 return;
+            case IInvocationOperation invocation when !IrLowering.IsMonitorEnterOrExit(invocation.TargetMethod):
+                ScanCall(invocation, invocation.Arguments, blockOrdinal);
+                return;
+            case IObjectCreationOperation { Constructor: not null } creation:
+                ScanCall(creation, creation.Arguments, blockOrdinal);
+                return;
             case ILocalReferenceOperation local:
                 GetVariable(local.Local, local);
                 return;
@@ -196,6 +207,28 @@ internal sealed class SsaPlan
         foreach (var child in operation.ChildOperations)
             Scan(child, blockOrdinal);
     }
+
+    /// <summary>A call defines a new version of every local or parameter it passes by <c>ref</c> or <c>out</c>, after its
+    /// receiver and arguments are evaluated.</summary>
+    private void ScanCall(IOperation call, IEnumerable<IArgumentOperation> arguments, int blockOrdinal)
+    {
+        foreach (var child in call.ChildOperations)
+            Scan(child, blockOrdinal);
+        foreach (var argument in arguments)
+        {
+            if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentVariable(argument) is { } variable)
+                AddDefinition(blockOrdinal, variable);
+        }
+    }
+
+    private SsaVariable? RefArgumentVariable(IArgumentOperation argument) => Unwrap(argument.Value) switch
+    {
+        ILocalReferenceOperation local => GetVariable(local.Local, local),
+        IParameterReferenceOperation parameter when !IsPrimaryConstructorParameter(parameter.Parameter) ||
+                                                    SymbolEqualityComparer.Default.Equals(parameter.Parameter.ContainingSymbol, _method) =>
+            GetVariable(parameter.Parameter, parameter),
+        _ => null
+    };
 
     private void ScanTarget(IOperation target, int blockOrdinal)
     {
@@ -275,7 +308,8 @@ internal sealed class SsaPlan
             _ => null
         };
         var isOuterCapture = symbol is ILocalSymbol or IParameterSymbol &&
-                             !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _method);
+                             !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _method) &&
+                             !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _initializerOwner);
         var variable = new SsaVariable(
             symbol,
             null,

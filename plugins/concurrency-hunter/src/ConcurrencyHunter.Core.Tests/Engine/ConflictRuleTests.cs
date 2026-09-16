@@ -1,6 +1,9 @@
 using System.Text.Json;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
@@ -90,7 +93,7 @@ public sealed class ConflictRuleTests
             """ + Startup("services.AddSingleton<IFirst, Gate>(); services.AddSingleton<ISecond, Gate>();"));
 
         Assert.Equal(2, result.Findings.Count);
-        Assert.Equal(["process:Fixture:IFirst", "process:Fixture:ISecond"], result.Groups.Select(group => group.SharingKey).Order());
+        Assert.Equal(2, result.Groups.Select(group => group.Resource.Identity).Distinct().Count());
         Assert.Equal(2, result.Groups.Select(group => group.StableId).Distinct().Count());
         Assert.Equal(2, result.Findings.Select(finding => finding.StableId).Distinct().Count());
         Assert.All(result.Groups, group => Assert.Equal("di:Gate@Singleton", group.Resource.Region));
@@ -368,12 +371,43 @@ public sealed class ConflictRuleTests
         Assert.Contains("region di:Ledger@Singleton of scope solution", evidence["R"].Text, StringComparison.Ordinal);
         Assert.Contains("registers Ledger at Case.cs:", evidence["R"].Text, StringComparison.Ordinal);
         Assert.Contains("may run concurrently in scope solution", evidence["O"].Text, StringComparison.Ordinal);
-        Assert.Contains("static:Gates.G", evidence["P"].Text, StringComparison.Ordinal);
+        Assert.Contains("alloc:Gates..cctor()#object", evidence["P"].Text, StringComparison.Ordinal);
         Assert.Contains("no protection", evidence["P"].Text, StringComparison.Ordinal);
 
         var self = Assert.Single(result.Findings, finding => ReferenceEquals(finding.AccessA, finding.AccessB));
         Assert.Contains("may run concurrently with itself in scope solution", self.Evidence.Single(item => item.Kind == "overlap").Text,
                         StringComparison.Ordinal);
+    }
+
+    /// <summary>An open-region pair is reported on the closed side's resource, so the resource evidence must name that region's
+    /// ownership, not the open side's.</summary>
+    [Fact]
+    public void Resource_evidence_names_the_ownership_of_the_reported_region()
+    {
+        var openResource = FindingTestData.Resource("static:Cache<T>", "Last") with { RegionId = "static:Fixture:Cache<Fixture:T>" };
+        var closedResource = FindingTestData.Resource("static:Cache<Order>", "Last") with { RegionId = "static:Fixture:Cache<Fixture:Order>" };
+        var open = FindingTestData.Access(openResource, AccessOperation.Write, "root-a", "Access.Store<T>(object)",
+                                          new SourceSpan("Case.cs", 21, 1, 21, 40)) with
+        {
+            Ownership = OwnershipKind.Unknown,
+            OwnershipEvidence = ["static:Cache<T> comes from a merged context."]
+        };
+        var closed = FindingTestData.Access(closedResource, AccessOperation.Read, "root-b", "CacheController.Get()",
+                                            new SourceSpan("Case.cs", 25, 1, 25, 40)) with
+        {
+            Ownership = OwnershipKind.Shared,
+            OwnershipEvidence = ["static:Cache<Order> is static storage."]
+        };
+        var pair = new AccessPair(open, closed, PairProtection.UNPROTECTED) { Resource = closedResource };
+
+        var finding = Assert.Single(ConflictFindings.Create([pair], CancellationToken.None).Findings);
+
+        Assert.Equal(closedResource, finding.Resource);
+        Assert.Equal(open, finding.AccessA);
+        var resource = Assert.Single(finding.Evidence, item => item.Kind == "resource").Text;
+        Assert.Contains("ownership: Shared (static:Cache<Order> is static storage.)", resource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unknown", resource, StringComparison.Ordinal);
+        Assert.Equal(OwnershipKind.Shared, Assert.Single(ConflictFindings.Create([pair], CancellationToken.None).Groups).Ownership);
     }
 
     [Fact]
@@ -418,6 +452,7 @@ public sealed class ConflictRuleTests
     public async Task Coverage_counts_roots_registrations_skips_and_pairs()
     {
         var result = await Analyze(Shared + """
+            public static class Unused { public static void Sweep() { Action clear = () => State.Value = 0; clear(); } }
             public class LedgerController(Ledger ledger) : ControllerBase
             {
                 public void Post() { ledger.Entry = "x"; new Ledger().Entry = "local"; }
@@ -425,13 +460,80 @@ public sealed class ConflictRuleTests
             """ + Startup("services.AddSingleton<Ledger>();"));
 
         var coverage = Assert.Single(result.Coverage);
+        // A member no root reaches is inventory with its nested bodies.
+        Assert.Contains("body:Fixture:M:Unused.Sweep", coverage.OutsideLoweredSet);
+        Assert.Contains("body:Fixture:M:Unused.Sweep#lambda1", coverage.OutsideLoweredSet);
         Assert.Equal("solution", coverage.ScopeId);
         Assert.Equal(1, coverage.RootsPerProvider["aspnetcore"]);
         Assert.Equal(0, coverage.RootsPerProvider["hosting"]);
         Assert.Equal(1, coverage.Registrations);
-        Assert.Equal(1, coverage.Skips["allocation"]);
+        Assert.True(coverage.Skips[CoverageCounters.REACHABLE_BODIES] > 0);
         Assert.Contains(ConcurrencyHunter.Scopes.ProcessScope.NO_EXECUTABLE_DIAGNOSTIC, coverage.Diagnostics);
-        Assert.Equal(1, result.Pairs.Candidates);
+        Assert.Equal(3, result.Pairs.Candidates);
+        Assert.Equal(1, result.Pairs.Skips[InterproceduralPairing.SKIP_CONFINED]);
+    }
+
+    [Fact]
+    public async Task Wildcard_resource_lowers_resource_identity_to_Medium()
+    {
+        var chain = string.Concat(Enumerable.Range(1, 11).Select(level => $"public sealed class Level{level} {{ public Level{level + 1} Next {{ get; }} = new(); }}\n"));
+        var result = await Analyze(Shared + chain + """
+            public sealed class Level12 { public string? Value { get; set; } }
+            public sealed class DeepChain
+            {
+                public Level1 First { get; } = new();
+                public void Write(string value) => First.Next.Next.Next.Next.Next.Next.Next.Next.Next.Next.Next.Value = value;
+            }
+            public class DeepController(DeepChain chain) : ControllerBase { public void Put(string value) => chain.Write(value); }
+            """ + Startup("services.AddSingleton<DeepChain>();"));
+
+        var wildcard = result.Findings.Where(item => item.Resource.IsWildcard).ToArray();
+        Assert.NotEmpty(wildcard);
+        Assert.All(wildcard, finding => Assert.Equal(new FindingConfidence("Medium", 70, new ConfidenceComponents(10, 20, 20, 20, 0)), finding.Confidence));
+        Assert.All(wildcard, finding => Assert.Contains("The resource is a wildcard: an access path longer than the analysis limit was collapsed.", finding.Uncertainty));
+        Assert.All(result.Groups.Where(group => group.Resource.IsWildcard), group => Assert.Equal("Medium", group.ConfidenceLabel));
+        Assert.DoesNotContain(result.Findings, finding => !finding.Resource.IsWildcard && finding.Confidence.Label != "High");
+    }
+
+    [Fact]
+    public async Task Merged_contexts_are_uncertainty_without_a_penalty()
+    {
+        var result = await Analyze(Shared + """
+            public static class Cache<T> { public static object? Last; }
+            public static class Grow
+            {
+                public static void F<T>(object value, int depth) { Cache<T>.Last = value; if (depth > 0) F<System.Collections.Generic.List<T>>(value, depth - 1); }
+            }
+            public class GrowController : ControllerBase { public void Post() => Grow.F<int>(new object(), 3); }
+            """ + Startup());
+
+        var merged = result.Findings.Where(finding => finding.Uncertainty.Contains("Contexts of Grow.F<T>(object, int) were merged; the objects involved may be more than one."))
+                           .ToArray();
+        Assert.NotEmpty(merged);
+        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 20, 0)), finding.Confidence));
+    }
+
+    [Fact]
+    public async Task Evidence_names_ownership_and_its_evidence_chain()
+    {
+        var result = await Analyze(Shared + """
+            public sealed class Tally { private int _count; public void Bump() => _count = _count + 1; }
+            public class LedgerController(Ledger ledger, Tally tally) : ControllerBase
+            {
+                public void Post() { ledger.Entry = "x"; tally.Bump(); }
+            }
+            """ + Startup("services.AddSingleton<Ledger>(); services.AddSingleton<Tally>();"));
+
+        var entry = Assert.Single(result.Findings, finding => finding.Resource.Member.Name == "Entry");
+        var resource = Assert.Single(entry.Evidence, item => item.Kind == "resource").Text;
+        Assert.Contains("in region di:Ledger@Singleton of scope solution; ownership: Shared (di:Ledger@Singleton is one container object for the whole scope (singleton).)",
+                        resource, StringComparison.Ordinal);
+        Assert.Contains("binding evidence: LedgerController.ledger holds constructor parameter ledger at Case.cs:", resource, StringComparison.Ordinal);
+
+        var count = Assert.Single(result.Findings, finding => finding.Resource.Member.Name == "_count");
+        var access = Assert.Single(count.Evidence, item => item.Kind == "access-a").Text;
+        var read = Assert.Single(count.AccessA.ReadSources);
+        Assert.Contains($"; reads it at {read.Source.Path}:{read.Source.StartLine} in Tally.Bump(); holds", access, StringComparison.Ordinal);
     }
 
     [Fact]

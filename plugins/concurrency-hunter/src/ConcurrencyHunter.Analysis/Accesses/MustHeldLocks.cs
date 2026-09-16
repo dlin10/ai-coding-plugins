@@ -30,12 +30,14 @@ internal readonly record struct HeldLock(int Depth, LockObject Lock, int Acquisi
 /// </summary>
 internal static class MustHeldLocks
 {
-    internal static IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>> Compute(IrBody body, Func<IrOperation, LockEffect> effectOf) =>
-        new Solver(body, effectOf).Run();
+    /// <summary>The locks held before each operation, starting from <paramref name="entry"/> (none when null).</summary>
+    internal static IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>> Compute(IrBody body, Func<IrOperation, LockEffect> effectOf,
+                                                                                             IReadOnlyDictionary<string, HeldLock>? entry = null) =>
+        new Solver(body, effectOf, entry).Run();
 
-    private sealed class Solver(IrBody body, Func<IrOperation, LockEffect> effectOf)
+    private sealed class Solver(IrBody body, Func<IrOperation, LockEffect> effectOf, IReadOnlyDictionary<string, HeldLock>? entry)
     {
-        private static readonly Dictionary<string, HeldLock> Empty = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HeldLock> Empty = new(entry ?? new Dictionary<string, HeldLock>(), StringComparer.Ordinal);
         private readonly Dictionary<int, IrRegion> _regions = body.Regions.ToDictionary(region => region.Id);
 
         internal IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>> Run()

@@ -1,7 +1,10 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Roots;
@@ -10,20 +13,69 @@ using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
-public sealed record EngineRun(ScopeAnalysisInput Input, AccessExtractionResult Extraction, PairAnalysis Pairs)
+public sealed record WholeProgramRun(string ScopeId, ReachabilityInput Input, ReachableSetResult Result, IReadOnlyList<string> LoweredMembers)
 {
-    public IReadOnlyList<Access> Accesses => Extraction.Accesses;
+    public bool Reaches(string bodyId) => Result.ReachedBodies.ContainsKey(bodyId);
 
-    public Access Single(string member, AccessOperation operation) =>
-        Assert.Single(Accesses, access => access.Resource.Member.Name == member && access.Operation == operation);
+    public Construction Construction(string typeName) =>
+        Assert.Single(Result.Constructions, construction => construction.TypeKey == $"Fixture:{typeName}");
 
-    public IReadOnlyList<Access> Of(string member) => Accesses.Where(access => access.Resource.Member.Name == member).ToArray();
+    public IReadOnlyList<Construction> Constructions(string typeName) =>
+        Result.Constructions.Where(construction => construction.TypeKey == $"Fixture:{typeName}").ToArray();
 
-    public int Skipped(string reason) => Extraction.Skips.GetValueOrDefault(reason);
+    public ExecutionRootDescriptor Root(string symbol) => Assert.Single(Input.Roots, root => root.Entry.Symbol == symbol);
 }
 
-/// <summary>Runs the real pipeline on one source file: the DI index, both built-in providers, injection bindings, IR
-/// lowering of every body a root reaches, then access extraction and pairing.</summary>
+public sealed record HeapRun(WholeProgramRun Program, HeapSolution Heap, SummaryCache Summaries)
+{
+    public IReadOnlyList<HeapRegion> Regions(string display) => Heap.Regions.Values.Where(region => region.Display == display).ToArray();
+
+    public HeapRegion Region(string display) => Assert.Single(Regions(display));
+
+    /// <summary>The displays of the regions a field of a region points to, ordered.</summary>
+    public IReadOnlyList<string> Targets(HeapRegion region, string field) =>
+        Heap.PointsTo(region.Identity, field).Select(id => Heap.Regions[id].Display).Order(StringComparer.Ordinal).ToArray();
+
+    public IReadOnlyList<MethodInstance> Instances(string bodyId) => Heap.Instances.Values.Where(instance => instance.BodyId == bodyId).ToArray();
+
+    public int Counter(string name) => Heap.Counters.GetValueOrDefault(name);
+}
+
+public sealed record ExecutionRun(HeapRun Heap, ExecutionAnalysis Analysis)
+{
+    public IReadOnlyList<CollectedAccess> Accesses(string field, SummaryAccessKind kind) =>
+        Analysis.Accesses.Where(access => access.Access.Field.Name == field && access.Access.Kind == kind).ToArray();
+
+    public RegionOwnership Ownership(string display) => Analysis.Ownership[Heap.Region(display).Identity];
+
+    public int Counter(string name) => Analysis.Counters.GetValueOrDefault(name);
+}
+
+/// <summary>A full engine run of one scope: its executions, interprocedural accesses and pairs.</summary>
+public sealed record EngineRun(ExecutionRun Execution, InterproceduralCollection Collection, PairAnalysis Pairs)
+{
+    public IReadOnlyList<Access> Accesses(string field) =>
+        Collection.Accesses.Where(access => access.Resource.AccessPath.SequenceEqual([field])).ToArray();
+
+    public IReadOnlyList<AccessPair> PairsOn(string field) =>
+        Pairs.Pairs.Where(pair => pair.Resource.AccessPath.SequenceEqual([field])).ToArray();
+
+    /// <summary>The one access of a member with an operation, construction-local accesses aside.</summary>
+    public Access Single(string member, AccessOperation operation) =>
+        Assert.Single(Of(member), access => access.Operation == operation);
+
+    /// <summary>The accesses of a member that can pair: construction-local accesses aside.</summary>
+    public IReadOnlyList<Access> Of(string member) =>
+        Collection.Accesses.Where(access => access.Resource.Member.Name == member && !access.IsConstructionLocal).ToArray();
+
+    public int Skipped(string reason) => Pairs.Skips.GetValueOrDefault(reason);
+
+    public int Counter(string name) => Collection.Coverage.Counters.GetValueOrDefault(name);
+}
+
+/// <summary>Runs the real pipeline on one source file the way the analyzer does: the DI index, both built-in providers, injection
+/// bindings, the program index, the reachable set over a member provider that lowers each member once, summaries, the whole-program
+/// heap, executions and ownership, then interprocedural accesses and pairs.</summary>
 public static class EngineFixture
 {
     public const string ROOT_DIRECTORY = @"C:\fixture";
@@ -56,41 +108,80 @@ public static class EngineFixture
         }
         """;
 
-    public static EngineRun Analyze(string source, string scopeId = "scope:Fixture") =>
-        AnalyzeScope(FixtureSolution.Create(("Case.cs", Usings + source)), scopeId);
+    /// <summary>Runs the whole engine over one source file.</summary>
+    public static EngineRun Analyze(string source, AnalysisLimits? limits = null) => Analyze(Execute(source, limits));
 
-    public static EngineRun AnalyzeScope(Solution solution, string scopeId)
+    public static EngineRun AnalyzeScope(Solution solution, string scopeId) => Analyze(Execute(Solve(ReachScope(solution, scopeId))));
+
+    private static EngineRun Analyze(ExecutionRun execution)
+    {
+        var input = new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);
+        var collection = InterproceduralAccesses.Collect(input);
+        return new EngineRun(execution, collection, InterproceduralPairing.Pair(collection.Accesses, execution.Analysis, execution.Heap.Heap));
+    }
+
+    /// <summary>Solves the whole-program heap of one source file over its reachable set.</summary>
+    public static HeapRun Solve(string source, AnalysisLimits? limits = null) => Solve(Reach(source), limits);
+
+    public static HeapRun Solve(WholeProgramRun run, AnalysisLimits? limits = null)
+    {
+        var summaries = new SummaryCache(run.Result.Bodies, run.Input.Program, limits ?? AnalysisLimits.Default);
+        return new HeapRun(run, WholeProgram.Solve(Scope(run, summaries), limits ?? AnalysisLimits.Default), summaries);
+    }
+
+    /// <summary>Builds the executions, ownership and construction facts of one source file over its solved heap.</summary>
+    public static ExecutionRun Execute(string source, AnalysisLimits? limits = null) => Execute(Solve(source, limits));
+
+    public static ExecutionRun Execute(HeapRun heap) =>
+        new(heap, ExecutionModel.Build(Scope(heap.Program, heap.Summaries), heap.Heap));
+
+    private static ScopeProgram Scope(WholeProgramRun run, SummaryCache summaries) =>
+        new(run.ScopeId, run.Input.Roots, run.Result, summaries, run.Input.Program, run.Input.DiIndex, run.Input.InjectionBindings);
+
+    /// <summary>Builds the reachable set of one source file.</summary>
+    public static WholeProgramRun Reach(string source) =>
+        ReachScope(FixtureSolution.Create(("Case.cs", Usings + source)), "scope:Fixture");
+
+    public static WholeProgramRun ReachScope(Solution solution, string scopeId)
     {
         var compilations = solution.Projects.Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()!).ToArray();
         var index = DiIndexBuilder.Build(scopeId, compilations, ROOT_DIRECTORY, CancellationToken.None);
         var context = new RootDiscoveryContext(scopeId, compilations, ROOT_DIRECTORY, index, CancellationToken.None);
         var roots = ProviderRegistry.BuiltIn.Providers.SelectMany(provider => provider.Discover(context).Roots).ToArray();
         var bindings = InjectionBindings.Discover(compilations, index, ROOT_DIRECTORY, CancellationToken.None);
+        var program = ProgramIndexBuilder.Build(scopeId, compilations, ROOT_DIRECTORY, CancellationToken.None);
 
-        var bodies = new Dictionary<string, IrBody>(StringComparer.Ordinal);
-        var wanted = roots.Select(root => IrLowering.EnclosingMethodBodyId(root.Entry.BodyKey)).ToHashSet(StringComparer.Ordinal);
+        var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
         foreach (var compilation in compilations)
         {
-            foreach (var method in Methods(compilation.Assembly.GlobalNamespace))
+            foreach (var method in Types(compilation.Assembly.GlobalNamespace).SelectMany(type => type.GetMembers().OfType<IMethodSymbol>()))
+                methods.TryAdd(IrLowering.RootBodyId(method), (method, compilation));
+        }
+
+        var lowered = new List<string>();
+        IReadOnlyList<IrBody> Lower(string memberId)
+        {
+            Assert.DoesNotContain(memberId, lowered);
+            lowered.Add(memberId);
+            if (!methods.TryGetValue(memberId, out var member))
+                return [];
+            try
             {
-                if (!wanted.Contains(IrLowering.RootBodyId(method)))
-                    continue;
-                var lowered = IrLowering.Lower(method, compilation, ROOT_DIRECTORY, CancellationToken.None);
-                foreach (var body in lowered.NestedBodies.Prepend(lowered.Body))
-                    bodies[body.BodyId] = body;
+                var result = IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None);
+                return result.NestedBodies.Prepend(result.Body).ToArray();
+            }
+            catch (ArgumentException)
+            {
+                return [];
             }
         }
 
-        var input = new ScopeAnalysisInput(scopeId, roots, bodies, index, bindings);
-        var extraction = AccessExtraction.Extract(input);
-        return new EngineRun(input, extraction, AccessPairing.Pair(extraction.Accesses));
+        var input = new ReachabilityInput(program, roots, index, bindings, Lower);
+        return new WholeProgramRun(scopeId, input, ReachableSet.Build(input), lowered);
     }
 
-    private static IEnumerable<IMethodSymbol> Methods(INamespaceSymbol @namespace) =>
-        @namespace.GetTypeMembers().SelectMany(NestedAndSelf)
-                  .SelectMany(type => type.GetMembers().OfType<IMethodSymbol>())
-                  .Where(method => method.DeclaringSyntaxReferences.Length != 0 && method.MethodKind is MethodKind.Ordinary or MethodKind.ExplicitInterfaceImplementation)
-                  .Concat(@namespace.GetNamespaceMembers().SelectMany(Methods));
+    private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
+        @namespace.GetTypeMembers().SelectMany(NestedAndSelf).Concat(@namespace.GetNamespaceMembers().SelectMany(Types));
 
     private static IEnumerable<INamedTypeSymbol> NestedAndSelf(INamedTypeSymbol type) =>
         new[] { type }.Concat(type.GetTypeMembers().SelectMany(NestedAndSelf));
