@@ -393,6 +393,20 @@ runner keeps it, because this process runs as the user and the alias launches fo
 PowerShell 5.1 is the fallback and has no native-error preference, so a multi-line gate there is
 judged by its last line alone.
 
+Measured on 2026-09-16 against pwsh 7.6.6, which is why the gate command is no longer passed as
+`-EncodedCommand`: base64 of UTF-16 is about 2.7 characters of argument per character of script, and
+`CreateProcess` caps the command line at 32,767, so launching from the Store path this box resolves
+— 85 characters — with the runner's five other arguments and its wrapping, **a gate command of
+11,930 characters starts and one of 11,931 does not**. The failure is `Win32Exception`, "The
+filename or extension is too long", which the runner had been reading as a shell that would not
+start: outcome `not_run`, which leaves the builder's self-report standing, so the task counts with
+nothing checked. Run `20260915-143837-8bc4d1` lost a 14,824-character gate that way — 40,328
+characters of base64 — and the same script passed when run by hand from a file. The number moves
+with the length of the shell's path, so the ceiling is a range rather than a constant, and the gate
+now travels as a temporary `.ps1` run with `-File`, where no length applies at all. That file is
+UTF-8 **with** a BOM: Windows PowerShell 5.1 reads a BOM-less script as the system codepage, which
+is what would mangle a gate naming a non-ASCII path or test. See `docs/adr/0015` and its amendment.
+
 ## A failed act used to leave no trace, so the run log is the server's own record
 
 Both older run files record the **results of acts that succeeded** — `review-log.md` the critiques,

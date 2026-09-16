@@ -45,7 +45,9 @@ code mean what a gate needs: a cmdlet error exits 1 through a trap that first wr
 native command's non-zero exit is the script's exit on PowerShell 7.4+, and a script that ran only
 PowerShell exits 0. The Store's execution alias for `pwsh` is *not* skipped here, unlike in
 `docs/adr/0013`: it refuses codex's restricted token, but this server runs as the user, and on a
-Store install it is the only `pwsh` on `PATH`.
+Store install it is the only `pwsh` on `PATH`. *(The base64 half of this was amended on 2026-09-16:
+see the amendment at the foot of this record. PowerShell over `cmd.exe`, the wrapping script and the
+alias decision all stand.)*
 
 **The gate's environment and the builder's extra roots arrive with the approval, not with
 `forge.begin`.** The obvious home was the first call, and the first reason against it is the order of
@@ -85,3 +87,51 @@ diff and never runs a build, for the reason `CONTEXT.md` gives — a build write
 reading. And nothing here reads the vendor's own event stream for exit codes, which the old rule
 rightly refused because only codex reports them reliably; the host runs the command itself, so the
 answer is the same for every vendor.
+
+## Amendment, 2026-09-16: the command travels as a file, not as base64
+
+`-EncodedCommand` had a ceiling, and the ceiling was low enough to reach. Base64 of UTF-16 runs
+about 2.7 characters of argument per character of script, and `CreateProcess` caps the whole command
+line at 32,767 characters. Measured on 2026-09-16 against pwsh 7.6.6, launched from the Store path
+this box resolves — 85 characters of it — with the same five arguments and the same wrapping the
+runner uses: a gate command of **11,930 characters still starts** (base64 argument 32,608
+characters, and it exits with the code its script asks for), and **11,931 does not**. The boundary
+moves with the length of the shell's own path, so "roughly 12,000 characters" is as precise as the
+number deserves to be.
+
+Run `20260915-143837-8bc4d1` reached it. Task 1's gate was a 14,824-character fenced PowerShell
+block — 40,328 characters of base64 — and `forge.build.next` returned `gate.outcome = "not_run"`
+with `the host could not start …\pwsh.exe: … The filename or extension is too long`. **The task was
+counted anyway**, on the builder's own verification, because a `not_run` gate leaves the self-report
+standing. That is the exact outcome this record exists to prevent, arriving through the one door it
+left open: the gate a plan writes is a fenced block, and nothing ever told a plan to keep one small.
+Run by hand from a file, with the same preamble, the same script passed.
+
+So the wrapped script is written to a temporary `.ps1` and run with `-File`, for every gate rather
+than only the long ones — a fallback that engages above 12,000 characters would be exercised only in
+the rare case, and the rare case is the one that just failed silently. **Nothing of the gate reaches
+a command line at all**, so the original reason for base64 — that no quote, dollar sign or newline
+can break it — holds more strongly than before, and no length can break it either. The file is UTF-8
+*with* a BOM: Windows PowerShell 5.1, still the fallback, reads a BOM-less script as the system
+codepage, which would mangle exactly the non-ASCII paths and test names a plan in Russian puts in a
+gate. `-ExecutionPolicy Bypass` was already on the command line, so an unsigned script in `%TEMP%`
+runs without a new argument. The file is deleted in a `finally`, which lands even on the timeout
+path: measured the same day, deleting a `.ps1` three seconds into its own `Start-Sleep` succeeds and
+the script runs on regardless, and so does deleting one the instant its pwsh is killed — PowerShell
+reads a script in full before running it and holds no lock on it afterwards.
+
+What this does not change: the preamble, the trap, the epilogue, the working directory, the
+environment, the timeout and every `gate.start` / `gate.finished` field are as they were, and
+`GateRunnerTests` pins them against the new path. What it adds: a gate now sees `$PSCommandPath` and
+`$PSScriptRoot` pointing at that temporary file, where under `-EncodedCommand` they were empty; and a
+temp directory that cannot be written is its own `not_run`, logged as `gate.no-script`, rather than
+being reported as a shell that would not start.
+
+**What is still open is the `not_run` rule itself.** A gate the host cannot run leaves the builder's
+word standing and the task counted, which is what turned this bug from a failed gate into a false
+`done`. Making it fail instead is a larger change than this one, and not obviously right: `not_run`
+means two different things in `Gatekeeper` — *the turn was not gatable* and *the host could not
+check* — so failing the second needs the two separated first, and a `gate_failed` re-queues the task
+with evidence a builder cannot act on, so a host with no PowerShell would spend a run's turns on a
+task nothing can advance. What has changed is that a plan can no longer trigger `not_run` by writing
+a long gate, which is what made the gap dangerous.

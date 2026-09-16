@@ -1,5 +1,30 @@
 # Plan Forge Flow releases
 
+## 0.29.1
+
+A gate longer than roughly 12,000 characters never ran at all, and the task it guarded was counted
+anyway on the builder's own verification — the one outcome `docs/adr/0015` exists to prevent.
+
+- The gate command now travels as a temporary `.ps1` run with `-File`, in place of `pwsh
+  -EncodedCommand`. Base64 of UTF-16 is about 2.7 characters of argument per character of script and
+  Windows caps a command line at 32,767, so a gate command of 11,930 characters started and one of
+  11,931 did not. Run `20260915-143837-8bc4d1` lost a 14,824-character gate that way, reported as
+  `gate.outcome = "not_run"` with "the filename or extension is too long", which leaves the
+  builder's self-report standing. Nothing of the gate reaches a command line now, so no length
+  applies and no quote, dollar sign or newline can break it either.
+- Everything the exit code depends on is unchanged: the `Stop` preference, the native-error
+  preference, the trap that writes before it exits, the final `$LASTEXITCODE`, the working
+  directory, the environment, the timeout and every `gate.start` / `gate.finished` field. The script
+  is UTF-8 with a BOM, which is what Windows PowerShell 5.1 needs to read a gate naming a non-ASCII
+  path or test, and it is deleted after the run.
+- A temp directory that cannot be written is now its own `not_run`, logged as `gate.no-script`,
+  instead of being reported as a shell that would not start. A gate now also sees `$PSCommandPath`
+  and `$PSScriptRoot`, which were empty under `-EncodedCommand`.
+- `CONTEXT.md` records the measured ceiling, and `docs/adr/0015` carries an amendment covering what
+  the base64 decision cost and why a gate the host cannot run still leaves the builder's word
+  standing — which is what turned this defect from a failed gate into a false `done`, and is left
+  open deliberately.
+
 ## 0.29.0
 
 Critics and builders that were still making progress stopped after a fixed 20-minute vendor window,

@@ -193,6 +193,13 @@ public sealed class WorkToolsTests : IDisposable
             "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
+        // The worker runs on a thread of its own, and `Emit` is what records the two activity
+        // fields below — so polling straight after the start races the vendor's first line rather
+        // than testing anything, and the 50 ms window loses that race whenever the suite is busy.
+        // Waiting for the line to be recorded leaves the window meaning the one thing it is here
+        // for: a poll that expires while the job is still running.
+        await vendor.Recorded.WaitAsync(TimeSpan.FromSeconds(30));
+
         var running = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
 
@@ -381,9 +388,17 @@ public sealed class WorkToolsTests : IDisposable
     private sealed class BlockingVendor : IVendor
     {
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _recorded = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public string Id => "claude";
         public VendorCatalog Catalog { get; } = new([], CatalogSource.Resolved);
+
+        /// <summary>
+        /// Completes once the session has emitted its one event, and so once the activity fields a
+        /// poll reports have been written. A test that asserts on those waits for this first; one
+        /// that only asserts the job is running has nothing to wait for.
+        /// </summary>
+        public Task Recorded => _recorded.Task;
 
         public void Release() => _release.SetResult();
 
@@ -392,10 +407,10 @@ public sealed class WorkToolsTests : IDisposable
 
         public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken,
                                                CancellationToken ct) =>
-            Task.FromResult<IVendorSession>(new BlockingSession(_release));
+            Task.FromResult<IVendorSession>(new BlockingSession(_release, _recorded));
     }
 
-    private sealed class BlockingSession(TaskCompletionSource release) : IVendorSession
+    private sealed class BlockingSession(TaskCompletionSource release, TaskCompletionSource recorded) : IVendorSession
     {
         public IAsyncEnumerable<VendorEvent> Events => EmptyEvents();
         public bool CanResume => true;
@@ -407,6 +422,7 @@ public sealed class WorkToolsTests : IDisposable
             var events = Channel.CreateUnbounded<VendorEvent>();
             events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolUse, "command_execution",
                 [("command", "dotnet test")]));
+            recorded.TrySetResult();
             await release.Task.WaitAsync(ct);
             return (T)(object)new Critique("approve", [], "released");
         }

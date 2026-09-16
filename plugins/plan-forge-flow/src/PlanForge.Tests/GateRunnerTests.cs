@@ -115,6 +115,39 @@ public sealed class GateRunnerTests : IDisposable
         Assert.Contains("value: it's \"quoted\"", run.Output, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Run 20260915-143837-8bc4d1 lost a 14,824-character gate: as <c>-EncodedCommand</c> its base64
+    /// ran past the 32,767-character Windows command line, the shell never started, and the outcome
+    /// was <c>not_run</c> — which leaves the builder's self-report standing, so the task counted with
+    /// nothing checked. 40,000 characters is past that ceiling under any encoding, and the exit code
+    /// is what proves the script reached PowerShell rather than merely fitting somewhere.
+    /// </summary>
+    [Fact]
+    public async Task A_command_too_long_for_a_command_line_still_runs_and_reports_its_code()
+    {
+        var run = await RunAsync("# " + new string('x', 40_000) + "\nWrite-Output 'the long gate ran'\nexit 3");
+
+        Assert.Equal("failed", run.Outcome);
+        Assert.Equal(3, run.ExitCode);
+        Assert.Contains("the long gate ran", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The gate's own <c>$PSCommandPath</c> is the only handle on a name the runner never reports,
+    /// and a temp file per builder turn is not something to leave behind on the strength of reading
+    /// the <c>finally</c>.
+    /// </summary>
+    [Fact]
+    public async Task The_script_the_gate_ran_from_is_deleted_afterwards()
+    {
+        var run = await RunAsync("Write-Output $PSCommandPath");
+
+        Assert.Equal("passed", run.Outcome);
+        var script = run.Output!.Trim();
+        Assert.EndsWith(".ps1", script, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(script));
+    }
+
     private Task<GateRun> RunAsync(string command, IReadOnlyDictionary<string, string>? environment = null) =>
         GateRunner.RunAsync(new GateCommand("Gate", command), _workspace, environment, Timeout, CancellationToken.None);
 }
