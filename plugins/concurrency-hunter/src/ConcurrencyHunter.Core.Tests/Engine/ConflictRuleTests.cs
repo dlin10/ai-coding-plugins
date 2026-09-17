@@ -94,8 +94,8 @@ public sealed class ConflictRuleTests
 
         Assert.Equal(2, result.Findings.Count);
         Assert.Equal(2, result.Groups.Select(group => group.Resource.Identity).Distinct().Count());
-        Assert.Equal(2, result.Groups.Select(group => group.StableId).Distinct().Count());
-        Assert.Equal(2, result.Findings.Select(finding => finding.StableId).Distinct().Count());
+        Assert.Equal(2, result.Groups.Select(group => group.Fingerprint).Distinct().Count());
+        Assert.Equal(2, result.Findings.Select(finding => finding.Fingerprint).Distinct().Count());
         Assert.All(result.Groups, group => Assert.Equal("di:Gate@Singleton", group.Resource.Region));
     }
 
@@ -403,7 +403,8 @@ public sealed class ConflictRuleTests
         var finding = Assert.Single(ConflictFindings.Create([pair], CancellationToken.None).Findings);
 
         Assert.Equal(closedResource, finding.Resource);
-        Assert.Equal(open, finding.AccessA);
+        // Sides are in site order: the read sorts before the write.
+        Assert.Equal((closed, open), (finding.AccessA, finding.AccessB));
         var resource = Assert.Single(finding.Evidence, item => item.Kind == "resource").Text;
         Assert.Contains("ownership: Shared (static:Cache<Order> is static storage.)", resource, StringComparison.Ordinal);
         Assert.DoesNotContain("Unknown", resource, StringComparison.Ordinal);
@@ -442,7 +443,7 @@ public sealed class ConflictRuleTests
         var result = await Analyze(source + Startup(), registry);
 
         Assert.Equal(builtIn.Roots.Count, result.Roots.Count);
-        Assert.Equal(builtIn.Findings.Select(finding => finding.StableId), result.Findings.Select(finding => finding.StableId));
+        Assert.Equal(builtIn.Findings.Select(finding => finding.Fingerprint), result.Findings.Select(finding => finding.Fingerprint));
         var coverage = Assert.Single(result.Coverage);
         Assert.Equal(0, coverage.RootsPerProvider["echo"]);
         Assert.Contains(coverage.Diagnostics, diagnostic => diagnostic.StartsWith("echo: DiscoveryFailed", StringComparison.Ordinal));
@@ -469,7 +470,7 @@ public sealed class ConflictRuleTests
         Assert.Equal(1, coverage.Registrations);
         Assert.True(coverage.Skips[CoverageCounters.REACHABLE_BODIES] > 0);
         Assert.Contains(ConcurrencyHunter.Scopes.ProcessScope.NO_EXECUTABLE_DIAGNOSTIC, coverage.Diagnostics);
-        Assert.Equal(3, result.Pairs.Candidates);
+        Assert.Equal(3, result.Pairs.Comparisons);
         Assert.Equal(1, result.Pairs.Skips[InterproceduralPairing.SKIP_CONFINED]);
     }
 

@@ -162,7 +162,8 @@ public sealed class ReachableSetTests
 
         var settings = run.Construction("Settings");
         Assert.Equal(ConstructionKind.LazySingleton, settings.Kind);
-        Assert.Equal("di:Settings@Singleton", settings.RegionId);
+        Assert.Equal(ConcurrencyHunter.Di.DiIndex.RegionId("Fixture:Settings", "Fixture:Settings", ConcurrencyHunter.Di.DiLifetime.Singleton, 1),
+                     settings.RegionId);
         Assert.Equal([new ConstructionTrigger(ConstructionTriggerKind.Construction, run.Construction("SettingsController").Id)], settings.Triggers);
     }
 
@@ -345,7 +346,8 @@ public sealed class ReachableSetTests
 
         Assert.Empty(run.Constructions("Rates"));
         var unanalysed = Assert.Single(run.Result.UnanalysedRegistrations);
-        Assert.Equal("di:Rates@Singleton", unanalysed.RegionId);
+        Assert.Equal(ConcurrencyHunter.Di.DiIndex.RegionId("Fixture:Rates", "Fixture:Rates", ConcurrencyHunter.Di.DiLifetime.Singleton, 1),
+                     unanalysed.RegionId);
     }
 
     private static int CallId(WholeProgramRun run, string bodyId, string method) =>

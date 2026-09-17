@@ -183,7 +183,7 @@ public static class NarrativeValidator
                                .Select(evidence => evidence.Id)
                                .ToHashSet(StringComparer.Ordinal);
         var accesses = scope.Findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB }).ToArray();
-        var symbols = accesses.SelectMany(access => new[] { access.Symbol, access.Root.Symbol }
+        var symbols = accesses.SelectMany(access => new[] { access.Symbol, access.Root.Symbol, access.PathRoot.Symbol }
                                   .Concat(access.ReadSources.Select(read => read.Symbol))
                                   .Concat(access.ReadSources.SelectMany(read => read.CodeFlow).Concat(access.CodeFlow).Select(CalleeSymbol).OfType<string>()))
                               .ToArray();

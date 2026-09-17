@@ -27,7 +27,9 @@ before composing any narrative.
 3. Call `run_poll` after 5, 10 and 20 seconds, then every 30 seconds until `state` is not `running`.
    If the state is `failed`, call `render_report`, handle its answer as in step 8, and report the
    failed run. Otherwise continue with narrative work.
-4. Page `get_groups` to the end. Dispatch group narratives in this order: High, then Medium, then
+4. Page `get_groups` to the end. Each group digest carries `findingCount` and `occurrenceCount`, the
+   group's findings and the ways they are reached, and each listed finding its own `occurrenceCount`.
+   Dispatch group narratives in this order: High, then Medium, then
    Low while `remaining` allows. Use the host's subagents: Codex, Claude Code, and Cursor each have
    one when their host supports subagents; without subagents, compose in this session. Give each
    subagent at most three groups, run subagents in parallel as far as the host allows, and require

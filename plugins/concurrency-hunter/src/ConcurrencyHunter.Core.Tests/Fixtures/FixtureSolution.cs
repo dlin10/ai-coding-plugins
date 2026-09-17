@@ -31,7 +31,17 @@ public sealed record FixtureOptions
     /// <summary>Stub assemblies no project references, for cases about a framework that is absent.</summary>
     public IReadOnlyList<string> OmittedStubs { get; init; } = [];
 
+    /// <summary>Major versions per project, overriding <see cref="StubVersions"/> for that project's references.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> ProjectStubVersions { get; init; } =
+        new Dictionary<string, IReadOnlyDictionary<string, int>>();
+
+    /// <summary>Stub assemblies one project does not reference, on top of <see cref="OmittedStubs"/>.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ProjectOmittedStubs { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
+
     internal int VersionOf(string assemblyName) => StubVersions.GetValueOrDefault(assemblyName, DEFAULT_STUB_VERSION);
+
+    internal int VersionOf(string assemblyName, string project) =>
+        ProjectStubVersions.TryGetValue(project, out var versions) && versions.TryGetValue(assemblyName, out var version) ? version : VersionOf(assemblyName);
 }
 
 public static class FixtureSolution
@@ -87,9 +97,11 @@ public static class FixtureSolution
 
     private static Solution AddProject(Solution solution, ProjectId projectId, string name, string filePath, FixtureOptions options)
     {
-        var stubs = StubAssemblies.Names.Except(options.OmittedStubs, StringComparer.Ordinal).Select(stub => StubAssemblies.Get(stub, options.VersionOf(stub)));
+        var stubs = StubAssemblies.Names.Except(options.OmittedStubs, StringComparer.Ordinal)
+                                  .Except(options.ProjectOmittedStubs.GetValueOrDefault(name) ?? [], StringComparer.Ordinal)
+                                  .Select(stub => StubAssemblies.Get(stub, options.VersionOf(stub, name)));
         var extraNames = options.ExtraAssemblyNames.Concat(options.ProjectExtraAssemblyNames.GetValueOrDefault(name) ?? []).ToArray();
-        var extras = extraNames.Select(extra => StubAssemblies.GetEmpty(extra, options.VersionOf(extra)));
+        var extras = extraNames.Select(extra => StubAssemblies.GetEmpty(extra, options.VersionOf(extra, name)));
         var projectInfo = ProjectInfo.Create(
             projectId,
             VersionStamp.Default,

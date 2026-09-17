@@ -80,6 +80,14 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     public string? TargetMethodId { get; init; }
     public string? TargetContainingTypeKey { get; init; }
     public IReadOnlyList<string> TargetMethodTypeArgumentKeys { get; init; } = [];
+    public IrServiceCall? ServiceCall { get; init; }
+}
+
+/// <summary>What a locator or scope-creation call names: the constant service type key (null when the type is not a constant)
+/// and the kind of provider its receiver is (null when its origin is none of <see cref="IrProviderKind"/>).</summary>
+public sealed record IrServiceCall(IrServiceCallKind Kind, string? ServiceTypeKey, IrProviderKind? Provider)
+{
+    public string? Locator => ServiceTypeKey is null ? null : $"locator:{ServiceTypeKey}";
 }
 
 /// <summary><see cref="CapturedSymbolKeys"/> are the variables the target body captures; the target members are as on

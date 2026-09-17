@@ -23,15 +23,23 @@ using Demo.Web.Cases.EscapeViaCapturedClosure;
 using Demo.Web.Cases.EscapeViaOutParameter;
 using Demo.Web.Cases.EscapeViaStaticAssignment;
 using Demo.Web.Cases.FactoryDistinctCallSites;
+using Demo.Web.Cases.FactoryInterfaceDispatch;
+using Demo.Web.Cases.FactoryResolvesOtherService;
 using Demo.Web.Cases.FactoryReturnsSharedStatic;
+using Demo.Web.Cases.FactoryScopedPerRequest;
 using Demo.Web.Cases.FromServicesActionParameter;
 using Demo.Web.Cases.GenericSingletonPerTypeArgument;
 using Demo.Web.Cases.GroupSharedHelperManyCallers;
 using Demo.Web.Cases.HostedConstructorBeforeRoots;
 using Demo.Web.Cases.HostedServiceRegisteredTwice;
 using Demo.Web.Cases.HostedStartVsAction;
+using Demo.Web.Cases.InstanceRegistrationTouchesStatic;
 using Demo.Web.Cases.InterfaceDispatchDi;
 using Demo.Web.Cases.LambdaAndLocalFunction;
+using Demo.Web.Cases.LocatorScopedViaCreateScope;
+using Demo.Web.Cases.LocatorSingletonVsWorker;
+using Demo.Web.Cases.LocatorTransientDistinct;
+using Demo.Web.Cases.LocatorUnregisteredOpaque;
 using Demo.Web.Cases.LockHeldByCaller;
 using Demo.Web.Cases.LockIdentityThroughAlias;
 using Demo.Web.Cases.MinimalApiLambdaHandler;
@@ -107,7 +115,15 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddControllerConstructorStaticCounter()
                 .AddConstructionOtherState()
                 .AddHostedConstructorBeforeRoots()
-                .AddConstructorLeaksThis();
+                .AddConstructorLeaksThis()
+                .AddLocatorSingletonVsWorker()
+                .AddLocatorScopedViaCreateScope()
+                .AddLocatorTransientDistinct()
+                .AddLocatorUnregisteredOpaque()
+                .AddFactoryInterfaceDispatch()
+                .AddFactoryResolvesOtherService()
+                .AddInstanceRegistrationTouchesStatic()
+                .AddFactoryScopedPerRequest();
 
 var app = builder.Build();
 

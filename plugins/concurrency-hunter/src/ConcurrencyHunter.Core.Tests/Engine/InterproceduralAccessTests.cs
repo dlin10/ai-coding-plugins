@@ -329,7 +329,7 @@ public sealed class InterproceduralAccessTests
         Assert.Equal(1, run.Counter(CoverageCounters.ELEMENT_OPERATION));
         // One delegate to Task.Run and the two Aggregate takes: the counter counts the delegates, not the calls that take them.
         Assert.Equal(3, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
-        Assert.Equal(1, run.Counter(CoverageCounters.UNANALYSED_REGISTRATION));
+        Assert.Equal(0, run.Counter(CoverageCounters.UNANALYSED_REGISTRATION));
         Assert.Equal(1, run.Counter(CoverageCounters.NO_RECEIVER_OBJECT));
         Assert.Equal(0, run.Counter(CoverageCounters.STARTUP_CONSTRUCTION_ACCESS));
         Assert.Equal(0, run.Counter(CoverageCounters.MERGED_CONTEXT));

@@ -583,6 +583,61 @@
         { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.Beacon..ctor()", "operation": "write" },
         { "symbol": "Demo.Web.Cases.ConstructorLeaksThis.BeaconController.Get(Beacon)", "operation": "read" }
       ]
+    },
+    {
+      "id": "locator-singleton-vs-worker",
+      "phase": "2b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LocatorSingletonVsWorker.HitCounter@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LocatorSingletonVsWorker.HitController.Put(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LocatorSingletonVsWorker.HitWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "factory-interface-dispatch",
+      "phase": "2b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FactoryInterfaceDispatch.IClock@Singleton", "accessPath": ["LastTick"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FactoryInterfaceDispatch.WallClock.Tick()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FactoryInterfaceDispatch.WallClock.Tick()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "factory-resolves-other-service",
+      "phase": "2b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FactoryResolvesOtherService.Ledger@Singleton", "accessPath": ["Balance"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.Ledger.Post(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.LedgerWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "locator-singleton-vs-worker/put-self",
+      "phase": "2b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LocatorSingletonVsWorker.HitCounter@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LocatorSingletonVsWorker.HitController.Put(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LocatorSingletonVsWorker.HitController.Put(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "factory-resolves-other-service/post-self",
+      "phase": "2b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FactoryResolvesOtherService.Ledger@Singleton", "accessPath": ["Balance"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.Ledger.Post(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.Ledger.Post(int)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -723,6 +778,31 @@
       "id": "hosted-constructor-before-roots",
       "phase": "2",
       "resource": { "region": "static:Demo.Web.Cases.HostedConstructorBeforeRoots.PrimedCache", "accessPath": ["Region"] }
+    },
+    {
+      "id": "locator-scoped-via-create-scope",
+      "phase": "2b",
+      "resource": { "region": "di:Demo.Web.Cases.LocatorScopedViaCreateScope.JobState@Scoped", "accessPath": ["Step"] }
+    },
+    {
+      "id": "locator-transient-distinct",
+      "phase": "2b",
+      "resource": { "region": "di:Demo.Web.Cases.LocatorTransientDistinct.Ticket@Transient", "accessPath": ["Number"] }
+    },
+    {
+      "id": "locator-unregistered-opaque",
+      "phase": "2b",
+      "resource": { "region": "di:Demo.Web.Cases.LocatorUnregisteredOpaque.Orphan@Singleton", "accessPath": ["Hits"] }
+    },
+    {
+      "id": "instance-registration-touches-static",
+      "phase": "2b",
+      "resource": { "region": "static:Demo.Web.Cases.InstanceRegistrationTouchesStatic.SeedList", "accessPath": ["Origin"] }
+    },
+    {
+      "id": "factory-scoped-per-request",
+      "phase": "2b",
+      "resource": { "region": "di:Demo.Web.Cases.FactoryScopedPerRequest.RequestTag@Scoped", "accessPath": ["Id"] }
     }
   ]
 }

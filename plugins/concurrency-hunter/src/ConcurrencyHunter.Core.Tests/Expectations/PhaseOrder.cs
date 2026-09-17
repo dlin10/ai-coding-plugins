@@ -2,7 +2,7 @@ namespace ConcurrencyHunter.Core.Tests.Expectations;
 
 internal static class PhaseOrder
 {
-    private static readonly string[] Phases = ["0", "1a", "1b", "2", "3", "4", "5", "6", "7", "8"];
+    private static readonly string[] Phases = ["0", "1a", "1b", "2", "2b", "3", "4", "5", "6", "7", "8"];
 
     internal static int Compare(string left, string right) => Index(left).CompareTo(Index(right));
 

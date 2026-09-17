@@ -75,7 +75,7 @@ public sealed class SharingAndOverlapTests
 
         var pair = Assert.Single(run.Pairs.Pairs);
         Assert.Same(pair.First, pair.Second);
-        Assert.Equal(1, run.Pairs.CandidatePairs);
+        Assert.Equal(1, run.Pairs.Comparisons);
     }
 
     [Fact]
@@ -274,7 +274,7 @@ public sealed class SharingAndOverlapTests
 
         Assert.All(pairs.Pairs, pair => Assert.Equal(pair.First.Resource.Scope, pair.Second.Resource.Scope));
         Assert.Equal(2, pairs.Pairs.Count);
-        Assert.Equal(2, pairs.CandidatePairs);
+        Assert.Equal(2, pairs.Comparisons);
     }
 
     [Fact]
@@ -336,7 +336,7 @@ public sealed class SharingAndOverlapTests
             """ + Startup());
 
         Assert.Empty(run.Pairs.Pairs);
-        Assert.Equal(3, run.Pairs.CandidatePairs);
-        Assert.Equal(run.Pairs.CandidatePairs, run.Pairs.Skips.Values.Sum() + run.Pairs.Suppressed + run.Pairs.Pairs.Count);
+        Assert.Equal(3, run.Pairs.Comparisons);
+        Assert.Equal(run.Pairs.Comparisons, run.Pairs.Skips.Values.Sum() + run.Pairs.Suppressed + run.Pairs.Pairs.Count);
     }
 }

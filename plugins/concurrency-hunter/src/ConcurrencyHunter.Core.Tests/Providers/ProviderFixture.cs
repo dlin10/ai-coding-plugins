@@ -20,6 +20,17 @@ public sealed record ProviderCase(string Name, IReadOnlyList<(string Path, strin
     /// <summary>Stub assemblies the case does not reference at all.</summary>
     public IReadOnlyList<string> OmittedAssemblies { get; init; } = [];
 
+    /// <summary>The multi-compilation form: sources by project, one compilation each, used instead of <see cref="Sources"/> when
+    /// not empty.</summary>
+    public IReadOnlyList<(string Project, string Path, string Source)> Projects { get; init; } = [];
+
+    /// <summary>Major version per assembly name for one project of <see cref="Projects"/>, overriding the others.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> ProjectAssemblyVersions { get; init; } =
+        new Dictionary<string, IReadOnlyDictionary<string, int>>();
+
+    /// <summary>Stub assemblies one project of <see cref="Projects"/> does not reference.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ProjectOmittedAssemblies { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
+
     public RootDiscoveryStatus ExpectedStatus { get; init; } = RootDiscoveryStatus.Checked;
     public IReadOnlyList<string> ExpectedRoots { get; init; } = [];
     public IReadOnlyList<string> ExpectedDiagnostics { get; init; } = [];
@@ -88,8 +99,10 @@ public static partial class ProviderFixture
 
     private static RootDiscoveryResult Discover(IExecutionRootProvider provider, ProviderCase testCase, string linePrefix)
     {
-        var solution = FixtureSolution.Create(Options(testCase),
-            testCase.Sources.Select(source => (source.Path, linePrefix + source.Source)).ToArray());
+        var solution = testCase.Projects.Count == 0
+            ? FixtureSolution.Create(Options(testCase), testCase.Sources.Select(source => (source.Path, linePrefix + source.Source)).ToArray())
+            : FixtureSolution.CreateProjects(Options(testCase),
+                                             testCase.Projects.Select(source => (source.Project, source.Path, linePrefix + source.Source)).ToArray());
         var compilations = solution.Projects
                                    .Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()
                                                       ?? throw new InvalidOperationException($"Project {project.Name} has no compilation."))
@@ -112,7 +125,9 @@ public static partial class ProviderFixture
         {
             StubVersions = versions,
             ExtraAssemblyNames = testCase.AssemblyVersions.Keys.Except(StubAssemblies.Names, StringComparer.Ordinal).ToArray(),
-            OmittedStubs = testCase.OmittedAssemblies
+            OmittedStubs = testCase.OmittedAssemblies,
+            ProjectStubVersions = testCase.ProjectAssemblyVersions,
+            ProjectOmittedStubs = testCase.ProjectOmittedAssemblies
         };
     }
 

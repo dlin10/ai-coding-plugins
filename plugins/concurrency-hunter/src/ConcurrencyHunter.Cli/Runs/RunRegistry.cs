@@ -366,13 +366,15 @@ internal sealed class RunRegistry
                                                                        },
                                                                        BindingEvidence(finding, stringLimit),
                                                                        finding.ConcurrencyEvidence.Take(DIGEST_LIST_LIMIT)
-                                                                              .Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray()))
+                                                                              .Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(),
+                                                                       finding.OccurrenceCount))
                                   .ToArray();
         var scenario = allFindings.FirstOrDefault()?.Scenario.Select(step => ResponseBudget.Fit(step, stringLimit)).ToArray() ?? [];
         return new GroupDigest(ResponseBudget.Fit(group.GroupId, stringLimit), ResponseBudget.Fit(group.RuleId, stringLimit),
                                ResponseBudget.Fit(group.ConfidenceLabel, stringLimit), ResponseBudget.Fit(group.Resource.Region, stringLimit),
                                group.Resource.AccessPath.Take(3).Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(),
-                               ResponseBudget.Fit(Ownership(group), stringLimit), group.FindingIds.Count, findings, scenario);
+                               ResponseBudget.Fit(Ownership(group), stringLimit), group.FindingIds.Count, findings, scenario,
+                               group.OccurrenceCount);
     }
 
     private static string Ownership(FindingGroup group) =>
@@ -384,7 +386,7 @@ internal sealed class RunRegistry
                                                                                                         stringLimit),
                                                                                                        ResponseBudget.Fit(access.Source.Path, stringLimit),
                                                                                                        access.Source.StartLine,
-                                                                                                       ResponseBudget.Fit(access.Root.Display, stringLimit),
+                                                                                                       ResponseBudget.Fit(access.PathRoot.Display, stringLimit),
                                                                                                        access.HeldProtection.Take(DIGEST_LIST_LIMIT)
                                                                                                              .Select(item => ResponseBudget.Fit(item, stringLimit))
                                                                                                              .ToArray(),

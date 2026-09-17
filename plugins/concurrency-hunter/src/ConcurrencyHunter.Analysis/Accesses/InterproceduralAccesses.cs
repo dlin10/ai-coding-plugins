@@ -20,6 +20,7 @@ public static class CoverageCounters
     public const string STARTUP_CONSTRUCTION_ACCESS = "startup-construction-access";
     public const string MERGED_CONTEXT = "merged-context";
     public const string WILDCARD_ACCESS = "wildcard-access";
+    public const string UNRESOLVED_LOCATOR = "unresolved-locator";
 }
 
 /// <summary>What a scope's analysis covered, over what the heap reaches only; <see cref="LoweredNotReached"/> and
@@ -45,10 +46,12 @@ public static class InterproceduralAccesses
     public static InterproceduralCollection Collect(InterproceduralInput input)
     {
         var accesses = new List<Access>();
+        var graph = new WalkGraph(input);
+        var discoveries = Discoveries(input, graph);
         foreach (var execution in input.Executions.Executions)
         {
             if (input.Executions.Entries.TryGetValue(execution.Id, out var entries))
-                accesses.AddRange(new ExecutionCollector(input, execution, entries).Collect());
+                accesses.AddRange(new ExecutionCollector(input, execution, entries, graph, discoveries).Collect());
         }
 
         return new InterproceduralCollection(accesses, Coverage(input, accesses));
@@ -61,22 +64,31 @@ public static class InterproceduralAccesses
                             .Select(group => group.First().Summary)
                             .ToArray();
         var opaque = summaries.SelectMany(summary => summary.OpaqueCalls.Select(call => (summary.BodyId, Call: call))).ToArray();
-        var reachedRegions = heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Di)
-                                 .Select(region => (region.Display, region.TypeKey))
-                                 .ToHashSet();
+        var reachedMembers = input.Scope.Reachable.Members.Select(member => member.MemberId).ToHashSet(StringComparer.Ordinal);
+        var memberOf = input.Scope.Program.Methods.SelectMany(method => method.NestedBodyIds.Select(nested => (Nested: nested, method.MethodId)))
+                            .GroupBy(pair => pair.Nested, StringComparer.Ordinal)
+                            .ToDictionary(group => group.Key, group => group.First().MethodId, StringComparer.Ordinal);
+        // A supported factory registration's delegate runs as its region's construction, so it is not handed to an opaque call.
+        var factorySites = input.Scope.DiIndex.Registrations
+                                .Where(registration => registration is { IsSupported: true, Form: DiRegistrationForm.Factory, BodyId: not null, OperationId: not null })
+                                .Select(registration => (registration.BodyId!, registration.OperationId!.Value))
+                                .ToHashSet();
         var counters = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             [CoverageCounters.REACHABLE_BODIES] = heap.ReachableBodies.Count,
             [CoverageCounters.SCC_BUDGET_EXCEEDED] = heap.Counters.GetValueOrDefault(HeapCounters.SCC_BUDGET_EXCEEDED),
             [CoverageCounters.OPAQUE_CALL] = opaque.Length,
             // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate.
-            [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.SelectMany(item => item.Call.Delegates.Select(delegateValue => (item.BodyId, delegateValue)))
+            [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.Where(item => !factorySites.Contains((memberOf.GetValueOrDefault(item.BodyId) ?? item.BodyId, item.Call.OperationId)))
+                                                          .SelectMany(item => item.Call.Delegates.Select(delegateValue => (item.BodyId, delegateValue)))
                                                           .Distinct()
                                                           .Count(),
             [CoverageCounters.ELEMENT_OPERATION] = summaries.Sum(summary => summary.Elements.Count),
-            [CoverageCounters.UNANALYSED_REGISTRATION] = input.Scope.Reachable.UnanalysedRegistrations
-                                                              .Count(registration => reachedRegions.Contains((registration.RegionId,
-                                                                                                             registration.Registration.ImplementationTypeKey))),
+            // Unsupported registrations whose holding member the reachable set reaches.
+            [CoverageCounters.UNANALYSED_REGISTRATION] = input.Scope.DiIndex.Registrations
+                                                              .Count(registration => !registration.IsSupported && registration.BodyId is { } member &&
+                                                                                     reachedMembers.Contains(member)),
+            [CoverageCounters.UNRESOLVED_LOCATOR] = heap.UnresolvedLocators.Count,
             [CoverageCounters.NO_RECEIVER_OBJECT] = heap.Counters.GetValueOrDefault(HeapCounters.NO_RECEIVER_OBJECT),
             [CoverageCounters.STARTUP_CONSTRUCTION_ACCESS] = input.Executions.Counters.GetValueOrDefault(ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS),
             [CoverageCounters.MERGED_CONTEXT] = heap.Counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT),
@@ -98,13 +110,147 @@ public static class InterproceduralAccesses
 
     private sealed record LockInfo(string Display, string? SingleObjectId, SourceSpan Acquisition);
 
-    private sealed class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries)
+    /// <summary>An edge the walk follows from an instance: a call edge, or a construction edge from the operation that triggered a
+    /// construction to one of its instances; <see cref="Constructed"/> is the object or type the construction builds.</summary>
+    private sealed record Step(int OperationId, CallEdge Edge, string? Constructed);
+
+    /// <summary>The shortest, then smallest, path from a root's entry to an instance: the instances along it, root first.</summary>
+    private sealed record Discovery(string RootId, IReadOnlyList<string> Instances);
+
+    /// <summary>The edges of the walk (R5): a body's calls and construction triggers in operation order, the entry (operation
+    /// <c>-1</c>) first, and a call's callee instances or a trigger's construction instances in ascending instance id.</summary>
+    private sealed class WalkGraph(InterproceduralInput input)
     {
         private readonly HeapSolution _heap = input.Heap;
         private readonly Dictionary<string, List<CallEdge>> _edgesByCaller = input.Heap.Edges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
+        private readonly Dictionary<string, RegionTrigger[]> _triggers = input.Heap.RegionTriggers.GroupBy(trigger => trigger.InstanceId, StringComparer.Ordinal)
+                                                                            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        private readonly Dictionary<string, RegionConstruction> _constructions = input.Heap.Constructions.ToDictionary(construction => construction.RegionId,
+                                                                                                                       StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _constructed = input.Heap.Constructions
+                                                                        .SelectMany(construction => construction.ConstructorInstances
+                                                                                        .Select(instance => (Instance: instance, construction.RegionId)))
+                                                                        .GroupBy(item => item.Instance, StringComparer.Ordinal)
+                                                                        .ToDictionary(group => group.Key, group => group.First().RegionId, StringComparer.Ordinal);
+        private readonly Dictionary<string, TypeInitializerConstruction[]> _initializers =
+            input.Heap.TypeInitializers.Where(initializer => input.Heap.Instances.ContainsKey(initializer.InstanceId))
+                 .SelectMany(initializer => initializer.TriggeringInstances.Select(trigger => (Trigger: trigger, Initializer: initializer)))
+                 .GroupBy(item => item.Trigger, StringComparer.Ordinal)
+                 .ToDictionary(group => group.Key, group => group.Select(item => item.Initializer).ToArray(), StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<Step>> _steps = new(StringComparer.Ordinal);
+
+        internal IReadOnlyList<Step> Of(MethodInstance instance)
+        {
+            if (_steps.TryGetValue(instance.Id, out var cached))
+                return cached;
+
+            var steps = new List<Step>();
+            foreach (var edge in _edgesByCaller.GetValueOrDefault(instance.Id) ?? [])
+            {
+                steps.Add(new Step(edge.OperationId, edge,
+                                   edge.Reason == WholeProgram.CONSTRUCTION_REASON ? _constructed.GetValueOrDefault(edge.CalleeInstance) : null));
+            }
+
+            foreach (var trigger in _triggers.GetValueOrDefault(instance.Id) ?? [])
+            {
+                foreach (var constructor in _constructions.GetValueOrDefault(trigger.RegionId)?.ConstructorInstances ?? [])
+                {
+                    steps.Add(new Step(trigger.OperationId, new CallEdge(instance.Id, trigger.OperationId, constructor, WholeProgram.CONSTRUCTION_REASON),
+                                       trigger.RegionId));
+                }
+            }
+
+            foreach (var initializer in _initializers.GetValueOrDefault(instance.Id) ?? [])
+            {
+                var operation = FirstUse(instance, initializer.TypeKey);
+                steps.Add(new Step(operation, new CallEdge(instance.Id, operation, initializer.InstanceId, WholeProgram.CONSTRUCTION_REASON),
+                                   $"static:{initializer.TypeKey}"));
+            }
+
+            var ordered = steps.GroupBy(step => (step.OperationId, step.Edge.CalleeInstance))
+                               .Select(group => group.OrderBy(step => step.Constructed is null ? 1 : 0).First())
+                               .OrderBy(step => step.OperationId)
+                               .ThenBy(step => step.Edge.CalleeInstance, StringComparer.Ordinal)
+                               .ToArray();
+            _steps.Add(instance.Id, ordered);
+            return ordered;
+        }
+
+        /// <summary>The first operation of an instance's body that uses a type's static member or constructor.</summary>
+        private int FirstUse(MethodInstance instance, string typeKey)
+        {
+            var summary = instance.Summary;
+            var uses = summary.Accesses.Where(access => access.Field.IsStatic && _heap.StaticRegionOf(instance.Id, access.Field) == $"static:{typeKey}")
+                              .Select(access => access.OperationId)
+                              .Concat(summary.Calls.Where(call => call.Kind is IrCallKind.Static or IrCallKind.Constructor &&
+                                                                  ContainingType(instance, call.TargetContainingTypeKey, call.Target) == typeKey)
+                                             .Select(call => call.OperationId))
+                              .Concat(summary.Delegates.Where(created => ContainingType(instance, created.TargetContainingTypeKey, created.Delegate.Target) == typeKey)
+                                             .Select(created => created.OperationId));
+            return uses.DefaultIfEmpty(-1).Min();
+        }
+
+        private string? ContainingType(MethodInstance instance, string? containingTypeKey, string target) =>
+            containingTypeKey is not null
+                ? ProgramIndex.Substitute(containingTypeKey, instance.Substitution)
+                : input.Scope.Program.Method(target)?.ContainingTypeKey;
+    }
+
+    /// <summary>For every entry instance of a rootless execution (a construction), each root whose walk reaches it, over every edge and
+    /// whatever execution the instance runs in (startup aside), with that root's shortest path, then the smallest sequence of
+    /// (operation, instance); the roots in id order.</summary>
+    private static Dictionary<string, List<Discovery>> Discoveries(InterproceduralInput input, WalkGraph graph)
+    {
+        var targets = input.Executions.Executions.Where(execution => execution.RootId is null)
+                           .SelectMany(execution => input.Executions.Entries.GetValueOrDefault(execution.Id) ?? [])
+                           .Where(entry => entry.Kind != ExecutionEntryKind.Root)
+                           .Select(entry => entry.InstanceId)
+                           .ToHashSet(StringComparer.Ordinal);
+        var found = new Dictionary<string, List<Discovery>>(StringComparer.Ordinal);
+        foreach (var (rootId, entry) in input.Heap.RootInstances.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            var reached = new Dictionary<string, Discovery>(StringComparer.Ordinal) { [entry] = new Discovery(rootId, [entry]) };
+            var pending = new Queue<string>([entry]);
+            while (pending.TryDequeue(out var instanceId))
+            {
+                if (!input.Heap.Instances.TryGetValue(instanceId, out var instance))
+                    continue;
+                var discovery = reached[instanceId];
+                foreach (var step in graph.Of(instance))
+                {
+                    var callee = step.Edge.CalleeInstance;
+                    if (reached.ContainsKey(callee) || IsStartupOnly(input, callee))
+                        continue;
+                    reached.Add(callee, new Discovery(rootId, [.. discovery.Instances, callee]));
+                    pending.Enqueue(callee);
+                }
+            }
+
+            foreach (var (instanceId, discovery) in reached)
+            {
+                if (!targets.Contains(instanceId))
+                    continue;
+                if (!found.TryGetValue(instanceId, out var list))
+                    found.Add(instanceId, list = []);
+                list.Add(discovery);
+            }
+        }
+
+        return found;
+    }
+
+    private static bool IsStartupOnly(InterproceduralInput input, string instanceId) =>
+        input.Executions.InstanceExecutions.TryGetValue(instanceId, out var executions) && executions.Count == 1 && executions.Contains(ExecutionModel.STARTUP);
+
+    private sealed class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
+                                            WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries)
+    {
+        private readonly HeapSolution _heap = input.Heap;
         private readonly List<(ExecutionEntry Entry, PathNode Node)> _visits = [];
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _firstPaths = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _bodyPaths = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<(IReadOnlyList<string> Symbols, AccessRoot Root)>> _callPaths = new(StringComparer.Ordinal);
         private readonly HashSet<CallEdge> _executionEdges = [];
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
@@ -123,8 +269,10 @@ public static class InterproceduralAccesses
             return Emit();
         }
 
-        /// <summary>Breadth-first over the call edges from one entry; a state is an instance with its construction interval, visited
-        /// once per entry. A constructor call on an allocation opens that allocation's interval in place of the current one.</summary>
+        /// <summary>Breadth-first over the walk's edges from one entry; a state is an instance with its construction interval, visited
+        /// once per entry. A construction edge into a construction this execution runs opens the constructed object's interval, one into
+        /// a construction of another execution is not followed, and a constructor call on an allocation opens that allocation's
+        /// interval in place of the current one. The first visit of an instance, and of a body, keeps its discovery path.</summary>
         private void Visit(ExecutionEntry entry)
         {
             var start = new State(entry.InstanceId, entry.IntervalObject);
@@ -136,13 +284,24 @@ public static class InterproceduralAccesses
                     continue;
                 _visits.Add((entry, node));
                 _firstPaths.TryAdd(node.State.Instance, (entry, node));
+                _bodyPaths.TryAdd(instance.BodyId, (entry, node));
 
-                foreach (var edge in OrderedEdges(instance))
+                foreach (var step in graph.Of(instance))
                 {
-                    _executionEdges.Add(edge);
+                    var edge = step.Edge;
                     var interval = node.State.Interval;
-                    if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } &&
-                        _heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
+                    if (step.Constructed is not null)
+                    {
+                        if (!input.Executions.InstanceExecutions.TryGetValue(edge.CalleeInstance, out var executions) ||
+                            !executions.Contains(execution.Id))
+                        {
+                            continue;
+                        }
+
+                        interval = step.Constructed;
+                    }
+                    else if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } &&
+                             _heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
                     {
                         var created = callee.Receivers.Where(region => _heap.Regions[region].Kind == HeapRegionKind.Allocation)
                                             .Order(StringComparer.Ordinal).ToArray();
@@ -150,6 +309,7 @@ public static class InterproceduralAccesses
                             interval = created[0];
                     }
 
+                    _executionEdges.Add(edge);
                     var next = new State(edge.CalleeInstance, interval);
                     if (visited.Add(next))
                         pending.Enqueue(new PathNode(next, node, edge));
@@ -157,17 +317,47 @@ public static class InterproceduralAccesses
             }
         }
 
-        /// <summary>A caller's edges in order of call source (path, line, column), then callee method id, callee context and reason.</summary>
-        private IEnumerable<CallEdge> OrderedEdges(MethodInstance instance) =>
-            (_edgesByCaller.GetValueOrDefault(instance.Id) ?? [])
-            .Select(edge => (Edge: edge, Source: Provenance(instance.BodyId, edge.OperationId)?.Span))
-            .OrderBy(item => item.Source?.Path ?? "", StringComparer.Ordinal)
-            .ThenBy(item => item.Source?.StartLine ?? 0)
-            .ThenBy(item => item.Source?.StartColumn ?? 0)
-            .ThenBy(item => _heap.Instances.GetValueOrDefault(item.Edge.CalleeInstance)?.BodyId ?? "", StringComparer.Ordinal)
-            .ThenBy(item => item.Edge.CalleeInstance, StringComparer.Ordinal)
-            .ThenBy(item => item.Edge.Reason, StringComparer.Ordinal)
-            .Select(item => item.Edge);
+        /// <summary>The member symbols of a body's discovery path in this execution, consecutive duplicates (a lambda in its member)
+        /// folded; a construction that is an execution of its own has one path for each root whose walk triggers it, starting at
+        /// that root.</summary>
+        private IReadOnlyList<(IReadOnlyList<string> Symbols, AccessRoot Root)> CallPaths(string bodyId)
+        {
+            if (_callPaths.TryGetValue(bodyId, out var cached))
+                return cached;
+
+            var (entry, node) = _bodyPaths[bodyId];
+            var instances = new List<string>();
+            for (var current = node; current is not null; current = current.Parent)
+                instances.Add(current.State.Instance);
+            instances.Reverse();
+
+            var paths = new List<(IReadOnlyList<string> Symbols, AccessRoot Root)>();
+            if (execution.RootId is null && entry.Kind != ExecutionEntryKind.Root && discoveries.TryGetValue(entry.InstanceId, out var found))
+            {
+                foreach (var discovery in found)
+                {
+                    if (RootOf(discovery.RootId) is { } root)
+                        paths.Add((Symbols([.. discovery.Instances.Take(discovery.Instances.Count - 1), .. instances]), root));
+                }
+            }
+
+            if (paths.Count == 0)
+                paths.Add((Symbols(instances), Root()));
+            _callPaths.Add(bodyId, paths);
+            return paths;
+        }
+
+        private List<string> Symbols(IEnumerable<string> instances)
+        {
+            var symbols = new List<string>();
+            foreach (var symbol in instances.Select(instance => Symbol(_heap.Instances[instance])))
+            {
+                if (symbols.Count == 0 || symbols[^1] != symbol)
+                    symbols.Add(symbol);
+            }
+
+            return symbols;
+        }
 
         private IrProvenance? Provenance(string bodyId, int operationId)
         {
@@ -360,7 +550,7 @@ public static class InterproceduralAccesses
             }
 
             var accesses = new List<Access>();
-            var seen = new HashSet<(string, int, string, AccessOperation, bool)>();
+            var seen = new HashSet<(string, int, string, AccessOperation, bool, string, string)>();
             foreach (var (entry, node) in _visits)
             {
                 var instance = _heap.Instances[node.State.Instance];
@@ -377,33 +567,42 @@ public static class InterproceduralAccesses
                             : AccessOperation.Write;
                         var regionId = resource.RegionId!;
                         var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
-                        if (!seen.Add((instance.BodyId, access.OperationId, resource.Identity, operation, local)))
-                            continue;
-
+                        // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
+                        // an occurrence keeps can be the least protected one (R5).
                         var held = HeldLocks(instance.Id, access.OperationId);
+                        var heldKey = string.Join("|", held.Select(info => info.Display).Order(StringComparer.Ordinal));
                         var region = _heap.Regions[regionId];
                         var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
-                        accesses.Add(new Access(
-                            resource,
-                            operation,
-                            Root(),
-                            Symbol(instance),
-                            access.Provenance.Span,
-                            held.Select(info => info.Display).Order(StringComparer.Ordinal).ToArray(),
-                            held.Select(info => info.SingleObjectId).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
-                            BindingEvidenceOf(region),
-                            CodeFlow(entry, node, held, $"{operation.ToWireName()} {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span),
-                            Uncertainties(instance, region))
+                        // A construction triggered by several roots gives one access per root, so each root pair is an occurrence (R5).
+                        foreach (var (callPath, pathRoot) in CallPaths(instance.BodyId))
                         {
-                            ExecutionId = execution.Id,
-                            Ownership = ownership?.Kind ?? OwnershipKind.Unknown,
-                            OwnershipEvidence = ownership?.Evidence ?? [],
-                            IsConstructionLocal = local,
-                            ReadSources = (sources ?? []).Select(ReadSourceOf).ToArray(),
-                            BodyId = instance.BodyId,
-                            OperationId = access.OperationId,
-                            InstanceId = instance.Id
-                        });
+                            if (!seen.Add((instance.BodyId, access.OperationId, resource.Identity, operation, local, heldKey, pathRoot.RootId)))
+                                continue;
+
+                            accesses.Add(new Access(
+                                resource,
+                                operation,
+                                Root(),
+                                Symbol(instance),
+                                access.Provenance.Span,
+                                held.Select(info => info.Display).Order(StringComparer.Ordinal).ToArray(),
+                                held.Select(info => info.SingleObjectId).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+                                BindingEvidenceOf(region),
+                                CodeFlow(entry, node, held, $"{operation.ToWireName()} {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span),
+                                Uncertainties(instance, region))
+                            {
+                                ExecutionId = execution.Id,
+                                Ownership = ownership?.Kind ?? OwnershipKind.Unknown,
+                                OwnershipEvidence = ownership?.Evidence ?? [],
+                                IsConstructionLocal = local,
+                                ReadSources = (sources ?? []).Select(ReadSourceOf).ToArray(),
+                                BodyId = instance.BodyId,
+                                OperationId = access.OperationId,
+                                InstanceId = instance.Id,
+                                CallPath = callPath,
+                                PathRoot = pathRoot
+                            });
+                        }
                     }
                 }
             }
@@ -449,6 +648,14 @@ public static class InterproceduralAccesses
                 var caller = _heap.Instances[step.Edge!.CallerInstance];
                 var callee = _heap.Instances[step.Edge.CalleeInstance];
                 var calleeSymbol = input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var calleeBody) ? calleeBody.MethodSymbol : callee.BodyId;
+                if (step.Edge.Reason == WholeProgram.CONSTRUCTION_REASON && step.State.Interval is { } constructed)
+                {
+                    var subject = _heap.Regions.TryGetValue(constructed, out var constructedRegion) ? constructedRegion.Display : constructed;
+                    steps.Add(new CodeFlowStep("construction", $"constructs {subject} in {calleeSymbol}",
+                                               Provenance(caller.BodyId, step.Edge.OperationId)?.Span ?? BodySource(callee.BodyId) ?? accessSource));
+                    continue;
+                }
+
                 var receiver = callee.Receivers.Order(StringComparer.Ordinal).Select(region => _heap.Regions[region].Display).FirstOrDefault();
                 steps.Add(new CodeFlowStep("call", receiver is null ? $"calls {calleeSymbol}" : $"calls {calleeSymbol} on {receiver}",
                                            Provenance(caller.BodyId, step.Edge.OperationId)?.Span ?? accessSource));
@@ -468,16 +675,19 @@ public static class InterproceduralAccesses
         /// <summary>The access's root: the root of a root execution, or the construction or type-initializer execution described as one.</summary>
         private AccessRoot Root()
         {
-            if (execution.RootId is not null && input.Scope.Roots.FirstOrDefault(root => root.StableRootId == execution.RootId) is { } root)
-            {
-                return new AccessRoot(root.StableRootId, root.Entry.Symbol, root.Entry.Display, root.ProviderId, root.RootKind, root.InvocationPolicy,
-                                      input.Scope.ScopeId, root.InstanceBindings.ReceiverType, root.InstanceBindings.ReceiverTypeKey);
-            }
+            if (execution.RootId is not null && RootOf(execution.RootId) is { } root)
+                return root;
 
             return new AccessRoot(execution.Id, execution.Display, execution.Display, CONSTRUCTION_PROVIDER,
                                   execution.Kind == ExecutionKind.TypeInitializer ? "type-initializer" : "construction", execution.Policy,
                                   input.Scope.ScopeId);
         }
+
+        private AccessRoot? RootOf(string rootId) =>
+            input.Scope.Roots.FirstOrDefault(root => root.StableRootId == rootId) is { } root
+                ? new AccessRoot(root.StableRootId, root.Entry.Symbol, root.Entry.Display, root.ProviderId, root.RootKind, root.InvocationPolicy,
+                                 input.Scope.ScopeId, root.InstanceBindings.ReceiverType, root.InstanceBindings.ReceiverTypeKey)
+                : null;
 
         private string Symbol(MethodInstance instance) =>
             input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
@@ -500,6 +710,7 @@ public static class InterproceduralAccesses
                     $"An unresolved registration at {unresolved.Source.Path}:{unresolved.Source.StartLine} may change this binding."));
             }
 
+            uncertainties.AddRange(_heap.RegionUncertainties.GetValueOrDefault(region.Identity) ?? []);
             return uncertainties;
         }
 
@@ -552,13 +763,60 @@ public static class InterproceduralAccesses
             if (wildcard)
             {
                 return new AccessResource(DeclaringAssembly(region.TypeKey) ?? field.Assembly, input.Scope.ScopeId, region.Display, [PathValue.WILDCARD],
-                                          new MemberKey(PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field), regionId, true);
+                                          new MemberKey(PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field), regionId, true)
+                {
+                    RegionKey = RegionKey(region)
+                };
             }
 
             return new AccessResource(field.Assembly, input.Scope.ScopeId, region.Display, [field.Name],
                                       new MemberKey(field.ContainingType, field.Name, field.Kind,
                                                     field.ContainingTypeIdentity == field.ContainingType ? null : field.ContainingTypeIdentity),
-                                      regionId);
+                                      regionId)
+            {
+                RegionKey = RegionKey(region)
+            };
+        }
+
+        /// <summary>A region's context-free identity (R6): a registration's keys, lifetime and number; an allocation's or delegate
+        /// creation's body and site ordinal; a static's declaring type; a receiver's type. Other kinds have context-free identities.</summary>
+        private string RegionKey(HeapRegion region)
+        {
+            switch (region.Kind)
+            {
+                case HeapRegionKind.Di:
+                {
+                    var parts = region.Identity.Split('|');
+                    var registration = $"{parts[0]}|{parts[1]}|{parts[2]}";
+                    return parts[2].Contains('#', StringComparison.Ordinal) ? registration : $"{registration}#1";
+                }
+                case HeapRegionKind.Allocation when region.SiteBodyId is { } body:
+                    return $"alloc|{body}#{region.TypeKey}#{SiteOrdinal(body, region.SiteOperationId, operation => operation is IrAllocateOperation)}";
+                case HeapRegionKind.Delegate when region.SiteBodyId is { } body:
+                    return $"delegate|{body}#{SiteOrdinal(body, region.SiteOperationId, operation => operation is IrCreateDelegateOperation)}";
+                case HeapRegionKind.Static:
+                    return $"static|{region.TypeKey}";
+                case HeapRegionKind.Receiver:
+                    return $"receiver|{region.TypeKey}";
+                default:
+                    return region.Identity;
+            }
+        }
+
+        /// <summary>The 1-based position of a site among its body's sites of the same kind in source order, or the operation id
+        /// (prefixed) for a site that is no such operation.</summary>
+        private string SiteOrdinal(string bodyId, int? operationId, Func<IrOperation, bool> isSite)
+        {
+            if (!input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
+                return $"op{operationId}";
+            var sites = body.Blocks.SelectMany(block => block.Operations).Where(isSite)
+                            .OrderBy(operation => operation.Provenance.Span.StartLine)
+                            .ThenBy(operation => operation.Provenance.Span.StartColumn)
+                            .ThenBy(operation => operation.Id)
+                            .Select(operation => operation.Id)
+                            .ToList();
+            var index = operationId is { } id ? sites.IndexOf(id) : -1;
+            return index < 0 ? $"op{operationId}" : (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static string? DeclaringAssembly(string? typeKey)
@@ -589,8 +847,8 @@ public static class InterproceduralAccesses
 
 /// <summary>
 /// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never construction-local, never on a
-/// thread-confined region, and only across executions that overlap. A wildcard access also meets every access on its region, and an
-/// access on an open generic region every access with its path and member on each closed region of its definition.
+/// thread-confined region, and only across executions that overlap. The candidates come from <see cref="CandidateIndex"/>, each unordered
+/// pair once.
 /// </summary>
 public static class InterproceduralPairing
 {
@@ -644,36 +902,181 @@ public static class InterproceduralPairing
         bool IsConfined(Access access) =>
             executions.Ownership.TryGetValue(access.Resource.RegionId!, out var ownership) && ownership.Kind == OwnershipKind.ThreadConfined;
 
-        foreach (var group in candidates.GroupBy(access => access.Resource.Identity, StringComparer.Ordinal).OrderBy(group => group.Key, StringComparer.Ordinal))
+        var index = CandidateIndex.Build(candidates, heap);
+        foreach (var candidate in index.OrderedPairs())
+            Consider(candidate.First, candidate.Second, candidate.Reported, candidate.Uncertainties);
+
+        return new PairAnalysis(pairs, counted, suppressed, skips)
         {
-            var members = group.ToArray();
-            for (var first = 0; first < members.Length; first++)
+            CartesianBound = (int)((long)candidates.Length * (candidates.Length + 1) / 2),
+            Buckets = index.Buckets,
+            LargestBucket = index.LargestBucket
+        };
+    }
+}
+
+internal enum PairEnumeration
+{
+    Resource,
+    Wildcard,
+    OpenRegion
+}
+
+/// <summary>An unordered pair of accesses to compare, the resource it is reported on, and the enumeration that produced it.</summary>
+internal sealed record CandidatePair(Access First, Access Second, AccessResource Reported, IReadOnlyList<string> Uncertainties,
+                                     PairEnumeration Enumeration);
+
+/// <summary>
+/// The buckets of one scope's non-construction-local accesses (R4): a resource bucket per resource identity, and a wildcard bucket per
+/// scope and region, never a resource bucket. Each unordered pair that may race comes from exactly one enumeration: within a resource
+/// bucket; within a wildcard bucket and between it and its region's resource buckets; or between an open region's bucket and a closed
+/// region of its group, two resource buckets with one path and member, or either region's wildcard bucket against every bucket of
+/// the other.
+/// </summary>
+internal sealed class CandidateIndex
+{
+    private sealed class RegionBuckets(string scope, string regionId)
+    {
+        internal string Scope { get; } = scope;
+        internal string RegionId { get; } = regionId;
+        internal List<List<Access>> Resources { get; } = [];
+        internal List<Access> Wildcard { get; } = [];
+    }
+
+    private readonly SortedDictionary<string, List<Access>> _resources = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Scope, string RegionId), RegionBuckets> _regions = [];
+    private readonly List<RegionBuckets> _regionOrder = [];
+    private readonly Dictionary<Access, int> _positions = new(ReferenceEqualityComparer.Instance);
+    private readonly HeapSolution _heap;
+
+    private CandidateIndex(HeapSolution heap) => _heap = heap;
+
+    public int Buckets => _resources.Count + _regionOrder.Count(region => region.Wildcard.Count != 0);
+
+    public int LargestBucket => _resources.Values.Select(bucket => bucket.Count)
+                                          .Concat(_regionOrder.Select(region => region.Wildcard.Count))
+                                          .DefaultIfEmpty(0)
+                                          .Max();
+
+    public static CandidateIndex Build(IReadOnlyList<Access> accesses, HeapSolution heap)
+    {
+        var index = new CandidateIndex(heap);
+        foreach (var access in accesses)
+        {
+            index._positions.TryAdd(access, index._positions.Count);
+            var region = index.Region(access.Resource.Scope, access.Resource.RegionId!);
+            if (access.Resource.IsWildcard)
             {
-                for (var second = first; second < members.Length; second++)
-                    Consider(members[first], members[second], members[first].Resource, []);
+                region.Wildcard.Add(access);
+                continue;
+            }
+
+            if (!index._resources.TryGetValue(access.Resource.Identity, out var bucket))
+            {
+                index._resources.Add(access.Resource.Identity, bucket = []);
+                region.Resources.Add(bucket);
+            }
+
+            bucket.Add(access);
+        }
+
+        return index;
+    }
+
+    private RegionBuckets Region(string scope, string regionId)
+    {
+        if (!_regions.TryGetValue((scope, regionId), out var region))
+        {
+            _regions.Add((scope, regionId), region = new RegionBuckets(scope, regionId));
+            _regionOrder.Add(region);
+        }
+
+        return region;
+    }
+
+    /// <summary>The pairs in the order of an all-pairs loop over the accesses: by the earlier access, then the later one. Findings keep
+    /// the first of two pairs with one identity, so this order makes them what the plain loop gives.</summary>
+    public IEnumerable<CandidatePair> OrderedPairs() =>
+        Pairs().Select(pair => (Pair: pair, First: _positions[pair.First], Second: _positions[pair.Second]))
+               .OrderBy(item => Math.Min(item.First, item.Second))
+               .ThenBy(item => Math.Max(item.First, item.Second))
+               .Select(item => item.Pair);
+
+    public IEnumerable<CandidatePair> Pairs()
+    {
+        foreach (var bucket in _resources.Values)
+        {
+            foreach (var pair in Within(bucket, PairEnumeration.Resource))
+                yield return pair;
+        }
+
+        foreach (var region in _regionOrder.Where(region => region.Wildcard.Count != 0))
+        {
+            foreach (var pair in Within(region.Wildcard, PairEnumeration.Wildcard))
+                yield return pair;
+            foreach (var bucket in region.Resources)
+            {
+                foreach (var pair in Across(region.Wildcard, bucket, (first, _) => first.Resource, _ => [], PairEnumeration.Wildcard))
+                    yield return pair;
             }
         }
 
-        foreach (var wildcard in candidates.Where(access => access.Resource.IsWildcard))
+        foreach (var open in _regionOrder.Where(region => _heap.Regions[region.RegionId].IsOpen))
         {
-            foreach (var other in candidates.Where(access => !access.Resource.IsWildcard && access.Resource.RegionId == wildcard.Resource.RegionId &&
-                                                             access.Resource.Scope == wildcard.Resource.Scope))
+            var group = _heap.Regions[open.RegionId].Group;
+            foreach (var closed in _regionOrder.Where(region => region.Scope == open.Scope && _heap.Regions[region.RegionId] is { IsOpen: false } heapRegion &&
+                                                                heapRegion.Group == group))
             {
-                Consider(wildcard, other, wildcard.Resource, []);
+                foreach (var pair in OpenAndClosed(open, closed))
+                    yield return pair;
             }
         }
+    }
 
-        foreach (var open in candidates.Where(access => heap.Regions[access.Resource.RegionId!].IsOpen))
+    private static IEnumerable<CandidatePair> OpenAndClosed(RegionBuckets open, RegionBuckets closed)
+    {
+        IEnumerable<CandidatePair> Pair(IReadOnlyList<Access> openBucket, IReadOnlyList<Access> closedBucket) =>
+            Across(openBucket, closedBucket, (_, second) => second.Resource, first => first.Uncertainties, PairEnumeration.OpenRegion);
+
+        foreach (var openBucket in open.Resources)
         {
-            var group = heap.Regions[open.Resource.RegionId!].Group;
-            foreach (var closed in candidates.Where(access => access.Resource.Scope == open.Resource.Scope && heap.Regions[access.Resource.RegionId!] is { IsOpen: false } region &&
-                                                              region.Group == group && access.Resource.Member.Identity == open.Resource.Member.Identity &&
-                                                              access.Resource.AccessPath.SequenceEqual(open.Resource.AccessPath)))
+            var key = openBucket[0].Resource;
+            foreach (var closedBucket in closed.Resources.Where(bucket => bucket[0].Resource.Member.Identity == key.Member.Identity &&
+                                                                          bucket[0].Resource.AccessPath.SequenceEqual(key.AccessPath)))
             {
-                Consider(open, closed, closed.Resource, open.Uncertainties);
+                foreach (var pair in Pair(openBucket, closedBucket))
+                    yield return pair;
             }
+
+            foreach (var pair in Pair(openBucket, closed.Wildcard))
+                yield return pair;
         }
 
-        return new PairAnalysis(pairs, counted, suppressed, skips);
+        foreach (var closedBucket in closed.Resources.Append(closed.Wildcard))
+        {
+            foreach (var pair in Pair(open.Wildcard, closedBucket))
+                yield return pair;
+        }
+    }
+
+    private static IEnumerable<CandidatePair> Within(IReadOnlyList<Access> bucket, PairEnumeration enumeration)
+    {
+        for (var first = 0; first < bucket.Count; first++)
+        {
+            for (var second = first; second < bucket.Count; second++)
+                yield return new CandidatePair(bucket[first], bucket[second], bucket[first].Resource, [], enumeration);
+        }
+    }
+
+    /// <summary>Every pair of an access of the first bucket with an access of the second, the first access first.</summary>
+    private static IEnumerable<CandidatePair> Across(IReadOnlyList<Access> firsts, IReadOnlyList<Access> seconds, Func<Access, Access, AccessResource> reported,
+                                                     Func<Access, IReadOnlyList<string>> uncertainties, PairEnumeration enumeration)
+    {
+        foreach (var first in firsts)
+        {
+            foreach (var second in seconds)
+                yield return new CandidatePair(first, second, reported(first, second),
+                                               uncertainties(first), enumeration);
+        }
     }
 }

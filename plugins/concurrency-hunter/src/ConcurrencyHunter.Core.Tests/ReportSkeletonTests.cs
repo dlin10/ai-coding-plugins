@@ -135,11 +135,37 @@ public sealed class ReportSkeletonTests
 
         var prefixes = new[]
         {
-            "- Access A: ", "- Access B: ", "- Code path A: ", "- Code path B: ", "- Resource: ", "- Binding evidence: ", "- Overlap: ",
-            "- Protection: ", "- Scenario: ", "- Uncertainty: ", "- Confidence: ", "- Evidence: "
+            "- Access A: ", "- Access B: ", "- Code path A: ", "- Code path B: ", "- Occurrences: ", "- Resource: ", "- Binding evidence: ",
+            "- Overlap: ", "- Protection: ", "- Scenario: ", "- Uncertainty: ", "- Confidence: ", "- Evidence: "
         };
         Assert.Equal(prefixes, block.Split('\n', StringSplitOptions.RemoveEmptyEntries).Skip(1)
+                                    .Where(line => !line.StartsWith("  - ", StringComparison.Ordinal))
                                     .Select(line => prefixes.First(prefix => line.StartsWith(prefix, StringComparison.Ordinal))));
+    }
+
+    [Fact]
+    public async Task Finding_section_shows_occurrences_and_their_count()
+    {
+        var (result, bundle) = await Render();
+
+        Assert.All(result.Findings, finding =>
+        {
+            var block = Block(bundle.ReportMarkdown, finding.FindingId);
+            var lines = block.Split('\n');
+            var count = Array.FindIndex(lines, line => line.StartsWith("- Occurrences: ", StringComparison.Ordinal));
+            Assert.StartsWith($"- Occurrences: {finding.OccurrenceCount}", lines[count], StringComparison.Ordinal);
+            Assert.InRange(finding.Occurrences.Count, 1, 3);
+            foreach (var (occurrence, index) in finding.Occurrences.Select((occurrence, index) => (occurrence, index)))
+            {
+                Assert.StartsWith($"  - {occurrence.RootA.Display} (", lines[count + 1 + index], StringComparison.Ordinal);
+                Assert.Contains($" with {occurrence.RootB.Display} (", lines[count + 1 + index], StringComparison.Ordinal);
+                Assert.EndsWith($"; protection {occurrence.Protection}", lines[count + 1 + index], StringComparison.Ordinal);
+            }
+
+            Assert.False(lines[count + 1 + finding.Occurrences.Count].StartsWith("  - ", StringComparison.Ordinal));
+        });
+        Assert.Contains(result.Groups, group => bundle.ReportMarkdown.Contains($"({group.FindingIds.Count} findings, {group.OccurrenceCount} occurrences)",
+                                                                               StringComparison.Ordinal));
     }
 
     [Fact]
@@ -231,6 +257,22 @@ public sealed class ReportSkeletonTests
     }
 
     [Fact]
+    public async Task Coverage_lists_comparisons_the_cartesian_bound_buckets_the_largest_bucket_and_candidates()
+    {
+        var (result, bundle) = await Render();
+        var coverage = Section(bundle.ReportMarkdown, "### Coverage");
+        var pairs = result.Pairs;
+
+        Assert.True(pairs.Comparisons > 0);
+        Assert.True(pairs.Candidates < pairs.Comparisons);
+        Assert.Contains($"- Pairs: comparisons {pairs.Comparisons} of a Cartesian bound {pairs.CartesianBound}; buckets {pairs.Buckets}, " +
+                        $"largest bucket {pairs.LargestBucket}; candidates {pairs.Candidates}, suppressed {pairs.Suppressed}\n",
+                        coverage, StringComparison.Ordinal);
+        Assert.Equal(result.Findings.Count == 0 ? 0 : pairs.Candidates, pairs.Candidates);
+        Assert.Contains($"- Candidate pairs: {pairs.Candidates}\n", Section(bundle.ReportMarkdown, "### Diagnostics"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Run_metadata_keeps_run_id_status_target_and_started_at_with_offset()
     {
         var (_, bundle) = await Render();
@@ -255,7 +297,7 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(9, counters.Length);
+        Assert.Equal(10, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));

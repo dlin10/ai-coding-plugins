@@ -21,12 +21,21 @@ public enum DiRegistrationForm
 
 /// <summary>One registration call. <see cref="ServiceType"/> is null when the service type is a <c>Type</c> value
 /// the analysis cannot determine; such a registration may override any binding of its scope. The type keys
-/// (<see cref="DiIndex.TypeKey"/>) identify the types; the type names are for display.</summary>
+/// (<see cref="DiIndex.TypeKey"/>) identify the types; the type names are for display. <see cref="Assembly"/>,
+/// <see cref="ProjectPath"/>, the source position, <see cref="BodyId"/> and <see cref="OperationId"/> order the scope's
+/// registrations; <see cref="BodyId"/> is the lowered body holding the call and <see cref="OperationId"/> the call in it, both
+/// null when the holding member could not be lowered. <see cref="Number"/> is the 1-based position among the scope's
+/// registrations with the same service type, implementation and lifetime, set by <see cref="DiIndex"/>.</summary>
 public sealed record DiRegistration(string? ServiceType, string? ImplementationType, DiLifetime Lifetime, bool IsHostedService,
                                     string Method, SourceSpan Source, string? UnsupportedReason, string? ServiceTypeKey,
                                     string? ImplementationTypeKey, DiRegistrationForm Form = DiRegistrationForm.Type)
 {
     public bool IsSupported => UnsupportedReason is null;
+    public string Assembly { get; init; } = "";
+    public string ProjectPath { get; init; } = "";
+    public string? BodyId { get; init; }
+    public int? OperationId { get; init; }
+    public int Number { get; init; } = 1;
 }
 
 public enum DiResolutionKind
@@ -37,11 +46,11 @@ public enum DiResolutionKind
     Bound
 }
 
-/// <summary>A service bound to one implementation and lifetime. The region is per implementation and lifetime;
-/// the service type travels beside it because every singleton registration is its own object.</summary>
+/// <summary>A service bound to the last of its agreeing registrations. <see cref="RegionId"/> is that registration's region
+/// identity (<see cref="DiIndex.RegionId"/>) and <see cref="RegionDisplay"/> its display.</summary>
 public sealed record DiBinding(string ServiceType, string ImplementationType, DiLifetime Lifetime, string RegionId,
                                IReadOnlyList<SourceSpan> Sources, IReadOnlyList<string> Uncertainties, string ServiceTypeKey,
-                               string ImplementationTypeKey);
+                               string ImplementationTypeKey, string RegionDisplay);
 
 public sealed record DiResolution(DiResolutionKind Kind, string ServiceType, DiBinding? Binding,
                                   IReadOnlyList<DiRegistration> Registrations);
@@ -66,6 +75,7 @@ public sealed class DiIndex
     public DiIndex(string scopeId, IReadOnlyList<DiRegistration> registrations, IReadOnlyList<DiDiagnostic> diagnostics)
     {
         ScopeId = scopeId;
+        registrations = Numbered(registrations);
         Registrations = registrations;
         var hosted = HostedServicesOf(registrations).ToArray();
         HostedServices = hosted.Select(item => item.Registration).ToArray();
@@ -86,13 +96,22 @@ public sealed class DiIndex
     /// <summary>Registrations whose service type is unknown; while any exist every bound answer is uncertain.</summary>
     public IReadOnlyList<DiRegistration> UnresolvedRegistrations { get; }
 
-    public static string RegionId(string implementationType, DiLifetime lifetime) => $"di:{implementationType}@{lifetime}";
+    /// <summary>A registration's region identity: its service type key, implementation type key, lifetime and number.</summary>
+    public static string RegionId(string serviceTypeKey, string implementationTypeKey, DiLifetime lifetime, int number) =>
+        $"di|{serviceTypeKey}|{implementationTypeKey}@{lifetime}#{number}";
+
+    /// <summary>A registration's region display: <c>di:&lt;Type&gt;@&lt;Lifetime&gt;</c>, with <c>#&lt;n&gt;</c> from the second
+    /// identical registration on.</summary>
+    public static string RegionDisplay(string implementationType, DiLifetime lifetime, int number) =>
+        number < 2 ? $"di:{implementationType}@{lifetime}" : $"di:{implementationType}@{lifetime}#{number}";
 
     /// <summary>A type's identity within a scope: its display name qualified by the assembly that declares it, so
     /// same-named types of two assemblies never share a registration, a binding or a key.</summary>
     public static string TypeKey(string assembly, string type) => $"{assembly}:{type}";
 
-    /// <summary>Resolves a service by its type key (<see cref="TypeKey"/>); the resolution's service type is that key.</summary>
+    /// <summary>Resolves a service by its type key (<see cref="TypeKey"/>); the resolution's service type is that key. Agreeing
+    /// registrations bind the last of them, as the container does; <see cref="DiResolution.Registrations"/> lists every
+    /// registration of the service in the total order.</summary>
     public DiResolution Resolve(string serviceTypeKey)
     {
         var registrations = Registrations.Where(registration => registration.ServiceTypeKey == serviceTypeKey).ToArray();
@@ -106,14 +125,37 @@ public sealed class DiIndex
             return new DiResolution(DiResolutionKind.Ambiguous, serviceTypeKey, null, registrations);
 
         var (implementationKey, lifetime) = targets[0];
-        var (serviceType, implementation) = (registrations[0].ServiceType!, registrations[0].ImplementationType!);
+        var last = registrations[^1];
         var uncertainties = UnresolvedRegistrations
             .Select(unresolved => $"An unresolved registration at {unresolved.Source.Path}:{unresolved.Source.StartLine} may change this binding.")
             .ToArray();
-        var binding = new DiBinding(serviceType, implementation, lifetime, RegionId(implementation, lifetime),
+        var binding = new DiBinding(last.ServiceType!, last.ImplementationType!, lifetime,
+                                    RegionId(serviceTypeKey, implementationKey, lifetime, last.Number),
                                     registrations.Select(registration => registration.Source).ToArray(), uncertainties, serviceTypeKey,
-                                    implementationKey);
+                                    implementationKey, RegionDisplay(last.ImplementationType!, lifetime, last.Number));
         return new DiResolution(DiResolutionKind.Bound, serviceTypeKey, binding, registrations);
+    }
+
+    /// <summary>The registrations in the scope's total order (assembly, project path, document path, line, column, body id,
+    /// operation id), each numbered among those with the same service type, implementation and lifetime.</summary>
+    private static DiRegistration[] Numbered(IReadOnlyList<DiRegistration> registrations)
+    {
+        var counts = new Dictionary<(string?, string?, DiLifetime), int>();
+        return registrations.OrderBy(registration => registration.Assembly, StringComparer.Ordinal)
+                            .ThenBy(registration => registration.ProjectPath, StringComparer.Ordinal)
+                            .ThenBy(registration => registration.Source.Path, StringComparer.Ordinal)
+                            .ThenBy(registration => registration.Source.StartLine)
+                            .ThenBy(registration => registration.Source.StartColumn)
+                            .ThenBy(registration => registration.BodyId, StringComparer.Ordinal)
+                            .ThenBy(registration => registration.OperationId)
+                            .Select(registration =>
+                            {
+                                var key = (registration.ServiceTypeKey, registration.ImplementationTypeKey, registration.Lifetime);
+                                var number = counts.GetValueOrDefault(key) + 1;
+                                counts[key] = number;
+                                return registration with { Number = number };
+                            })
+                            .ToArray();
     }
 
     private static IEnumerable<DiDiagnostic> UnsupportedDiagnostics(IReadOnlyList<DiRegistration> registrations) =>

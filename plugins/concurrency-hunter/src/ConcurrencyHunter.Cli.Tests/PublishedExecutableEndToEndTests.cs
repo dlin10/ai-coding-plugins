@@ -112,6 +112,12 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             Assert.Contains(groups, group => group.GetProperty("region").GetString()!.StartsWith("di:", StringComparison.Ordinal));
             Assert.Contains(groups, group => group.GetProperty("region").GetString()!.StartsWith("alloc:", StringComparison.Ordinal));
             Assert.Contains(groups, group => group.GetProperty("confidenceLabel").GetString() == "Medium");
+            Assert.All(groups, group =>
+            {
+                Assert.True(group.GetProperty("occurrenceCount").GetInt32() >= group.GetProperty("findingCount").GetInt32());
+                Assert.All(group.GetProperty("findings").EnumerateArray(),
+                           finding => Assert.True(finding.GetProperty("occurrenceCount").GetInt32() >= 1));
+            });
             var narrated = groups.Where(group => group.GetProperty("confidenceLabel").GetString() is "High" or "Medium").ToArray();
             Assert.NotEmpty(narrated);
             foreach (var group in narrated)
@@ -152,8 +158,29 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             var findingElements = findings.RootElement.GetProperty("findings").EnumerateArray().ToArray();
             Assert.Equal(rendered.GetProperty("counts").GetProperty("findings").GetInt32(), findingElements.Length);
             Assert.Contains(findingElements, finding => finding.GetProperty("ruleId").GetString() == "DCA1002");
-            Assert.Contains("verify manually", await File.ReadAllTextAsync(Path.Combine(bundlePath, "report.md")),
-                            StringComparison.Ordinal);
+            Assert.Equal("2.1", findings.RootElement.GetProperty("schemaVersion").GetString());
+            Assert.All(findingElements, finding =>
+            {
+                Assert.Matches("^[0-9a-f]{16}$", finding.GetProperty("fingerprint").GetString()!);
+                Assert.True(finding.GetProperty("occurrenceCount").GetInt32() >= 1);
+            });
+            var sharedHelper = Assert.Single(findingElements, finding =>
+                finding.GetProperty("resource").GetProperty("region").GetString()!.Contains("ActivityLog", StringComparison.Ordinal));
+            Assert.Equal(6, sharedHelper.GetProperty("occurrenceCount").GetInt32());
+            var sharedHelperGroup = Assert.Single(findings.RootElement.GetProperty("groups").EnumerateArray(),
+                                                  group => group.GetProperty("groupId").GetString() == sharedHelper.GetProperty("groupId").GetString());
+            Assert.Equal(1, sharedHelperGroup.GetProperty("findingIds").GetArrayLength());
+            Assert.Equal(6, sharedHelperGroup.GetProperty("occurrenceCount").GetInt32());
+            var sharedHelperDigest = Assert.Single(groups, group => group.GetProperty("groupId").GetString() == sharedHelper.GetProperty("groupId").GetString());
+            Assert.Equal((1, 6), (sharedHelperDigest.GetProperty("findingCount").GetInt32(), sharedHelperDigest.GetProperty("occurrenceCount").GetInt32()));
+            Assert.Equal(6, Assert.Single(sharedHelperDigest.GetProperty("findings").EnumerateArray()).GetProperty("occurrenceCount").GetInt32());
+
+            var report = (await File.ReadAllTextAsync(Path.Combine(bundlePath, "report.md"))).Replace("\r\n", "\n", StringComparison.Ordinal);
+            Assert.Contains("verify manually", report, StringComparison.Ordinal);
+            var block = report[report.IndexOf($"##### {sharedHelper.GetProperty("findingId").GetString()}\n", StringComparison.Ordinal)..];
+            block = block[..block.IndexOf("\n\n", StringComparison.Ordinal)];
+            Assert.Contains("- Occurrences: 6 (the first 3 listed)\n", block, StringComparison.Ordinal);
+            Assert.Equal(3, block.Split('\n').Count(line => line.StartsWith("  - ", StringComparison.Ordinal)));
             await server.CompleteAsync(HANDSHAKE_TIMEOUT);
         }
         finally

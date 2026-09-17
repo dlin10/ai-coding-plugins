@@ -111,10 +111,34 @@ A pair of accesses that passed the cheap resource, overlap and operation filters
 refinement.
 _Avoid_: potential race, pair, hit
 
+**Bucket**:
+One cell of the candidate index: the accesses of one process scope on one resource, and, apart from
+them, a region's wildcard accesses. Two accesses are compared only when they share a bucket, when one
+of them is in the wildcard bucket of the other's region, or when they lie on the same path of an
+open region and of one of its closed regions; so the number of comparisons is bounded by the
+buckets, never by the square of all accesses.
+_Avoid_: partition, group (a group is a report term), region (a region holds many buckets)
+
 **Finding**:
 A candidate the single conflict procedure classified under exactly one rule, `DCA1001` to `DCA1004`,
-with its evidence, confidence and provenance; one pair of accesses never yields two findings.
+with its evidence, confidence and provenance. Its identity is the rule, the resource and the
+unordered pair of access sites; the executions that reach those sites are its occurrences, not part
+of it, so one pair of access sites never yields two findings, however many roots reach it.
 _Avoid_: race, bug, warning, diagnostic (a diagnostic is what a provider reports about coverage)
+
+**Occurrence**:
+One way a finding's pair of access sites is reached: a pair of execution roots with the call path by
+which the analysis first reached each site from its root. A finding has one or more, at most one per
+pair of roots; the report shows a few as representative locations and counts the rest.
+_Avoid_: instance, duplicate, hit
+
+**Fingerprint**:
+The stable name of a finding across runs and edits: a hash of the rule, the containing symbols of
+both access sites, the resource's shape, the operation kinds and roles, and the protection result
+kind. Moving lines, renaming a local or adding a caller does not change it; a different rule,
+resource, access site or protection result does. A finding group's fingerprint is the same over its
+rule and resource.
+_Avoid_: id (the run-local `F1` the narrative cites), hash, key
 
 **Protection**:
 The synchronizer identity and mode an access must hold, as proved on every path reaching it; a
@@ -163,8 +187,8 @@ _Avoid_: scope, completeness score
 ### The report
 
 **Finding group**:
-One semantic cause in the report: the findings that share a resource and a root cause, shown with
-representative locations and an occurrence count.
+The findings of one rule on one resource, shown in the report with their representative locations
+and the sum of their occurrences.
 _Avoid_: cluster, issue, bucket (a bucket is the candidate index's word)
 
 **Skeleton**:
@@ -196,6 +220,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Semantic gap** yields exactly one **Gap packet** and zero or more **Inferred facts**; every gap, resolved or not, appears in **Coverage**.
 - A **Semantic gap** never changes a **Terminal status**; only a phase that did not finish does.
 - Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
+- Two **Accesses** are compared only inside one **Bucket** or across the wildcard and open-region joins the bucket's definition names; an access in no bucket is compared with nothing.
+- A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
+- A file **Suppression** names a **Fingerprint** and nothing else.
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
 - A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
@@ -227,5 +254,10 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   Resolved: it stood in for **Ownership** before regions existed; once a region carries its ownership
   and evidence chain, the sharing key is retired and ownership is the one account of who can reach a
   region.
+- TD-106 in the SPEC put the execution roots into the fingerprint, and phase 2a made a finding of
+  every pair of roots reaching one pair of access sites. Resolved: a **Finding** is the pair of
+  access sites, the roots are its **Occurrences**, and the **Fingerprint** carries no root, so a
+  new caller of a shared helper neither adds a finding nor invalidates a suppression. See
+  `docs/adr/0007`.
 - Phase 1a read the whole solution as one program. Resolved: a solution may hold several
   applications, and the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.

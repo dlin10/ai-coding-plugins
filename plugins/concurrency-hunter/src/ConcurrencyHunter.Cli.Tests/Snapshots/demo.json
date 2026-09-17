@@ -1,0 +1,142 @@
+{
+  "counts": {
+    "projectsExpected": 5,
+    "projectsLoaded": 5,
+    "scopes": 2,
+    "roots": 108,
+    "rootsPerProvider": {
+      "aspnetcore": 69,
+      "hosting": 39
+    },
+    "reachableBodies": 382,
+    "summaries": 382,
+    "regions": 229,
+    "instances": 408,
+    "accesses": 316,
+    "pairs": {
+      "comparisons": 316,
+      "cartesianBound": 27967,
+      "largestBucket": 5,
+      "buckets": 182,
+      "skips": {
+        "confined": 8,
+        "no-overlap": 51,
+        "read-read": 176
+      },
+      "suppressed": 9,
+      "candidates": 72
+    },
+    "findings": 63,
+    "occurrences": 72,
+    "groups": 49,
+    "fingerprints": [
+      "00c0f9fbc81a0228",
+      "02efafcf04c568eb",
+      "0ff382932ec42e00",
+      "1158be60ed67864f",
+      "19df32a1ba5e6929",
+      "1aa17773c373f73a",
+      "1b3a288043626abf",
+      "23027766c83eb5c9",
+      "243e5f431bb28527",
+      "2eb10dac39b1ab87",
+      "2f2c498276cc327b",
+      "386b91364073a8cc",
+      "3b3cb21a0be99d2a",
+      "3b8ef83bb3f43421",
+      "490885016a06b231",
+      "4cd6a654b167162b",
+      "4f5246a74669365c",
+      "528080baef57275e",
+      "5652fb67b5bc11a6",
+      "5b81465c11a8db0b",
+      "5f4cd8fbb74fe791",
+      "644c6073c130aa6a",
+      "6e6773d095a3e5ae",
+      "6f6d6b39d09809d6",
+      "74f136b6977970bb",
+      "7b7626abc9fea1d5",
+      "7c58babcede86c11",
+      "7ee04391e659cd20",
+      "8187d8ad17a08bbd",
+      "8405e1e3a6fff46c",
+      "92e17f2f8c241563",
+      "94d9a023850fa6f2",
+      "99b9566881265a8a",
+      "9ae6b85938700587",
+      "9bf7e171c6e3076b",
+      "9c9c8106b0ad6f1d",
+      "9f784624fea9d5f0",
+      "a56f6581531e1c11",
+      "a70beb688295e5de",
+      "aa449e473e4843e6",
+      "af5eac9010c6daf5",
+      "b3015545d26764ec",
+      "b47351dfaefa4142",
+      "b4d4a1932d5dec8c",
+      "b9060ca5ce16cf5b",
+      "c4ee66fcea6d4204",
+      "ca0546845082f399",
+      "d3da03e778857633",
+      "d5aa902d6448057f",
+      "d855fe88c8d455ad",
+      "d9249e8c1a2262c7",
+      "db47c80433ee81bd",
+      "dd548fa2ebbf85ef",
+      "df22a46d682100b3",
+      "e10e862e0c08ed5c",
+      "e16132ce934681c0",
+      "e775eba7dd452d0f",
+      "ef07b9800887cefd",
+      "f15de3949b9f80f4",
+      "f238b54c4ee96922",
+      "f49c13907cfd7721",
+      "f5bc36108cf59d98",
+      "ff6af698a226ea8c"
+    ]
+  },
+  "coverage": [
+    {
+      "scopeId": "Demo.Web",
+      "rootsPerProvider": {
+        "aspnetcore": 69,
+        "hosting": 38
+      },
+      "accesses": 236,
+      "counters": {
+        "delegate-to-opaque": 3,
+        "element-operation": 2,
+        "merged-context": 0,
+        "no-receiver-object": 0,
+        "opaque-call": 314,
+        "reachable-bodies": 379,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 44,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 2,
+        "wildcard-access": 5
+      }
+    },
+    {
+      "scopeId": "Demo.Worker",
+      "rootsPerProvider": {
+        "aspnetcore": 0,
+        "hosting": 1
+      },
+      "accesses": 1,
+      "counters": {
+        "delegate-to-opaque": 0,
+        "element-operation": 0,
+        "merged-context": 0,
+        "no-receiver-object": 0,
+        "opaque-call": 7,
+        "reachable-bodies": 3,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    }
+  ]
+}

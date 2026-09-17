@@ -34,11 +34,12 @@ public sealed class HostingRootProvider : IExecutionRootProvider
 
     public RootDiscoveryResult Discover(RootDiscoveryContext context)
     {
-        var diagnostics = ProviderSupport.VersionDiagnostics(context, ProviderId, SupportedAssemblyVersions);
-        if (diagnostics.Count != 0)
+        var (diagnostics, skipped) = ProviderSupport.VersionDiagnostics(context, ProviderId, SupportedAssemblyVersions);
+        if (ProviderSupport.Scanned(context, SupportedAssemblyVersions, skipped) is null)
             return new RootDiscoveryResult(RootDiscoveryStatus.NotChecked, [], diagnostics);
 
         var roots = new List<ExecutionRootDescriptor>();
+        // Every compilation's types, so a hosted service declared in a skipped compilation is recognised and left out without a diagnostic.
         var sourceTypes = context.Compilations
                                  .SelectMany(compilation => SourceTypes(compilation.Assembly.GlobalNamespace))
                                  .GroupBy(SymbolNames.TypeKey, StringComparer.Ordinal)
@@ -47,6 +48,12 @@ public sealed class HostingRootProvider : IExecutionRootProvider
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             var implementation = hosted.ImplementationType;
+            if (sourceTypes.TryGetValue(hosted.ImplementationTypeKey, out var declared) &&
+                ProviderSupport.CompilationOf(context, declared) is { } declaring && skipped.Contains(declaring))
+            {
+                continue;
+            }
+
             if (implementation.Contains('<', StringComparison.Ordinal))
             {
                 diagnostics.Add(Diagnostic(RootDiscoveryDiagnosticCode.UnsupportedPattern, implementation, $"generic hosted service {implementation}"));

@@ -129,18 +129,16 @@ public static class MethodSummaryBuilder
                     case IrCallOperation call when IsOpaque(call):
                         opaqueCalls.Add(new SummaryOpaqueCall(call.Id, call.Method,
                                                               call.ArgumentValues.SelectMany(value => _points[value]).OfType<DelegateCreationValue>()
-                                                                  .Distinct().Select(value => delegates[value.Site]).ToArray()));
+                                                                  .Distinct().Select(value => delegates[value.Site]).ToArray())
+                        {
+                            Receivers = Final(Points(call.ReceiverValue), delegates),
+                            Arguments = Arguments(call, delegates),
+                            ServiceCall = call.ServiceCall
+                        });
                         break;
                     case IrCallOperation call:
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
-                                                   call.ArgumentValues.Select((value, position) => new CallArgument(
-                                                           position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position,
-                                                           Final(Points(value), delegates))
-                                                       {
-                                                           Dependencies = Dependencies(value)
-                                                       })
-                                                       .ToArray(),
-                                                   locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys));
+                                                   Arguments(call, delegates), locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys));
                         break;
                     case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
                         capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue)));
@@ -177,6 +175,15 @@ public static class MethodSummaryBuilder
                 Locks = lockTransfers
             };
         }
+
+        private CallArgument[] Arguments(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            call.ArgumentValues.Select((value, position) => new CallArgument(
+                    position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position,
+                    Final(Points(value), delegates))
+                {
+                    Dependencies = Dependencies(value)
+                })
+                .ToArray();
 
         /// <summary>Solves the values and the dependencies of every IR value until neither changes.</summary>
         private void Solve()

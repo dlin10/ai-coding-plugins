@@ -1,0 +1,329 @@
+{
+  "counts": {
+    "projectsExpected": 30,
+    "projectsLoaded": 30,
+    "scopes": 14,
+    "roots": 84,
+    "rootsPerProvider": {
+      "aspnetcore": 83,
+      "hosting": 1
+    },
+    "reachableBodies": 425,
+    "summaries": 606,
+    "regions": 876,
+    "instances": 686,
+    "accesses": 1543,
+    "pairs": {
+      "comparisons": 1263,
+      "cartesianBound": 77516,
+      "largestBucket": 10,
+      "buckets": 626,
+      "skips": {
+        "confined": 420,
+        "read-read": 843
+      },
+      "suppressed": 0,
+      "candidates": 0
+    },
+    "findings": 0,
+    "occurrences": 0,
+    "groups": 0,
+    "fingerprints": []
+  },
+  "coverage": [
+    {
+      "scopeId": "Basket.API",
+      "rootsPerProvider": {
+        "aspnetcore": 6,
+        "hosting": 0
+      },
+      "accesses": 20,
+      "counters": {
+        "delegate-to-opaque": 12,
+        "element-operation": 5,
+        "merged-context": 0,
+        "no-receiver-object": 6,
+        "opaque-call": 148,
+        "reachable-bodies": 29,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 10,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 1,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Catalog.API",
+      "rootsPerProvider": {
+        "aspnetcore": 13,
+        "hosting": 0
+      },
+      "accesses": 77,
+      "counters": {
+        "delegate-to-opaque": 11,
+        "element-operation": 13,
+        "merged-context": 0,
+        "no-receiver-object": 5,
+        "opaque-call": 217,
+        "reachable-bodies": 53,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 10,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 6,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Identity.API",
+      "rootsPerProvider": {
+        "aspnetcore": 19,
+        "hosting": 0
+      },
+      "accesses": 323,
+      "counters": {
+        "delegate-to-opaque": 28,
+        "element-operation": 13,
+        "merged-context": 0,
+        "no-receiver-object": 8,
+        "opaque-call": 896,
+        "reachable-bodies": 86,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 16,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 1,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Mobile.Shopping.HttpAggregator",
+      "rootsPerProvider": {
+        "aspnetcore": 5,
+        "hosting": 0
+      },
+      "accesses": 81,
+      "counters": {
+        "delegate-to-opaque": 22,
+        "element-operation": 6,
+        "merged-context": 0,
+        "no-receiver-object": 14,
+        "opaque-call": 91,
+        "reachable-bodies": 58,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Ordering.API",
+      "rootsPerProvider": {
+        "aspnetcore": 8,
+        "hosting": 0
+      },
+      "accesses": 17,
+      "counters": {
+        "delegate-to-opaque": 9,
+        "element-operation": 15,
+        "merged-context": 0,
+        "no-receiver-object": 9,
+        "opaque-call": 143,
+        "reachable-bodies": 30,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 10,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 6,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Ordering.BackgroundTasks",
+      "rootsPerProvider": {
+        "aspnetcore": 0,
+        "hosting": 1
+      },
+      "accesses": 12,
+      "counters": {
+        "delegate-to-opaque": 4,
+        "element-operation": 4,
+        "merged-context": 0,
+        "no-receiver-object": 3,
+        "opaque-call": 43,
+        "reachable-bodies": 10,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 7,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Ordering.SignalrHub",
+      "rootsPerProvider": {
+        "aspnetcore": 0,
+        "hosting": 0
+      },
+      "accesses": 0,
+      "counters": {
+        "delegate-to-opaque": 5,
+        "element-operation": 2,
+        "merged-context": 0,
+        "no-receiver-object": 2,
+        "opaque-call": 74,
+        "reachable-bodies": 10,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 11,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Payment.API",
+      "rootsPerProvider": {
+        "aspnetcore": 0,
+        "hosting": 0
+      },
+      "accesses": 0,
+      "counters": {
+        "delegate-to-opaque": 2,
+        "element-operation": 2,
+        "merged-context": 0,
+        "no-receiver-object": 2,
+        "opaque-call": 75,
+        "reachable-bodies": 9,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 9,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Web.Shopping.HttpAggregator",
+      "rootsPerProvider": {
+        "aspnetcore": 5,
+        "hosting": 0
+      },
+      "accesses": 86,
+      "counters": {
+        "delegate-to-opaque": 23,
+        "element-operation": 10,
+        "merged-context": 0,
+        "no-receiver-object": 14,
+        "opaque-call": 96,
+        "reachable-bodies": 58,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "WebMVC",
+      "rootsPerProvider": {
+        "aspnetcore": 15,
+        "hosting": 0
+      },
+      "accesses": 167,
+      "counters": {
+        "delegate-to-opaque": 16,
+        "element-operation": 2,
+        "merged-context": 0,
+        "no-receiver-object": 16,
+        "opaque-call": 186,
+        "reachable-bodies": 37,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 9,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "WebSPA",
+      "rootsPerProvider": {
+        "aspnetcore": 1,
+        "hosting": 0
+      },
+      "accesses": 1,
+      "counters": {
+        "delegate-to-opaque": 3,
+        "element-operation": 0,
+        "merged-context": 0,
+        "no-receiver-object": 0,
+        "opaque-call": 12,
+        "reachable-bodies": 4,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "WebStatus",
+      "rootsPerProvider": {
+        "aspnetcore": 3,
+        "hosting": 0
+      },
+      "accesses": 3,
+      "counters": {
+        "delegate-to-opaque": 7,
+        "element-operation": 0,
+        "merged-context": 0,
+        "no-receiver-object": 0,
+        "opaque-call": 78,
+        "reachable-bodies": 10,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 8,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "WebhookClient",
+      "rootsPerProvider": {
+        "aspnetcore": 3,
+        "hosting": 0
+      },
+      "accesses": 17,
+      "counters": {
+        "delegate-to-opaque": 0,
+        "element-operation": 3,
+        "merged-context": 0,
+        "no-receiver-object": 0,
+        "opaque-call": 37,
+        "reachable-bodies": 10,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 0,
+        "wildcard-access": 0
+      }
+    },
+    {
+      "scopeId": "Webhooks.API",
+      "rootsPerProvider": {
+        "aspnetcore": 5,
+        "hosting": 0
+      },
+      "accesses": 31,
+      "counters": {
+        "delegate-to-opaque": 5,
+        "element-operation": 12,
+        "merged-context": 0,
+        "no-receiver-object": 1,
+        "opaque-call": 95,
+        "reachable-bodies": 21,
+        "scc-budget-exceeded": 0,
+        "startup-construction-access": 0,
+        "unanalysed-registration": 0,
+        "unresolved-locator": 3,
+        "wildcard-access": 0
+      }
+    }
+  ]
+}

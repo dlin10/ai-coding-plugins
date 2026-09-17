@@ -34,7 +34,7 @@ public sealed class ReportRendererTests
         var markdown = ReportRenderer.Render(report).ReportMarkdown;
 
         Assert.Contains(
-            "#### G1 · DCA1001 · _value1 on static:Ns.Controller1 (1 findings)\n" +
+            "#### G1 · DCA1001 · _value1 on static:Ns.Controller1 (1 findings, 1 occurrences)\n" +
             "##### What can be lost\nA value [E:F1.S].\n```powershell\n# not a heading\n```\n" +
             "###### Detail\n##### Remediation\n- Fix it.\n\n##### F1",
             markdown);
@@ -119,7 +119,7 @@ public sealed class ReportRendererTests
         var group = Assert.Single(root.GetProperty("groups").EnumerateArray());
         var narrative = root.GetProperty("narrative").EnumerateArray().ToArray();
 
-        Assert.Equal("2.0", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("2.1", root.GetProperty("schemaVersion").GetString());
         Assert.Equal("F1", finding.GetProperty("findingId").GetString());
         Assert.Equal("deterministic", finding.GetProperty("evidenceMode").GetString());
         Assert.Equal("high", finding.GetProperty("confidence").GetProperty("label").GetString());

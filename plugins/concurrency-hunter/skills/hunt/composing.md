@@ -79,6 +79,8 @@ Follow every validation rule:
 - A group narrative must contain at least one `[E:<id>]` citation. Cite only evidence ids belonging
   to a finding in that group, and cite at least one evidence id of every finding `get_groups` listed
   for the group. A summary may cite evidence from any group in the run.
+- Each finding is one pair of access sites; its `occurrenceCount` says how many pairs of roots reach
+  that pair. Occurrences are the ways one race is reached; never present them as separate findings.
 - Include a heading named `Remediation`, written as a level 1 through 6 Markdown heading. Put at
   least one recommendation below it. Each recommendation must start at the beginning of a line with
   `-`, `*`, or a number followed by a period.

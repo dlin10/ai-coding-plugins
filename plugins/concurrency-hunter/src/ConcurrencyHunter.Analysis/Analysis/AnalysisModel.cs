@@ -32,17 +32,33 @@ public sealed record FindingConfidence(string Label, int Score, ConfidenceCompon
 
 public sealed record EvidenceItem(string Id, string Kind, string Text);
 
-public sealed record Finding(string FindingId, string StableId, string GroupId, string RuleId, AccessResource Resource,
+/// <summary>One pair of roots reaching a finding's two sites, with the call path of each side, sides ordered as the finding's sites,
+/// and the protection of the pair chosen for it (R5).</summary>
+public sealed record FindingOccurrence(AccessRoot RootA, AccessRoot RootB, IReadOnlyList<string> CallPathA, IReadOnlyList<string> CallPathB,
+                                       string Protection);
+
+/// <summary>A pair of access sites on one resource under one rule (ADR 0007). <see cref="AccessA"/> and <see cref="AccessB"/> are the
+/// pair the evidence comes from; <see cref="Occurrences"/> lists the first three of <see cref="OccurrenceCount"/>.</summary>
+public sealed record Finding(string FindingId, string Fingerprint, string GroupId, string RuleId, AccessResource Resource,
                              Access AccessA, Access AccessB, string ProtectionResult,
                              FindingConfidence Confidence, IReadOnlyList<string> ConcurrencyEvidence,
                              IReadOnlyList<string> Scenario, IReadOnlyList<string> Uncertainty,
-                             IReadOnlyList<EvidenceItem> Evidence);
+                             IReadOnlyList<EvidenceItem> Evidence)
+{
+    public string GroupFingerprint { get; init; } = "";
+    public int OccurrenceCount { get; init; } = 1;
+    public IReadOnlyList<FindingOccurrence> Occurrences { get; init; } = [];
+}
 
 /// <summary>Findings of one rule on one object: the same scope and resource identity. Two singleton registrations
 /// of one implementation are two objects, so two groups. <see cref="Ownership"/> and its evidence are the resource region's.</summary>
-public sealed record FindingGroup(string GroupId, string StableId, string RuleId, string ConfidenceLabel,
+public sealed record FindingGroup(string GroupId, string Fingerprint, string RuleId, string ConfidenceLabel,
                                   AccessResource Resource, OwnershipKind Ownership, IReadOnlyList<string> OwnershipEvidence,
-                                  IReadOnlyList<string> FindingIds);
+                                  IReadOnlyList<string> FindingIds)
+{
+    /// <summary>The sum of the findings' occurrence counts.</summary>
+    public int OccurrenceCount { get; init; }
+}
 
 /// <summary>What one process scope's analysis saw: roots by provider, diagnostics from scope discovery, providers, the
 /// DI index, injection bindings and lowering, the registrations indexed, and the coverage counters (<see cref="CoverageCounters"/>).
@@ -56,15 +72,31 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
 }
 
-public sealed record PairCounters(int Candidates, int Suppressed, IReadOnlyDictionary<string, int> Skips)
+/// <summary>The pair counters summed over scopes; <see cref="LargestBucket"/> is the largest bucket of any scope.</summary>
+public sealed record PairCounters(int Comparisons, int CartesianBound, int Buckets, int LargestBucket, int Candidates, int Suppressed,
+                                  IReadOnlyDictionary<string, int> Skips)
 {
-    public static PairCounters None { get; } = new(0, 0, new Dictionary<string, int>());
+    public static PairCounters None { get; } = new(0, 0, 0, 0, 0, 0, new Dictionary<string, int>());
 }
 
 /// <summary>A root provider the analysis ran, with its supported assembly ranges as <c>name min..max</c> (max exclusive).</summary>
 public sealed record ProviderSummary(string ProviderId, IReadOnlyList<string> SupportedVersions);
 
+/// <summary>The wall time of one analysis step (R7), summed over scopes.</summary>
+public sealed record StepTiming(string Step, double Seconds);
+
+/// <summary>How large one scope's analysis was: reachable bodies, bodies with a summary, heap regions and instances, and the
+/// non-construction-local accesses pairing ran over.</summary>
+public sealed record ScopeSize(string ScopeId, int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses);
+
 public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnlyList<ExecutionRootDescriptor> Roots,
                                     IReadOnlyList<Access> Accesses, IReadOnlyList<Finding> Findings,
                                     IReadOnlyList<FindingGroup> Groups, IReadOnlyList<ScopeCoverage> Coverage,
-                                    PairCounters Pairs, IReadOnlyList<ProviderSummary> Providers);
+                                    PairCounters Pairs, IReadOnlyList<ProviderSummary> Providers)
+{
+    /// <summary>The steps the analyzer runs, in order: scope discovery, program index, lowering, reachable set, summaries and
+    /// fixpoint, executions, accesses, pairing, findings.</summary>
+    public IReadOnlyList<StepTiming> Timings { get; init; } = [];
+
+    public IReadOnlyList<ScopeSize> ScopeSizes { get; init; } = [];
+}

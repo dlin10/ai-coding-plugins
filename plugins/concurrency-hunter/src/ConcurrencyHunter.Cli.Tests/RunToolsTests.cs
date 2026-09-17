@@ -75,6 +75,30 @@ public sealed class RunToolsTests
     }
 
     [Fact]
+    public async Task Group_digest_carries_occurrence_counts()
+    {
+        using var environment = new RunTestEnvironment();
+        var analysis = CreateAnalysis("High", findingsPerGroup: 4);
+        var counted = analysis with
+        {
+            Findings = analysis.Findings.Select((finding, index) => finding with { OccurrenceCount = index + 2 }).ToArray(),
+            Groups = analysis.Groups.Select(group => group with { OccurrenceCount = 2 + 3 + 4 + 5 }).ToArray()
+        };
+        var registry = environment.Registry((_, _) => Task.FromResult(Success(counted)));
+        var runId = Start(registry, environment.SolutionPath);
+        await registry.WaitForAnalysisAsync(runId);
+
+        var digest = Assert.Single(Parse(RunTools.get_groups(registry, runId)).GetProperty("items").EnumerateArray());
+
+        Assert.True(Encoding.UTF8.GetByteCount(digest.GetRawText()) <= 1536);
+        Assert.Equal(14, digest.GetProperty("occurrenceCount").GetInt32());
+        Assert.Equal(4, digest.GetProperty("findingCount").GetInt32());
+        var findings = digest.GetProperty("findings").EnumerateArray().ToArray();
+        Assert.NotEmpty(findings);
+        Assert.Equal(Enumerable.Range(2, findings.Length), findings.Select(finding => finding.GetProperty("occurrenceCount").GetInt32()));
+    }
+
+    [Fact]
     public void Unknown_run_id_is_unknownRun_on_every_tool()
     {
         using var environment = new RunTestEnvironment();
@@ -363,7 +387,7 @@ public sealed class RunToolsTests
                     .ToArray();
                 findings.Add(new Finding(
                     findingId,
-                    $"stable-{findingId}",
+                    $"fingerprint-{findingId}",
                     groupId,
                     "DCA1001",
                     resource,

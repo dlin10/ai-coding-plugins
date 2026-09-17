@@ -4,7 +4,7 @@ namespace ConcurrencyHunter.Heap;
 
 /// <summary>The bounds of the heap analysis. <see cref="MaxAccessPathDepth"/> is the number of field segments a path keeps from
 /// its base before it collapses to a wildcard.</summary>
-public sealed record AnalysisLimits(int MaxAccessPathDepth = 8, int MaxContextsPerMethod = 16, int MaxSccIterations = 64)
+public sealed record AnalysisLimits(int MaxAccessPathDepth = 8, int MaxContextsPerMethod = 16, int MaxSccIterations = 16)
 {
     public static AnalysisLimits Default { get; } = new();
 }
@@ -194,8 +194,15 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
                                   IReadOnlyList<CallArgument> Arguments, IReadOnlyList<HeldLockValue> HeldLocks,
                                   string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null);
 
-/// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked.</summary>
-public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates);
+/// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked.
+/// <see cref="Receivers"/>, <see cref="Arguments"/> and <see cref="ServiceCall"/> let the DI semantics model registration, locator
+/// and scope calls.</summary>
+public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates)
+{
+    public IReadOnlySet<AbstractValue> Receivers { get; init; } = new HashSet<AbstractValue>();
+    public IReadOnlyList<CallArgument> Arguments { get; init; } = [];
+    public IrServiceCall? ServiceCall { get; init; }
+}
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
 public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlySet<AbstractValue> Values,

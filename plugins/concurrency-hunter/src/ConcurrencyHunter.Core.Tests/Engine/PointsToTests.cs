@@ -358,8 +358,9 @@ public sealed class PointsToTests
         var prices = run.Region("di:Prices@Singleton");
         Assert.Equal(["alloc:RatesController.Post()#object"], run.Targets(rates, "Current"));
         Assert.Equal(["alloc:RatesController.Post()#object#2"], run.Targets(prices, "Current"));
-        Assert.DoesNotContain(run.Heap.Constructions, construction => construction.RegionId == rates.Identity || construction.RegionId == prices.Identity);
-        Assert.Empty(run.Instances("body:Fixture:M:Rates.#ctor"));
+        Assert.DoesNotContain(run.Heap.Constructions, construction => construction.RegionId == prices.Identity);
+        Assert.Single(Assert.Single(run.Heap.Constructions, construction => construction.RegionId == rates.Identity).ConstructorInstances);
+        Assert.All(run.Instances("body:Fixture:M:Rates.#ctor"), instance => Assert.Equal([rates.Identity], instance.Receivers));
     }
 
     [Fact]
@@ -604,9 +605,9 @@ public sealed class PointsToTests
             public class SinkController(ISink registered) : ControllerBase { public void Post(ISink requested) { requested.Write(); registered.Write(); } }
             """ + Startup("services.AddSingleton<ISink>(_ => new Sink());"));
 
-        Assert.Empty(run.Instances("body:Fixture:M:Sink.Write"));
-        Assert.Equal(2, run.Heap.NoReceiverObjects.Count(item => item.BodyId == "body:Fixture:M:SinkController.Post(ISink)"));
-        Assert.Equal(2, run.Counter(HeapCounters.NO_RECEIVER_OBJECT));
+        Assert.Single(run.Instances("body:Fixture:M:Sink.Write"));
+        Assert.Equal(1, run.Heap.NoReceiverObjects.Count(item => item.BodyId == "body:Fixture:M:SinkController.Post(ISink)"));
+        Assert.Equal(1, run.Counter(HeapCounters.NO_RECEIVER_OBJECT));
     }
 
     [Fact]

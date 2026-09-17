@@ -1,5 +1,7 @@
 # Runs /concurrency-hunter:hunt on the demo headless in Claude Code, Codex and Cursor at once, then records what
-# each host produced: evals/<host>/run.json always, and evals/<host>/report.md only from a completed bundle.
+# each host produced in evals/<host>/run.json: the status and bundle always, and from a completed bundle a digest of
+# its run-metadata.json and findings.json. The full report.md stays in the bundle under %LOCALAPPDATA% and is not
+# tracked (SPEC 9.6).
 #
 # The recipes are the ones that reached CompleteWithFindings in phase 1a. Codex runs the plugin from its installed
 # cache rather than from --plugin-dir, so the cache is mirrored from this checkout first and verified by hash; a
@@ -61,6 +63,24 @@ function Hashes([string]$root, [string]$relative) {
         $result[$item.FullName.Substring($base.Length).TrimStart('\', '/')] = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
     }
     return $result
+}
+
+# The fingerprint hash is the one run-limits-grid.ps1 records, so a host's findings can be checked against the
+# metrics measurement of the same demo.
+function Digest([string]$bundle) {
+    $metadata = Get-Content -LiteralPath (Join-Path $bundle 'run-metadata.json') -Raw | ConvertFrom-Json
+    $findings = Get-Content -LiteralPath (Join-Path $bundle 'findings.json') -Raw | ConvertFrom-Json
+    $fingerprints = [string[]]@($findings.findings | ForEach-Object { $_.fingerprint })
+    [Array]::Sort($fingerprints, [StringComparer]::Ordinal)
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($fingerprints -join '|'))
+    return [ordered]@{
+        engineVersion = $metadata.engineVersion
+        analysisStatus = $metadata.status
+        findings = $metadata.counts.findings
+        groups = $metadata.counts.groups
+        fingerprints = ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))).Substring(0, 16).ToLowerInvariant()
+        narrativesAccepted = $metadata.counts.narrativesAccepted
+    }
 }
 
 $installedExecutable = Join-Path $cache 'bin/win-x64/concurrency-hunter.exe'
@@ -162,17 +182,17 @@ foreach ($name in $hosts) {
 
     $hostDirectory = Join-Path $evals $name
     New-Item -ItemType Directory -Force -Path $hostDirectory | Out-Null
-    if ($status -eq 'complete') {
-        Copy-Item -LiteralPath (Join-Path $bundle 'report.md') -Destination (Join-Path $hostDirectory 'report.md') -Force
-    }
-
-    [ordered]@{
+    $record = [ordered]@{
         status = $status
         reason = $reason
         runId = $runId
         bundle = $bundle
         invokedAt = $run.InvokedAt.ToString('o')
-    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $hostDirectory 'run.json') -Encoding utf8
+    }
+    if ($status -eq 'complete') {
+        $record.digest = Digest $bundle
+    }
+    $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $hostDirectory 'run.json') -Encoding utf8
     Write-Output "run-hosts: $name $status - $reason"
 }
 

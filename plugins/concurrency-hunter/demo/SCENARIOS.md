@@ -87,7 +87,7 @@
 | `escape-via-static-assignment` | positive | Worker создаёт объект, присваивает в статик и пишет в него; action читает через статик, поэтому каждая пара это настоящая гонка (TD-052) | `/static-slot`, `/escaped-object` DCA1001 |
 | `deep-access-path-wildcard` | positive | Цепочка из 13 сегментов глубже лимита TD-042, запись из action; ожидания верны для любого лимита от 1 до 11 (TD-042, TD-103) | `/write-self`, `/read-write` DCA1001, метка Medium, не High, uncertainty «wildcard» |
 | `custom-lock-by-name` | positive | Класс `SimpleLock` с `Lock()`/`Unlock()` без синхронизации внутри; оба writer-а «под ним» (TD-086, FR-09) | DCA1001 |
-| `group-shared-helper-many-callers` | positive | Три action вызывают один helper singleton-а, который пишет поле (TD-076) | DCA1001; одна finding group с occurrence count, проверка: тест отчёта, ждёт фазы 2b |
+| `group-shared-helper-many-callers` | positive | Три action вызывают один helper singleton-а, который пишет поле (TD-076) | DCA1001; одна finding group с occurrence count, проверка: тест отчёта, проверяется в 2b: одна finding с шестью occurrences (ADR 0007) |
 | `owned-local-allocation` | negative | Объект на запрос, не escape-ится | нет |
 | `distinct-allocation-sites` | negative | Один тип и поле, два allocation site, по worker-у на каждый | `/left`, `/right` нет |
 | `receiver-sensitivity` | negative | Одно тело метода, два receiver-а (TC-15) | `/first`, `/second` нет |
@@ -109,6 +109,19 @@
 | `construction-other-state` | positive | Конструктор lazily resolved singleton-а и type initializer пишут статики другого типа; actions читают и пишут их | `/singleton-ctor`, `/type-initializer`, `/action-self` DCA1001 |
 | `hosted-constructor-before-roots` | negative | Конструктор hosted service пишет статик при старте host, до всех roots; action читает | нет |
 | `constructor-leaks-this` | positive | Конструктор singleton-а публикует `this` в статик и затем пишет своё свойство; action читает через статик | `/published-field`, `/registry-slot` DCA1001 |
+
+## Фаза 2b — DI semantics
+
+| Кейс | Тип | Суть | Ожидание |
+|---|---|---|---|
+| `locator-singleton-vs-worker` | positive | Action и worker получают singleton через `IServiceProvider.GetRequiredService` и пишут одно свойство (TD-121) | DCA1001 |
+| `locator-scoped-via-create-scope` | negative | Worker берёт scoped-сервис из собственного `CreateScope`, action пишет экземпляр своего запроса; это разные объекты (TD-121) | нет |
+| `locator-transient-distinct` | negative | Transient через `IServiceProvider` в action и в worker-е это новый экземпляр на каждый resolve (TD-121) | нет |
+| `locator-unregistered-opaque` | negative | Тип нигде не зарегистрирован, action и worker берут его через `GetService`; разделяемого singleton-а анализ не выдумывает (TD-121) | нет |
+| `factory-interface-dispatch` | positive | `AddSingleton<IClock>(_ => new WallClock())`: interface call разрешается в реализацию из factory, action и worker пишут один экземпляр (TD-121) | DCA1001 |
+| `factory-resolves-other-service` | positive | Factory интерфейса возвращает другой singleton; action пишет через интерфейс, worker напрямую (TD-121, TD-040) | DCA1001 |
+| `instance-registration-touches-static` | negative | Конструктор экземпляра в `AddSingleton(new SeedList())` пишет статик при старте, до всех roots; action читает (TD-040, ADR 0006) | нет |
+| `factory-scoped-per-request` | negative | `AddScoped(_ => new RequestTag())`: два action пишут экземпляр своего запроса (TD-040) | нет |
 
 ## Фаза 3 — Execution model
 
@@ -249,7 +262,7 @@
 | 8 | Закрыт: конструкторы и type initializers решены в [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md); ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal` переносится в фазу 5 | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; кейсов на thread-local нет | 5 |
 | 9 | Корень репозитория для `.concurrency-hunter/suppressions.json`, когда demo лежит внутри репозитория CodexPlugins (14.1 п. 6) | `suppress-file-fingerprint` | 6 |
 | 10 | Получает ли `readonly` значение одного региона одну canonical identity в независимых instances, если TD-092 даёт им отдельные bindings | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
-| 11 | Как ввести ⚠-кейс, не покраснев на гейте предыдущей фазы: код кейса в одной задаче с классификацией, переключение константы фазы в той же задаче или правка матчера | все ⚠ | план каждой фазы |
+| 11 | Как ввести ⚠-кейс, не покраснев на гейте предыдущей фазы: код кейса в одной задаче с классификацией, переключение константы фазы в той же задаче или правка матчера; 2b: код кейса и классификация в одной задаче, константа фазы переключена там же | все ⚠ | план каждой фазы |
 | 12 | Конфликтует ли `UnknownEffect` как запись по TD-072, когда gap не разрешён | `unknown-call-model-not-noop` | 5 |
 | 13 | Что именно redaction убирает из snippets | `redaction-in-snippet` | 6 |
 | 14 | Region и ownership сущности, которую вернул opaque persistence-вызов EF Core | `ef-core-no-db-verdict` | 5 |

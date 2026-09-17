@@ -34,10 +34,12 @@ public static class ConstructionKindExtensions
 public enum ConstructionTriggerKind
 {
     Root,
-    Construction
+    Construction,
+    Locator
 }
 
-/// <summary>What a construction runs inside: a root's execution, or the construction whose constructor parameter resolved it.</summary>
+/// <summary>What a construction runs inside: a root's execution, the construction whose constructor parameter resolved it, or a
+/// locator call (<c>body:operation</c>) resolving it.</summary>
 public sealed record ConstructionTrigger(ConstructionTriggerKind Kind, string Id);
 
 /// <summary>A construction of <see cref="TypeKey"/>: a controller receiver, a hosted service or a DI service's region.
@@ -78,7 +80,22 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
 /// </summary>
 public static class ReachableSet
 {
+    public const string CONTAINER_TYPE = "container";
+
     public static ReachableSetResult Build(ReachabilityInput input) => new Walker(input).Run();
+
+    /// <summary>The members that run at startup as constructions of the container: the entry point, and every member holding a
+    /// supported factory or instance registration, in id order.</summary>
+    public static IReadOnlyList<string> StartupMembers(ProgramIndex program, DiIndex diIndex) =>
+        program.Methods.Where(method => method is { IsStatic: true, HasSourceBody: true, Kind: ProgramMethodKind.Ordinary, Name: "Main" or "<Main>$" })
+               .Select(method => method.MethodId)
+               .Concat(diIndex.Registrations.Where(registration => registration is { IsSupported: true, BodyId: not null } &&
+                                                                   registration.Form != DiRegistrationForm.Type)
+                              .Select(registration => registration.BodyId!))
+               .Where(member => program.Method(member) is { HasSourceBody: true })
+               .Distinct(StringComparer.Ordinal)
+               .Order(StringComparer.Ordinal)
+               .ToArray();
 
     /// <summary>What the container passes a constructor parameter of a constructed type. The bindings resolve the type's own
     /// definition, so a closed generic resolves its parameter again with the type arguments substituted: the parameter of
@@ -188,6 +205,14 @@ public static class ReachableSet
 
         internal ReachableSetResult Run()
         {
+            foreach (var member in StartupMembers(_program, _input.DiIndex))
+            {
+                var construction = new ConstructionState($"startup:{member}", ConstructionKind.Startup, CONTAINER_TYPE, null);
+                construction.ConstructorBodyIds.Add(member);
+                _constructions.Add(construction.Id, construction);
+                ReachBody(member, $"construction:{construction.Id}");
+            }
+
             var roots = _input.Roots.OrderBy(root => root.StableRootId, StringComparer.Ordinal).ToArray();
             foreach (var root in roots.Where(root => root.InstanceBindings is { Receiver: ReceiverKind.HostedService, ReceiverTypeKey: not null }))
             {
@@ -232,10 +257,12 @@ public static class ReachableSet
                                                                                                  pair.Value.Constructions.ToArray()))
                                                     .ToArray();
             var unanalysed = _input.DiIndex.Registrations
-                                   .Where(registration => registration is { IsSupported: true, ImplementationType: not null } &&
+                                   .Where(registration => registration is { IsSupported: true, ImplementationType: not null, ServiceTypeKey: not null } &&
                                                           registration.Form != DiRegistrationForm.Type)
                                    .Select(registration => new UnanalysedRegistration(
-                                               DiIndex.RegionId(registration.ImplementationType!, registration.Lifetime), registration))
+                                               DiIndex.RegionId(registration.ServiceTypeKey!, registration.ImplementationTypeKey!,
+                                                                registration.Lifetime, registration.Number),
+                                               registration))
                                    .ToArray();
             return new ReachableSetResult(members, new Dictionary<string, string>(_reachedBodies, StringComparer.Ordinal),
                                           new Dictionary<string, IrBody>(_bodies, StringComparer.Ordinal), constructions, typeInitializers,
@@ -367,7 +394,11 @@ public static class ReachableSet
                     {
                         var targets = Targets(targetId, call.CallKind is IrCallKind.Virtual or IrCallKind.Interface);
                         if (targets.Count == 0)
+                        {
                             RecordOpaque(bodyId, call, definitions);
+                            ReachFactory(bodyId, call, definitions, reason);
+                            Locate(bodyId, call);
+                        }
                         foreach (var target in targets)
                             ReachBody(target.MethodId, reason);
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
@@ -457,6 +488,56 @@ public static class ReachableSet
             calls.Add(new OpaqueCall(call.Id, call.Method, creations.Select(creation => creation.ResultValue).ToArray(),
                                      creations.Select(creation => creation.TargetBodyId ?? creation.TargetMethodId ?? creation.TargetMethod ?? "?")
                                               .ToArray()));
+        }
+
+        /// <summary>A factory registration's delegate targets run as the construction of its region, so the set reaches them.</summary>
+        private void ReachFactory(string bodyId, IrCallOperation call, IReadOnlyDictionary<int, IrOperation> definitions, string reason)
+        {
+            var memberId = _memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId;
+            if (call.ArgumentValues.Count == 0 ||
+                !_input.DiIndex.Registrations.Any(registration => registration is { IsSupported: true, Form: DiRegistrationForm.Factory } &&
+                                                                  registration.BodyId == memberId && registration.OperationId == call.Id) ||
+                DelegateCreation(call.ArgumentValues[^1], definitions) is not { } creation)
+            {
+                return;
+            }
+
+            if (creation.TargetBodyId is { } nested)
+            {
+                ReachBody(nested, reason);
+                return;
+            }
+
+            if (creation.TargetMethodId is not { } methodId || _program.Method(methodId) is not { } method)
+                return;
+            var virtualDispatch = method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true;
+            foreach (var target in Targets(methodId, virtualDispatch))
+                ReachBody(target.MethodId, reason);
+        }
+
+        /// <summary>A locator call with a constant type constructs what it resolves: the bound registration, or every supported
+        /// registration for <c>GetServices</c>.</summary>
+        private void Locate(string bodyId, IrCallOperation call)
+        {
+            if (call.ServiceCall is not { Kind: IrServiceCallKind.Locator or IrServiceCallKind.LocatorAll, ServiceTypeKey: { } key } service)
+                return;
+
+            var trigger = new ConstructionTrigger(ConstructionTriggerKind.Locator, $"{bodyId}:{call.Id}");
+            var resolution = _input.DiIndex.Resolve(key);
+            if (service.Kind == IrServiceCallKind.Locator)
+            {
+                Resolve(resolution, trigger, ResolutionContext.Execution);
+                return;
+            }
+
+            foreach (var registration in resolution.Registrations.Where(registration => registration is
+                         { IsSupported: true, IsHostedService: false, Form: DiRegistrationForm.Type, ImplementationTypeKey: not null }))
+            {
+                var kind = registration.Lifetime == DiLifetime.Singleton ? ConstructionKind.LazySingleton : ConstructionKind.ResolvedInExecution;
+                Construct(kind, registration.ImplementationTypeKey!, registration.Lifetime,
+                          DiIndex.RegionId(key, registration.ImplementationTypeKey!, registration.Lifetime, registration.Number), trigger,
+                          kind == ConstructionKind.LazySingleton ? ResolutionContext.RootScope : ResolutionContext.Execution);
+            }
         }
 
         private static IrCreateDelegateOperation? DelegateCreation(int value, IReadOnlyDictionary<int, IrOperation> definitions)

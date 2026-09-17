@@ -22,46 +22,55 @@ internal static class ConflictFindings
     private const int WILDCARD_RESOURCE_IDENTITY = 10;
     private const int HIGH_MINIMUM = 80;
     private const int MEDIUM_MINIMUM = 55;
+    private const int LISTED_OCCURRENCES = 3;
 
     internal static string MergedContextUncertainty(string method) =>
         $"Contexts of {method} were merged; the objects involved may be more than one.";
 
     internal static (IReadOnlyList<Finding> Findings, IReadOnlyList<FindingGroup> Groups) Create(IEnumerable<AccessPair> pairs,
+                                                                                                 CancellationToken cancellationToken) =>
+        Create(pairs, [], cancellationToken);
+
+    /// <summary>Folds the pairs into findings, one per rule, resource and unordered pair of sites (R5), each with its occurrences, and
+    /// groups them by rule and resource. <paramref name="accesses"/> are the scope's accesses the site ordinals are counted over.</summary>
+    internal static (IReadOnlyList<Finding> Findings, IReadOnlyList<FindingGroup> Groups) Create(IEnumerable<AccessPair> pairs,
+                                                                                                 IReadOnlyList<Access> accesses,
                                                                                                  CancellationToken cancellationToken)
     {
-        var candidates = pairs.Select(pair =>
-                              {
-                                  var (accessA, accessB) = Order(pair.First, pair.Second);
-                                  return new Candidate(GroupKey.From(Rule(accessA, accessB), pair.Resource), pair.Resource, accessA, accessB,
-                                                       pair.Protection, pair.Uncertainties);
-                              })
-                              .OrderBy(candidate => candidate.AccessA.Source.Path, StringComparer.Ordinal)
-                              .ThenBy(candidate => candidate.AccessA.Source.StartLine)
-                              .ThenBy(candidate => candidate.AccessA.Source.StartColumn)
-                              .ThenBy(candidate => candidate.AccessB.Source.Path, StringComparer.Ordinal)
-                              .ThenBy(candidate => candidate.AccessB.Source.StartLine)
-                              .ThenBy(candidate => candidate.AccessB.Source.StartColumn)
-                              .GroupBy(FindingIdentity, StringComparer.Ordinal)
-                              .Select(duplicates => duplicates.First());
+        var pairList = pairs.ToArray();
+        var ordinals = new SiteOrdinals(accesses.Select(access => (access.Resource, access))
+                                                .Concat(pairList.SelectMany(pair => new[] { (pair.Resource, pair.First), (pair.Resource, pair.Second) })));
+        var folded = pairList.Select(pair =>
+                                 {
+                                     var (accessA, accessB) = Orient(pair.First, pair.Second, pair.Resource, ordinals);
+                                     return new Candidate(GroupKey.From(Rule(accessA, accessB), pair.Resource), pair.Resource, accessA, accessB,
+                                                          pair.Protection, pair.Uncertainties);
+                                 })
+                             .GroupBy(FindingIdentity, StringComparer.Ordinal)
+                             .Select(Fold)
+                             .ToArray();
 
-        var groups = candidates.GroupBy(candidate => candidate.Key)
-                               .Select(group => group.OrderBy(item => item.AccessA.Root.RootId, StringComparer.Ordinal)
-                                                     .ThenBy(item => item.AccessA.Operation.ToWireName(), StringComparer.Ordinal)
-                                                     .ThenBy(item => item.AccessB.Root.RootId, StringComparer.Ordinal)
-                                                     .ThenBy(item => item.AccessB.Operation.ToWireName(), StringComparer.Ordinal)
-                                                     .ThenBy(item => item.AccessA.Source.Path, StringComparer.Ordinal)
-                                                     .ThenBy(item => item.AccessA.Source.StartLine)
-                                                     .ThenBy(item => item.AccessA.Source.StartColumn)
-                                                     .ToArray())
-                               .OrderByDescending(group => group.Max(Score))
-                               .ThenBy(group => group[0].Key.Scope, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.Assembly, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.Region, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.Path, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.MemberKey, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].AccessA.Symbol, StringComparer.Ordinal)
-                               .ThenBy(group => group[0].Key.Rule, StringComparer.Ordinal)
-                               .ToArray();
+        var groups = folded.GroupBy(finding => finding.Evidence.Key)
+                           .Select(group => group.OrderBy(item => item.Evidence.AccessA.PathRoot.RootId, StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessA.Operation.ToWireName(), StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessB.PathRoot.RootId, StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessB.Operation.ToWireName(), StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessA.Source.Path, StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessA.Source.StartLine)
+                                                 .ThenBy(item => item.Evidence.AccessA.Source.StartColumn)
+                                                 .ThenBy(item => item.Evidence.AccessB.Source.Path, StringComparer.Ordinal)
+                                                 .ThenBy(item => item.Evidence.AccessB.Source.StartLine)
+                                                 .ThenBy(item => item.Evidence.AccessB.Source.StartColumn)
+                                                 .ToArray())
+                           .OrderByDescending(group => group.Max(item => item.Score))
+                           .ThenBy(group => group[0].Evidence.Key.Scope, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.Key.Assembly, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.Key.Region, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.Key.Path, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.Key.MemberKey, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.AccessA.Symbol, StringComparer.Ordinal)
+                           .ThenBy(group => group[0].Evidence.Key.Rule, StringComparer.Ordinal)
+                           .ToArray();
 
         var findings = new List<Finding>();
         var findingGroups = new List<FindingGroup>();
@@ -69,21 +78,56 @@ internal static class ConflictFindings
         {
             cancellationToken.ThrowIfCancellationRequested();
             var groupId = $"G{index + 1}";
+            var first = group[0].Evidence;
+            var groupFingerprint = Hash($"ch-gfp-1|{first.Key.Rule}|{ResourceText(first.Resource)}");
             var groupFindings = new List<Finding>();
-            foreach (var candidate in group)
-                groupFindings.Add(BuildFinding(candidate, groupId, $"F{findings.Count + groupFindings.Count + 1}"));
+            foreach (var item in group)
+                groupFindings.Add(BuildFinding(item, groupId, $"F{findings.Count + groupFindings.Count + 1}", ordinals) with { GroupFingerprint = groupFingerprint });
             findings.AddRange(groupFindings);
-            var key = group[0].Key;
-            var owner = group[0].AccessB.Resource.Identity == group[0].Resource.Identity ? group[0].AccessB : group[0].AccessA;
-            owner = group[0].AccessA.Resource.Identity == group[0].Resource.Identity ? group[0].AccessA : owner;
-            findingGroups.Add(new FindingGroup(groupId, StableId(key.Identity), key.Rule, HighestConfidence(groupFindings),
+            var owner = first.AccessB.Resource.Identity == first.Resource.Identity ? first.AccessB : first.AccessA;
+            owner = first.AccessA.Resource.Identity == first.Resource.Identity ? first.AccessA : owner;
+            findingGroups.Add(new FindingGroup(groupId, groupFingerprint, first.Key.Rule, HighestConfidence(groupFindings),
                                                groupFindings[0].Resource, owner.Ownership, owner.OwnershipEvidence,
-                                               groupFindings.Select(finding => finding.FindingId).ToArray()));
+                                               groupFindings.Select(finding => finding.FindingId).ToArray())
+            {
+                OccurrenceCount = groupFindings.Sum(finding => finding.OccurrenceCount)
+            });
         }
 
         return (findings, findingGroups);
     }
 
+    /// <summary>The pairs of one finding folded into occurrences: one per pair of roots and call paths, whose pair is the least
+    /// protected, then the one with the smallest contexts; the evidence is the first occurrence with the finding's protection.</summary>
+    private static FoldedFinding Fold(IEnumerable<Candidate> candidates)
+    {
+        var occurrences = candidates.GroupBy(candidate => (candidate.AccessA.PathRoot.RootId, candidate.AccessB.PathRoot.RootId,
+                                                           PathText(candidate.AccessA), PathText(candidate.AccessB)))
+                                    .Select(group => group.OrderBy(candidate => ProtectionRank(candidate.Protection))
+                                                          .ThenBy(candidate => candidate.AccessA.InstanceId, StringComparer.Ordinal)
+                                                          .ThenBy(candidate => candidate.AccessB.InstanceId, StringComparer.Ordinal)
+                                                          .First())
+                                    .OrderBy(candidate => candidate.AccessA.PathRoot.RootId, StringComparer.Ordinal)
+                                    .ThenBy(candidate => candidate.AccessB.PathRoot.RootId, StringComparer.Ordinal)
+                                    .ThenBy(PathText, StringComparer.Ordinal)
+                                    .ThenBy(candidate => PathText(candidate.AccessB), StringComparer.Ordinal)
+                                    .ToArray();
+        var protection = occurrences.Min(candidate => ProtectionRank(candidate.Protection));
+        return new FoldedFinding(occurrences.First(candidate => ProtectionRank(candidate.Protection) == protection), occurrences,
+                                 occurrences.Max(Score));
+    }
+
+    private static string PathText(Candidate candidate) => PathText(candidate.AccessA);
+
+    private static string PathText(Access access) => string.Join(" → ", access.CallPath);
+
+    private static int ProtectionRank(string protection) => protection switch
+    {
+        PairProtection.UNPROTECTED => 0,
+        PairProtection.PARTIAL => 1,
+        PairProtection.DIFFERENT_IDENTITY => 2,
+        _ => 3
+    };
     private static string Rule(Access accessA, Access accessB) =>
         (accessA.Operation, accessB.Operation) switch
         {
@@ -103,28 +147,46 @@ internal static class ConflictFindings
 
     private static string Label(int score) => score >= HIGH_MINIMUM ? "High" : score >= MEDIUM_MINIMUM ? "Medium" : "Low";
 
-    private static Finding BuildFinding(Candidate candidate, string groupId, string findingId)
+    private static Finding BuildFinding(FoldedFinding folded, string groupId, string findingId, SiteOrdinals ordinals)
     {
+        var candidate = folded.Evidence;
         var (accessA, accessB) = (candidate.AccessA, candidate.AccessB);
-        var overlap = accessA.Root.RootId == accessB.Root.RootId
-            ? $"The root {accessA.Root.Display} may run concurrently with itself in scope {candidate.Resource.Scope}."
-            : $"The roots {accessA.Root.Display} and {accessB.Root.Display} may run concurrently in scope {candidate.Resource.Scope}.";
+        var overlap = accessA.PathRoot.RootId == accessB.PathRoot.RootId
+            ? $"The root {accessA.PathRoot.Display} may run concurrently with itself in scope {candidate.Resource.Scope}."
+            : $"The roots {accessA.PathRoot.Display} and {accessB.PathRoot.Display} may run concurrently in scope {candidate.Resource.Scope}.";
         var scenario = Scenario(candidate.Resource, accessA, accessB);
         var uncertainty = new List<string> { PATH_UNCERTAINTY };
-        if (IsLifecyclePair(accessA.Root, accessB.Root))
+        if (IsLifecyclePair(accessA.PathRoot, accessB.PathRoot))
             uncertainty.Add(LIFECYCLE_UNCERTAINTY);
         if (candidate.Resource.IsWildcard)
             uncertainty.Add(WILDCARD_UNCERTAINTY);
-        uncertainty.AddRange(accessA.Uncertainties.Concat(accessB.Uncertainties).Concat(candidate.Uncertainties)
-                                    .Except(uncertainty, StringComparer.Ordinal)
-                                    .Distinct(StringComparer.Ordinal)
-                                    .Order(StringComparer.Ordinal));
-        var components = Components(candidate);
+        uncertainty.AddRange(folded.Occurrences.SelectMany(occurrence => occurrence.AccessA.Uncertainties.Concat(occurrence.AccessB.Uncertainties)
+                                                                                    .Concat(occurrence.Uncertainties))
+                                   .Except(uncertainty, StringComparer.Ordinal)
+                                   .Distinct(StringComparer.Ordinal)
+                                   .Order(StringComparer.Ordinal));
+        var components = folded.Occurrences.Select(Components).MaxBy(Score)!;
         var confidence = new FindingConfidence(Label(Score(components)), Score(components), components);
         var evidence = Evidence(findingId, candidate.Resource, accessA, accessB, candidate.Protection, overlap, scenario);
-        return new Finding(findingId, StableId(FindingIdentity(candidate)), groupId, candidate.Key.Rule, candidate.Resource, accessA,
-                           accessB, candidate.Protection, confidence, [overlap], scenario, uncertainty, evidence);
+        var fingerprint = Hash($"ch-fp-1|{candidate.Key.Rule}|{ResourceText(candidate.Resource)}|" +
+                               $"{accessA.BodyId}#{ordinals.Of(candidate.Resource, accessA)}|{accessA.Operation.ToWireName()}|" +
+                               $"{accessB.BodyId}#{ordinals.Of(candidate.Resource, accessB)}|{accessB.Operation.ToWireName()}|" +
+                               candidate.Protection);
+        return new Finding(findingId, fingerprint, groupId, candidate.Key.Rule, candidate.Resource, accessA,
+                           accessB, candidate.Protection, confidence, [overlap], scenario, uncertainty, evidence)
+        {
+            OccurrenceCount = folded.Occurrences.Count,
+            Occurrences = folded.Occurrences.Take(LISTED_OCCURRENCES)
+                                .Select(occurrence => new FindingOccurrence(occurrence.AccessA.PathRoot, occurrence.AccessB.PathRoot,
+                                                                            occurrence.AccessA.CallPath, occurrence.AccessB.CallPath,
+                                                                            occurrence.Protection))
+                                .ToArray()
+        };
     }
+
+    /// <summary>The resource as fingerprints hash it: scope, context-free region identity, path and member identity.</summary>
+    private static string ResourceText(AccessResource resource) =>
+        $"{resource.Scope}|{resource.RegionKey}|{string.Join(".", resource.AccessPath)}|{resource.Member.Identity}";
 
     /// <summary>Two different lifecycle roots of one hosted-service implementation, whose relative order is not modeled.</summary>
     private static bool IsLifecyclePair(AccessRoot first, AccessRoot second) =>
@@ -168,7 +230,7 @@ internal static class ConflictFindings
             ? string.Concat(access.ReadSources.Select(read => $"; reads it at {read.Source.Path}:{read.Source.StartLine} in {read.Symbol}"))
             : "";
         return $"Access {role}: {access.Symbol} performs {access.Operation.ToWireName()} on {Field(resource)} at " +
-               $"{access.Source.Path}:{access.Source.StartLine} under root {access.Root.Display}{reads}; holds {Holdings(access)}.";
+               $"{access.Source.Path}:{access.Source.StartLine} under root {access.PathRoot.Display}{reads}; holds {Holdings(access)}.";
     }
 
     /// <summary>The access whose resource is the one the pair is reported on, whose region's ownership the evidence names; an
@@ -213,30 +275,40 @@ internal static class ConflictFindings
         return [$"{writer} writes {field}", $"{reader} reads {field} at the same time", $"{reader} observes either the old or the new value"];
     }
 
-    private static (Access AccessA, Access AccessB) Order(Access left, Access right) =>
-        Compare(left, right) <= 0 ? (left, right) : (right, left);
-
-    private static int Compare(Access left, Access right)
+    /// <summary>The two sides in the finding's site order: body id, operation, then ordinal; when both are one site, by root id and
+    /// call path.</summary>
+    private static (Access AccessA, Access AccessB) Orient(Access left, Access right, AccessResource resource, SiteOrdinals ordinals)
     {
-        var result = string.Compare(left.Root.RootId, right.Root.RootId, StringComparison.Ordinal);
-        if (result != 0)
-            return result;
-        result = string.Compare(left.Operation.ToWireName(), right.Operation.ToWireName(), StringComparison.Ordinal);
-        if (result != 0)
-            return result;
-        result = string.Compare(left.Source.Path, right.Source.Path, StringComparison.Ordinal);
-        if (result != 0)
-            return result;
-        result = left.Source.StartLine.CompareTo(right.Source.StartLine);
-        return result != 0 ? result : left.Source.StartColumn.CompareTo(right.Source.StartColumn);
+        var result = string.CompareOrdinal(left.BodyId, right.BodyId);
+        if (result == 0)
+            result = string.CompareOrdinal(left.Operation.ToWireName(), right.Operation.ToWireName());
+        if (result == 0)
+            result = ordinals.Of(resource, left).CompareTo(ordinals.Of(resource, right));
+        if (result == 0)
+            result = string.CompareOrdinal(Site(left), Site(right));
+        if (result == 0)
+        {
+            result = string.CompareOrdinal(left.PathRoot.RootId, right.PathRoot.RootId);
+            if (result == 0)
+                result = string.CompareOrdinal(PathText(left), PathText(right));
+        }
+
+        return result <= 0 ? (left, right) : (right, left);
     }
 
-    private static string FindingIdentity(Candidate candidate) =>
-        $"{candidate.Key.Identity}|{candidate.AccessA.Root.RootId}|{candidate.AccessA.Operation.ToWireName()}|" +
-        $"{candidate.AccessB.Root.RootId}|{candidate.AccessB.Operation.ToWireName()}";
+    /// <summary>An access's site (R5): its body's assembly-qualified id, operation, path and source span.</summary>
+    private static string Site(Access access) =>
+        $"{access.BodyId}|{access.Operation.ToWireName()}|{string.Join(".", access.Resource.AccessPath)}|{access.Source.StartLine}|{access.Source.StartColumn}|" +
+        $"{access.Source.EndLine}|{access.Source.EndColumn}";
 
-    private static string StableId(string identity) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..16].ToLowerInvariant();
+    private static string FindingIdentity(Candidate candidate)
+    {
+        var sites = new[] { Site(candidate.AccessA), Site(candidate.AccessB) }.Order(StringComparer.Ordinal).ToArray();
+        return $"{candidate.Key.Identity}|{sites[0]}|{sites[1]}";
+    }
+
+    private static string Hash(string text) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
 
     private static string HighestConfidence(IEnumerable<Finding> findings) =>
         findings.Select(finding => finding.Confidence.Label).OrderByDescending(ConfidenceRank).First();
@@ -261,4 +333,28 @@ internal static class ConflictFindings
 
     private sealed record Candidate(GroupKey Key, AccessResource Resource, Access AccessA, Access AccessB, string Protection,
                                     IReadOnlyList<string> Uncertainties);
+
+    private sealed record FoldedFinding(Candidate Evidence, IReadOnlyList<Candidate> Occurrences, int Score);
+
+    /// <summary>Each site's 1-based position among its body's accesses on the same resource with the same operation, in source order:
+    /// start, end, then operation id, so two accesses starting at one position keep two ordinals. An access paired on another
+    /// resource (a wildcard or an open region) counts among that resource's accesses too.</summary>
+    private sealed class SiteOrdinals(IEnumerable<(AccessResource Resource, Access Access)> accesses)
+    {
+        private readonly Dictionary<string, List<(int, int, int, int, int)>> _positions =
+            accesses.GroupBy(item => Key(item.Resource, item.Access), StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key,
+                                  group => group.Select(item => Position(item.Access)).Distinct().Order().ToList(),
+                                  StringComparer.Ordinal);
+
+        internal int Of(AccessResource resource, Access access) =>
+            _positions.TryGetValue(Key(resource, access), out var positions) ? positions.IndexOf(Position(access)) + 1 : 0;
+
+        private static (int, int, int, int, int) Position(Access access) =>
+            (access.Source.StartLine, access.Source.StartColumn, access.Source.EndLine, access.Source.EndColumn, access.OperationId);
+
+        private static string Key(AccessResource resource, Access access) =>
+            $"{access.BodyId}|{resource.Scope}|{resource.RegionKey}|{string.Join(".", resource.AccessPath)}|" +
+            $"{resource.Member.Identity}|{access.Operation.ToWireName()}";
+    }
 }

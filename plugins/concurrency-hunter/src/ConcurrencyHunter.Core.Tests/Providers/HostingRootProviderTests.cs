@@ -271,9 +271,47 @@ public sealed class HostingRootProviderTests
         {
             AssemblyVersions = new Dictionary<string, int> { [StubAssemblies.HOSTING_ABSTRACTIONS] = 7 },
             ExpectedStatus = RootDiscoveryStatus.NotChecked,
-            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Microsoft.Extensions.Hosting.Abstractions"]
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Fixture: Microsoft.Extensions.Hosting.Abstractions 7.0.0.0"]
         });
     }
+
+    [Fact]
+    public void Hosting_OutOfRangeLibraryCompilationBesideInRangeHost_YieldsRootsAndOneDiagnostic()
+    {
+        Run(Projects(("Host", Hosted("Worker")), ("Library", "public sealed class Formatter { public string Format() => \"x\"; }")) with
+        {
+            ProjectAssemblyVersions = HostingVersion7("Library"),
+            ExpectedRoots = [$"hosted-execute Worker.ExecuteAsync(CancellationToken) receiver=HostedService parameters=[stoppingToken:RequestData] {ONE}"],
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Library: Microsoft.Extensions.Hosting.Abstractions 7.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void Hosting_OutOfRangeHostBesideInRangeHost_YieldsInRangeRootsAndOneDiagnostic()
+    {
+        Run(Projects(("Host", Hosted("Worker")), ("Legacy", Hosted("LegacyWorker"))) with
+        {
+            ProjectAssemblyVersions = HostingVersion7("Legacy"),
+            ExpectedRoots = [$"hosted-execute Worker.ExecuteAsync(CancellationToken) receiver=HostedService parameters=[stoppingToken:RequestData] {ONE}"],
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Legacy: Microsoft.Extensions.Hosting.Abstractions 7.0.0.0"]
+        });
+    }
+
+    /// <summary>A background service of this name and the registration of it, in a compilation of its own.</summary>
+    private static string Hosted(string worker) => $$"""
+        public sealed class {{worker}} : BackgroundService
+        {
+            protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+        }
+        public static class {{worker}}Registrations { public static void Register(IServiceCollection services) => services.AddHostedService<{{worker}}>(); }
+        """;
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> HostingVersion7(string project) =>
+        new Dictionary<string, IReadOnlyDictionary<string, int>> { [project] = new Dictionary<string, int> { [StubAssemblies.HOSTING_ABSTRACTIONS] = 7 } };
+
+    private static ProviderCase Projects((string Project, string Source) first, (string Project, string Source) second,
+                                         [System.Runtime.CompilerServices.CallerMemberName] string name = "") =>
+        new(name, []) { Projects = [(first.Project, "Case.cs", Usings + first.Source), (second.Project, "Case.cs", Usings + second.Source)] };
 
     [Fact]
     public void Hosting_NoHostingReference_CheckedEmpty()

@@ -265,6 +265,30 @@ public sealed class RunLifecycleTests
     }
 
     [Fact]
+    public async Task Run_metadata_carries_the_pair_counters()
+    {
+        using var environment = new RunTestEnvironment();
+        var registry = environment.Registry();
+        var start = registry.Start(environment.SolutionPath);
+        await registry.WaitForAnalysisAsync(start.RunId!);
+
+        var render = registry.Render(start.RunId!);
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(render.BundlePath!, "run-metadata.json")));
+        var pairs = json.RootElement.GetProperty("pairs");
+
+        Assert.Equal(["buckets", "candidates", "cartesianBound", "comparisons", "largestBucket", "skips", "suppressed"],
+                     pairs.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+        var comparisons = pairs.GetProperty("comparisons").GetInt32();
+        Assert.True(comparisons > 0);
+        Assert.InRange(pairs.GetProperty("candidates").GetInt32(), 0, comparisons);
+        Assert.InRange(comparisons, 0, pairs.GetProperty("cartesianBound").GetInt32());
+        Assert.InRange(pairs.GetProperty("largestBucket").GetInt32(), 1, int.MaxValue);
+        Assert.InRange(pairs.GetProperty("buckets").GetInt32(), 1, int.MaxValue);
+        Assert.InRange(pairs.GetProperty("suppressed").GetInt32(), 0, comparisons);
+        Assert.Equal(JsonValueKind.Object, pairs.GetProperty("skips").ValueKind);
+    }
+
+    [Fact]
     public async Task Second_render_returns_the_first_result()
     {
         using var environment = new RunTestEnvironment();

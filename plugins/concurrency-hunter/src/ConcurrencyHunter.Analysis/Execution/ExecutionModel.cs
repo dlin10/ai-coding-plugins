@@ -126,6 +126,10 @@ public static class ExecutionModel
         private readonly List<(string Execution, string Instance, HashSet<string> Intervals)> _visitList = [];
         private readonly Dictionary<string, List<ExecutionEntry>> _entries = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _sharedReach = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _constructed = heap.Constructions.SelectMany(construction => construction.ConstructorInstances
+                                                                                         .Select(instance => (Instance: instance, construction.RegionId)))
+                                                                       .GroupBy(item => item.Instance, StringComparer.Ordinal)
+                                                                       .ToDictionary(group => group.Key, group => group.First().RegionId, StringComparer.Ordinal);
 
         internal ExecutionAnalysis Build()
         {
@@ -217,7 +221,7 @@ public static class ExecutionModel
             }
 
             var startup = new HashSet<string>(StringComparer.Ordinal);
-            var pending = new Stack<string>(heap.Regions.Values.Where(IsHosted).Select(region => region.Identity));
+            var pending = new Stack<string>(heap.Regions.Values.Where(IsHosted).Select(region => region.Identity).Concat(heap.StartupRegions));
             while (pending.TryPop(out var region))
             {
                 if (!startup.Add(region))
@@ -226,7 +230,7 @@ public static class ExecutionModel
                     pending.Push(child);
             }
 
-            foreach (var region in heap.Regions.Values.Where(region => region.Kind is HeapRegionKind.Di or HeapRegionKind.Receiver))
+            foreach (var region in heap.Regions.Values.Where(region => region.Kind is HeapRegionKind.Di or HeapRegionKind.Receiver or HeapRegionKind.Container))
             {
                 var executions = Executions(region.Identity);
                 if (startup.Contains(region.Identity))
@@ -339,7 +343,12 @@ public static class ExecutionModel
                 foreach (var edge in _edges.GetValueOrDefault(item.Instance) ?? [])
                 {
                     var calleeIntervals = item.Intervals;
-                    if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } constructor)
+                    if (edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructed.TryGetValue(edge.CalleeInstance, out var constructed) &&
+                        !item.Intervals.Contains(constructed))
+                    {
+                        calleeIntervals = [.. item.Intervals, constructed];
+                    }
+                    else if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } constructor)
                     {
                         var created = constructor.Receivers.SelectMany(value => heap.Resolve(instance.Id, value))
                                           .Where(region => heap.Regions[region].Kind == HeapRegionKind.Allocation && !item.Intervals.Contains(region))
@@ -586,7 +595,10 @@ public static class ExecutionModel
                     .SelectMany(instance => _instanceExecutions.GetValueOrDefault(instance.Id) ?? [])
                     .ToHashSet(StringComparer.Ordinal),
             HeapRegionKind.Receiver => [region.Context],
-            _ => _regionExecutions.GetValueOrDefault(region.Identity) ?? []
+            _ => (_regionExecutions.GetValueOrDefault(region.Identity) ?? [])
+                 .Concat((heap.LocatorCreators.GetValueOrDefault(region.Identity) ?? new HashSet<string>())
+                         .SelectMany(instance => _instanceExecutions.GetValueOrDefault(instance) ?? []))
+                 .ToHashSet(StringComparer.Ordinal)
         };
 
         /// <summary>Lock identities that are one object per process: static readonly fields' objects, singleton and root-scope container

@@ -1,0 +1,18 @@
+{
+  "phase": "2b",
+  "recordedAt": "2026-09-17T02:59:49.5028653Z",
+  "machine": {
+    "logicalProcessors": 16,
+    "memoryGb": 31.9
+  },
+  "corpora": {
+    "eshop": {
+      "solution": "src/eShopOnContainers-ServicesAndWebApps.sln",
+      "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327"
+    },
+    "demo": {
+      "solution": "demo/Demo.slnx",
+      "revision": "563f0b6fc98f49587736208921242c3a947c0508"
+    }
+  }
+}

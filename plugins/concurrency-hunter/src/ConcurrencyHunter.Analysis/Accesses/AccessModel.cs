@@ -21,6 +21,9 @@ public sealed record AccessResource(string Assembly, string Scope, string Region
                                     string? RegionId = null, bool IsWildcard = false)
 {
     public string Identity => $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}";
+
+    /// <summary>The region's context-free identity (R6), which fingerprints hash; the region identity when none was given.</summary>
+    public string RegionKey { get => field ?? RegionId ?? Region; init; }
 }
 
 /// <summary>The root an access runs under. A construction or type-initializer execution, which has no root, is described as one:
@@ -54,6 +57,13 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     public string BodyId { get; init; } = "";
     public int OperationId { get; init; }
     public string InstanceId { get; init; } = "";
+
+    /// <summary>The member symbols of the access's discovery path, from its root's member to the member holding the access.</summary>
+    public IReadOnlyList<string> CallPath { get; init; } = [];
+
+    /// <summary>The root the call path starts at: the access's own root, or for a construction that is an execution of its own, the root
+    /// whose walk first triggers it.</summary>
+    public AccessRoot PathRoot { get => field ?? Root; init; }
 }
 
 public static class PairProtection
@@ -71,5 +81,13 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
     public IReadOnlyList<string> Uncertainties { get; init; } = [];
 }
 
-public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int CandidatePairs, int Suppressed,
-                                  IReadOnlyDictionary<string, int> Skips);
+/// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the
+/// scope's non-construction-local accesses; <see cref="Candidates"/> are the compared pairs that survived the filters.</summary>
+public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int Comparisons, int Suppressed,
+                                  IReadOnlyDictionary<string, int> Skips)
+{
+    public int CartesianBound { get; init; }
+    public int Buckets { get; init; }
+    public int LargestBucket { get; init; }
+    public int Candidates => Pairs.Count;
+}

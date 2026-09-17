@@ -26,7 +26,10 @@ public static class FindingTestData
 
     public static FindingGroup Group(string groupId, string confidenceLabel, AccessResource resource, IReadOnlyList<string> findingIds,
                                      string ruleId = "DCA1001") =>
-        new(groupId, $"stable-{groupId}", ruleId, confidenceLabel, resource, OwnershipKind.Shared, [$"{resource.Region} is static storage."], findingIds);
+        new(groupId, $"fingerprint-{groupId}", ruleId, confidenceLabel, resource, OwnershipKind.Shared, [$"{resource.Region} is static storage."], findingIds)
+        {
+            OccurrenceCount = findingIds.Count
+        };
 
     public static AnalysisResult Result(IReadOnlyList<Finding> findings, IReadOnlyList<FindingGroup> groups)
     {

@@ -1,6 +1,7 @@
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Frontend;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -44,13 +45,21 @@ public static class DiIndexBuilder
     };
 
     public static DiIndex Build(string scopeId, IEnumerable<Compilation> compilations, string rootDirectory,
-                                CancellationToken cancellationToken)
+                                CancellationToken cancellationToken) =>
+        Build(scopeId, compilations.Select(compilation => (compilation, (string?)null)), rootDirectory, cancellationToken);
+
+    /// <summary>Indexes the registrations of compilations paired with their project file paths, which order the registrations of
+    /// two projects sharing an assembly name.</summary>
+    public static DiIndex Build(string scopeId, IEnumerable<(Compilation Compilation, string? ProjectFilePath)> projects,
+                                string rootDirectory, CancellationToken cancellationToken)
     {
         var registrations = new List<DiRegistration>();
         var diagnostics = new List<DiDiagnostic>();
         var reportedVersions = new HashSet<(string, Version)>();
-        foreach (var compilation in compilations)
+        foreach (var (compilation, projectFilePath) in projects)
         {
+            var projectPath = projectFilePath is null ? "" : SourceSpans.PathOf(projectFilePath, rootDirectory);
+            var lowered = new Dictionary<IMethodSymbol, IReadOnlyList<IrBody>>(SymbolEqualityComparer.Default);
             foreach (var tree in compilation.SyntaxTrees)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -84,12 +93,64 @@ public static class DiIndexBuilder
                         continue;
                     }
 
-                    registrations.Add(Classify(operation, expected.Lifetime, SourceSpans.From(invocation, rootDirectory)));
+                    var source = SourceSpans.From(invocation, rootDirectory);
+                    var (bodyId, operationId) = RegistrationCall(invocation, method, source, model, compilation, rootDirectory, lowered,
+                                                                 cancellationToken);
+                    registrations.Add(Classify(operation, expected.Lifetime, source) with
+                    {
+                        Assembly = compilation.AssemblyName ?? "",
+                        ProjectPath = projectPath,
+                        BodyId = bodyId,
+                        OperationId = operationId
+                    });
                 }
             }
         }
 
         return new DiIndex(scopeId, registrations, diagnostics);
+    }
+
+    /// <summary>The lowered body holding a registration call and the call's operation in it: the member containing the invocation
+    /// (a lambda or local function being one of its nested bodies) is lowered once, and the call is the operation with the
+    /// registration method's id at the invocation's span.</summary>
+    private static (string? BodyId, int? OperationId) RegistrationCall(InvocationExpressionSyntax invocation, IMethodSymbol method,
+                                                                       SourceSpan source, SemanticModel model, Compilation compilation,
+                                                                       string rootDirectory,
+                                                                       Dictionary<IMethodSymbol, IReadOnlyList<IrBody>> lowered,
+                                                                       CancellationToken cancellationToken)
+    {
+        var member = model.GetEnclosingSymbol(invocation.SpanStart, cancellationToken);
+        while (member is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction })
+            member = member.ContainingSymbol;
+        if (member is not IMethodSymbol containing)
+            return (null, null);
+
+        if (!lowered.TryGetValue(containing, out var bodies))
+        {
+            try
+            {
+                var result = IrLowering.Lower(containing, compilation, rootDirectory, cancellationToken);
+                bodies = result.NestedBodies.Prepend(result.Body).ToArray();
+            }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+            {
+                bodies = [];
+            }
+
+            lowered.Add(containing, bodies);
+        }
+
+        var methodId = IrLowering.RootBodyId(method.OriginalDefinition);
+        foreach (var body in bodies)
+        {
+            var call = body.Blocks.SelectMany(block => block.Operations)
+                           .OfType<IrCallOperation>()
+                           .FirstOrDefault(call => call.TargetMethodId == methodId && call.Provenance.Span == source);
+            if (call is not null)
+                return (body.BodyId, call.Id);
+        }
+
+        return (null, null);
     }
 
     private static string? InvokedName(InvocationExpressionSyntax invocation) => invocation.Expression switch
@@ -156,7 +217,7 @@ public static class DiIndexBuilder
                                   form);
     }
 
-    private static (ITypeSymbol? Type, string? Unsupported) TypeOf(IOperation value)
+    internal static (ITypeSymbol? Type, string? Unsupported) TypeOf(IOperation value)
     {
         while (value is IConversionOperation conversion)
             value = conversion.Operand;
@@ -169,7 +230,7 @@ public static class DiIndexBuilder
         return (typeOf.TypeOperand, null);
     }
 
-    private static bool IsSystemType(ITypeSymbol type) =>
+    internal static bool IsSystemType(ITypeSymbol type) =>
         type.Name == "Type" && type.ContainingNamespace?.ToDisplayString() == "System";
 
     private static bool IsFactory(ITypeSymbol type) =>
@@ -177,7 +238,7 @@ public static class DiIndexBuilder
         named.OriginalDefinition.ContainingNamespace?.ToDisplayString() == "System" &&
         named.Name == "Func";
 
-    private static bool ContainsTypeParameter(ITypeSymbol type) => type switch
+    internal static bool ContainsTypeParameter(ITypeSymbol type) => type switch
     {
         ITypeParameterSymbol => true,
         IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),

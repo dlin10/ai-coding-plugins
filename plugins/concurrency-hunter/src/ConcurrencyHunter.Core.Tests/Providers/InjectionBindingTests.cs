@@ -25,7 +25,7 @@ public sealed class InjectionBindingTests
         Assert.Equal(("Holder", "Holder", "_gate", InjectionMemberKind.Field), (binding.Type, binding.DeclaringType, binding.Member, binding.MemberKind));
         Assert.Equal(("gate", 0, "Gate"), (binding.ConstructorParameter, binding.ConstructorParameterOrdinal, binding.ServiceType));
         Assert.Equal(DiResolutionKind.Bound, binding.Resolution.Kind);
-        Assert.Equal("di:Gate@Singleton", binding.Resolution.Binding!.RegionId);
+        Assert.Equal("di:Gate@Singleton", binding.Resolution.Binding!.RegionDisplay);
         Assert.Contains(binding.Evidence, evidence => evidence.Kind == "assignment" && evidence.Source.Path == "Case.cs");
         Assert.Contains(binding.Evidence, evidence => evidence.Kind == "registration" && evidence.Source.Path == "Case.cs");
         Assert.Empty(result.Diagnostics);
@@ -505,7 +505,7 @@ public sealed class InjectionBindingTests
         Assert.Empty(result.Bindings);
         Assert.Equal([("other", 0, "Fixture:IGate", DiResolutionKind.Unregistered), ("gate", 1, "Fixture:Gate", DiResolutionKind.Bound)],
                      result.ConstructorParameters.Select(parameter => (parameter.Name, parameter.Ordinal, parameter.TypeKey, parameter.Resolution.Kind)));
-        Assert.Equal("di:Gate@Singleton", result.ConstructorParameters[1].Resolution.Binding!.RegionId);
+        Assert.Equal("di:Gate@Singleton", result.ConstructorParameters[1].Resolution.Binding!.RegionDisplay);
     }
 
     [Fact]

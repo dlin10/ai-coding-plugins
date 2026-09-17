@@ -55,7 +55,7 @@ public sealed class SyntheticProviderEndToEndTests
         Assert.Contains("OrderQueue.Reserve(int) performs read-modify-write", bundle.ReportMarkdown, StringComparison.Ordinal);
         Assert.Contains("queue handler OrderQueue.Reserve(int)", bundle.ReportMarkdown, StringComparison.Ordinal);
         Assert.Contains(finding.AccessA.Root.RootId, bundle.FindingsJson, StringComparison.Ordinal);
-        Assert.Contains(finding.StableId, bundle.FindingsJson, StringComparison.Ordinal);
+        Assert.Contains(finding.Fingerprint, bundle.FindingsJson, StringComparison.Ordinal);
     }
 
     private static Task<AnalysisResult> Analyze(ProviderRegistry registry) =>

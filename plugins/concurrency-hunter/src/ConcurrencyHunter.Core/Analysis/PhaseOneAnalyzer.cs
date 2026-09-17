@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Execution;
@@ -13,22 +14,68 @@ namespace ConcurrencyHunter.Analysis;
 
 public static class PhaseOneAnalyzer
 {
+    public const string SCOPE_DISCOVERY = "scope-discovery";
+    public const string PROGRAM_INDEX = "program-index";
+    public const string LOWERING = "lowering";
+    public const string REACHABLE_SET = "reachable-set";
+    public const string SUMMARIES_AND_FIXPOINT = "summaries-and-fixpoint";
+    public const string EXECUTIONS = "executions";
+    public const string ACCESSES = "accesses";
+    public const string PAIRING = "pairing";
+    public const string FINDINGS = "findings";
+    public const string ANALYSIS_LIMITS_VARIABLE = "CH_ANALYSIS_LIMITS";
+
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken) =>
         AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken);
+
+    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken);
 
     /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, the program index,
     /// the reachable set (lowering once per method across scopes), summaries, the whole-program heap, executions and ownership,
     /// interprocedural accesses and pairs; findings are built over the pairs of every scope.</summary>
-    public static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
-                                                          CancellationToken cancellationToken)
+    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
+                                                    CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, registry, InterproceduralPairing.Pair, EnvironmentLimits(), cancellationToken);
+
+    /// <summary>The analysis with another pairing of each scope's accesses, as a test's reference pairing.</summary>
+    internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
+                                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                      CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, registry, pairing, EnvironmentLimits(), cancellationToken);
+
+    /// <summary>The limits a caller that passes none runs under: <c>CH_ANALYSIS_LIMITS=depth,contexts,scc</c> when that variable is
+    /// set, so the limits grid can run the demo matcher under other limits, else the defaults.</summary>
+    private static AnalysisLimits EnvironmentLimits()
     {
+        if (Environment.GetEnvironmentVariable(ANALYSIS_LIMITS_VARIABLE) is not { Length: > 0 } text)
+            return AnalysisLimits.Default;
+        var values = text.Split(',').Select(part => int.TryParse(part, System.Globalization.NumberStyles.None,
+                                                                 System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : 0).ToArray();
+        if (values.Length != 3 || values.Any(value => value <= 0))
+            throw new InvalidOperationException($"{ANALYSIS_LIMITS_VARIABLE} must be three positive integers depth,contexts,scc; it is '{text}'.");
+        return new AnalysisLimits(values[0], values[1], values[2]);
+    }
+
+    private static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
+                                                           Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                           AnalysisLimits limits, CancellationToken cancellationToken)
+    {
+        var timings = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+        var sizes = new List<ScopeSize>();
+        var step = Stopwatch.StartNew();
         var discovery = ProcessScopes.Discover(solution, rootDirectory);
+        Record(timings, SCOPE_DISCOVERY, step);
         var lowered = new Dictionary<(Compilation Compilation, string BodyId), IrLoweredMethod?>();
         var scopes = new List<ProcessScope>();
         var roots = new List<ExecutionRootDescriptor>();
         var accesses = new List<Access>();
         var pairs = new List<AccessPair>();
         var coverage = new List<ScopeCoverage>();
+        var comparisons = 0;
+        var cartesianBound = 0;
+        var buckets = 0;
+        var largestBucket = 0;
         var candidates = 0;
         var suppressed = 0;
         var pairSkips = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -40,13 +87,18 @@ public static class PhaseOneAnalyzer
             scopes.Add(scope);
             var diagnostics = new List<string>(discovery.Diagnostics);
             var compilations = new List<Compilation>();
+            var projectFiles = new List<(Compilation, string?)>();
             foreach (var project in scoped.Projects)
             {
                 if (await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false) is { } compilation)
+                {
                     compilations.Add(compilation);
+                    projectFiles.Add((compilation, project.FilePath));
+                }
             }
 
-            var index = DiIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
+            step.Restart();
+            var index = DiIndexBuilder.Build(scope.Id, projectFiles, rootDirectory, cancellationToken);
             diagnostics.AddRange(index.Diagnostics.Select(diagnostic => $"di: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
 
             var context = new RootDiscoveryContext(scope.Id, compilations, rootDirectory, index, cancellationToken);
@@ -79,20 +131,49 @@ public static class PhaseOneAnalyzer
             diagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
                                          .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
 
+            Record(timings, SCOPE_DISCOVERY, step);
             var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
-            var members = Members(compilations, rootDirectory, lowered, diagnostics, cancellationToken);
-            var reachable = ReachableSet.Build(new ReachabilityInput(program, scopeRoots, index, bindings, members));
-            var summaries = new SummaryCache(reachable.Bodies, program, AnalysisLimits.Default);
+            Record(timings, PROGRAM_INDEX, step);
+            var lowering = new Stopwatch();
+            var lower = Members(compilations, rootDirectory, lowered, diagnostics, cancellationToken);
+            IReadOnlyList<IrBody> TimedMembers(string bodyId)
+            {
+                lowering.Start();
+                try
+                {
+                    return lower(bodyId);
+                }
+                finally
+                {
+                    lowering.Stop();
+                }
+            }
+
+            var reachable = ReachableSet.Build(new ReachabilityInput(program, scopeRoots, index, bindings, TimedMembers));
+            timings[REACHABLE_SET] = timings.GetValueOrDefault(REACHABLE_SET) + step.Elapsed - lowering.Elapsed;
+            timings[LOWERING] = timings.GetValueOrDefault(LOWERING) + lowering.Elapsed;
+            step.Restart();
+            var summaries = new SummaryCache(reachable.Bodies, program, limits);
             var scopeProgram = new ScopeProgram(scope.Id, scopeRoots, reachable, summaries, program, index, bindings);
-            var heap = WholeProgram.Solve(scopeProgram, AnalysisLimits.Default);
+            var heap = WholeProgram.Solve(scopeProgram, limits);
+            Record(timings, SUMMARIES_AND_FIXPOINT, step);
             var executions = ExecutionModel.Build(scopeProgram, heap);
+            Record(timings, EXECUTIONS, step);
             var collection = InterproceduralAccesses.Collect(new InterproceduralInput(scopeProgram, heap, executions));
-            var scopePairs = InterproceduralPairing.Pair(collection.Accesses, executions, heap);
+            Record(timings, ACCESSES, step);
+            var scopePairs = pairing(collection.Accesses, executions, heap);
+            Record(timings, PAIRING, step);
+            sizes.Add(new ScopeSize(scope.Id, heap.ReachableBodies.Count, summaries.Built, heap.Regions.Count, heap.Instances.Count,
+                                    collection.Accesses.Count(access => !access.IsConstructionLocal)));
 
             roots.AddRange(scopeRoots);
             accesses.AddRange(collection.Accesses);
             pairs.AddRange(scopePairs.Pairs);
-            candidates += scopePairs.CandidatePairs;
+            comparisons += scopePairs.Comparisons;
+            cartesianBound += scopePairs.CartesianBound;
+            buckets += scopePairs.Buckets;
+            largestBucket = Math.Max(largestBucket, scopePairs.LargestBucket);
+            candidates += scopePairs.Candidates;
             suppressed += scopePairs.Suppressed;
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
@@ -106,7 +187,9 @@ public static class PhaseOneAnalyzer
             });
         }
 
-        var conflicts = ConflictFindings.Create(pairs, cancellationToken);
+        step.Restart();
+        var conflicts = ConflictFindings.Create(pairs, accesses, cancellationToken);
+        Record(timings, FINDINGS, step);
         var providers = registry.Providers
                                 .Select(provider => new ProviderSummary(
                                     provider.ProviderId,
@@ -115,7 +198,21 @@ public static class PhaseOneAnalyzer
                                             .ToArray()))
                                 .ToArray();
         return new AnalysisResult(scopes, roots, accesses, conflicts.Findings, conflicts.Groups, coverage,
-                                  new PairCounters(candidates, suppressed, pairSkips), providers);
+                                  new PairCounters(comparisons, cartesianBound, buckets, largestBucket, candidates, suppressed, pairSkips),
+                                  providers)
+        {
+            Timings = new[] { SCOPE_DISCOVERY, PROGRAM_INDEX, LOWERING, REACHABLE_SET, SUMMARIES_AND_FIXPOINT, EXECUTIONS, ACCESSES, PAIRING, FINDINGS }
+                      .Select(name => new StepTiming(name, timings.GetValueOrDefault(name).TotalSeconds))
+                      .ToArray(),
+            ScopeSizes = sizes
+        };
+    }
+
+    /// <summary>Adds the step's elapsed time to its total and restarts the stopwatch for the next step.</summary>
+    private static void Record(Dictionary<string, TimeSpan> timings, string name, Stopwatch step)
+    {
+        timings[name] = timings.GetValueOrDefault(name) + step.Elapsed;
+        step.Restart();
     }
 
     /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,

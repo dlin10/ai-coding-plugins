@@ -1,5 +1,8 @@
+using ConcurrencyHunter.Core.Tests.Engine;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Di;
+using ConcurrencyHunter.Frontend;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
@@ -19,7 +22,8 @@ public sealed class DiIndexTests
         var binding = Bound(index, Key("Gate"));
         Assert.Equal("Gate", binding.ImplementationType);
         Assert.Equal(DiLifetime.Singleton, binding.Lifetime);
-        Assert.Equal("di:Gate@Singleton", binding.RegionId);
+        Assert.Equal("di:Gate@Singleton", binding.RegionDisplay);
+        Assert.Equal(DiIndex.RegionId(Key("Gate"), Key("Gate"), DiLifetime.Singleton, 1), binding.RegionId);
         Assert.Empty(binding.Uncertainties);
         Assert.Equal("Case.cs", Assert.Single(binding.Sources).Path);
     }
@@ -32,7 +36,8 @@ public sealed class DiIndexTests
         var binding = Bound(index, Key("IGate"));
         Assert.Equal("Gate", binding.ImplementationType);
         Assert.Equal(DiLifetime.Scoped, binding.Lifetime);
-        Assert.Equal("di:Gate@Scoped", binding.RegionId);
+        Assert.Equal("di:Gate@Scoped", binding.RegionDisplay);
+        Assert.Equal(DiIndex.RegionId(Key("IGate"), Key("Gate"), DiLifetime.Scoped, 1), binding.RegionId);
         Assert.Equal(DiResolutionKind.Unregistered, index.Resolve(Key("Gate")).Kind);
     }
 
@@ -278,7 +283,7 @@ public sealed class DiIndexTests
     }
 
     [Fact]
-    public void Two_services_on_one_implementation_share_the_region_but_keep_their_service_types()
+    public void Two_services_on_one_implementation_are_two_regions()
     {
         var index = Index("""
             services.AddSingleton<IGate, Gate>();
@@ -287,9 +292,175 @@ public sealed class DiIndexTests
 
         var first = Bound(index, Key("IGate"));
         var second = Bound(index, Key("IOtherGate"));
-        Assert.Equal("di:Gate@Singleton", first.RegionId);
-        Assert.Equal(first.RegionId, second.RegionId);
+        Assert.NotEqual(first.RegionId, second.RegionId);
+        Assert.Equal(("di:Gate@Singleton", "di:Gate@Singleton"), (first.RegionDisplay, second.RegionDisplay));
         Assert.NotEqual(first.ServiceType, second.ServiceType);
+    }
+
+    [Fact]
+    public void Resolution_lists_every_registration_in_the_total_order()
+    {
+        var index = IndexOf(("B.cs", Wrap("services.AddSingleton<IGate, Gate>();", className: "Second")),
+                            ("A.cs", Wrap("services.AddScoped<IGate, OtherGate>();", className: "First")));
+
+        var resolution = index.Resolve(Key("IGate"));
+        Assert.Equal(DiResolutionKind.Ambiguous, resolution.Kind);
+        Assert.Equal(["A.cs", "B.cs"], resolution.Registrations.Select(registration => registration.Source.Path));
+    }
+
+    [Fact]
+    public void Factory_registration_records_its_registration_call()
+    {
+        var solution = FixtureSolution.Create(
+            new FixtureOptions { OutputKind = OutputKind.ConsoleApplication },
+            ("Program.cs", Usings + """
+                IServiceCollection services = null!;
+                services.AddSingleton<Gate>(_ => new Gate());
+
+                """ + Types));
+        var compilation = Compilations(solution).Single();
+        var index = Build([compilation]);
+
+        var registration = Assert.Single(index.Registrations);
+        Assert.Equal((DiRegistrationForm.Factory, MAIN), (registration.Form, registration.BodyId));
+        Assert.StartsWith("body:Microsoft.Extensions.DependencyInjection.Abstractions:M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton``1",
+                          RegistrationCall(compilation, registration).TargetMethodId, StringComparison.Ordinal);
+
+        var run = EngineFixture.ReachScope(solution, "scope:Fixture");
+        Assert.Equal([MAIN + "#lambda1"], run.Input.Program.Method(MAIN)!.NestedBodyIds);
+        // The entry point holds a factory registration, so the reachable set lowers it as a startup construction.
+        Assert.Equal([MAIN, MAIN + "#lambda1"], run.Result.Bodies.Keys.Where(body => body.StartsWith(MAIN, StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+        Assert.Contains(MAIN, run.LoweredMembers);
+        Assert.DoesNotContain(run.Input.Roots, root => root.Entry.BodyKey.StartsWith(MAIN, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Method_group_factory_records_its_registration_call()
+    {
+        var (compilation, index) = IndexWithCompilation(Wrap("", """
+            public static IServiceCollection AddGate(this IServiceCollection services) => services.AddSingleton<Gate>(Make);
+            private static Gate Make(IServiceProvider provider) => new Gate();
+            """));
+
+        var registration = Assert.Single(index.Registrations);
+        Assert.Equal((DiRegistrationForm.Factory, "body:Fixture:M:Registrations.AddGate(Microsoft.Extensions.DependencyInjection.IServiceCollection)"),
+                     (registration.Form, registration.BodyId));
+        Assert.Contains("AddSingleton", RegistrationCall(compilation, registration).Method, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Instance_registration_records_its_registration_call()
+    {
+        const string body = """
+            var gate = new Gate();
+            services.AddSingleton(gate);
+            """;
+        var (compilation, index) = IndexWithCompilation(Wrap(body));
+
+        var registration = Assert.Single(index.Registrations);
+        Assert.Equal((DiRegistrationForm.Instance, REGISTER), (registration.Form, registration.BodyId));
+        var call = RegistrationCall(compilation, registration);
+        Assert.Contains("AddSingleton", call.Method, StringComparison.Ordinal);
+        Assert.Equal(SourceLine(body, "services.AddSingleton(gate);"), call.Provenance.Span.StartLine);
+    }
+
+    [Fact]
+    public void Identical_registrations_are_numbered_and_injection_binds_the_last()
+    {
+        var compilations = Compilations(Solution(("Case.cs", Wrap("""
+            services.AddSingleton<IGate, Gate>();
+            services.AddSingleton<IGate, Gate>();
+            """, "public sealed class Holder { public Holder(IGate gate) { GC.KeepAlive(gate); } }"))));
+        var index = Build(compilations);
+
+        Assert.Equal([1, 2], index.Registrations.Select(registration => registration.Number));
+        var binding = Bound(index, Key("IGate"));
+        Assert.Equal(DiIndex.RegionId(Key("IGate"), Key("Gate"), DiLifetime.Singleton, 2), binding.RegionId);
+        Assert.Equal("di:Gate@Singleton#2", binding.RegionDisplay);
+        Assert.Equal(2, binding.Sources.Count);
+
+        var bindings = InjectionBindings.Discover(compilations, index, @"C:\fixture", CancellationToken.None);
+        var holder = Assert.Single(bindings, type => type.TypeKey == Key("Registrations.Holder"));
+        Assert.Equal(binding.RegionId, Assert.Single(holder.ConstructorParameters).Resolution.Binding!.RegionId);
+    }
+
+    [Fact]
+    public void Identical_registrations_across_two_documents_are_numbered_by_path_then_position()
+    {
+        var index = IndexOf(("B.cs", Wrap("services.AddSingleton<Gate>();", className: "Second")),
+                            ("A.cs", Wrap("""
+                                services.AddSingleton<Gate>(); services.AddSingleton<Gate>();
+                                services.AddSingleton<Gate>();
+                                """, className: "First")));
+
+        Assert.Equal([("A.cs", 1), ("A.cs", 2), ("A.cs", 3), ("B.cs", 4)],
+                     index.Registrations.Select(registration => (registration.Source.Path, registration.Number)));
+        var (first, second, third) = (index.Registrations[0].Source, index.Registrations[1].Source, index.Registrations[2].Source);
+        Assert.True(first.StartLine == second.StartLine && first.StartColumn < second.StartColumn && second.StartLine < third.StartLine);
+        var binding = Bound(index, Key("Gate"));
+        Assert.Equal(("di:Gate@Singleton#4", 4), (binding.RegionDisplay, binding.Sources.Count));
+        Assert.Equal("B.cs", binding.Sources[^1].Path);
+    }
+
+    [Fact]
+    public void Identical_registrations_in_a_linked_file_of_two_projects_are_ordered_by_assembly()
+    {
+        var (solution, projects) = LinkedFile(new Dictionary<string, string> { ["Alpha"] = "Zed", ["Beta"] = "Able" });
+
+        var index = DiIndexBuilder.Build("scope:Fixture", projects, @"C:\fixture", CancellationToken.None);
+
+        Assert.Equal([("Able", "Beta/Beta.csproj", 1), ("Zed", "Alpha/Alpha.csproj", 1)],
+                     index.Registrations.Select(registration => (registration.Assembly, registration.ProjectPath, registration.Number)));
+        Assert.All(index.Registrations, registration => Assert.Equal(LINKED_PATH, registration.Source.Path));
+        Assert.Equal(2, solution.Projects.Count());
+    }
+
+    [Fact]
+    public void Identical_registrations_in_a_linked_file_of_two_same_named_projects_are_ordered_by_project_path()
+    {
+        var (_, projects) = LinkedFile(new Dictionary<string, string> { ["Alpha"] = "Shared", ["Beta"] = "Shared" });
+
+        var index = DiIndexBuilder.Build("scope:Fixture", projects.Reverse(), @"C:\fixture", CancellationToken.None);
+
+        Assert.Equal([("Shared", "Alpha/Alpha.csproj", 1), ("Shared", "Beta/Beta.csproj", 2)],
+                     index.Registrations.Select(registration => (registration.Assembly, registration.ProjectPath, registration.Number)));
+        Assert.Equal(index.Registrations[0].BodyId, index.Registrations[1].BodyId);
+        Assert.Equal("di:Gate@Singleton#2", Bound(index, DiIndex.TypeKey("Shared", "Gate")).RegionDisplay);
+    }
+
+    [Fact]
+    public void Registration_in_a_document_outside_the_repository_root_orders_by_its_full_path()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "concurrency-hunter-linked", "Outside.cs");
+        var solution = Solution(("A.cs", Wrap("services.AddSingleton<Gate>();", className: "First")),
+                                ("B.cs", Wrap("services.AddSingleton<Gate>();", className: "Second")));
+        solution = solution.AddDocument(DocumentId.CreateNewId(solution.ProjectIds.Single()), "Outside.cs",
+                                        Usings + Wrap("services.AddSingleton<Gate>();", className: "Third"), filePath: outside);
+
+        var index = Build(Compilations(solution));
+
+        var fullPath = Path.GetFullPath(outside).Replace('\\', '/');
+        Assert.True(string.CompareOrdinal(fullPath, "B.cs") > 0);
+        Assert.Equal(["A.cs", "B.cs", fullPath], index.Registrations.Select(registration => registration.Source.Path));
+        Assert.DoesNotContain("..", index.Registrations[^1].Source.Path, StringComparison.Ordinal);
+        Assert.Equal(3, index.Registrations[^1].Number);
+    }
+
+    [Fact]
+    public void Registration_display_gains_an_ordinal_only_from_the_second_identical_one()
+    {
+        var index = Index("""
+            services.AddSingleton<Gate>();
+            services.AddSingleton<IGate, Gate>();
+            services.AddSingleton<Gate>();
+            services.AddSingleton<Gate>();
+            """);
+
+        Assert.Equal(["di:Gate@Singleton", "di:Gate@Singleton", "di:Gate@Singleton#2", "di:Gate@Singleton#3"],
+                     index.Registrations.Select(registration => DiIndex.RegionDisplay(registration.ImplementationType!, registration.Lifetime,
+                                                                                    registration.Number)));
+        Assert.Equal("di:Gate@Singleton#3", Bound(index, Key("Gate")).RegionDisplay);
+        Assert.Equal("di:Gate@Singleton", Bound(index, Key("IGate")).RegionDisplay);
     }
 
     [Fact]
@@ -380,8 +551,9 @@ public sealed class DiIndexTests
 
         var alpha = Bound(index, DiIndex.TypeKey("Alpha", "Shared.Gate"));
         var beta = Bound(index, DiIndex.TypeKey("Beta", "Shared.Gate"));
-        Assert.Equal(("Shared.Gate", DiLifetime.Singleton, "di:Shared.Gate@Singleton"), (alpha.ImplementationType, alpha.Lifetime, alpha.RegionId));
-        Assert.Equal(("Shared.Gate", DiLifetime.Scoped, "di:Shared.Gate@Scoped"), (beta.ImplementationType, beta.Lifetime, beta.RegionId));
+        Assert.Equal(("Shared.Gate", DiLifetime.Singleton, "di:Shared.Gate@Singleton"), (alpha.ImplementationType, alpha.Lifetime, alpha.RegionDisplay));
+        Assert.Equal(("Shared.Gate", DiLifetime.Scoped, "di:Shared.Gate@Scoped"), (beta.ImplementationType, beta.Lifetime, beta.RegionDisplay));
+        Assert.NotEqual(alpha.RegionId, beta.RegionId);
         Assert.Single(alpha.Sources);
         Assert.Equal(DiResolutionKind.Unregistered, index.Resolve("Shared.Gate").Kind);
         Assert.Equal(2, index.HostedServices.Count);
@@ -420,8 +592,8 @@ public sealed class DiIndexTests
 
         var alpha = Bound(index, DiIndex.TypeKey("Common", "Shared.Box<Alpha:Ns.Payload>"));
         var beta = Bound(index, DiIndex.TypeKey("Common", "Shared.Box<Beta:Ns.Payload>"));
-        Assert.Equal((DiLifetime.Singleton, "di:Shared.Box<Ns.Payload>@Singleton"), (alpha.Lifetime, alpha.RegionId));
-        Assert.Equal((DiLifetime.Scoped, "di:Shared.Box<Ns.Payload>@Scoped"), (beta.Lifetime, beta.RegionId));
+        Assert.Equal((DiLifetime.Singleton, "di:Shared.Box<Ns.Payload>@Singleton"), (alpha.Lifetime, alpha.RegionDisplay));
+        Assert.Equal((DiLifetime.Scoped, "di:Shared.Box<Ns.Payload>@Scoped"), (beta.Lifetime, beta.RegionDisplay));
         Assert.Single(alpha.Sources);
         Assert.Empty(index.Diagnostics);
     }
@@ -506,17 +678,71 @@ public sealed class DiIndexTests
         }
         """;
 
-    private static DiIndex Index(string body, string extraMembers = "") => IndexOf(Wrap(body, extraMembers));
+    private const string MAIN = "body:Fixture:M:Program.{Main}$(System.String[])";
+    private const string REGISTER = "body:Fixture:M:Registrations.Register(Microsoft.Extensions.DependencyInjection.IServiceCollection)";
+    private const string LINKED_PATH = "Shared/Registrations.cs";
 
-    private static DiIndex IndexOf(string source, FixtureOptions? options = null)
+    /// <summary>One document compiled into the projects Alpha and Beta, with their assembly names; the projects in name order.</summary>
+    private static (Solution Solution, IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> Projects) LinkedFile(
+        IReadOnlyDictionary<string, string> assemblyNames)
     {
-        var solution = FixtureSolution.Create(options ?? new FixtureOptions(), ("Case.cs", Prelude + source));
-        var compilations = solution.Projects.Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()!).ToArray();
-        return DiIndexBuilder.Build("scope:Fixture", compilations, @"C:\fixture", CancellationToken.None);
+        var solution = FixtureSolution.CreateProjects(new FixtureOptions { ProjectAssemblyNames = assemblyNames },
+                                                      ("Alpha", "Alpha.cs", "public static class AlphaMarker { }"),
+                                                      ("Beta", "Beta.cs", "public static class BetaMarker { }"));
+        foreach (var projectId in solution.ProjectIds.ToArray())
+        {
+            solution = solution.AddDocument(DocumentId.CreateNewId(projectId), "Registrations.cs",
+                                            Usings + "public sealed class Gate { }\n" + Wrap("services.AddSingleton<Gate>();"),
+                                            filePath: @"C:\fixture\" + LINKED_PATH.Replace('/', '\\'));
+        }
+
+        var projects = solution.Projects.OrderBy(project => project.Name, StringComparer.Ordinal)
+                               .Select(project => (project.GetCompilationAsync().GetAwaiter().GetResult()!, project.FilePath))
+                               .ToArray();
+        return (solution, projects);
     }
 
-    private static string Wrap(string body, string extraMembers = "") => $$"""
-        public static class Registrations
+    /// <summary>The call operation a registration records, found in the lowered body it names.</summary>
+    private static IrCallOperation RegistrationCall(Compilation compilation, DiRegistration registration)
+    {
+        static IEnumerable<INamedTypeSymbol> AllTypes(INamespaceOrTypeSymbol container) =>
+            container.GetTypeMembers().SelectMany(type => AllTypes(type).Prepend(type))
+                     .Concat(container is INamespaceSymbol @namespace ? @namespace.GetNamespaceMembers().SelectMany(AllTypes) : []);
+
+        var memberId = IrLowering.EnclosingMethodBodyId(registration.BodyId!);
+        var method = AllTypes(compilation.Assembly.GlobalNamespace).SelectMany(type => type.GetMembers().OfType<IMethodSymbol>())
+                                                                .Single(candidate => IrLowering.RootBodyId(candidate) == memberId);
+        var lowered = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None);
+        var body = Assert.Single(lowered.NestedBodies.Prepend(lowered.Body), candidate => candidate.BodyId == registration.BodyId);
+        return Assert.IsType<IrCallOperation>(Assert.Single(body.Blocks.SelectMany(block => block.Operations),
+                                                            operation => operation.Id == registration.OperationId));
+    }
+
+    private static DiIndex Index(string body, string extraMembers = "") => IndexOf(Wrap(body, extraMembers));
+
+    private static DiIndex IndexOf(string source, FixtureOptions? options = null) =>
+        Build(Compilations(FixtureSolution.Create(options ?? new FixtureOptions(), ("Case.cs", Prelude + source))));
+
+    /// <summary>Indexes several documents of one project; the first declares the prelude's types.</summary>
+    private static DiIndex IndexOf(params (string Path, string Source)[] files) => Build(Compilations(Solution(files)));
+
+    private static (Compilation Compilation, DiIndex Index) IndexWithCompilation(string source)
+    {
+        var compilations = Compilations(FixtureSolution.Create(("Case.cs", Prelude + source)));
+        return (compilations.Single(), Build(compilations));
+    }
+
+    private static Solution Solution(params (string Path, string Source)[] files) =>
+        FixtureSolution.Create(files.Select((file, index) => (file.Path, (index == 0 ? Prelude : Usings) + file.Source)).ToArray());
+
+    private static Compilation[] Compilations(Solution solution) =>
+        solution.Projects.Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()!).ToArray();
+
+    private static DiIndex Build(IEnumerable<Compilation> compilations) =>
+        DiIndexBuilder.Build("scope:Fixture", compilations, @"C:\fixture", CancellationToken.None);
+
+    private static string Wrap(string body, string extraMembers = "", string className = "Registrations") => $$"""
+        public static class {{className}}
         {
             public static void Register(IServiceCollection services)
             {
@@ -526,13 +752,19 @@ public sealed class DiIndexTests
         }
         """;
 
-    private const string Prelude = """
+    private const string Prelude = Usings + Types;
+
+    private const string Usings = """
         using System;
         using System.Threading;
         using System.Threading.Tasks;
         using Microsoft.Extensions.DependencyInjection;
         using Microsoft.Extensions.DependencyInjection.Extensions;
         using Microsoft.Extensions.Hosting;
+
+        """;
+
+    private const string Types = """
         public interface IGate { }
         public interface IOtherGate { }
         public sealed class Gate : IGate, IOtherGate { }

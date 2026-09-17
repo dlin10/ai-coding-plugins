@@ -180,6 +180,87 @@ public static class EngineFixture
         return new WholeProgramRun(scopeId, input, ReachableSet.Build(input), lowered);
     }
 
+    /// <summary>The pairing before the candidate index, kept as the tests' reference: every unordered pair of non-construction-local
+    /// accesses is tested against the rules that admit it (one resource; one region with a wildcard on either side; an open region and a
+    /// closed region of its group, on one path and member or with a wildcard on either side), then compared as the index's
+    /// <c>Consider</c> compares it.</summary>
+    internal static PairAnalysis ReferencePair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
+    {
+        var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
+        var pairs = new List<AccessPair>();
+        var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var counted = 0;
+        var suppressed = 0;
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            for (var j = i; j < candidates.Length; j++)
+            {
+                if (ReferenceAdmits(candidates[i], candidates[j], heap) is { } admitted)
+                    Consider(admitted.First, admitted.Second, admitted.Reported, admitted.Uncertainties);
+            }
+        }
+
+        return new PairAnalysis(pairs, counted, suppressed, skips) { CartesianBound = candidates.Length * (candidates.Length + 1) / 2 };
+
+        void Consider(Access first, Access second, AccessResource reported, IReadOnlyList<string> uncertainties)
+        {
+            counted++;
+            var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
+                : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
+                  first.ExecutionId == second.ExecutionId && heap.Regions[first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
+                  region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
+                    ? InterproceduralPairing.SKIP_NO_OVERLAP
+                : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
+                : null;
+            if (skip is not null)
+            {
+                skips[skip] = skips.GetValueOrDefault(skip) + 1;
+                return;
+            }
+
+            if (first.HeldProtectionIds.Intersect(second.HeldProtectionIds, StringComparer.Ordinal).Any())
+            {
+                suppressed++;
+                return;
+            }
+
+            var protection = (first.HeldProtection.Count != 0, second.HeldProtection.Count != 0) switch
+            {
+                (false, false) => PairProtection.UNPROTECTED,
+                (true, true) => PairProtection.DIFFERENT_IDENTITY,
+                _ => PairProtection.PARTIAL
+            };
+            pairs.Add(new AccessPair(first, second, protection) { Resource = reported, Uncertainties = uncertainties });
+        }
+
+        bool IsConfined(Access access) =>
+            executions.Ownership.TryGetValue(access.Resource.RegionId!, out var ownership) && ownership.Kind == OwnershipKind.ThreadConfined;
+    }
+
+    /// <summary>Whether the reference admits two accesses, oriented and reported as the candidate index does, or null.</summary>
+    internal static (Access First, Access Second, AccessResource Reported, IReadOnlyList<string> Uncertainties)? ReferenceAdmits(Access one, Access other,
+                                                                                                                                HeapSolution heap)
+    {
+        if (one.Resource.Scope != other.Resource.Scope)
+            return null;
+        var wildcard = one.Resource.IsWildcard || other.Resource.IsWildcard;
+        if (one.Resource.RegionId == other.Resource.RegionId)
+        {
+            if (!wildcard)
+                return one.Resource.Identity == other.Resource.Identity ? (one, other, one.Resource, []) : null;
+            var (first, second) = one.Resource.IsWildcard ? (one, other) : (other, one);
+            return (first, second, first.Resource, []);
+        }
+
+        var (oneRegion, otherRegion) = (heap.Regions[one.Resource.RegionId!], heap.Regions[other.Resource.RegionId!]);
+        if (oneRegion.Group != otherRegion.Group || oneRegion.IsOpen == otherRegion.IsOpen)
+            return null;
+        var (open, closed) = oneRegion.IsOpen ? (one, other) : (other, one);
+        var admitted = wildcard || open.Resource.Member.Identity == closed.Resource.Member.Identity &&
+                                   open.Resource.AccessPath.SequenceEqual(closed.Resource.AccessPath);
+        return admitted ? (open, closed, closed.Resource, open.Uncertainties) : null;
+    }
+
     private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
         @namespace.GetTypeMembers().SelectMany(NestedAndSelf).Concat(@namespace.GetNamespaceMembers().SelectMany(Types));
 

@@ -116,8 +116,8 @@ public static class ProgramIndexBuilder
             method.TypeParameters.Select(SymbolNames.TypeKey).ToArray());
     }
 
-    /// <summary>A declared body, a primary constructor, an auto-property's synthesized accessor, the implicit constructor of a source
-    /// class or struct, and the implicit type initializer of a type with static initializers.</summary>
+    /// <summary>A declared body, the top-level statements' entry point, a primary constructor, an auto-property's synthesized accessor,
+    /// the implicit constructor of a source class or struct, and the implicit type initializer of a type with static initializers.</summary>
     private static bool HasSourceBody(IMethodSymbol method, IReadOnlyList<Compilation> compilations, CancellationToken cancellationToken)
     {
         var type = method.ContainingType;
@@ -141,6 +141,7 @@ public static class ProgramIndexBuilder
                                                   method.AssociatedSymbol is IPropertySymbol property &&
                                                   IrLowering.IsAutoProperty(property, cancellationToken),
             ArrowExpressionClauseSyntax => true,
+            CompilationUnitSyntax => method.MethodKind == MethodKind.Ordinary,
             TypeDeclarationSyntax => method.MethodKind == MethodKind.Constructor && !method.IsImplicitlyDeclared,
             _ => false
         };

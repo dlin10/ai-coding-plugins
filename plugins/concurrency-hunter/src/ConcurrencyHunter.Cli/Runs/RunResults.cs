@@ -15,11 +15,11 @@ internal sealed record DigestAccess(string Role, string Symbol, string Operation
 
 internal sealed record DigestFinding(string FindingId, string ProtectionResult, IReadOnlyList<string> EvidenceIds,
                                      IReadOnlyList<DigestAccess> Accesses, IReadOnlyList<string> BindingEvidence,
-                                     IReadOnlyList<string> OverlapEvidence);
+                                     IReadOnlyList<string> OverlapEvidence, int OccurrenceCount);
 
 internal sealed record GroupDigest(string GroupId, string RuleId, string ConfidenceLabel, string Region,
                                    IReadOnlyList<string> AccessPath, string Ownership, int FindingCount,
-                                   IReadOnlyList<DigestFinding> Findings, IReadOnlyList<string> Scenario);
+                                   IReadOnlyList<DigestFinding> Findings, IReadOnlyList<string> Scenario, int OccurrenceCount);
 
 internal sealed record GroupsResult(string? Error, IReadOnlyList<GroupDigest> Groups);
 

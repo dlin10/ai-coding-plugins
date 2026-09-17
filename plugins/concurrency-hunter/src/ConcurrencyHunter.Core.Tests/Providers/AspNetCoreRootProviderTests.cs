@@ -722,11 +722,11 @@ public sealed class AspNetCoreRootProviderTests
             ExpectedStatus = RootDiscoveryStatus.NotChecked,
             ExpectedDiagnostics =
             [
-                "UnsupportedAssemblyVersion Microsoft.AspNetCore.Http.Abstractions",
-                "UnsupportedAssemblyVersion Microsoft.AspNetCore.Mvc",
-                "UnsupportedAssemblyVersion Microsoft.AspNetCore.Mvc.Core",
-                "UnsupportedAssemblyVersion Microsoft.AspNetCore.Routing",
-                "UnsupportedAssemblyVersion Microsoft.Extensions.DependencyInjection.Abstractions"
+                "UnsupportedAssemblyVersion Fixture: Microsoft.AspNetCore.Http.Abstractions 7.0.0.0",
+                "UnsupportedAssemblyVersion Fixture: Microsoft.AspNetCore.Mvc 7.0.0.0",
+                "UnsupportedAssemblyVersion Fixture: Microsoft.AspNetCore.Mvc.Core 7.0.0.0",
+                "UnsupportedAssemblyVersion Fixture: Microsoft.AspNetCore.Routing 7.0.0.0",
+                "UnsupportedAssemblyVersion Fixture: Microsoft.Extensions.DependencyInjection.Abstractions 7.0.0.0"
             ]
         });
     }
@@ -739,7 +739,83 @@ public sealed class AspNetCoreRootProviderTests
             TargetFramework = "net8.0",
             AssemblyVersions = new Dictionary<string, int> { [StubAssemblies.DEPENDENCY_INJECTION_ABSTRACTIONS] = 7 },
             ExpectedStatus = RootDiscoveryStatus.NotChecked,
-            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Microsoft.Extensions.DependencyInjection.Abstractions"]
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Fixture: Microsoft.Extensions.DependencyInjection.Abstractions 7.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_OutOfRangeLibraryCompilationBesideInRangeWeb_YieldsRootsAndOneDiagnostic()
+    {
+        Run(Projects(("Web", "public class HomeController : ControllerBase { public void Index() { } }" + Startup),
+                     ("Library", "public sealed class Formatter { public string Format() => \"x\"; }")) with
+        {
+            ProjectAssemblyVersions = Versions("Library", StubAssemblies.MVC_CORE, 7),
+            ExpectedRoots = [$"controller-action HomeController.Index() receiver=PerInvocation parameters=[] {POLICY}"],
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Library: Microsoft.AspNetCore.Mvc.Core 7.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_OutOfRangeWebBesideInRangeWeb_YieldsInRangeRootsAndOneDiagnostic()
+    {
+        Run(Projects(("Web", "public class HomeController : ControllerBase { public void Index() { } }" + Startup),
+                     ("Legacy", "public class LegacyController : ControllerBase { public void Index() { } }" + Startup)) with
+        {
+            ProjectAssemblyVersions = Versions("Legacy", StubAssemblies.MVC_CORE, 7),
+            ExpectedRoots = [$"controller-action HomeController.Index() receiver=PerInvocation parameters=[] {POLICY}"],
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Legacy: Microsoft.AspNetCore.Mvc.Core 7.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_TwoOutOfRangeCompilations_YieldTwoDiagnostics()
+    {
+        var result = Run(Projects(("Web", "public class HomeController : ControllerBase { public void Index() { } }" + Startup),
+                                  ("Library", "public sealed class Formatter { public string Format() => \"x\"; }")) with
+        {
+            ProjectAssemblyVersions = new Dictionary<string, IReadOnlyDictionary<string, int>>
+            {
+                ["Web"] = new Dictionary<string, int> { [StubAssemblies.MVC_CORE] = 7 },
+                ["Library"] = new Dictionary<string, int> { [StubAssemblies.MVC_CORE] = 7 }
+            },
+            ExpectedStatus = RootDiscoveryStatus.NotChecked,
+            ExpectedDiagnostics =
+            [
+                "UnsupportedAssemblyVersion Library: Microsoft.AspNetCore.Mvc.Core 7.0.0.0",
+                "UnsupportedAssemblyVersion Web: Microsoft.AspNetCore.Mvc.Core 7.0.0.0"
+            ]
+        });
+
+        Assert.Equal(2, result.Diagnostics.Count);
+    }
+
+    [Fact]
+    public void AspNetCore_CompilationWithOneInRangeAndOneOutOfRangeAssembly_IsSkipped()
+    {
+        Run(Projects(("Web", "public class HomeController : ControllerBase { public void Index() { } }" + Startup),
+                     ("Mixed", "public class MixedController : ControllerBase { public void Index() { } }" + Startup)) with
+        {
+            ProjectAssemblyVersions = Versions("Mixed", StubAssemblies.HTTP_ABSTRACTIONS, 7),
+            ExpectedStatus = RootDiscoveryStatus.Checked,
+            ExpectedRoots = [$"controller-action HomeController.Index() receiver=PerInvocation parameters=[] {POLICY}"],
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Mixed: Microsoft.AspNetCore.Http.Abstractions 7.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_OutOfRangeWebBesideNoReferenceLibrary_NotChecked()
+    {
+        Run(new ProviderCase(nameof(AspNetCore_OutOfRangeWebBesideNoReferenceLibrary_NotChecked), [])
+        {
+            Projects =
+            [
+                ("Web", "Case.cs", Usings + "public class HomeController : ControllerBase { public void Index() { } }" + Startup),
+                ("Plain", "Case.cs", "public sealed class Formatter { public string Format() => \"x\"; }")
+            ],
+            ProjectAssemblyVersions = Versions("Web", StubAssemblies.MVC_CORE, 7),
+            ProjectOmittedAssemblies = new Dictionary<string, IReadOnlyList<string>> { ["Plain"] = StubAssemblies.Names },
+            ExpectedStatus = RootDiscoveryStatus.NotChecked,
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Web: Microsoft.AspNetCore.Mvc.Core 7.0.0.0"]
         });
     }
 
@@ -794,4 +870,12 @@ public sealed class AspNetCoreRootProviderTests
     private static RootDiscoveryResult Run(ProviderCase testCase) => ProviderFixture.Run(new AspNetCoreRootProvider(), testCase);
 
     private static ProviderCase Case(string source, [CallerMemberName] string name = "") => new(name, [("Case.cs", Usings + source)]);
+
+    /// <summary>One compilation per project, each with one source file.</summary>
+    private static ProviderCase Projects((string Project, string Source) first, (string Project, string Source) second,
+                                         [CallerMemberName] string name = "") =>
+        new(name, []) { Projects = [(first.Project, "Case.cs", Usings + first.Source), (second.Project, "Case.cs", Usings + second.Source)] };
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> Versions(string project, string assembly, int major) =>
+        new Dictionary<string, IReadOnlyDictionary<string, int>> { [project] = new Dictionary<string, int> { [assembly] = major } };
 }

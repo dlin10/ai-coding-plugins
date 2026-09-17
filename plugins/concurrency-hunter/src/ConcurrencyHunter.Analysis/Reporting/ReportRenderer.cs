@@ -26,7 +26,8 @@ public static class ReportRenderer
         [CoverageCounters.OPAQUE_CALL] = "calls without a source body, modelled without effect",
         [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls, never invoked",
         [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
-        [CoverageCounters.UNANALYSED_REGISTRATION] = "reached registrations whose factory or instance is not analyzed",
+        [CoverageCounters.UNANALYSED_REGISTRATION] = "unsupported registrations in reached members, binding nothing",
+        [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, modelled without effect",
         [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing",
         [CoverageCounters.STARTUP_CONSTRUCTION_ACCESS] = "accesses of constructions run at startup, not paired",
         [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
@@ -66,7 +67,13 @@ public static class ReportRenderer
         Line($"- Missing projects: {(report.MissingProjects.Count == 0 ? "none" : string.Join(", ", report.MissingProjects))}");
         Line($"- Execution roots: {Number(report.Analysis?.Roots.Count ?? 0)}");
         if (report.Analysis is not null)
+        {
+            var pairs = report.Analysis.Pairs;
+            Line($"- Pairs: comparisons {Number(pairs.Comparisons)} of a Cartesian bound {Number(pairs.CartesianBound)}; " +
+                 $"buckets {Number(pairs.Buckets)}, largest bucket {Number(pairs.LargestBucket)}; " +
+                 $"candidates {Number(pairs.Candidates)}, suppressed {Number(pairs.Suppressed)}");
             AppendScopes(markdown, report.Analysis);
+        }
         Line("- Not analyzed in this version: semantic gaps, path feasibility, spawn sites and ordering, element accesses");
         Line();
 
@@ -184,7 +191,8 @@ public static class ReportRenderer
             markdown.Append('#', GROUP_HEADING_LEVEL).Append(' ').Append(group.GroupId).Append(" · ")
                     .Append(group.RuleId).Append(" · ")
                     .Append(field).Append(" on ").Append(group.Resource.Region).Append(" (")
-                    .Append(Number(group.FindingIds.Count)).Append(" findings)\n");
+                    .Append(Number(group.FindingIds.Count)).Append(" findings, ")
+                    .Append(Number(group.OccurrenceCount)).Append(" occurrences)\n");
             var narrative = report.AcceptedGroupNarratives.GetValueOrDefault(group.GroupId, "_No narrative was accepted for this group._");
             AppendNarrative(markdown, narrative, GROUP_HEADING_LEVEL);
             markdown.Append('\n');
@@ -204,6 +212,16 @@ public static class ReportRenderer
         AppendAccess(markdown, "B", finding.AccessB);
         markdown.Append("- Code path A: ").Append(CodePath(finding.AccessA)).Append('\n');
         markdown.Append("- Code path B: ").Append(CodePath(finding.AccessB)).Append('\n');
+        markdown.Append("- Occurrences: ").Append(Number(finding.OccurrenceCount));
+        if (finding.OccurrenceCount > finding.Occurrences.Count)
+            markdown.Append(" (the first ").Append(Number(finding.Occurrences.Count)).Append(" listed)");
+        markdown.Append('\n');
+        foreach (var occurrence in finding.Occurrences)
+        {
+            markdown.Append("  - ").Append(occurrence.RootA.Display).Append(" (").Append(string.Join(" → ", occurrence.CallPathA))
+                    .Append(") with ").Append(occurrence.RootB.Display).Append(" (").Append(string.Join(" → ", occurrence.CallPathB))
+                    .Append("); protection ").Append(occurrence.Protection).Append('\n');
+        }
         AppendReadSources(markdown, "A", finding.AccessA);
         AppendReadSources(markdown, "B", finding.AccessB);
         markdown.Append("- Resource: ").Append(finding.Resource.Assembly).Append(" · ")
@@ -212,7 +230,7 @@ public static class ReportRenderer
                 .Append(" · ownership ").Append(Ownership(ResourceAccess(finding))).Append('\n');
         markdown.Append("- Binding evidence: ").Append(Items(BindingEvidence(finding))).Append('\n');
         markdown.Append("- Overlap: ").Append(string.Join(" ", finding.ConcurrencyEvidence)).Append(" A: ")
-                .Append(Policy(finding.AccessA.Root.Policy)).Append("; B: ").Append(Policy(finding.AccessB.Root.Policy)).Append('\n');
+                .Append(Policy(finding.AccessA.PathRoot.Policy)).Append("; B: ").Append(Policy(finding.AccessB.PathRoot.Policy)).Append('\n');
         markdown.Append("- Protection: ").Append(finding.ProtectionResult).Append("; A holds ").Append(Holdings(finding.AccessA))
                 .Append("; B holds ").Append(Holdings(finding.AccessB)).Append("; common single-object protection: ")
                 .Append(Items(CommonProtection(finding))).Append('\n');
@@ -281,7 +299,7 @@ public static class ReportRenderer
     {
         markdown.Append("- Access ").Append(role).Append(": ").Append(access.Symbol).Append(" performs ")
                 .Append(access.Operation.ToWireName()).Append(" at ").Append(access.Source.Path).Append(':')
-                .Append(Number(access.Source.StartLine)).Append(" under root ").Append(access.Root.Display)
+                .Append(Number(access.Source.StartLine)).Append(" under root ").Append(access.PathRoot.Display)
                 .Append("; holds ").Append(Holdings(access)).Append(".\n");
     }
 
@@ -296,7 +314,7 @@ public static class ReportRenderer
         var narrative = NarrativeJson(report);
         return Serialize(new
         {
-            SchemaVersion = "2.0",
+            SchemaVersion = "2.1",
             report.RunId,
             Findings = findings,
             Groups = groups,
@@ -307,7 +325,8 @@ public static class ReportRenderer
     private static object FindingJson(Finding finding, RunReport report, AnalysisResult analysis) => new
     {
         finding.FindingId,
-        finding.StableId,
+        finding.Fingerprint,
+        finding.GroupFingerprint,
         finding.GroupId,
         finding.RuleId,
         Title = Title(finding),
@@ -329,6 +348,13 @@ public static class ReportRenderer
         },
         Resource = ResourceJson(finding.Resource),
         Accesses = new[] { AccessJson("A", finding.AccessA), AccessJson("B", finding.AccessB) },
+        finding.OccurrenceCount,
+        Occurrences = finding.Occurrences.Select(occurrence => new
+        {
+            Roots = new[] { occurrence.RootA.RootId, occurrence.RootB.RootId },
+            CallPaths = new[] { occurrence.CallPathA, occurrence.CallPathB },
+            occurrence.Protection
+        }).ToArray(),
         finding.ConcurrencyEvidence,
         AliasEvidence = new[]
             {
@@ -367,7 +393,7 @@ public static class ReportRenderer
     {
         Role = role,
         Operation = access.Operation.ToWireName(),
-        Root = access.Root.RootId,
+        Root = access.PathRoot.RootId,
         Source = new
         {
             access.Source.Path,
@@ -414,14 +440,14 @@ public static class ReportRenderer
                                     IReadOnlyDictionary<string, string> acceptedGroupNarratives) => new
     {
         group.GroupId,
-        group.StableId,
+        group.Fingerprint,
         group.RuleId,
         Severity = (string?)null,
         ConfidenceLabel = group.ConfidenceLabel.ToLowerInvariant(),
         Resource = ResourceJson(group.Resource),
         Ownership = new { Kind = group.Ownership.ToString(), Evidence = group.OwnershipEvidence },
         group.FindingIds,
-        OccurrenceCount = group.FindingIds.Count,
+        group.OccurrenceCount,
         RepresentativeLocations = group.FindingIds
                                        .Select(id => analysis.Findings.Single(finding => finding.FindingId == id))
                                        .SelectMany(finding => new[] { finding.AccessA, finding.AccessB })
@@ -482,6 +508,19 @@ public static class ReportRenderer
                 NarrativesAccepted = report.AcceptedGroupNarratives.Count +
                                      (report.AcceptedSummary is null ? 0 : 1)
             },
+            Pairs = analysis is null
+                ? null
+                : new
+                {
+                    analysis.Pairs.Comparisons,
+                    analysis.Pairs.CartesianBound,
+                    analysis.Pairs.Buckets,
+                    analysis.Pairs.LargestBucket,
+                    analysis.Pairs.Candidates,
+                    analysis.Pairs.Suppressed,
+                    Skips = analysis.Pairs.Skips.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
+                },
             report.MissingProjects,
             Narratives = report.Narratives.Select(narrative => new
             {

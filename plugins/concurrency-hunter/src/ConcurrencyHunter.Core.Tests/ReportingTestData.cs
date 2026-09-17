@@ -39,7 +39,7 @@ internal static class ReportingTestData
                 .ToArray();
             findings.Add(new Finding(
                 findingId,
-                $"stable-{findingId}",
+                $"fingerprint-{findingId}",
                 groupId,
                 "DCA1001",
                 resource,

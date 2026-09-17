@@ -1,6 +1,7 @@
 using System.Globalization;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Ir;
+using ConcurrencyHunter.Providers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -37,7 +38,7 @@ public static class IrLowering
         }
 
         var context = new LoweringContext(plan.BodyId, new SiteOrdinals(plan.Roots, compilation, cancellationToken), rootDirectory,
-                                          cancellationToken);
+                                          compilation, cancellationToken);
         var ownerSymbol = SymbolNames.Method(method);
         var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
         var nestedBodies = new List<IrBody>();
@@ -388,7 +389,7 @@ public static class IrLowering
     private sealed record AutoAccessorSegment(IPropertySymbol Property, SyntaxNode Syntax) : Segment;
 
     private sealed record LoweringContext(string RootBodyId, SiteOrdinals SiteOrdinals, string RootDirectory,
-                                          CancellationToken CancellationToken);
+                                          Compilation Compilation, CancellationToken CancellationToken);
 
     /// <summary>The 1-based source order of each allocation among those of its created type, and of each delegate creation,
     /// within one member: its roots in segment order, then span start, then operation-tree order.</summary>
@@ -1162,16 +1163,17 @@ public static class IrLowering
                 return monitorResult;
 
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
-            return AddCall(invocation, invocation.TargetMethod, receiver, LowerArguments(invocation.Arguments), invocation.Type);
+            return AddCall(invocation, invocation.TargetMethod, receiver, LowerArguments(invocation.Arguments), invocation.Type,
+                           ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken));
         }
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
-                            LoweredArguments arguments, ITypeSymbol? resultType)
+                            LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null)
         {
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
-            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")));
+            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")) with { ServiceCall = serviceCall });
             return result ?? Constant(source, null, "void");
         }
 
@@ -1805,5 +1807,201 @@ public static class IrLowering
         {
             internal static LoweredArguments None { get; } = new([], [], new Dictionary<int, int>());
         }
+    }
+
+    /// <summary>Recognises the service-locator and scope-creation calls of the DI semantics provider, reading the call's original
+    /// operation tree: the constant service type, and the kind of provider the receiver syntactically is.</summary>
+    private static class ServiceCalls
+    {
+        private const string SERVICE_PROVIDER = "System.IServiceProvider";
+        private const string PROVIDER_EXTENSIONS = "Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions";
+        private const string SCOPE_FACTORY = "Microsoft.Extensions.DependencyInjection.IServiceScopeFactory";
+        private const string SERVICE_SCOPE = "Microsoft.Extensions.DependencyInjection.IServiceScope";
+        private const string ASYNC_SERVICE_SCOPE = "Microsoft.Extensions.DependencyInjection.AsyncServiceScope";
+        private const string HOST = "Microsoft.Extensions.Hosting.IHost";
+        private const string HTTP_CONTEXT = "Microsoft.AspNetCore.Http.HttpContext";
+        private const string APPLICATION_BUILDER = "Microsoft.AspNetCore.Builder.IApplicationBuilder";
+
+        private static readonly SupportedAssemblyVersion HTTP_ABSTRACTIONS =
+            SupportedAssemblyVersion.Framework("Microsoft.AspNetCore.Http.Abstractions");
+
+        internal static IrServiceCall? Of(IInvocationOperation invocation, Compilation compilation, CancellationToken cancellationToken)
+        {
+            var method = invocation.TargetMethod;
+            if (KindOf(method) is not { } kind)
+                return null;
+
+            var model = compilation.GetSemanticModel(invocation.Syntax.SyntaxTree);
+            var original = model.GetOperation(invocation.Syntax, cancellationToken) as IInvocationOperation ?? invocation;
+            var arguments = original.Arguments.Where(argument => argument.Parameter is not null)
+                                    .OrderBy(argument => argument.Parameter!.Ordinal)
+                                    .ToArray();
+            string? key = null;
+            if (kind != IrServiceCallKind.ScopeCreation && method.IsGenericMethod)
+            {
+                key = DiIndexBuilder.ContainsTypeParameter(method.TypeArguments[0]) ? null : SymbolNames.TypeKey(method.TypeArguments[0]);
+            }
+            else if (kind != IrServiceCallKind.ScopeCreation &&
+                     arguments.FirstOrDefault(argument => DiIndexBuilder.IsSystemType(argument.Parameter!.Type)) is { } typeArgument &&
+                     DiIndexBuilder.TypeOf(typeArgument.Value) is ({ } type, null))
+            {
+                key = SymbolNames.TypeKey(type);
+            }
+
+            var (receiver, receiverType) = method.IsStatic
+                ? (arguments.FirstOrDefault()?.Value, method.Parameters[0].Type)
+                : (original.Instance, (ITypeSymbol)method.ContainingType);
+            var provider = receiver is not null && IsServiceProvider(receiverType) ? ProviderKind(receiver, model, cancellationToken) : null;
+            return new IrServiceCall(kind, key, provider);
+        }
+
+        private static IrServiceCallKind? KindOf(IMethodSymbol method)
+        {
+            if (IsServiceProvider(method.ContainingType))
+                return method is { Name: "GetService", IsStatic: false, Parameters.Length: 1 } ? IrServiceCallKind.Locator : null;
+            if (ExactSymbols.IsType(method.ContainingType, DiIndexBuilder.DependencyInjection, PROVIDER_EXTENSIONS))
+            {
+                return method.Name switch
+                {
+                    "GetService" or "GetRequiredService" when method.IsGenericMethod || method.Parameters.Length == 2 => IrServiceCallKind.Locator,
+                    "GetServices" when method.IsGenericMethod => IrServiceCallKind.LocatorAll,
+                    "CreateScope" or "CreateAsyncScope" => IrServiceCallKind.ScopeCreation,
+                    _ => null
+                };
+            }
+
+            return method.Name == "CreateScope" && ExactSymbols.IsType(method.ContainingType, DiIndexBuilder.DependencyInjection, SCOPE_FACTORY)
+                ? IrServiceCallKind.ScopeCreation
+                : null;
+        }
+
+        /// <summary>The kind of provider a value is: a well-known provider property, a constructor parameter (used directly or
+        /// through an instance field only constructors write from one), or a local whose only write is such an initializer.</summary>
+        private static IrProviderKind? ProviderKind(IOperation value, SemanticModel model, CancellationToken cancellationToken)
+        {
+            switch (Unwrap(value))
+            {
+                case IPropertyReferenceOperation { Property: var property }:
+                    return IsProperty(property, HTTP_ABSTRACTIONS, HTTP_CONTEXT, "RequestServices") ? IrProviderKind.RequestServices
+                        : IsProperty(property, DiIndexBuilder.Hosting, HOST, "Services") ? IrProviderKind.HostServices
+                        : IsProperty(property, HTTP_ABSTRACTIONS, APPLICATION_BUILDER, "ApplicationServices") ? IrProviderKind.ApplicationServices
+                        : IsProperty(property, DiIndexBuilder.DependencyInjection, SERVICE_SCOPE, "ServiceProvider") ||
+                          IsProperty(property, DiIndexBuilder.DependencyInjection, ASYNC_SERVICE_SCOPE, "ServiceProvider")
+                            ? IrProviderKind.ScopeServiceProvider
+                            : null;
+                case IParameterReferenceOperation { Parameter: var parameter }:
+                    return IsServiceProvider(parameter.Type) && IsConstructorParameter(parameter) ? IrProviderKind.InjectedProvider : null;
+                case IFieldReferenceOperation { Instance: IInstanceReferenceOperation, Field: var field }:
+                    return IsInjectedField(field, model.Compilation, cancellationToken) ? IrProviderKind.InjectedProvider : null;
+                case ILocalReferenceOperation { Local: var local }:
+                    return SingleInitializer(local, model, cancellationToken) is { } initializer
+                        ? ProviderKind(initializer, model, cancellationToken)
+                        : null;
+                default:
+                    return null;
+            }
+        }
+
+        private static bool IsProperty(IPropertySymbol property, SupportedAssemblyVersion range, string type, string name)
+        {
+            for (IPropertySymbol? current = property; current is not null; current = current.OverriddenProperty)
+            {
+                if (current.Name == name && ExactSymbols.IsType(current.ContainingType, range, type))
+                    return true;
+            }
+
+            var containing = property.ContainingType;
+            return containing.AllInterfaces.Where(@interface => ExactSymbols.IsType(@interface, range, type))
+                             .SelectMany(@interface => @interface.GetMembers(name).OfType<IPropertySymbol>())
+                             .Any(member => SymbolEqualityComparer.Default.Equals(containing.FindImplementationForInterfaceMember(member), property));
+        }
+
+        private static bool IsConstructorParameter(IParameterSymbol parameter) =>
+            parameter.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor };
+
+        /// <summary>An instance field of provider type whose every write is a constructor of its type storing one of the
+        /// constructor's parameters, or an initializer storing a primary constructor parameter; at least one write.</summary>
+        private static bool IsInjectedField(IFieldSymbol field, Compilation compilation, CancellationToken cancellationToken)
+        {
+            if (field.IsStatic || !IsServiceProvider(field.Type))
+                return false;
+
+            var writes = 0;
+            foreach (var declaration in field.ContainingType.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax(cancellationToken)))
+            {
+                if (!compilation.ContainsSyntaxTree(declaration.SyntaxTree))
+                    return false;
+                var model = compilation.GetSemanticModel(declaration.SyntaxTree);
+                foreach (var node in declaration.DescendantNodes())
+                {
+                    switch (node)
+                    {
+                        case VariableDeclaratorSyntax { Initializer: { } initializer } declarator
+                            when SymbolEqualityComparer.Default.Equals(model.GetDeclaredSymbol(declarator, cancellationToken), field):
+                            if (!IsConstructorParameterValue(model.GetOperation(initializer.Value, cancellationToken)))
+                                return false;
+                            writes++;
+                            break;
+                        case AssignmentExpressionSyntax assignment
+                            when SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(assignment.Left, cancellationToken).Symbol, field):
+                            if (!assignment.IsKind(SyntaxKind.SimpleAssignmentExpression) ||
+                                model.GetEnclosingSymbol(assignment.SpanStart, cancellationToken) is not IMethodSymbol { MethodKind: MethodKind.Constructor } constructor ||
+                                !SymbolEqualityComparer.Default.Equals(constructor.ContainingType, field.ContainingType) ||
+                                !IsConstructorParameterValue(model.GetOperation(assignment.Right, cancellationToken)))
+                            {
+                                return false;
+                            }
+                            writes++;
+                            break;
+                    }
+                }
+            }
+
+            return writes != 0;
+        }
+
+        /// <summary>A constructor parameter, possibly converted or guarded by <c>?? throw</c>.</summary>
+        private static bool IsConstructorParameterValue(IOperation? value) => Unwrap(value) switch
+        {
+            IParameterReferenceOperation { Parameter: var parameter } => IsConstructorParameter(parameter),
+            ICoalesceOperation { WhenNull: IThrowOperation } coalesce => IsConstructorParameterValue(coalesce.Value),
+            _ => false
+        };
+
+        /// <summary>The initializer of a local declared once with one, when nothing else in its member writes it.</summary>
+        private static IOperation? SingleInitializer(ILocalSymbol local, SemanticModel model, CancellationToken cancellationToken)
+        {
+            if (local.DeclaringSyntaxReferences is not [var reference] ||
+                reference.GetSyntax(cancellationToken) is not VariableDeclaratorSyntax { Initializer: { } initializer } declarator ||
+                declarator.SyntaxTree != model.SyntaxTree)
+            {
+                return null;
+            }
+
+            var member = declarator.Ancestors().FirstOrDefault(ancestor => ancestor is MemberDeclarationSyntax and not GlobalStatementSyntax) ??
+                         declarator.SyntaxTree.GetRoot(cancellationToken);
+            var written = member.DescendantNodes().OfType<IdentifierNameSyntax>()
+                                .Where(identifier => identifier.Identifier.ValueText == local.Name && IsWrite(identifier))
+                                .Any(identifier => SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier, cancellationToken).Symbol, local));
+            return written ? null : model.GetOperation(initializer.Value, cancellationToken);
+        }
+
+        private static bool IsWrite(IdentifierNameSyntax identifier) => identifier.Parent switch
+        {
+            AssignmentExpressionSyntax assignment => assignment.Left == identifier,
+            ArgumentSyntax argument => argument.RefKindKeyword.IsKind(SyntaxKind.RefKeyword) || argument.RefKindKeyword.IsKind(SyntaxKind.OutKeyword) ||
+                                       argument.Parent is TupleExpressionSyntax,
+            _ => false
+        };
+
+        private static IOperation? Unwrap(IOperation? value)
+        {
+            while (value is IConversionOperation or IParenthesizedOperation)
+                value = value is IConversionOperation conversion ? conversion.Operand : ((IParenthesizedOperation)value).Operand;
+            return value;
+        }
+
+        private static bool IsServiceProvider(ITypeSymbol? type) =>
+            type is INamedTypeSymbol && type.ToDisplayString() == SERVICE_PROVIDER;
     }
 }

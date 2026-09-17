@@ -1,4 +1,4 @@
-﻿# Implementation Specification: Concurrency Hunter
+# Implementation Specification: Concurrency Hunter
 
 | Поле | Значение |
 |---|---|
@@ -6,7 +6,7 @@
 | Дата | 2026-09-12 |
 | Продуктовые требования | [PRD](PRD.md) |
 | Словарь | [CONTEXT.md](../CONTEXT.md) |
-| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), [ADR 0005](adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md), [ADR 0006](adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
+| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), [ADR 0005](adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md), [ADR 0006](adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md), [ADR 0007](adr/0007-a-finding-is-a-pair-of-access-sites.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
 
 ## 1. Назначение и статус
 
@@ -198,7 +198,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 ### 4.5. Field-sensitive allocation-site points-to
 
-**TD-040.** Heap abstraction идентифицирует объекты по allocation site с ограниченным контекстом создания, static storage, modeled DI instance, symbolic parameter/receiver и bounded summary region. DI lifetime это свидетельство для `DiInstance`-региона и его ownership, а не замена points-to.
+**TD-040.** Heap abstraction идентифицирует объекты по allocation site с ограниченным контекстом создания, static storage, modeled DI instance, symbolic parameter/receiver и bounded summary region. DI lifetime это свидетельство для `DiInstance`-региона и его ownership, а не замена points-to. Регистрации одного service type, implementation и lifetime нумеруются по позиции вызова в порядке assembly, путь проекта, путь файла, строка, колонка; injection связывается с последней из них, `GetServices` возвращает объекты всех в этом порядке.
 
 **TD-041.** Points-to field-sensitive: `H1.Left.Value` и `H1.Right.Value` не считаются одним resource без alias/summary evidence. Один объект в двух полях, `_a = _b`, даёт один регион и один resource для одинаковых путей от него.
 
@@ -264,9 +264,9 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-074.** Read/read пары не conflicts.
 
-**TD-075.** Candidate index группирует accesses по canonical region/path prefix и execution compatibility; `Unknown` selectors сопоставляются со всеми потенциально пересекающимися selectors того же resource. Full Cartesian comparison запрещён.
+**TD-075.** Candidate index группирует accesses по canonical region/path prefix и execution compatibility; `Unknown` selectors сопоставляются со всеми потенциально пересекающимися selectors того же resource. Full Cartesian comparison запрещён. Bucket это accesses одного process scope на одном resource; wildcard accesses региона образуют свой bucket; сравнения только внутри bucket, между bucket и wildcard bucket его региона и между open region и closed regions его группы по одному path и member.
 
-**TD-076.** Deduplication объединяет одинаковую root/resource/call-path cause в одну finding group с representative locations и occurrence count.
+**TD-076.** Identity finding это rule, resource и неупорядоченная пара access sites (containing body, operation, позиция); пары roots с call paths это occurrences finding-а, ровно одна на пару roots; protection result finding это наименее защищённый среди occurrences; группа это findings одного rule на одном resource с суммой occurrences и representative locations. См. ADR 0007.
 
 ### 4.9. In-memory synchronization semantics
 
@@ -306,7 +306,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-104.** Suppressions. Локальная: атрибут с простым именем `ConcurrencyHunterSuppress` на методе или типе, где лежит access A или B; аргументы rule ID, `Reason` обязателен, `Owner` и `Expiry` необязательны; класс атрибута пользователь объявляет сам. Repository-wide: `.concurrency-hunter/suppressions.json` в корне репозитория, записи `{ fingerprint, reason, owner?, expiry? }`. Сервер сопоставляет и проверяет expiry на каждом run до передачи групп composer-у. Просроченная или невалидная запись не скрывает finding и видна в диагностике. Suppression меняет только reportability; findings/evidence сохраняются; suppressed summary содержит finding id, источник, reason, owner/expiry.
 
-**TD-106.** Fingerprint устойчив к сдвигу строк и включает rule, containing symbols, canonical resource shape, execution roots, operation roles, protection result kind и operation kind.
+**TD-106.** Fingerprint устойчив к сдвигу строк и включает rule, process scope, containing bodies обеих access sites, canonical resource shape без контекста, operation kinds и protection result kind, без execution roots: новый вызывающий не меняет fingerprint. См. ADR 0007.
 
 **TD-108.** Self-reported AI confidence не добавляет баллы. Name-based или слабо подтверждённая inference ограничивает finding уровнем `Medium`; `High` только при exact symbol/type/source/config подтверждении всех необходимых inferred facts и отсутствии неразрешённого gap на пути.
 
@@ -322,7 +322,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-120.** Provider contracts описывают: execution root и invocation multiplicity; spawn/join/ordering semantics; DI registration и lifetime; synchronization/atomic operation semantics; callback/delegate capture; ownership transfer и immutability; opaque external effects и таблицу семантики библиотек; supported package/version range.
 
-**TD-121.** Built-in implementations v1: BCL semantics provider для tasks, threads, parallel, timers, `PeriodicTimer`, spawn sites TD-065 и примитивов раздела 4.9; DI semantics provider для `Microsoft.Extensions.DependencyInjection` и hosting abstractions; `AspNetCoreRootProvider` для controllers, minimal APIs и gRPC service methods; `HostingRootProvider` для `BackgroundService`/`IHostedService`; library semantics table TD-034a.
+**TD-121.** Built-in implementations v1: BCL semantics provider для tasks, threads, parallel, timers, `PeriodicTimer`, spawn sites TD-065 и примитивов раздела 4.9; DI semantics provider для `Microsoft.Extensions.DependencyInjection`, включая service locator: `GetRequiredService`, `GetService`, `GetServices`, `CreateScope`, и hosting abstractions; `AspNetCoreRootProvider` для controllers, minimal APIs и gRPC service methods; `HostingRootProvider` для `BackgroundService`/`IHostedService`; library semantics table TD-034a.
 
 **TD-122.** Built-in semantics resolution привязана к exact symbol identity и supported version range.
 
@@ -558,9 +558,11 @@ LostUpdate(A, B) =
 
 ```json
 {
-  "schemaVersion": "2.0",
-  "findingId": "stable-fingerprint",
-  "groupId": "group-fingerprint",
+  "schemaVersion": "2.1",
+  "findingId": "F1",
+  "groupId": "G1",
+  "fingerprint": "3f9c2a71d04be856",
+  "groupFingerprint": "a17e04c9b2d35f60",
   "ruleId": "DCA1002",
   "title": "Non-atomic update of shared Counter",
   "severity": "high",
@@ -590,6 +592,15 @@ LostUpdate(A, B) =
       "source": { "path": "CounterRefreshWorker.cs", "span": [31, 13, 31, 26], "symbol": "CounterRefreshWorker.ExecuteAsync(CancellationToken)" },
       "codeFlow": ["..."], "heldProtection": [] }
   ],
+  "occurrenceCount": 2,
+  "occurrences": [
+    { "roots": ["HTTP PUT /counter", "CounterRefreshWorker.ExecuteAsync"],
+      "callPaths": [["CounterController.Put(int)", "CounterService.Increment()"], ["CounterRefreshWorker.ExecuteAsync(CancellationToken)"]],
+      "protection": "unprotected" },
+    { "roots": ["HTTP PUT /counter", "HTTP PUT /counter"],
+      "callPaths": [["CounterController.Put(int)", "CounterService.Increment()"], ["CounterController.Put(int)", "CounterService.Increment()"]],
+      "protection": "unprotected" }
+  ],
   "concurrencyEvidence": ["roots may overlap in one process", "singleton region shared"],
   "aliasEvidence": ["both receivers point to the same DI singleton region"],
   "protectionAnalysis": { "result": "unprotected", "commonProtection": [] },
@@ -618,7 +629,7 @@ LostUpdate(A, B) =
 }
 ```
 
-`findings.json` содержит также `groups[]` с полями `FindingGroup` и `narrative[]` с принятыми фрагментами; remediation живёт в narrative группы, не в finding.
+`findings.json` содержит также `groups[]` с полями `FindingGroup` и `narrative[]` с принятыми фрагментами; remediation живёт в narrative группы, не в finding. `findingId` и `groupId` это run-local citation ids (`F1`, `G1`), которые цитирует narrative; `fingerprint` и `groupFingerprint` это стабильные имена finding и группы (TD-106); `occurrences` это пути, которыми пара access sites достигается, не больше трёх в файле, `occurrenceCount` считает все.
 
 ### 8.2. Narrative группы
 
@@ -697,11 +708,13 @@ Skill передаёт `run_start` абсолютный путь: аргумен
 
 ### 9.6. Host parity
 
-Один analyzer binary, один skill, одни схемы и prompts для трёх hosts; host-specific wrapper регистрирует команду и отдаёт ссылку. Детерминированные результаты совпадают по построению и проверяются одним suite. На релиз выполняется по одному прогону skill на demo в каждом host с сохранённым `report.md` в `skills/hunt/evals/<host>/`. Live-AI quality оценивается по разделу 12 на demo и OSS-корпусах.
+Один analyzer binary, один skill, одни схемы и prompts для трёх hosts; host-specific wrapper регистрирует команду и отдаёт ссылку. Детерминированные результаты совпадают по построению и проверяются одним suite. На релиз выполняется по одному прогону skill на demo в каждом host (`skills/hunt/evals/run-hosts.ps1`) с записью `skills/hunt/evals/<host>/run.json`: статус, причина, run id, путь к bundle и, для завершённого прогона, digest из `run-metadata.json` и `findings.json` (версия движка, статус анализа, число findings и групп, хеш отпечатков по рецепту `run-limits-grid.ps1`, число принятых narrative). Полный `report.md` остаётся в bundle под `%LOCALAPPDATA%` и в репозиторий не попадает: он весит сотни килобайт, устаревает при любом изменении движка, а всё детерминированное в нём уже проверяет test suite. Прогон в хостах проверяет только то, чего suite не видит: проводку slash-команда → skill → MCP в конкретном хосте и то, что narrative живой модели принимает validator; findings, группы и отпечатки он не добавляет. Поэтому внутри фазы прогон нужен лишь когда меняется поверхность, обращённая к модели (`skills/hunt/**`, prompts, контракты MCP-инструментов, `NarrativeValidator`, схема `findings.json`), и тогда достаточно одного хоста (Claude Code) с записью digest; фаза, меняющая только движок, хосты не запускает. Live-AI quality оценивается по разделу 12 на demo и OSS-корпусах.
 
 ### 9.7. Packaging
 
 Плагин содержит: `src/ConcurrencyHunter.slnx` с проектами `ConcurrencyHunter.Analysis` (IR, root/DI/scope model, engines, narrative and report; no Roslyn reference, enforced by the build), `ConcurrencyHunter.Core` (Roslyn frontend and built-in providers), `ConcurrencyHunter.Cli`, тестами; ссылки на `plugins/Common/Common.Roslyn` и `Common.Mcp`; `bin/` с launcher по образцу cache-detective; `build/package.ps1` и `build/check-test-baseline.ps1` из Common; `skills/hunt/SKILL.md` с evals; `demo/`; манифесты `.claude-plugin`, `.codex-plugin`, `.cursor-plugin`. MCP-конфиг Codex лежит в `codex.mcp.json`, а не в `.mcp.json`, как у других плагинов репо: Claude Code читает `.mcp.json` и из родительских папок, и сессия, открытая в `demo/`, получала бы проектный сервер с путём `.\bin`, который от её папки не разрешается. Publish: один self-extracting framework-dependent exe win-x64 по образцу cache-detective ADR 0001 с `IncludeNativeLibrariesForSelfExtract` для `libz3`. Корневые `plugins/Directory.Build.props` и `plugins/Directory.Packages.props`, общая `plugins/AiCodingPlugins.slnx` для IDE; gates и packaging на `src/ConcurrencyHunter.slnx`. Installation/update не запускают анализ.
+
+`concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc]` загружает один target, выполняет детерминированный анализ один раз, рендерит bundle в памяти и пишет один JSON: revision и чистоту дерева, версию движка, машину, limits, timings шагов раздела 6, peak working set, counts, coverage по scopes и цели PRD 6.1. Записанные прогоны лежат в `skills/hunt/evals/metrics/`: `manifest.json` с фазой, машиной и revisions корпусов, измерения `eshop.json` и `demo.json`, таблица выбора констант `limits.md` и скрипт `run-limits-grid.ps1`, который её воспроизводит. eShop берётся из checkout, на который указывает `CH_ESHOP_ROOT`, и только читается.
 
 ## 10. Precision strategy и бюджеты
 
@@ -744,7 +757,7 @@ Cold performance targets в PRD 6.1. Превышение внутреннего
 
 ### 10.7. Диагностика
 
-`run-metadata.json` и diagnostics appendix: timings и counts по шагам раздела 6, размер reachable set и число тел вне него, число пакетов, rounds, accepted/rejected/late inferences, unresolved calls, wildcard regions, candidates до и после каждого фильтра, SAT/UNSAT/UNKNOWN/timeouts и доступность solver, группы с narrative и без, AI token/latency при доступности, memory high-water mark, причина завершения. Telemetry наружу отсутствует.
+`run-metadata.json` и diagnostics appendix: timings и counts по шагам раздела 6, размер reachable set и число тел вне него, число пакетов, rounds, accepted/rejected/late inferences, unresolved calls, wildcard regions, candidates до и после каждого фильтра, comparisons, Cartesian bound, buckets, largest bucket, candidates, SAT/UNSAT/UNKNOWN/timeouts и доступность solver, группы с narrative и без, AI token/latency при доступности, memory high-water mark, причина завершения. Telemetry наружу отсутствует.
 
 ## 11. Built-in execution-root provider contract
 
@@ -825,7 +838,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 8. **Resolver evals:** пропуск при пустой очереди, пакет на callee, materiality, accepted/rejected/late, второй round, отсутствие третьего.
 9. **Composer evals:** grounding по evidence ids, отказ invented locations/events, `verify manually`, полнота High/Medium, пометка Low без narrative.
 10. **Plugin tests:** tool contract, lifecycle, deadline, cancellation, bundle, schema compatibility, stable fingerprints, suppressions обоих видов.
-11. **Corpus snapshots:** behaviour snapshots на eShopOnContainers, nopCommerce, OrchardCore, eShopOnAbp; перезапись только осознанная.
+11. **Corpus snapshots:** behaviour snapshots на eShopOnContainers, nopCommerce, OrchardCore, eShopOnAbp; перезапись только осознанная; фаза 2b: `EShopSnapshotTests` под `CH_ESHOP_ROOT` и `MetricsCommandTests` сравнивают counts и coverage eShop и demo со снапшотами.
 12. **Benchmarks:** `metrics` на eShop и OrchardCore, один записанный прогон на фазу.
 13. **Robustness:** malformed/incomplete projects, generated code, multi-targeting, недоступный AI, malformed response, deadline с late responses, недоступный Z3.
 14. **Root extensibility:** synthetic provider без изменений core assemblies.
@@ -841,7 +854,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 - Идентичность находки: `rule`, `resource` и неупорядоченная пара `accesses`. Roots и `id` в неё не входят. `resource.region` пишется символьно: `static:<Type>`, `di:<ImplementationType>@<Lifetime>`, `alloc:<ContainingMethod>#<CreatedType>[#n]`, где `#n` это порядок `new` этого типа в методе, а инициализаторы полей принадлежат `..ctor(…)` или `..cctor()`. Регион без контекста совпадает с регионом анализатора из этого сайта в любом `ContextKey`. `resource.accessPath` называет поля и auto-properties по имени. `access.symbol` это ближайший обычный член, в теле которого стоит access, включая лямбды и локальные функции; `access.operation` из TD-071. Self-pair repeated root записывается двумя одинаковыми accesses.
 - `resource.accessPath` `["*"]` это wildcard resource на регионе, с которого начинается свёрнутый путь (TD-042). Read-modify-write записывается в месте своей записи. Factory- и instance-регистрации это `di:<ImplementationType>@<Lifetime>`, где тип это последний generic-аргумент регистрации.
 - Запись `notDefects` без `accesses` запрещает любую находку на resource, с `accesses` только на этой паре.
-- `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе.
+- `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе. Порядок фаз: `0`, `1a`, `1b`, `2`, `2b`, `3`, `4`, `5`, `6`, `7`, `8`.
 - `confidence` (метка, без score) проверяется отдельно от идентичности, с фазы `max(phase, 2)`. Case-ы фаз 1–2 не содержат guards, spawn sites и вызовов, способных стать semantic gap, поэтому поздние фазы их метку не меняют.
 - Гейт demo это точное совпадение по записям с `phase ≤ N`, стабильное на трёх прогонах; recall и precision High по G1/G3 печатаются, но гейт не ослабляют.
 
@@ -900,7 +913,7 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 ### 14.1. Что уточняется в планах фаз
 
-1. Константы TD-042, TD-044, widening SCC, unknown-node bounds: выбираются на demo и eShop в фазах 2–4 и фиксируются в коде.
+1. Константы TD-042, TD-044, widening SCC, unknown-node bounds: выбираются на demo и eShop в фазах 2–4 и фиксируются в коде. Выбрано в 2b: depth=8, contexts=16, scc=16 (`skills/hunt/evals/metrics/limits.md`, `run-limits-grid.ps1`).
 2. Serialization contracts разделов 5 и 8, canonical IDs, schema evolution.
 3. Форматы bindings, guards, events и diagnostic codes раздела 11; fixture API.
 4. Prompt и schema resolver и composer; размеры батчей на субагента для каждого host.
@@ -922,13 +935,13 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 | **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, `Common.Tests`, скрипты; launcher копируется по образцу cache-detective, не разделяется; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001; группы временно по правилу и ресурсу, confidence по TD-103 с path feasibility 0 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
 | **1b** | IR в финальной форме; providers `AspNetCore` и `Hosting` с registry и fixture; DI provider; `DiInstance`-регионы; overlap между roots; must-hold `lock` по CFG; skeleton отчёта полный | Demo фазы 1 целиком |
 | **2a** | Frontend: конструкторы, type initializers, массивы, `ref`/`out`, program index; reachable set по иерархии классов с construction triggers; summaries; совместный fixpoint с allocation-site points-to, hybrid contexts и dispatch; executions, construction intervals и ownership/escape (ADR 0006); interprocedural accesses, must-hold через вызовы, RMW и DCA1002; confidence TD-103 с wildcard resource и merged contexts; отчёт, tools, Validation Service и composing guidance на новом движке | Demo через три слоя на фазе 2 |
-| **2b** | Bucket index, группы TD-076, fingerprints, подкоманда `metrics`, eShop, константы, summary hashes, service locator и тела factory, прогон в трёх hosts | Первый `metrics` на eShop |
+| **2b** | Bucket index, группы TD-076, fingerprints, подкоманда `metrics`, eShop, константы, service locator и тела factory, прогон в трёх hosts | Первый `metrics` на eShop |
 | **3** | Execution model: все spawn sites TD-065, join/happens-before по handle, exception paths, timers и `PeriodicTimer`, gRPC root | Demo TC-12 |
 | **4** | Protection и selectors: Interlocked, volatile, `SemaphoreSlim`, RWLS, `Lock`, Mutex, TryEnter, таблица collections, DCA1003/1004, `ElementSelector`, guards, Z3 в пакете с деградацией | Demo TC-17; размер exe измерен |
 | **5** | Semantic gaps: unknown-call model, таблица библиотек, пакеты по callee, materiality, `get_gaps`/`submit_inferences`/`run_continue`, два rounds, `AI-Assisted`, Medium cap | Resolver evals; `metrics` eShop с числом пакетов |
 | **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14 |
 | **7** | Масштаб: nopCommerce, OrchardCore, eShopOnAbp до terminal status; performance targets; ручной triage High на eShop и nopCommerce; прогон skill в трёх hosts | `metrics` по PRD 6.1; `evals/*/expected.json` |
-| **8** | По PRD 8: incremental cache, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
+| **8** | По PRD 8: summary hashes входов и зависимостей, incremental cache, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
 
 Временные границы фазы 2a и фазы, которые их снимают:
 
@@ -936,7 +949,7 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 - Virtual, interface и delegate calls без receiver object ничего не вызывают (5).
 - Startup constructions и type initializers, которые они используют, не образуют пар (3).
 - Element accesses не анализируются (4).
-- Тела factory, конструирование instance-регистраций, factory- и instance-регистрации с interface-типом и service locator не анализируются (2b).
+- Locator-вызовы с неконстантным типом или с provider неизвестного происхождения, non-generic и `Type`-valued регистрации, keyed services не анализируются (5).
 - `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5).
 
 Порядок последовательный; forge работает в одном working tree.

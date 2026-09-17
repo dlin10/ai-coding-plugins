@@ -92,6 +92,25 @@ public enum IrCallKind
     Constructor
 }
 
+/// <summary>A service-locator call (<c>GetService</c>, <c>GetRequiredService</c>), a <c>GetServices</c> call, or a
+/// <c>CreateScope</c>/<c>CreateAsyncScope</c> call.</summary>
+public enum IrServiceCallKind
+{
+    Locator,
+    LocatorAll,
+    ScopeCreation
+}
+
+/// <summary>Where a service provider receiver syntactically comes from.</summary>
+public enum IrProviderKind
+{
+    RequestServices,
+    HostServices,
+    ApplicationServices,
+    ScopeServiceProvider,
+    InjectedProvider
+}
+
 public enum IrSynchronizationPrimitive
 {
     Monitor

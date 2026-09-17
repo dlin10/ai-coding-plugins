@@ -31,6 +31,18 @@ public sealed class ProgramTests
     }
 
     [Fact]
+    public async Task Usage_names_metrics()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await Program.RunAsync(["--help"], output, error);
+
+        Assert.Equal(ExitCode.Ok, exitCode);
+        Assert.Contains("concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc]", output.ToString());
+    }
+
+    [Fact]
     public async Task Unknown_command_returns_usage_error_and_names_the_command()
     {
         using var output = new StringWriter();

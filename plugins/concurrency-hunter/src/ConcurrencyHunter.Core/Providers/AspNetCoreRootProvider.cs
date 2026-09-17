@@ -60,9 +60,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
     public RootDiscoveryResult Discover(RootDiscoveryContext context)
     {
-        var diagnostics = ProviderSupport.VersionDiagnostics(context, ProviderId, SupportedAssemblyVersions);
-        if (diagnostics.Count != 0)
+        var (diagnostics, skipped) = ProviderSupport.VersionDiagnostics(context, ProviderId, SupportedAssemblyVersions);
+        if (ProviderSupport.Scanned(context, SupportedAssemblyVersions, skipped) is not { } scanned)
             return new RootDiscoveryResult(RootDiscoveryStatus.NotChecked, [], diagnostics);
+        context = scanned;
 
         var roots = new List<ExecutionRootDescriptor>();
         if (ProviderSupport.References(context, MvcCore))
