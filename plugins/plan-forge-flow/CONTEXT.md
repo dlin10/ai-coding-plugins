@@ -158,6 +158,30 @@ its own process environment before `shell_environment_policy` is applied — mea
 sanitised `PATH` through that key and watching it resolve the old value anyway. The only lever is
 the environment of the process this server starts, which is what `docs/adr/0013` uses.
 
+**An `error` in the stream is not a failure; `turn.failed` is.** Measured against `codex` 0.154.0
+on 2026-09-17, with two runs and a reading of `codex-rs/exec/src/event_processor_with_jsonl_output.rs`
+at tag `rust-v0.154.0`. The stream carries a failure-like message in two shapes, and neither one
+ends the run by itself:
+
+- `{"type":"item.completed","item":{"type":"error","message":…}}` is how exec reports the server's
+  `Warning`, `ConfigWarning`, `DeprecationNotice` and `ModelRerouted` notices. A healthy run
+  (exit `0`, result written, right answer) carried the skill-budget notice ("Skill descriptions were
+  shortened to fit the skills context budget…") in this shape; a run with an unknown model also
+  carried "Model metadata for `…` not found. Defaulting to fallback metadata" before it failed.
+- `{"type":"error","message":…}` is the server's `Error` notification. Exec drops that
+  notification's `will_retry` flag, so a retried stream error looks the same as a fatal one.
+- A failed turn always ends with `{"type":"turn.failed","error":{"message":…}}`. The message is the
+  turn's own error, or the last `error` line's message when the turn has none, so the reason is
+  never lost. The unknown-model run (exit `1`) printed its 400 `invalid_request_error` as an `error`
+  and then again as `turn.failed`. Every usage limit in this machine's `forge.log` files appears
+  twice, about 10 ms apart, which is the same pair.
+
+So the codex session treats only `turn.failed` as a failure: it becomes `vendor.failed` (level
+`error`) and the reason a run with no result gives. Both `error` shapes are logged as
+`vendor.warning` at level `warn`, so a notice can no longer replace the real cause in that message.
+No `forge.log` on this machine held the skill-budget notice as `vendor.failed`: before this change,
+an `error` item was not logged at all.
+
 ## A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace
 
 Measured against `codex` 0.153.2 with `windows.sandbox = "elevated"` on 2026-09-14, through

@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.30.1
+
+A codex `error` line no longer counts as a failure. Measured against codex 0.154.0: warnings and
+notices (such as the skill-budget notice on a run that succeeded) come as an `item.completed` of
+type `error`, and a top-level `error` looks the same whether or not the server will retry. A real
+failure always ends with `turn.failed`, which repeats the last error's message when the turn has
+none of its own.
+
+- Only `turn.failed` is now `vendor.failed` in `forge.log`, and only it names the reason when codex
+  writes no result. A usage limit is therefore logged once as `vendor.failed` instead of twice, and a
+  notice arriving after it can no longer replace it in that message.
+- Both `error` shapes are logged as `vendor.warning` at level `warn`. The item shape used to go
+  unlogged.
+
 ## 0.30.0
 
 Run `20260916-134641-21e3d5` showed two ways a headless worker loses work without saying so: its
