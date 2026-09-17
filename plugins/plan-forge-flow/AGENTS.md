@@ -115,8 +115,11 @@ vendor needs to be told something the role contracts do not already say — a fo
 and the matching bundle assertion in `build/package.ps1`.
 
 **Each vendor keeps the critic read-only by a different mechanism**, and none of it is enforced by
-this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits`, Cursor
-relies on `--mode plan` alone. `CONTEXT.md` documents what was measured for each.
+this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits` and the
+builder's shell grant, Cursor relies on `--mode plan` alone. Both roles do get the run's worker
+tools, so a critic stays read-only only while the servers those name are — see
+[docs/adr/0017](docs/adr/0017-grant-worker-tools-by-exact-server-name.md). `CONTEXT.md` documents
+what was measured for each.
 
 ## Prompts are data, not code
 

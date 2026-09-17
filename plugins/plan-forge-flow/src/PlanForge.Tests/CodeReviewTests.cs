@@ -380,6 +380,24 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Contains("sloppy change", flow, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_code_review_critic_gets_the_default_worker_tools_and_a_left_task_is_noted()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"), killedBackgroundTasks: ["dotnet test"]);
+        var run = NewRun();
+
+        var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
+
+        Assert.Equal("approve", critique.Verdict);
+        Assert.Equal(["roslyn-*"], Assert.Single(critic.Sessions).Role.WorkerTools);
+        Assert.Contains("`dotnet test`", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
     private CodeReview NewReview(RecordingVendor critic, IReviewGit? reviewGit = null) =>
         new(critic, new PromptLibrary(RepositoryPrompts()), reviewGit ?? _git);
 

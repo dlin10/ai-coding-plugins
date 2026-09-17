@@ -1,5 +1,41 @@
 # Plan Forge Flow releases
 
+## 0.30.0
+
+Run `20260916-134641-21e3d5` showed two ways a headless worker loses work without saying so: its
+claude builder was refused every Roslyn call because nothing had granted it (issue #90), and it
+started a ten-minute grid in the background, answered, and the session killed the grid with it
+(issue #91).
+
+- `forge.begin` takes an optional `workerTools`: patterns naming the MCP servers every critic and
+  builder of the run may call without being asked, `roslyn-*` when omitted, `[]` for none. Each
+  launch lists the vendor's servers from the worker's directory and grants the matching ones by
+  exact name — `--allowedTools mcp__<server>` for claude, `-c
+  mcp_servers.<server>.default_tools_approval_mode="approve"` for codex — because claude refuses a
+  pattern in a server name and codex refuses to start on a server it does not know. Cursor's
+  `--approve-mcps` already grants everything. Every launch writes `worker.tools` to `forge.log`
+  with the patterns and the servers granted; a lookup that fails is logged and the worker starts
+  without grants. See `docs/adr/0017`.
+- A claude builder is now granted `Bash` and `PowerShell` outright. Under `acceptEdits` alone a
+  headless builder on a machine whose own settings approve nothing could run no check at all, and a
+  pattern rule does not lift claude's safety checks the way a blanket rule does. A critic still gets
+  no shell.
+- A claude session now follows the tasks claude runs for the model. A turn that ends with one still
+  running in the background comes back as `background_killed`, naming the command in `gate.detail`;
+  no gate runs, the task is not counted, and the next attempt is told what was killed and to run it
+  in the foreground. A critic that does the same keeps its critique, and the flow log says what it
+  never saw the end of. `vendor.task` entries in `forge.log` record every start, kill and finish,
+  which a run whose process exited 0 used to drop unlogged. Detection rather than a deny rule,
+  because backgrounding inside a turn is legitimate and Claude Code itself steers the model there —
+  see `docs/adr/0018`.
+- Every claude worker runs with `BASH_MAX_TIMEOUT_MS` at 30 minutes, so a long command has a
+  foreground way to run; a foreground call emits a heartbeat every 30 s, so the idle reaper does not
+  interfere. The builder and critic contracts now say that the session ends at the final answer.
+- A codex worker's MCP calls reach `forge.log` as `mcp__<server>__<tool>` tool events, with the
+  refusal text when codex refused one.
+- `CONTEXT.md` records the measurements behind all of this, against Claude Code 2.1.273 and
+  codex-cli 0.154.0.
+
 ## 0.29.1
 
 A gate longer than roughly 12,000 characters never ran at all, and the task it guarded was counted

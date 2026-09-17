@@ -27,10 +27,12 @@ these terms replace it.
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label — the server then runs it on the host after the builder's turn (the task gate after `forge.build.next`, the run-wide gates after `forge.review.fix`) and its exit code decides; otherwise a **condition**, left to the builder's word and, for `## Gates`, to the orchestrator after the last task. See `docs/adr/0015`. |
-| **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, or no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
+| **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, when its turn ended with a Killed background task, or when no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
 | **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
 | **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. Builder roots do not reopen `.git`, `.codex` or `.agents` at the top of the workspace, which a codex builder cannot write. |
-| **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. Only `done` is progress. A `blocked` or `gate_failed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
+| **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for both roles. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server; cursor's `--approve-mcps` already grants every server. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
+| **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. The server also writes `background_killed` when the turn ended with a Killed background task, and then runs no gate. Only `done` is progress. A `blocked`, `gate_failed` or `background_killed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
+| **Killed background task** | A command a Worker started in the background that was still running when its turn ended, so the Vendor killed it with the process. The Worker never saw its result. Detected on claude only, where the stream reports it; named in the build result for a Builder, logged for a Critic. Not a "background job": a **Job** is a delegated act. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
@@ -187,12 +189,108 @@ same guarantee:
 - **Codex** — `-c sandbox_mode="read-only"`. A real sandbox. The key rather than the `-s` flag
   because `codex exec resume` has no `-s`, and one spelling across a builder's first turn and its
   later ones is worth more than the flag's pre-launch validation.
-- **Claude** — `--permission-mode acceptEdits` is passed only for a Builder, so a critic's edit
-  tools are simply never pre-approved.
+- **Claude** — `--permission-mode acceptEdits` and `--allowedTools Bash PowerShell` are passed only
+  for a Builder, so a critic's edit and shell tools are simply never pre-approved. Both roles get
+  the run's Worker tools, which is safe only while the granted servers are read-only; see
+  `docs/adr/0017`. The builder's shell grant has no sandbox behind it, unlike codex's
+  `workspace-write`: it is the price of a builder that can run the task's checks on a machine whose
+  own settings approve nothing (issue #90).
 - **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the
   help text: the same prompt asking for a file writes it without the flag and writes nothing with
   it, at the same latency. Before that flag was added, `--force` went to every role and a Cursor
   critic could edit freely.
+
+## A headless claude asks nobody, so what its permission rules do not cover is refused
+
+Measured on 2026-09-17 against Claude Code 2.1.273, `claude -p --output-format stream-json` with
+`--model haiku`, after run `20260916-134641-21e3d5` whose claude builder was refused every Roslyn
+call (issue #90). Each refusal arrives as a `system` message with subtype `permission_denied`, a
+`tool_name`, and a `message` that is a string, which `ClaudeCliSession.Observe` logs as
+`vendor.skipped-message`.
+
+- **An MCP rule matches the server name exactly or not at all.** Against a server named
+  `roslyn-mcp-plan-forge-flow`, `--allowedTools mcp__roslyn-mcp-plan-forge-flow` let
+  `roslyn_search_symbols` through; `mcp__roslyn-*` and `mcp__*` were both refused exactly as with
+  no rule. The documented forms are `mcp__<server>` and `mcp__<server>__*`: the `*` stands for a
+  tool, never for part of a server name.
+- **A `PreToolUse` hook is matched by regular expression, and its `allow` is a grant.** The same
+  call went through with no allow rule when `--settings` carried a hook with matcher
+  `mcp__roslyn-.*` whose command printed
+  `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}`.
+- **`acceptEdits` runs no command that needs approval, and a blanket `Bash` rule lifts the safety
+  checks as well.** Under `--permission-mode acceptEdits` alone, `echo {a,b}`, `cd sub && git
+  status` and `X=5; echo $X` were refused — as "Brace expansion", as a directory change ahead of a
+  version-control command, and as "This command requires approval". With `--allowedTools Bash`, or
+  a `Bash` hook answering `allow`, all three ran. The builder of the run above had only pattern
+  rules, the `Bash(...)` entries of the user's own settings, and was refused on brace and simple
+  expansion all the same: a pattern rule is not that grant.
+- **A deny rule can name a parameter.** `--disallowedTools "Bash(run_in_background:true)"` beside
+  `--allowedTools Bash` refused the backgrounded call with "Permission to use Bash with
+  run_in_background:true has been denied." (`decision_reason_type: "rule"`).
+- **Only codex lists its servers as data.** `claude mcp list` prints text and health-checks every
+  server on the way (about 4 s here, with five of them refusing the connection); `codex mcp list
+  --json` answers in about 3 s with `name`, `enabled` and `transport` per server.
+
+The codex half, measured the same day against codex-cli 0.154.0 with `gpt-5.6-luna`, `-c
+sandbox_mode="read-only"` and `--ephemeral`, against a server named `probe` that a project
+`.codex/config.toml` declared with a `url` and no approval key:
+
+- **A headless codex refuses an unapproved MCP call too**, and says so in the stream rather than in
+  the exit code: the `mcp_tool_call` item completed with `status: "failed"` and
+  `error.message` "MCP tool call requires approval, but approval policy is never", and the process
+  exited 0. The same run with `-c mcp_servers.probe.default_tools_approval_mode="approve"` got its
+  two results. That per-server key is what `roslyn-setup-repo` writes into the project config, which
+  is why the codex critic of run `20260916-134641-21e3d5` could reach Roslyn on port 5053 while the
+  claude builder beside it could not.
+- **A `-c` key merges into the server it names, and invents one it does not find.** With the key
+  above, `codex mcp list --json` still showed `probe` with its `url`; naming a server that no layer
+  declared (`mcp_servers.nosuch.…`) stopped codex before it started — "failed to load bootstrap
+  configuration … invalid transport in `mcp_servers.nosuch`". A grant may name only a server the
+  list reported.
+- **A project config is read from a linked worktree as well.** `codex mcp list --json` run inside a
+  scratch folder of a worktree of `C:\Dev\CodexPlugins`, a trusted project, listed the server that
+  folder's `.codex/config.toml` declared.
+- **An MCP call is an item of its own**: `item.started` / `item.completed` with `item.type`
+  `mcp_tool_call`, carrying `server`, `tool`, `arguments`, `result`, `error` and `status`.
+  `CodexCliSession.Observe` read only `command_execution` and `agent_message`, so a codex worker's
+  MCP calls, refused or not, never reached the run log.
+
+End to end through this server's own launch, `WorkerToolsIntegrationTests` on the same day: a claude
+critic and builder (`haiku`) and a codex critic and builder (`gpt-5.6-luna`, `low`) each called
+`roslyn_search_symbols` successfully with nothing but the default `roslyn-*` grant — claude through
+the six `roslyn-*` servers of this repository's local scope, none of them in the user's settings,
+codex through a scratch project config that declared the server with no approval key. The cursor
+pair was not measured: both were refused with "You've hit your usage limit" before a turn ran. The
+codex critic also called `cua_repl` unasked on the way — a server the user's own configuration
+approves — which is the reach every worker already had, not one this grant added.
+
+## A headless claude kills what it backgrounded, and its own harness steers it there
+
+Measured the same day, same version, with the arrival time of every stdout line recorded; it is
+what issue #91 is about. Run `20260916-134641-21e3d5` lost a ten-minute grid in task 8 because its
+builder started it with `run_in_background`, answered, and exited — there is no next turn in `-p`.
+
+- **A foreground `sleep` is refused by Claude Code itself**, before any permission rule:
+  `sleep 90 && echo slept` came back as a `tool_use_error` telling the model to "use
+  run_in_background: true" to wait for a command it started. The harness a worker runs in teaches
+  the very habit that loses the work.
+- **A backgrounded Bash call is killed about five seconds after the final result.** The stream
+  carried `task_started` with `task_id`, `tool_use_id`, `description`, `task_type: "local_bash"` and
+  `is_backgrounded: true` — the command itself is only on the `tool_use` that `tool_use_id` names —
+  then a `tool_result` of "Command running in background with ID: …", the `result`, and 5.1 s
+  later `background_tasks_changed` with an empty list, `task_updated` with
+  `"patch":{"status":"killed"}`, and `task_notification` with `status: "stopped"`. The process
+  then exited **0**. None of those messages has a `message` property, so `Observe` drops every one
+  unlogged; that run saw them only in the stdout tail of task 11, which exited 1.
+- **A foreground call is not silent.** A 90-second foreground command produced `task_started` with
+  `is_backgrounded: false`, a `tool_progress` line with `heartbeat: true` and
+  `elapsed_time_seconds` every 30 s, and `task_notification` with `status: "completed"`. Each
+  heartbeat is a stdout line, so the 30-minute idle reaper in `StreamingProcess` never fires on a
+  long foreground command; the Bash tool's own ceiling does — `BASH_MAX_TIMEOUT_MS`, ten minutes
+  by default.
+
+Documented, not measured: a background *subagent* keeps `-p` open until it finishes or has idled
+for ten minutes (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`), because its result is part of the output.
 
 ## cursor-agent rejects an unknown model fast, and its ids carry the effort
 

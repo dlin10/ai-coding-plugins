@@ -190,12 +190,16 @@ function Test-PublishedServer([string]$Executable) {
             throw 'canvas resource does not listen for the tool result it renders'
         }
         # Services a tool takes from the container are bound by type and must never reach the
-        # schema: an orchestrator asked for `roots` has nothing to send, and forge.begin is the one
-        # tool whose whole argument list is one path, so it is where the leak would show first.
+        # schema: an orchestrator asked for `roots` has nothing to send, and forge.begin is the tool
+        # whose argument list is shortest — a path and the worker tools — so it is where the leak
+        # would show first.
         $begin = $tools | Where-Object { $_.name -eq 'forge.begin' } | Select-Object -First 1
-        $beginProperties = @($begin.inputSchema.properties.PSObject.Properties.Name)
-        if ($beginProperties.Count -ne 1 -or $beginProperties[0] -ne 'workspaceRoot') {
-            throw "forge.begin should take workspaceRoot and nothing else, and takes: $($beginProperties -join ', ')"
+        $beginProperties = @($begin.inputSchema.properties.PSObject.Properties.Name | Sort-Object)
+        if (($beginProperties -join ',') -ne 'workerTools,workspaceRoot') {
+            throw "forge.begin should take workspaceRoot and workerTools and nothing else, and takes: $($beginProperties -join ', ')"
+        }
+        if (($begin.inputSchema.properties.workerTools | ConvertTo-Json -Compress) -notmatch 'array') {
+            throw 'forge.begin publishes workerTools as something other than an array'
         }
         # The cheap call the plan link depends on: a draft, and nothing that could make it slow.
         $planWrite = $tools | Where-Object { $_.name -eq 'forge.plan.write' } | Select-Object -First 1
@@ -260,6 +264,7 @@ function Test-PublishedServer([string]$Executable) {
         # the key is refused server-side, and at least one host drops the `null` literal while
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
+            'forge.begin'       = @('workerTools')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')

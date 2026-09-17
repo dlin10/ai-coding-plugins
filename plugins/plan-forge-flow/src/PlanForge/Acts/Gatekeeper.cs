@@ -1,4 +1,5 @@
 using System.Text;
+using PlanForge.Diagnostics;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
@@ -13,26 +14,47 @@ internal static class Gatekeeper
 {
     private const string DONE = "done";
     private const string GATE_FAILED = "gate_failed";
+    private const string BACKGROUND_KILLED = "background_killed";
     private const string UNAVAILABLE = "unavailable";
+
+    // How a kill is briefed, and how the brief is told apart from a failed gate once it is only a
+    // string in the run state.
+    private const string KILLED_BRIEF = "Your previous turn ended with work still running in the background";
 
     /// <summary>
     /// Runs <paramref name="gates"/> when the turn is worth checking, and hands back the result with
     /// <see cref="BuildResult.Gate"/> filled in and the status rewritten to what the exit code says:
     /// <c>done</c> where the command exits 0, <c>gate_failed</c> where it does not. A gate that is a
-    /// condition rather than a command leaves the self-report standing, and says so.
+    /// condition rather than a command leaves the self-report standing, and says so. A turn that
+    /// left work running in the background is <c>background_killed</c> and runs no gate: by the
+    /// builder's own account the work was still in progress — see docs/adr/0018.
     /// </summary>
     /// <param name="result"></param>
     /// <param name="gates">The executable gate commands, run in order; empty when none is executable.</param>
     /// <param name="stated">Whether the plan states a gate at all, executable or not.</param>
+    /// <param name="killed">What the vendor killed when the turn ended; empty when nothing was left running.</param>
     /// <param name="state"></param>
     /// <param name="ct"></param>
     public static async Task<BuildResult> CheckAsync(BuildResult result,
                                                      IReadOnlyList<GateCommand> gates,
                                                      bool stated,
+                                                     IReadOnlyList<string> killed,
                                                      RunState state,
                                                      CancellationToken ct)
     {
         var label = gates.Count == 0 ? "Gate" : Label(gates);
+
+        if (killed.Count > 0)
+        {
+            RunLog.Current?.Write("warn", "builder", "builder.background-killed", ("tasks", string.Join("; ", killed)));
+            return result with
+            {
+                Status = BACKGROUND_KILLED,
+                Gate = new GateRun("not_run", label, null, null, null, null,
+                                   $"the turn ended while {Quoted(killed)} still ran in the background, so the session killed "
+                                   + "it and the gate was not run")
+            };
+        }
 
         if (!Gatable(result))
             return result with { Gate = new GateRun("not_run", label, null, null, null, null,
@@ -84,8 +106,13 @@ internal static class Gatekeeper
     /// What the next builder turn is told about a gate that failed, so the retry works against the
     /// host's evidence rather than its own recollection of a green run.
     /// </summary>
-    public static string? PendingFailure(BuildResult result, string? previous)
+    public static string? PendingFailure(BuildResult result, IReadOnlyList<string> killed, string? previous)
     {
+        if (killed.Count > 0) return KilledBrief(killed);
+
+        // A kill is about the turn that followed it and nothing later: without this, a task whose
+        // gate is a condition would carry the brief on to the next task.
+        if (previous?.StartsWith(KILLED_BRIEF, StringComparison.Ordinal) is true) previous = null;
         if (result.Gate is null) return previous;
 
         return result.Gate.Outcome switch
@@ -99,6 +126,15 @@ internal static class Gatekeeper
     public static void AppendPendingFailure(StringBuilder prompt, string? pending)
     {
         if (pending is not { Length: > 0 }) return;
+
+        if (pending.StartsWith(KILLED_BRIEF, StringComparison.Ordinal))
+        {
+            prompt.AppendLine()
+                  .AppendLine("# The previous attempt was cut short")
+                  .AppendLine()
+                  .AppendLine(pending);
+            return;
+        }
 
         prompt.AppendLine()
               .AppendLine("# The previous attempt did not pass its gate")
@@ -138,6 +174,29 @@ internal static class Gatekeeper
 
         return text.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// What the retry is told about a kill. The builder of task 8 in run 20260916-134641-21e3d5 said
+    /// it would continue when its grid finished, and believed a time limit had forced it out; the
+    /// brief says what actually ended the turn.
+    /// </summary>
+    private static string KilledBrief(IReadOnlyList<string> killed)
+    {
+        var text = new StringBuilder().Append(KILLED_BRIEF)
+                                      .AppendLine(", and the session ended with the turn, killing it before it finished:")
+                                      .AppendLine();
+
+        foreach (var task in killed)
+            text.Append("- `").Append(task).AppendLine("`");
+
+        return text.AppendLine()
+                   .Append("Nothing it would have produced exists, and the task was not counted. Your session ends at your ")
+                   .Append("final answer and nothing runs after it: run what you need in the foreground, with a timeout ")
+                   .Append("long enough for it, and wait for it before you answer.")
+                   .ToString();
+    }
+
+    private static string Quoted(IReadOnlyList<string> killed) => string.Join(", ", killed.Select(task => $"`{task}`"));
 
     private static string Label(IReadOnlyList<GateCommand> gates) =>
         gates.Count == 1 ? gates[0].Label : string.Join(", ", gates.Select(gate => gate.Label));

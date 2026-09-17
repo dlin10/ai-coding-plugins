@@ -326,6 +326,118 @@ public sealed class BuildTests : IDisposable
         Assert.Equal([@"C:\Dev\eShopOnContainers"], Assert.Single(vendor.Sessions).Role.WritableRoots);
     }
 
+    [Fact]
+    public async Task The_worker_tools_from_the_run_state_reach_the_builder_s_role()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        var run = NewRun("", "", Plan, workerTools: ["sql-server"]);
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
+                                                                                  CancellationToken.None);
+
+        Assert.Equal(["sql-server"], Assert.Single(vendor.Sessions).Role.WorkerTools);
+    }
+
+    /// <summary>A run begun before worker tools existed gets the default, which is Roslyn.</summary>
+    [Fact]
+    public async Task A_run_state_without_worker_tools_grants_the_default()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        var run = NewRun("", "");
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
+                                                                                  CancellationToken.None);
+
+        Assert.Equal(["roslyn-*"], Assert.Single(vendor.Sessions).Role.WorkerTools);
+    }
+
+    /// <summary>
+    /// Task 8 of run 20260916-134641-21e3d5 (issue #91): the builder started a ten-minute grid in the
+    /// background, answered, and the session killed the grid with it. Its gate then spent minutes
+    /// finding the output missing. The kill is known the moment the turn ends, so no gate runs, the
+    /// task stays, and the retry is told what was lost.
+    /// </summary>
+    [Fact]
+    public async Task A_turn_that_left_a_background_task_running_is_not_counted_runs_no_gate_and_briefs_the_retry()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new BuildResult("done", ["run-limits-grid.ps1"], new Verification("unavailable", "the grid is still running"), "started the grid"),
+                       "token-1", killedBackgroundTasks: ["pwsh -File run-limits-grid.ps1"]);
+        vendor.Enqueue(new BuildResult("done", ["limits.md"], new Verification("passed", "the grid ran"), "done"), "token-1");
+        var run = NewRun("claude", "", GatedPlan("Write-Output green", "Write-Output second"));
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        var first = await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        Assert.Equal("background_killed", first.Result?.Status);
+        Assert.Equal("not_run", first.Result?.Gate?.Outcome);
+        Assert.Null(first.Result?.Gate?.Command);
+        Assert.Contains("pwsh -File run-limits-grid.ps1", first.Result?.Gate?.Detail, StringComparison.Ordinal);
+        Assert.Equal(0, first.TasksCompleted);
+        Assert.Equal("token-1", run.ReadState().BuilderSessionId);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("Status: background_killed", flow, StringComparison.Ordinal);
+        Assert.Contains("Gate: not run — ", flow, StringComparison.Ordinal);
+        Assert.Contains("pwsh -File run-limits-grid.ps1", flow, StringComparison.Ordinal);
+
+        var second = await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var retry = vendor.Sessions[1].PromptText;
+        Assert.Contains("# Task 1 of 2", retry, StringComparison.Ordinal);
+        Assert.Contains("pwsh -File run-limits-grid.ps1", retry, StringComparison.Ordinal);
+        Assert.Contains("foreground", retry, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not pass its gate", retry, StringComparison.Ordinal);
+        Assert.Equal("done", second.Result?.Status);
+        Assert.Equal(1, second.TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    /// <summary>
+    /// With no gate to pass, nothing else would clear the brief, and the next task would be told
+    /// about a kill that happened before its predecessor was redone.
+    /// </summary>
+    [Fact]
+    public async Task A_kill_is_briefed_to_the_next_turn_only()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("unavailable", "still running"), "started"),
+                       killedBackgroundTasks: ["dotnet test"]);
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
+        var run = NewRun("", "");
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        var redone = await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        Assert.Equal(1, redone.TasksCompleted);
+        Assert.Contains("dotnet test", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Task 2 of 2", vendor.Sessions[2].PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet test", vendor.Sessions[2].PromptText, StringComparison.Ordinal);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    /// <summary>A builder that says it is blocked is still told why its turn did not count.</summary>
+    [Fact]
+    public async Task A_blocked_turn_that_left_a_background_task_running_is_background_killed_too()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("failed", "tests failed"), "blocked"),
+                       killedBackgroundTasks: ["dotnet watch test"]);
+        var run = NewRun("", "", GatedPlan("Write-Output green", "Write-Output second"));
+
+        var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                                 new Selection("builder-model", null),
+                                                                                                 CancellationToken.None);
+
+        Assert.Equal("background_killed", outcome.Result?.Status);
+        Assert.Contains("dotnet watch test", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
+    }
+
     private static string GatedPlan(string firstGate, string secondGate) =>
         $"## Approach\n\n1. **First.** Do it. **Gate:** `{firstGate}` (R1)\n2. **Second.** Do it. **Gate:** `{secondGate}` (R2)\n";
 
@@ -333,13 +445,14 @@ public sealed class BuildTests : IDisposable
                                 string builderSessionId,
                                 string? plan = null,
                                 IReadOnlyDictionary<string, string>? gateEnvironment = null,
-                                IReadOnlyList<string>? builderRoots = null)
+                                IReadOnlyList<string>? builderRoots = null,
+                                IReadOnlyList<string>? workerTools = null)
     {
         var run = RunDirectory.Create(_workspace, "build");
         run.WritePlan(plan ?? Plan);
         run.WriteState(new RunState("build", _workspace, "Text", DateTimeOffset.Now, 0, 5,
                                     Approved: true, BuilderSessionId: builderSessionId, BuilderVendor: builderVendor,
-                                    GateEnvironment: gateEnvironment, BuilderRoots: builderRoots));
+                                    GateEnvironment: gateEnvironment, BuilderRoots: builderRoots, WorkerTools: workerTools));
         return run;
     }
 

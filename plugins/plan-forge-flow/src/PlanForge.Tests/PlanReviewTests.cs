@@ -451,11 +451,51 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Equal(HardenedPlan, run.ReadPlan());
     }
 
-    private RunDirectory NewRun(int rounds, int cap)
+    /// <summary>
+    /// Plan-review critics run before anything is confirmed, which is why the worker tools come
+    /// from forge.begin rather than from the approval (docs/adr/0017).
+    /// </summary>
+    [Fact]
+    public async Task The_critic_is_started_with_the_runs_worker_tools()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 0, cap: 5, workerTools: ["roslyn-*", "sql-server"]);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), null, null, false, CancellationToken.None);
+
+        Assert.Equal(["roslyn-*", "sql-server"], Assert.Single(critic.Sessions).Role.WorkerTools);
+    }
+
+    /// <summary>
+    /// A critic's verdict is filtered by the orchestrator anyway, so its round stands; the timeline
+    /// says what the critic never saw the end of (docs/adr/0018).
+    /// </summary>
+    [Fact]
+    public async Task A_critic_that_left_a_background_task_running_keeps_its_critique_and_the_flow_log_says_so()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 2", "unverified")], "one gap"),
+                       killedBackgroundTasks: ["dotnet build"]);
+        var run = NewRun(rounds: 0, cap: 5);
+
+        var critique = await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), null, null, false, CancellationToken.None);
+
+        Assert.Equal("revise", critique.Verdict);
+        Assert.Equal(1, run.ReadState().ReviewRounds);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan review — round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("background", flow, StringComparison.Ordinal);
+        Assert.Contains("`dotnet build`", flow, StringComparison.Ordinal);
+    }
+
+    private RunDirectory NewRun(int rounds, int cap, IReadOnlyList<string>? workerTools = null)
     {
         const string runId = "test-run";
         var run = RunDirectory.Create(_workspace, runId);
-        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, rounds, cap));
+        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, rounds, cap, WorkerTools: workerTools));
         return run;
     }
 

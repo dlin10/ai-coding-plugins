@@ -44,8 +44,11 @@ internal sealed class CursorAgentVendor : IVendor
         }
     }
 
-    public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
-        Task.FromResult<IVendorSession>(new CursorAgentSession(role, selection, _workingDirectory, resumeToken));
+    public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
+    {
+        WorkerTools.RecordBlanket(Id, role, "--approve-mcps grants every server cursor-agent loads");
+        return Task.FromResult<IVendorSession>(new CursorAgentSession(role, selection, _workingDirectory, resumeToken));
+    }
 
     // "gpt-5.3-codex-high - Codex 5.3 High" — effort is baked into the id here rather than being a
     // separate flag, which is why joining model and effort is the vendor's job. The raw list names

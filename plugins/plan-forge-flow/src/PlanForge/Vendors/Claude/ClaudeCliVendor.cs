@@ -32,6 +32,10 @@ internal sealed class ClaudeCliVendor : IVendor
     private static readonly TimeSpan ResolveTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan DiscoverTimeout = TimeSpan.FromSeconds(45);
 
+    // About 4 s measured with five servers refusing the connection; one that hangs costs its own
+    // startup timeout, so the bound is wide rather than tight.
+    private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(60);
+
     private readonly string? _workingDirectory;
 
     public ClaudeCliVendor(string? workingDirectory = null)
@@ -94,8 +98,47 @@ internal sealed class ClaudeCliVendor : IVendor
         return new VendorReadiness(true, detail);
     }
 
-    public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
-        Task.FromResult<IVendorSession>(new ClaudeCliSession(role, selection, _workingDirectory, resumeToken));
+    public async Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
+    {
+        var servers = await WorkerTools.GrantAsync(Id, role, ListServersAsync, ct).ConfigureAwait(false);
+        return new ClaudeCliSession(role, selection, _workingDirectory, resumeToken, servers);
+    }
+
+    /// <summary>
+    /// The servers a worker started here would load. `claude mcp list` is the only listing the CLI
+    /// has, prints text and health-checks every server on the way; this plugin's own server is told
+    /// to exit at once through the marker Cursor workers already carry, rather than being started
+    /// and handshaken for nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ListServersAsync(CancellationToken ct)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [Cursor.CursorAgentSession.SelfExclusionEnvironment] = "1"
+        };
+        var spec = new ProcessSpec(Executable, ["mcp", "list"], _workingDirectory, string.Empty, environment);
+        return ParseServerList(await StreamingProcess.CollectAsync(spec, ListTimeout, ct).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// A server line reads `name: target - status`, and a plugin server's name holds colons of its
+    /// own (`plugin:context7:context7`), so the name ends at the first colon followed by a space.
+    /// Measured against Claude Code 2.1.273 on 2026-09-17; the header and blank lines have no such
+    /// separator and are skipped.
+    /// </summary>
+    internal static List<string> ParseServerList(IEnumerable<string> lines)
+    {
+        var servers = new List<string>();
+        foreach (var line in lines)
+        {
+            var end = line.IndexOf(": ", StringComparison.Ordinal);
+            if (end <= 0 || line.IndexOf(" - ", end, StringComparison.Ordinal) < 0) continue;
+
+            servers.Add(line[..end]);
+        }
+
+        return servers;
+    }
 
     /// <summary>
     /// An alias the CLI does not know is echoed back rather than rejected — measured on 2026-09-02,

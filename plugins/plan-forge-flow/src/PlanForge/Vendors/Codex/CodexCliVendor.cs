@@ -96,8 +96,49 @@ internal sealed class CodexCliVendor : IVendor
         }
     }
 
-    public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
-        Task.FromResult<IVendorSession>(new CodexCliSession(role, selection, _workingDirectory, resumeToken));
+    public async Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
+    {
+        var servers = await WorkerTools.GrantAsync(Id, role, ListServersAsync, ct).ConfigureAwait(false);
+        return new CodexCliSession(role, selection, _workingDirectory, resumeToken, servers);
+    }
+
+    /// <summary>
+    /// The servers a worker started here would load: every config layer, the project's
+    /// `.codex/config.toml` included, as codex resolves them from the worker's own directory.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ListServersAsync(CancellationToken ct)
+    {
+        var spec = new ProcessSpec(CodexLaunch.Executable, ["mcp", "list", "--json"], _workingDirectory, string.Empty);
+        var lines = await StreamingProcess.CollectAsync(spec, PROBE_TIMEOUT, ct).ConfigureAwait(false);
+
+        using var document = JsonDocument.Parse(string.Join('\n', lines));
+        return ParseServerList(document.RootElement);
+    }
+
+    /// <summary>
+    /// The enabled servers of `codex mcp list --json`, measured against codex-cli 0.154.0 on
+    /// 2026-09-17. Only a name that is a bare TOML key is kept: the grant addresses the server
+    /// through a dotted `-c` path, a name with a dot in it would address a different one, and a
+    /// server codex cannot find there stops it before it starts.
+    /// </summary>
+    internal static List<string> ParseServerList(JsonElement root)
+    {
+        var servers = new List<string>();
+        if (root.ValueKind is not JsonValueKind.Array) return servers;
+
+        foreach (var entry in root.EnumerateArray())
+        {
+            if (entry.ValueKind is not JsonValueKind.Object) continue;
+            if (!entry.TryGetProperty("name", out var name) || name.ValueKind is not JsonValueKind.String) continue;
+            if (entry.TryGetProperty("enabled", out var enabled) && enabled.ValueKind is JsonValueKind.False) continue;
+
+            var value = name.GetString()!;
+            if (value.Length > 0 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-'))
+                servers.Add(value);
+        }
+
+        return servers;
+    }
 
     /// <summary>
     /// Measured against `codex debug models` on 2026-09-04 to reproduce the App Server catalogue
