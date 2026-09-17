@@ -101,6 +101,97 @@ public sealed class VendorEventDetailTests
         Assert.DoesNotContain(events, raised => raised.Kind is VendorEventKind.ToolResult);
     }
 
+    private const string SKILL_BUDGET_WARNING =
+        """{"type":"error","message":"Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room ..."}""";
+
+    private const string USAGE_LIMIT =
+        "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 6:54 PM.";
+
+    /// <summary>
+    /// A top-level `error` line is not a failure on its own: codex 0.154.0 emits it for a retried
+    /// stream error too, and a run that wrote its result carried the skill-budget notice as one.
+    /// Only `turn.failed` ends the turn, so the notice is a warning and never the run's explanation.
+    /// </summary>
+    [Fact]
+    public async Task Codex_error_line_without_a_failed_turn_is_a_warning()
+    {
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
+
+        using (var warning = JsonDocument.Parse(SKILL_BUDGET_WARNING))
+        {
+            session.Observe(warning.RootElement);
+        }
+
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
+
+        Assert.DoesNotContain(events, raised => raised.Kind is VendorEventKind.Failed);
+        Assert.Equal("codex wrote no result", session.NoResultMessage);
+
+        var entry = Assert.Single(log.Entries());
+        Assert.Equal("warn", entry.GetProperty("level").GetString());
+        Assert.Equal("vendor.warning", entry.GetProperty("event").GetString());
+        Assert.StartsWith("Skill descriptions were shortened", entry.GetProperty("fields").GetProperty("text").GetString());
+    }
+
+    /// <summary>The shape 0.154.0 actually gives its warnings: an item of type `error`.</summary>
+    [Fact]
+    public async Task Codex_error_item_is_a_warning()
+    {
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
+
+        using (var item = JsonDocument.Parse(
+            """{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Skill descriptions were shortened to fit the skills context budget."}}"""))
+        {
+            session.Observe(item.RootElement);
+        }
+
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
+
+        Assert.DoesNotContain(events, raised => raised.Kind is VendorEventKind.Failed);
+        Assert.Equal("codex wrote no result", session.NoResultMessage);
+
+        var entry = Assert.Single(log.Entries());
+        Assert.Equal("warn", entry.GetProperty("level").GetString());
+        Assert.Equal("vendor.warning", entry.GetProperty("event").GetString());
+    }
+
+    /// <summary>
+    /// A usage limit arrives as an `error` line and then a `turn.failed` with the same message. The
+    /// failed turn names the run's failure once, and a notice after it cannot take its place.
+    /// </summary>
+    [Fact]
+    public async Task Codex_failed_turn_names_the_failure_even_when_a_warning_follows()
+    {
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
+        var message = "\"" + USAGE_LIMIT + "\"";
+
+        foreach (var line in new[]
+                 {
+                     """{"type":"error","message":""" + message + "}",
+                     """{"type":"turn.failed","error":{"message":""" + message + "}}",
+                     SKILL_BUDGET_WARNING
+                 })
+        {
+            using var document = JsonDocument.Parse(line);
+            session.Observe(document.RootElement);
+        }
+
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
+
+        var failed = Assert.Single(events, raised => raised.Kind is VendorEventKind.Failed);
+        Assert.Equal(USAGE_LIMIT, failed.Text);
+        Assert.Equal("codex wrote no result: " + USAGE_LIMIT, session.NoResultMessage);
+
+        var levels = log.Entries().Select(entry => (entry.GetProperty("level").GetString(), entry.GetProperty("event").GetString()));
+        Assert.Equal([("warn", "vendor.warning"), ("error", "vendor.failed"), ("warn", "vendor.warning")], levels);
+    }
+
     [Fact]
     public async Task Claude_tool_use_carries_the_command_and_its_result_carries_the_error()
     {
@@ -352,6 +443,14 @@ public sealed class VendorEventDetailTests
         {
             Directory.CreateDirectory(_directory);
             _scope = RunLog.Use(new RunLog(Path.Combine(_directory, "forge.log")));
+        }
+
+        /// <summary>The entries written so far, in order.</summary>
+        public List<JsonElement> Entries()
+        {
+            var path = Path.Combine(_directory, "forge.log");
+            if (!File.Exists(path)) return [];
+            return File.ReadAllLines(path).Select(line => JsonDocument.Parse(line).RootElement.Clone()).ToList();
         }
 
         public void Dispose()

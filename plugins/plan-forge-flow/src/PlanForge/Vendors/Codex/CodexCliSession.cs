@@ -83,13 +83,7 @@ internal sealed class CodexCliSession : IVendorSession
                 ? JsonSerializer.Deserialize(await File.ReadAllTextAsync(resultPath, ct), schema.TypeInfo)
                 : default;
 
-            if (result is null)
-            {
-                var message = _lastFailure is { Length: > 0 }
-                    ? $"codex wrote no result: {_lastFailure}"
-                    : "codex wrote no result";
-                throw new VendorException(message);
-            }
+            if (result is null) throw new VendorException(NoResultMessage);
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
             return result;
@@ -101,6 +95,11 @@ internal sealed class CodexCliSession : IVendorSession
             catch (UnauthorizedAccessException) { }
         }
     }
+
+    /// <summary>Why a run ended without a result, as far as the stream said. Internal for the tests.</summary>
+    internal string NoResultMessage => _lastFailure is { Length: > 0 }
+        ? $"codex wrote no result: {_lastFailure}"
+        : "codex wrote no result";
 
     public ValueTask DisposeAsync()
     {
@@ -251,6 +250,13 @@ internal sealed class CodexCliSession : IVendorSession
                 {
                     _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.Text, message));
                 }
+                // codex 0.154.0 turns its warning, config-warning, deprecation and model-reroute
+                // notices into an item of type `error`. None of them ends the turn.
+                else if (TryItem(root, "error", out var noticeItem)
+                    && TryRead(noticeItem, "message", out var notice) && notice.GetString() is { } noticeText)
+                {
+                    Warn(noticeText);
+                }
                 break;
 
             case "turn.failed":
@@ -262,15 +268,19 @@ internal sealed class CodexCliSession : IVendorSession
                 }
                 break;
 
+            // Not a failure by itself: codex 0.154.0 drops the server's `will_retry`, so a retried
+            // stream error looks the same as a fatal one, and a healthy run was measured carrying the
+            // skill-budget notice here. A fatal error is always followed by `turn.failed`, which
+            // repeats the last error's message when the turn has none, so that is the failure.
             case "error":
                 if (TryRead(root, "message", out var errorMessage) && errorMessage.GetString() is { } reason)
-                {
-                    _lastFailure = reason;
-                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.Failed, reason));
-                }
+                    Warn(reason);
                 break;
         }
     }
+
+    private static void Warn(string text) =>
+        RunLog.Current?.Write("warn", "codex", "vendor.warning", ("text", text));
 
     /// <summary>The command's fields, carried only when their property is present.</summary>
     /// <param name="item">The completed command-execution item.</param>
