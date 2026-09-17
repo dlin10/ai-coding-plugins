@@ -39,7 +39,8 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
-        await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder), state.BuilderRoots),
+        await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder),
+                                                                       state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
                                                            selection, resumeToken, ct);
 
         var reported = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
@@ -47,13 +48,14 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         // A fix round belongs to no single task, so the gates it answers to are the run-wide ones
         // under `## Gates` — the checks that span the whole change, which is what a fix touches.
         var plan = run.ReadPlan();
-        var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan), PlanGates.HasRunWideGates(plan), state, ct);
+        var killed = builder.KilledBackgroundTasks;
+        var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan), PlanGates.HasRunWideGates(plan), killed, state, ct);
 
         run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
         run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, result);
         run.WriteState(state with
         {
-            PendingGateFailure = Gatekeeper.PendingFailure(result, state.PendingGateFailure),
+            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure),
             BuilderSessionId = sameVendor
                                    ? builder.ResumeToken ?? state.BuilderSessionId
                                    : builder.ResumeToken ?? string.Empty,

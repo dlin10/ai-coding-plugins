@@ -12,8 +12,8 @@ internal sealed class RecordingVendor(string id) : IVendor
 
     public List<RecordingVendorSession> Sessions { get; } = [];
 
-    public void Enqueue(object response, string? resumeToken = null) =>
-        _scripts.Enqueue(new Script(response, resumeToken));
+    public void Enqueue(object response, string? resumeToken = null, IReadOnlyList<string>? killedBackgroundTasks = null) =>
+        _scripts.Enqueue(new Script(response, resumeToken, killedBackgroundTasks ?? []));
 
     public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
         Task.FromResult(new VendorReadiness(true, "recording vendor"));
@@ -27,12 +27,12 @@ internal sealed class RecordingVendor(string id) : IVendor
 
         var script = _scripts.Dequeue();
         var session = new RecordingVendorSession(role, selection, resumeToken, script.Response,
-                                                 script.ResumeToken);
+                                                 script.ResumeToken, script.KilledBackgroundTasks);
         Sessions.Add(session);
         return Task.FromResult<IVendorSession>(session);
     }
 
-    private sealed record Script(object Response, string? ResumeToken);
+    private sealed record Script(object Response, string? ResumeToken, IReadOnlyList<string> KilledBackgroundTasks);
 }
 
 internal sealed class RecordingVendorSession : IVendorSession
@@ -43,13 +43,15 @@ internal sealed class RecordingVendorSession : IVendorSession
                                    Selection selection,
                                    string? startedWithResumeToken,
                                    object response,
-                                   string? resumeToken)
+                                   string? resumeToken,
+                                   IReadOnlyList<string>? killedBackgroundTasks = null)
     {
         Role = role;
         Selection = selection;
         StartedWithResumeToken = startedWithResumeToken;
         _response = response;
         ResumeToken = resumeToken;
+        KilledBackgroundTasks = killedBackgroundTasks ?? [];
     }
 
     public RoleSpec Role { get; }
@@ -65,6 +67,8 @@ internal sealed class RecordingVendorSession : IVendorSession
     public bool CanResume => true;
 
     public string? ResumeToken { get; }
+
+    public IReadOnlyList<string> KilledBackgroundTasks { get; }
 
     public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {

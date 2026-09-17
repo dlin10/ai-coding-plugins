@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
@@ -10,9 +11,17 @@ internal sealed class ClaudeCliSession : IVendorSession
     private const string StructuredOutputTool = "StructuredOutput";
     private const string SelfPluginSettings =
         """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
+
+    // The Bash tool's own ceiling on a foreground command, ten minutes unless raised. Thirty covers
+    // any gate the host would run (twenty) and leaves the rest of the host's hour for the gate that
+    // follows the turn. The server's idle reaper does not interfere: a foreground call emits a
+    // heartbeat every 30 s. See docs/adr/0018.
+    private const string ForegroundCommandLimit = "1800000";
+
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
+    private readonly IReadOnlyList<string> _grantedServers;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     // Set on the first run so a Builder's later tasks resume the same conversation.
@@ -21,12 +30,31 @@ internal sealed class ClaudeCliSession : IVendorSession
     // tool_result blocks name their call by id only; the tool_use block carried the name.
     private readonly Dictionary<string, string> _toolNames = new(StringComparer.Ordinal);
 
-    public ClaudeCliSession(RoleSpec role, Selection selection, string? workingDirectory, string? resumeToken = null)
+    // A task names the call that started it by id only; the tool_use block carried the command.
+    private readonly Dictionary<string, string> _toolCommands = new(StringComparer.Ordinal);
+
+    // Tasks claude started and has not reported finished, with what each runs.
+    private readonly Dictionary<string, string> _openTasks = new(StringComparer.Ordinal);
+
+    // Set by the result line. After it nothing the model started can still be collected.
+    private bool _turnEnded;
+
+    /// <param name="role">The worker role and its contract.</param>
+    /// <param name="selection">The selected model and effort.</param>
+    /// <param name="workingDirectory">The workspace the worker runs in.</param>
+    /// <param name="resumeToken">The builder session to resume, when one exists.</param>
+    /// <param name="grantedServers">The MCP servers this worker may call unasked, as claude lists them.</param>
+    public ClaudeCliSession(RoleSpec role,
+                            Selection selection,
+                            string? workingDirectory,
+                            string? resumeToken = null,
+                            IReadOnlyList<string>? grantedServers = null)
     {
         _role = role;
         _selection = selection;
         _workingDirectory = workingDirectory;
         _sessionId = resumeToken;
+        _grantedServers = grantedServers ?? [];
     }
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
@@ -35,10 +63,18 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
+    /// <summary>
+    /// `-p` kills a background task about five seconds after the result line, so a task still open
+    /// once the turn has ended was lost — unless claude then reports it completed, which is what
+    /// `-p` waiting for a background subagent looks like. A task stopped before the result was the
+    /// model's own decision and is closed then.
+    /// </summary>
+    public IReadOnlyList<string> KilledBackgroundTasks => _turnEnded ? [.. _openTasks.Values] : [];
+
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
         var executable = ClaudeCliVendor.Executable;
-        var spec = new ProcessSpec(executable, BuildArguments(schema.Json), _workingDirectory, prompt);
+        var spec = new ProcessSpec(executable, BuildArguments(schema.Json), _workingDirectory, prompt, BuildEnvironment());
         await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
 
         JsonElement? structured = null;
@@ -85,6 +121,17 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _sessionId = id;
         if (!root.TryGetProperty("type", out var type)) return null;
+
+        // Neither carries a `message`, so both used to end at the check below, unlogged — which is
+        // how a killed background task left no trace in a run whose process exited 0 (issue #91).
+        if (type.GetString() is "result")
+        {
+            _turnEnded = true;
+            return null;
+        }
+
+        if (type.GetString() is "system" && ObserveTask(root)) return null;
+
         if (!root.TryGetProperty("message", out var message)) return null;
 
         // `message` is an object on every event this reads, but not on every event the CLI emits,
@@ -146,11 +193,15 @@ internal sealed class ClaudeCliSession : IVendorSession
                     }
                     else
                     {
+                        var detail = ToolInput(block);
                         if (block.TryGetProperty("id", out var callId) && callId.GetString() is { } call)
+                        {
                             _toolNames[call] = toolName ?? "?";
+                            if (detail?.FirstOrDefault(field => field.Name == "command").Value is { } command)
+                                _toolCommands[call] = command;
+                        }
 
-                        _events.Writer.Emit("claude",
-                            new VendorEvent(VendorEventKind.ToolUse, toolName ?? "?", ToolInput(block)));
+                        _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolUse, toolName ?? "?", detail));
                     }
                     break;
             }
@@ -177,6 +228,67 @@ internal sealed class ClaudeCliSession : IVendorSession
 
             _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolResult, name, detail));
         }
+    }
+
+    /// <summary>
+    /// Follows the tasks claude runs for the model — a Bash call, backgrounded or not, and a
+    /// subagent — as measured against Claude Code 2.1.273 on 2026-09-17: `task_started` with
+    /// `task_id` and `tool_use_id`, `task_notification` with a final `status`, and `task_updated`
+    /// with a `patch` whose `status` is `killed` when `-p` ends a task the turn left running.
+    /// </summary>
+    /// <param name="root">A system message.</param>
+    /// <returns>Whether the message was one of these.</returns>
+    private bool ObserveTask(JsonElement root)
+    {
+        if (!TryRead(root, "subtype", out var subtype)) return false;
+        var task = TryRead(root, "task_id", out var taskId) ? taskId.GetString() : null;
+        string? what = null;
+        if (task is not null) _openTasks.TryGetValue(task, out what);
+
+        string? status;
+        switch (subtype.GetString())
+        {
+            case "task_started":
+                status = "started";
+                what = Describe(root);
+                if (task is not null) _openTasks[task] = what;
+                break;
+
+            case "task_notification":
+                status = TryRead(root, "status", out var final) ? final.GetString() : null;
+                if (task is not null && (!_turnEnded || status is "completed" or "failed")) _openTasks.Remove(task);
+                break;
+
+            case "task_updated":
+                status = TryRead(root, "patch", out var patch) && TryRead(patch, "status", out var changed)
+                    ? changed.GetString()
+                    : null;
+                if (status is null) return true;
+                break;
+
+            default:
+                return false;
+        }
+
+        var fields = new List<(string Name, string? Value)> { ("task", task), ("status", status) };
+        if (TryRead(root, "is_backgrounded", out var backgrounded) && backgrounded.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            fields.Add(("background", backgrounded.GetBoolean() ? "true" : "false"));
+        if (what is not null) fields.Add(("command", what));
+
+        _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.Task, $"{status}: {task}", fields));
+        return true;
+    }
+
+    /// <summary>The command that started the task where the stream showed one, else what claude called the task.</summary>
+    /// <param name="started">A <c>task_started</c> message.</param>
+    private string Describe(JsonElement started)
+    {
+        if (TryRead(started, "tool_use_id", out var call) && call.GetString() is { } id && _toolCommands.TryGetValue(id, out var command))
+            return command;
+
+        return TryRead(started, "description", out var description) && description.GetString() is { Length: > 0 } text
+            ? text
+            : "an unnamed task";
     }
 
     /// <summary>The command for Bash-shaped tools, the raw input for the rest — cut, not dropped.</summary>
@@ -269,6 +381,17 @@ internal sealed class ClaudeCliSession : IVendorSession
         arguments.Add("--settings");
         arguments.Add(SelfPluginSettings);
 
+        // A headless worker asks nobody, so anything its rules do not cover is refused (issue #90).
+        // Only a builder gets the shell: a blanket rule is what lifts claude's safety checks as well,
+        // which a pattern rule does not, and a critic judges rather than runs.
+        List<string> allowed = CanResume ? ["Bash", "PowerShell"] : [];
+        allowed.AddRange(_grantedServers.Select(ToolRule));
+        if (allowed.Count > 0)
+        {
+            arguments.Add("--allowedTools");
+            arguments.Add(string.Join(",", allowed));
+        }
+
         if (CanResume)
         {
             // The Builder edits files, so it needs its edits to land without a prompt.
@@ -289,4 +412,20 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         return arguments;
     }
+
+    /// <summary>What every worker process runs with beyond the server's own environment.</summary>
+    internal static IReadOnlyDictionary<string, string> BuildEnvironment() =>
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["BASH_MAX_TIMEOUT_MS"] = ForegroundCommandLimit
+        };
+
+    /// <summary>
+    /// The rule granting every tool of a server. It names the server as the server's tools do, which
+    /// is where a listed name and a rule part: `plugin:context7:context7` lists with colons and its
+    /// tools are `mcp__plugin_context7_context7__…`. A rule matches the whole name or nothing — see
+    /// CONTEXT.md.
+    /// </summary>
+    /// <param name="server">The server name as `claude mcp list` prints it.</param>
+    internal static string ToolRule(string server) => "mcp__" + Regex.Replace(server, "[^A-Za-z0-9_-]", "_");
 }

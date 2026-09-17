@@ -18,6 +18,7 @@ internal sealed class CodexCliSession : IVendorSession
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
+    private readonly IReadOnlyList<string> _grantedServers;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     // Set on the first run so a Builder's later tasks resume the same thread.
@@ -26,12 +27,22 @@ internal sealed class CodexCliSession : IVendorSession
     // Names an API refusal when the run ends with no result to show for it.
     private string? _lastFailure;
 
-    public CodexCliSession(RoleSpec role, Selection selection, string? workingDirectory, string? resumeToken = null)
+    /// <param name="role">The worker role and its contract.</param>
+    /// <param name="selection">The selected model and effort.</param>
+    /// <param name="workingDirectory">The workspace the worker runs in.</param>
+    /// <param name="resumeToken">The builder thread to resume, when one exists.</param>
+    /// <param name="grantedServers">The MCP servers this worker may call unasked, as codex lists them.</param>
+    public CodexCliSession(RoleSpec role,
+                           Selection selection,
+                           string? workingDirectory,
+                           string? resumeToken = null,
+                           IReadOnlyList<string>? grantedServers = null)
     {
         _role = role;
         _selection = selection;
         _workingDirectory = workingDirectory;
         _sessionId = resumeToken;
+        _grantedServers = grantedServers ?? [];
     }
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
@@ -57,7 +68,7 @@ internal sealed class CodexCliSession : IVendorSession
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["PATH"] = inspected.Path! }
                 : null;
 
-            var arguments = BuildArguments(_role, _selection, _sessionId, schemaPath, resultPath);
+            var arguments = BuildArguments(_role, _selection, _sessionId, schemaPath, resultPath, _grantedServers);
             var spec = new ProcessSpec(executable, arguments, _workingDirectory, prompt, environment);
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
@@ -72,13 +83,7 @@ internal sealed class CodexCliSession : IVendorSession
                 ? JsonSerializer.Deserialize(await File.ReadAllTextAsync(resultPath, ct), schema.TypeInfo)
                 : default;
 
-            if (result is null)
-            {
-                var message = _lastFailure is { Length: > 0 }
-                    ? $"codex wrote no result: {_lastFailure}"
-                    : "codex wrote no result";
-                throw new VendorException(message);
-            }
+            if (result is null) throw new VendorException(NoResultMessage);
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
             return result;
@@ -90,6 +95,11 @@ internal sealed class CodexCliSession : IVendorSession
             catch (UnauthorizedAccessException) { }
         }
     }
+
+    /// <summary>Why a run ended without a result, as far as the stream said. Internal for the tests.</summary>
+    internal string NoResultMessage => _lastFailure is { Length: > 0 }
+        ? $"codex wrote no result: {_lastFailure}"
+        : "codex wrote no result";
 
     public ValueTask DisposeAsync()
     {
@@ -107,11 +117,13 @@ internal sealed class CodexCliSession : IVendorSession
     /// <param name="sessionId">The builder session to resume, when one exists.</param>
     /// <param name="schemaPath">The output-schema file path.</param>
     /// <param name="resultPath">The file where Codex writes the final result.</param>
+    /// <param name="grantedServers">The MCP servers to approve, each one codex listed.</param>
     internal static List<string> BuildArguments(RoleSpec role,
                                                  Selection selection,
                                                  string? sessionId,
                                                  string schemaPath,
-                                                 string resultPath)
+                                                 string resultPath,
+                                                 IReadOnlyList<string>? grantedServers = null)
     {
         var arguments = new List<string> { "exec" };
 
@@ -162,6 +174,15 @@ internal sealed class CodexCliSession : IVendorSession
             arguments.Add("sandbox_workspace_write.writable_roots=[" + string.Join(", ", roots.Select(TomlValue.String)) + "]");
         }
 
+        // `codex exec` has nobody to approve an MCP call, so one nothing approved fails (issue #90).
+        // The key is per server and merges into the server codex already knows; naming one it does
+        // not know stops codex before it starts, so only servers its own list reported get here.
+        foreach (var server in grantedServers ?? [])
+        {
+            arguments.Add("-c");
+            arguments.Add($"mcp_servers.{server}.default_tools_approval_mode=" + TomlValue.String("approve"));
+        }
+
         // Sent on every turn, including a resumed one: a resumed turn keeps the instructions its
         // thread started with, so this is harmless rather than effective, and forge never changes a
         // role mid-session.
@@ -203,6 +224,14 @@ internal sealed class CodexCliSession : IVendorSession
 
                     _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.ToolUse, "command_execution", fields));
                 }
+                else if (TryItem(root, "mcp_tool_call", out var startedCall))
+                {
+                    List<(string Name, string? Value)>? fields = null;
+                    if (TryRead(startedCall, "arguments", out var callArguments))
+                        (fields ??= []).Add(("input", RunLog.Truncate(callArguments.GetRawText())));
+
+                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.ToolUse, McpToolName(startedCall), fields));
+                }
                 break;
 
             case "item.completed":
@@ -211,10 +240,22 @@ internal sealed class CodexCliSession : IVendorSession
                     _events.Writer.Emit("codex",
                         new VendorEvent(VendorEventKind.ToolResult, "command_execution", CommandExecutionDetail(completedItem)));
                 }
+                else if (TryItem(root, "mcp_tool_call", out var completedCall))
+                {
+                    _events.Writer.Emit("codex",
+                        new VendorEvent(VendorEventKind.ToolResult, McpToolName(completedCall), McpToolCallDetail(completedCall)));
+                }
                 else if (TryItem(root, "agent_message", out var messageItem)
                     && TryRead(messageItem, "text", out var text) && text.GetString() is { } message)
                 {
                     _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.Text, message));
+                }
+                // codex 0.154.0 turns its warning, config-warning, deprecation and model-reroute
+                // notices into an item of type `error`. None of them ends the turn.
+                else if (TryItem(root, "error", out var noticeItem)
+                    && TryRead(noticeItem, "message", out var notice) && notice.GetString() is { } noticeText)
+                {
+                    Warn(noticeText);
                 }
                 break;
 
@@ -227,15 +268,19 @@ internal sealed class CodexCliSession : IVendorSession
                 }
                 break;
 
+            // Not a failure by itself: codex 0.154.0 drops the server's `will_retry`, so a retried
+            // stream error looks the same as a fatal one, and a healthy run was measured carrying the
+            // skill-budget notice here. A fatal error is always followed by `turn.failed`, which
+            // repeats the last error's message when the turn has none, so that is the failure.
             case "error":
                 if (TryRead(root, "message", out var errorMessage) && errorMessage.GetString() is { } reason)
-                {
-                    _lastFailure = reason;
-                    _events.Writer.Emit("codex", new VendorEvent(VendorEventKind.Failed, reason));
-                }
+                    Warn(reason);
                 break;
         }
     }
+
+    private static void Warn(string text) =>
+        RunLog.Current?.Write("warn", "codex", "vendor.warning", ("text", text));
 
     /// <summary>The command's fields, carried only when their property is present.</summary>
     /// <param name="item">The completed command-execution item.</param>
@@ -255,6 +300,41 @@ internal sealed class CodexCliSession : IVendorSession
         if (TryRead(item, "aggregated_output", out var output) && output.GetString() is { } text)
             Carry("output", RunLog.Tail(text));
         if (TryRead(item, "status", out var status)) Carry("status", status.GetString());
+
+        return detail;
+    }
+
+    /// <summary>
+    /// An MCP call named the way claude names its tools, so one grep finds a Roslyn call in either
+    /// vendor's log. Measured against codex-cli 0.154.0: the item carries `server` and `tool`.
+    /// </summary>
+    /// <param name="item">A <c>mcp_tool_call</c> item.</param>
+    private static string McpToolName(JsonElement item)
+    {
+        var server = TryRead(item, "server", out var serverName) ? serverName.GetString() : null;
+        var tool = TryRead(item, "tool", out var toolName) ? toolName.GetString() : null;
+        return $"mcp__{server ?? "?"}__{tool ?? "?"}";
+    }
+
+    /// <summary>
+    /// The outcome of an MCP call. A refusal is not an exit code but a `failed` status beside an
+    /// `error.message` — "MCP tool call requires approval, but approval policy is never" for a
+    /// server nothing approved — and the process still exits 0.
+    /// </summary>
+    /// <param name="item">A completed <c>mcp_tool_call</c> item.</param>
+    private static List<(string Name, string? Value)> McpToolCallDetail(JsonElement item)
+    {
+        var status = TryRead(item, "status", out var statusValue) ? statusValue.GetString() : null;
+        var detail = new List<(string Name, string? Value)>
+        {
+            ("isError", status is "completed" ? "false" : "true"),
+            ("status", status)
+        };
+
+        if (TryRead(item, "error", out var error) && TryRead(error, "message", out var message) && message.GetString() is { } refusal)
+            detail.Add(("error", refusal));
+        if (TryRead(item, "result", out var result) && result.ValueKind is not JsonValueKind.Null)
+            detail.Add(("output", RunLog.Tail(result.GetRawText())));
 
         return detail;
     }

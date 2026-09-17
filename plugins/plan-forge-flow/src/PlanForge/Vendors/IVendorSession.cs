@@ -28,4 +28,11 @@ internal interface IVendorSession : IAsyncDisposable
 
     /// <summary>Token to hand back to StartAsync to continue this conversation, once known.</summary>
     string? ResumeToken { get; }
+
+    /// <summary>
+    /// What the worker left running in the background when its turn ended, which the vendor killed
+    /// with the session, so its result never reached the worker. Empty where the vendor's stream
+    /// does not report it — every vendor but claude — see docs/adr/0018.
+    /// </summary>
+    IReadOnlyList<string> KilledBackgroundTasks => [];
 }
