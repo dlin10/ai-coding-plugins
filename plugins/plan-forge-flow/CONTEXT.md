@@ -182,6 +182,14 @@ So the codex session treats only `turn.failed` as a failure: it becomes `vendor.
 No `forge.log` on this machine held the skill-budget notice as `vendor.failed`: before this change,
 an `error` item was not logged at all.
 
+**`codex doctor --json` exits `1` for a check a worker never touches.** Measured against `codex`
+0.154.0 on 2026-09-17: the report said `overallStatus: fail` and the process exited `1` because
+`sandbox.helpers` alone was `fail` ("elevated Windows sandbox provisioning recorded a structured
+failure"), while `codex exec --sandbox read-only` on the same machine exited `0` and answered. The
+report is printed in full before the exit, so the probe reads its `checks` instead of the exit code:
+`auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, and any other
+failed check is named in the readiness detail rather than withholding codex.
+
 ## A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace
 
 Measured against `codex` 0.153.2 with `windows.sandbox = "elevated"` on 2026-09-14, through

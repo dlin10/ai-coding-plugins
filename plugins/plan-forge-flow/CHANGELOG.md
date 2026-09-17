@@ -1,5 +1,16 @@
 # Plan Forge Flow releases
 
+## 0.30.2
+
+A working codex is no longer reported unavailable because `codex doctor --json` exited non-zero.
+Measured against codex 0.154.0: the doctor exits `1` when any check fails, and on this machine the
+only failure was `sandbox.helpers`, while `codex exec` answered normally.
+
+- The codex probe now judges the doctor's `checks`: `auth.credentials` must be `ok`, and
+  `installation` and `config.load` must not be `fail`. Those still make codex unavailable.
+- Any other failed check leaves codex available and is named in the readiness detail, for example
+  `5 models; codex doctor warns: sandbox.helpers failed: …`.
+
 ## 0.30.1
 
 A codex `error` line no longer counts as a failure. Measured against codex 0.154.0: warnings and
