@@ -50,6 +50,40 @@ public sealed class VendorEventDetailTests
         Assert.Contains(outcome.Fields!, field => field.Name == "output" && field.Value!.Contains("Access is denied"));
     }
 
+    /// <summary>
+    /// Issue #90: a codex worker's MCP calls, refused or not, never reached the run log, so whether a
+    /// critic had used Roslyn could not be told afterwards. Shape measured 2026-09-17, codex-cli 0.154.0.
+    /// </summary>
+    [Fact]
+    public async Task Codex_mcp_call_carries_its_server_tool_status_and_refusal()
+    {
+        using var log = new ScopedLog();
+        var session = new CodexCliSession(new RoleSpec(VendorRole.Critic, "prompt"), new Selection("model", null), null);
+
+        foreach (var line in new[]
+        {
+            """{"type":"item.started","item":{"id":"item_4","type":"mcp_tool_call","server":"probe","tool":"roslyn_search_symbols","arguments":{"query":"VendorFactory"},"result":null,"error":null,"status":"in_progress"}}""",
+            """{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"probe","tool":"roslyn_search_symbols","arguments":{"query":"VendorFactory"},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"},"status":"failed"}}"""
+        })
+        {
+            using var document = JsonDocument.Parse(line);
+            session.Observe(document.RootElement);
+        }
+
+        await session.DisposeAsync();
+        var events = await CollectAsync(session);
+
+        var use = Assert.Single(events, raised => raised.Kind is VendorEventKind.ToolUse);
+        Assert.Equal("mcp__probe__roslyn_search_symbols", use.Text);
+        Assert.Contains(use.Fields!, field => field.Name == "input" && field.Value!.Contains("VendorFactory"));
+
+        var outcome = Assert.Single(events, raised => raised.Kind is VendorEventKind.ToolResult);
+        Assert.Equal("mcp__probe__roslyn_search_symbols", outcome.Text);
+        Assert.Contains(("isError", "true"), outcome.Fields!);
+        Assert.Contains(("status", "failed"), outcome.Fields!);
+        Assert.Contains(("error", "MCP tool call requires approval, but approval policy is never"), outcome.Fields!);
+    }
+
     [Fact]
     public async Task Codex_item_detail_is_null_when_the_item_has_none_of_the_fields()
     {

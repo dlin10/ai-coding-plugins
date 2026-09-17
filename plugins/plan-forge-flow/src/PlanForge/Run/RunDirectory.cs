@@ -293,6 +293,31 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    /// <summary>
+    /// A critic that ended its turn with work still running in the background judged without that
+    /// work's result. Its critique stands — the orchestrator filters every critique anyway — but the
+    /// reader of the timeline should know what it never saw the end of. See docs/adr/0018.
+    /// </summary>
+    public void AppendFlowKilledTasks(string act, int round, IReadOnlyList<string> killed)
+    {
+        if (killed.Count == 0) return;
+
+        RunLog.Current?.Write("warn", "critic", "critic.background-killed",
+            ("act", act), ("round", round.ToString()), ("tasks", string.Join("; ", killed)));
+
+        var entry = new StringBuilder().Append("## ").Append(act).Append(" — round ").Append(round)
+                                       .AppendLine(": background work killed")
+                                       .AppendLine()
+                                       .AppendLine("The critic ended its turn while this still ran in the background, so the session killed it "
+                                                   + "and the critique above was written without its result:")
+                                       .AppendLine();
+
+        foreach (var task in killed)
+            entry.Append("- `").Append(task).AppendLine("`");
+
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
+
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
         var entry = new StringBuilder().Append("## Task ").Append(number).Append(" of ").Append(total).AppendLine()
@@ -410,8 +435,13 @@ internal sealed class RunDirectory
 /// <param name="GateEnvironment">Environment variables every gate command runs with, from <c>forge.begin</c>.</param>
 /// <param name="BuilderRoots">Paths outside the workspace the builder may write to, from <c>forge.begin</c>; codex-only today.</param>
 /// <param name="PendingGateFailure">
-/// What the last gate run said when it failed, handed to the next builder turn and cleared by the
-/// first gate that passes. Null while nothing is owed.
+/// What the last gate run said when it failed — or what the last builder turn left running when
+/// it ended — handed to the next builder turn and cleared by the first gate that passes. Null
+/// while nothing is owed.
+/// </param>
+/// <param name="WorkerTools">
+/// Patterns naming the MCP servers every worker of the run may call unasked, from
+/// <c>forge.begin</c>. Null for a run begun before the setting existed, which gets the default.
 /// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
@@ -430,7 +460,8 @@ internal sealed record RunState(string RunId,
                                 int GrantedCodeReviewRounds = 0,
                                 IReadOnlyDictionary<string, string>? GateEnvironment = null,
                                 IReadOnlyList<string>? BuilderRoots = null,
-                                string? PendingGateFailure = null);
+                                string? PendingGateFailure = null,
+                                IReadOnlyList<string>? WorkerTools = null);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

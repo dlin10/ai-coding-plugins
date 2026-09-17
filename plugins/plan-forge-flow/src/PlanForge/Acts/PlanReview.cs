@@ -73,8 +73,11 @@ internal sealed class PlanReview
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
 
+        // The worker tools come from forge.begin because this critic runs before anything is
+        // confirmed — see docs/adr/0017.
         await using var session = await _vendor.StartAsync(
-            new RoleSpec(VendorRole.Critic, systemPrompt), selection, resumeToken: null, ct);
+            new RoleSpec(VendorRole.Critic, systemPrompt, WorkerTools: WorkerTools.Effective(state.WorkerTools)),
+            selection, resumeToken: null, ct);
 
         var prompt = Compose(draft, run.ReadReviewLog());
         SensitiveInput.Guard(prompt, "the plan under review");
@@ -93,6 +96,7 @@ internal sealed class PlanReview
         run.AppendReviewRound(round, critique);
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
         run.AppendFlowCritique("Plan review", round, critique);
+        run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
         run.WriteState(granted
             ? state with { ReviewRounds = round, ReviewRoundCap = state.ReviewRoundCap + 1,
                            GrantedReviewRounds = state.GrantedReviewRounds + 1 }

@@ -37,7 +37,8 @@ internal sealed class Build
 
         var sameVendor = string.Equals(state.BuilderVendor, _vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
-        await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder), state.BuilderRoots),
+        await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder),
+                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
                                                            selection,
                                                            resumeToken,
                                                            ct);
@@ -47,7 +48,8 @@ internal sealed class Build
         // The host's run of the task's gate, where the gate is a command, is what decides the task
         // — not the builder's account of the checks it ran. See docs/adr/0015.
         var gate = PlanGates.TaskGate(task.Text);
-        var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), state, ct);
+        var killed = session.KilledBackgroundTasks;
+        var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), killed, state, ct);
 
         // A task the builder could not do, or whose gate failed, stays the next task, so the
         // following call retries it instead of stepping over it as if it had been built.
@@ -57,7 +59,7 @@ internal sealed class Build
         run.WriteState(state with
         {
             TasksCompleted = tasksCompleted,
-            PendingGateFailure = Gatekeeper.PendingFailure(result, state.PendingGateFailure),
+            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure),
             BuilderSessionId = sameVendor
                 ? session.ResumeToken ?? state.BuilderSessionId
                 : session.ResumeToken ?? string.Empty,

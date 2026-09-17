@@ -22,7 +22,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. |
+| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic and builder may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — critics get the same grant. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
@@ -372,6 +372,13 @@ Read `gate.outcome` first:
   PowerShell. The second case is the environment's fault, not the task's: say so and treat the task
   as `not_executable`. A `blocked` turn whose verification was `unavailable` never lands here — the
   host runs the gate for it, and the outcome is one of the three above.
+- **`not_run` with `status` `background_killed`** — the builder ended its turn while a command it
+  had started in the background was still running, and the session killed it; `gate.detail` names
+  the command. By the builder's own account the work was unfinished, so no gate ran and
+  `tasksCompleted` did not move. Call `forge.build.next` again: the retry is told what was killed and
+  to run it in the foreground. If it happens twice for the same command, the command probably
+  outlasts the worker's 30-minute foreground limit — split the task, or run the command yourself and
+  record it with `forge.log.append`. Only a claude builder reports this.
 
 Say the gate's outcome in your one line of narration — a task whose gate failed, or whose gate
 nobody could run, must never read like a clean `done` in the chat.

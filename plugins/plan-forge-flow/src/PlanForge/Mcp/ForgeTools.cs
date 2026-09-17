@@ -25,13 +25,15 @@ internal sealed class ForgeTools
     private const int WORK_POLL_TIMEOUT_SECONDS = 45;
     private const string SOURCE = "server";
 
-    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client.")]
+    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic and builder of the run may call without being asked; omit it for the Roslyn servers alone.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
                                            SessionRoots roots,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
-                                           CancellationToken ct)
+                                           CancellationToken ct,
+                                           [Description("MCP server names, `*` matching any run of characters, that the run's workers may call without being asked — a headless worker is refused every call nothing granted. Omit for [\"roslyn-*\"]; pass [] for none. Name only servers that do not change files: critics get the same grant.")] string[]? workerTools = null)
     {
+        var granted = WorkerTools.Effective(WorkerTools.Validate(workerTools));
         var profile = CapabilityProfileDetector.Detect(server.ClientCapabilities);
         var runId = NewRunId();
         var run = await RunDirectory.CreateAsync(roots, workspaceRoot, runId, ct);
@@ -41,7 +43,8 @@ internal sealed class ForgeTools
         // for a host that declares no roots, which is the one thing the run path alone cannot say.
         return await LoggedAsync(run, "forge.begin",
             [("workspaceRoot", workspaceRoot), ("sessionRoot", await roots.DirectoryAsync(ct)),
-             ("client", ClientName(server)), ("profile", profile.ToString())],
+             ("client", ClientName(server)), ("profile", profile.ToString()),
+             ("workerTools", string.Join(", ", granted))],
             async () =>
             {
                 // Fire-and-forget: by the time the interview reaches the vendor question,
@@ -52,7 +55,7 @@ internal sealed class ForgeTools
                 run.WriteBaseline(baseline);
                 run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
                     ReviewRounds: 0, ReviewRoundCap: DEFAULT_REVIEW_ROUND_CAP, BaselineHead: baseline.Head,
-                    CodeReviewRoundCap: DEFAULT_CODE_REVIEW_CAP));
+                    CodeReviewRoundCap: DEFAULT_CODE_REVIEW_CAP, WorkerTools: granted));
 
                 return JsonSerializer.Serialize(
                     new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
@@ -274,7 +277,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. The gate runs for a builder that reports `blocked` with a verification of `unavailable` too — it did the work and could not prove it — and a gate that passes then rewrites the status to `done` and counts the task; read `build.result.verification` for what the builder itself could not check. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is.")]
+    [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. The gate runs for a builder that reports `blocked` with a verification of `unavailable` too — it did the work and could not prove it — and a gate that passes then rewrites the status to `done` and counts the task; read `build.result.verification` for what the builder itself could not check. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is. A turn that ended with a command still running in the background comes back as `background_killed` with the gate `not_run`: the session killed the command, the task is not counted, and the next call retries it.")]
     public static async Task<string> BuildNext(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -335,7 +338,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled. Afterwards the server runs the plan's executable `## Gates` entries on the host and reports them under `fix.gate`; a failure comes back as status `gate_failed` and is put in front of the builder on the next fix.")]
+    [McpServerTool(Name = "forge.review.fix"), Description("Hands the findings you kept after filtering the critique to the builder to fix, and records the deferred ones in the review log so the next round's critic treats them as settled. Afterwards the server runs the plan's executable `## Gates` entries on the host and reports them under `fix.gate`; a failure comes back as status `gate_failed` and is put in front of the builder on the next fix. A fix turn that ended with a command still running in the background comes back as `background_killed`, with no gate run and the killed command put in front of the builder on the next fix.")]
     public static async Task<string> ReviewFix(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,

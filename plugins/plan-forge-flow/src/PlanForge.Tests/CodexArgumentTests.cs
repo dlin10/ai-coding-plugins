@@ -107,4 +107,26 @@ public sealed class CodexArgumentTests
 
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Issue #90: under `codex exec` an MCP call nothing approved fails with "approval policy is
+    /// never". The key merges into the server the list reported; one naming a server no layer
+    /// declared stops codex before it starts (measured 2026-09-17, codex-cli 0.154.0).
+    /// </summary>
+    [Fact]
+    public void Both_roles_approve_each_granted_server_before_the_instructions()
+    {
+        foreach (var role in new[] { VendorRole.Critic, VendorRole.Builder })
+        {
+            var arguments = CodexCliSession.BuildArguments(new RoleSpec(role, "work"), new Selection("gpt-5.6-sol", null),
+                                                           null, "schema.json", "result.json", ["roslyn-mcp", "roslyn-mcp-plan-forge-flow"]);
+
+            var first = arguments.IndexOf("mcp_servers.roslyn-mcp.default_tools_approval_mode=" + TomlValue.String("approve"));
+            Assert.Equal("-c", arguments[first - 1]);
+            Assert.Equal("-c", arguments[first + 1]);
+            Assert.Equal("mcp_servers.roslyn-mcp-plan-forge-flow.default_tools_approval_mode=" + TomlValue.String("approve"), arguments[first + 2]);
+            Assert.Equal("-c", arguments[first + 3]);
+            Assert.StartsWith("developer_instructions=", arguments[first + 4], StringComparison.Ordinal);
+        }
+    }
 }

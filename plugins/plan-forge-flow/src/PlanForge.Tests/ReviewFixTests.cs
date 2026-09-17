@@ -248,6 +248,30 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Contains("Gate: not executable — the plan states no gate", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_fix_turn_that_left_a_background_task_running_runs_no_gate_and_briefs_the_next_fix()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("claude");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("unavailable", "suite still running"), "fixed"),
+                        killedBackgroundTasks: ["dotnet test"]);
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the suite ran"), "fixed"));
+        var run = NewRun(plan: "## Gates\n\n1. **G1.** `Write-Output g1` passes.\n\n## Approach\n\n1. Task.\n");
+        var fix = NewFix(builder);
+
+        var first = await fix.FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        Assert.Equal("background_killed", first.Status);
+        Assert.Equal("not_run", first.Gate?.Outcome);
+        Assert.Equal("G1", first.Gate?.Label);
+        Assert.Contains("Status: background_killed", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+
+        await fix.FixAsync(run, new Selection("builder-model", null), "- fix it again", null, ct);
+
+        Assert.Contains("dotnet test", builder.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
     private ReviewFix NewFix(RecordingVendor builder) =>
         new(builder, new PromptLibrary(RepositoryPrompts()));
 

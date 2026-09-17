@@ -34,7 +34,15 @@ internal enum VendorRole
 /// on the role because it is a fact about the builder's sandbox, and only codex has a sandbox to
 /// tell; the other vendors ignore it.
 /// </param>
-internal sealed record RoleSpec(VendorRole Role, string SystemPrompt, IReadOnlyList<string>? WritableRoots = null);
+/// <param name="WorkerTools">
+/// Patterns naming the MCP servers this worker may call unasked, from <c>forge.begin</c>; null or
+/// empty grants none. Each vendor matches them against its own server list at start — see
+/// <see cref="Vendors.WorkerTools"/>.
+/// </param>
+internal sealed record RoleSpec(VendorRole Role,
+                                string SystemPrompt,
+                                IReadOnlyList<string>? WritableRoots = null,
+                                IReadOnlyList<string>? WorkerTools = null);
 
 /// <summary>
 /// Model and effort are kept apart because vendors express effort differently — a flag for Claude,
@@ -74,6 +82,9 @@ internal enum VendorEventKind
     Text,
     ToolUse,
     ToolResult,
+
+    /// <summary>A task the vendor runs on the worker's behalf started, changed or ended.</summary>
+    Task,
     Finished,
     Failed
 }

@@ -40,17 +40,21 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         SensitiveInput.Guard(review, "the diff under review");
 
         Critique critique;
+        IReadOnlyList<string> killed;
         // Fresh critic each round, but handed the log so it converges instead of oscillating.
-        await using (var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id)),
+        await using (var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id),
+                                                                       WorkerTools: WorkerTools.Effective(state.WorkerTools)),
                                                           selection, resumeToken: null, ct))
         {
             critique = WithReviewWindow(await critic.RunAsync(review, Schemas.Critique, ct), window);
+            killed = critic.KilledBackgroundTasks;
         }
 
         var round = state.CodeReviewRounds + 1;
         run.AppendReviewRound(state.ReviewRounds + round, critique);
         if (granted) run.AppendFlowGrantedRound("Code review", round);
         run.AppendFlowCritique("Code review", round, critique);
+        run.AppendFlowKilledTasks("Code review", round, killed);
         run.WriteState(granted
             ? state with { CodeReviewRounds = round, CodeReviewRoundCap = state.CodeReviewRoundCap + 1,
                            GrantedCodeReviewRounds = state.GrantedCodeReviewRounds + 1 }
