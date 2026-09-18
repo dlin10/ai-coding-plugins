@@ -61,7 +61,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
                       "peakWorkingSetMb", "counts", "coverage", "targets"],
                      Names(root));
-        Assert.Equal("1.0", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.1", root.GetProperty("schemaVersion").GetString());
         Assert.Equal(BuildInfo.Version, root.GetProperty("engineVersion").GetString());
         Assert.True(DateTimeOffset.TryParse(root.GetProperty("recordedAt").GetString(), out _));
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
@@ -76,7 +76,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "suppressed", "candidates"],
                      Names(root.GetProperty("counts").GetProperty("pairs")));
         Assert.All(root.GetProperty("coverage").EnumerateArray(), scope =>
-            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters"], Names(scope)));
+            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering"], Names(scope)));
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);
@@ -116,7 +116,22 @@ public sealed class MetricsCommandTests
         {
             Assert.Equal(analysis.Accesses.Count(access => access.Resource.Scope == scope.ScopeId && !access.IsConstructionLocal), scope.Accesses);
             Assert.Equal(analysis.Coverage.Single(item => item.ScopeId == scope.ScopeId).Skips.ToDictionary(), scope.Counters.ToDictionary());
+            Assert.Equal(analysis.Coverage.Single(item => item.ScopeId == scope.ScopeId).Ordering.ToDictionary(), scope.Ordering.ToDictionary());
         });
+    }
+
+    /// <summary>The ordering counters are the demo's only gate on spawn sites, unproven joins and timer kinds, so an
+    /// empty dictionary must not pass the shape checks unnoticed.</summary>
+    [Fact]
+    public async Task Demo_measurement_carries_the_ordering_counters_of_the_web_scope()
+    {
+        var (measurement, _) = await DEMO.Value;
+
+        var web = Assert.Single(measurement.Coverage, scope => scope.ScopeId == "Demo.Web");
+        Assert.Equal([OrderingCounters.SPAWN_SITES, OrderingCounters.TIMERS_DISABLED, OrderingCounters.TIMERS_ONE_SHOT,
+                      OrderingCounters.TIMERS_PERIODIC, OrderingCounters.UNPROVEN_JOINS],
+                     web.Ordering.Keys.Order(StringComparer.Ordinal));
+        Assert.All(web.Ordering.Values, value => Assert.True(value > 0));
     }
 
     [Fact]

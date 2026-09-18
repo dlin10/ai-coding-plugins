@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "target": "src/eShopOnContainers-ServicesAndWebApps.sln",
   "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
   "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-18T16:45:22.9415383\u002B00:00",
+  "recordedAt": "2026-09-18T17:08:43.4608969\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,39 +18,39 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 10.693
+        "seconds": 11.11
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.878
+        "seconds": 4.845
       },
       {
         "step": "program-index",
-        "seconds": 6.532
+        "seconds": 6.353
       },
       {
         "step": "lowering",
-        "seconds": 2.827
+        "seconds": 2.899
       },
       {
         "step": "reachable-set",
-        "seconds": 0.119
+        "seconds": 0.099
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.471
+        "seconds": 0.44
       },
       {
         "step": "executions",
-        "seconds": 0.109
+        "seconds": 0.103
       },
       {
         "step": "accesses",
-        "seconds": 0.387
+        "seconds": 0.376
       },
       {
         "step": "pairing",
-        "seconds": 0.02
+        "seconds": 0.019
       },
       {
         "step": "findings",
@@ -58,12 +58,12 @@
       },
       {
         "step": "render",
-        "seconds": 0.04
+        "seconds": 0.044
       }
     ],
-    "totalSeconds": 29.06
+    "totalSeconds": 29.203
   },
-  "peakWorkingSetMb": 427.7,
+  "peakWorkingSetMb": 431.1,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -114,6 +114,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 12
       }
     },
     {
@@ -134,6 +141,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 1,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 34
       }
     },
     {
@@ -154,6 +168,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 62
       }
     },
     {
@@ -174,6 +195,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 16
       }
     },
     {
@@ -194,6 +222,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 1,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 10
       }
     },
     {
@@ -214,6 +249,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 1
       }
     },
     {
@@ -234,6 +276,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -254,6 +303,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -274,6 +330,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 16
       }
     },
     {
@@ -294,6 +357,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 18
       }
     },
     {
@@ -314,6 +384,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 1
       }
     },
     {
@@ -334,6 +411,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -354,6 +438,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 4
       }
     },
     {
@@ -374,18 +465,25 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 3,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 7
       }
     }
   ],
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 29.06,
+      "actual": 29.203,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.418,
+      "actual": 0.421,
       "met": true
     }
   }

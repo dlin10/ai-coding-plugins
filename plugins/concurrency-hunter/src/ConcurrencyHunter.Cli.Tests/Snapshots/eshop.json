@@ -49,6 +49,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 12
       }
     },
     {
@@ -69,6 +76,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 1,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 34
       }
     },
     {
@@ -89,6 +103,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 62
       }
     },
     {
@@ -109,6 +130,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 16
       }
     },
     {
@@ -129,6 +157,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 1,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 10
       }
     },
     {
@@ -149,6 +184,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 1
       }
     },
     {
@@ -169,6 +211,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -189,6 +238,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -209,6 +265,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 16
       }
     },
     {
@@ -229,6 +292,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 18
       }
     },
     {
@@ -249,6 +319,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 1
       }
     },
     {
@@ -269,6 +346,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     },
     {
@@ -289,6 +373,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 4
       }
     },
     {
@@ -309,6 +400,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 3,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 7
       }
     }
   ]

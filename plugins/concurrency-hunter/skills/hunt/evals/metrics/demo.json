@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "target": "concurrency-hunter/demo/Demo.slnx",
-  "revision": "3cca146a089ec35602ae4120377e05efa9f98639",
+  "revision": "ab79feb74aaad70590399da05ee72a780c05af89",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-18T16:43:44.4581050\u002B00:00",
+  "recordedAt": "2026-09-18T17:08:13.0881546\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,52 +18,52 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.28
+        "seconds": 3.332
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.019
+        "seconds": 1.001
       },
       {
         "step": "program-index",
-        "seconds": 0.684
+        "seconds": 0.716
       },
       {
         "step": "lowering",
-        "seconds": 0.563
+        "seconds": 0.601
       },
       {
         "step": "reachable-set",
-        "seconds": 0.05
+        "seconds": 0.051
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.219
+        "seconds": 0.227
       },
       {
         "step": "executions",
-        "seconds": 0.123
+        "seconds": 0.127
       },
       {
         "step": "accesses",
-        "seconds": 0.165
+        "seconds": 0.17
       },
       {
         "step": "pairing",
-        "seconds": 0.028
+        "seconds": 0.029
       },
       {
         "step": "findings",
-        "seconds": 0.034
+        "seconds": 0.042
       },
       {
         "step": "render",
-        "seconds": 0.123
+        "seconds": 0.133
       }
     ],
-    "totalSeconds": 8.548
+    "totalSeconds": 8.541
   },
-  "peakWorkingSetMb": 219.2,
+  "peakWorkingSetMb": 219.8,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
@@ -226,6 +226,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 2,
         "wildcard-access": 5
+      },
+      "ordering": {
+        "spawn-sites": 39,
+        "timers-disabled": 1,
+        "timers-one-shot": 5,
+        "timers-periodic": 6,
+        "unproven-joins": 21
       }
     },
     {
@@ -246,18 +253,25 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     }
   ],
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 8.548,
+      "actual": 8.541,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.214,
+      "actual": 0.215,
       "met": true
     }
   }

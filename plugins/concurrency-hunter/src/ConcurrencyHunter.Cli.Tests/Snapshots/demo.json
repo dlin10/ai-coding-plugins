@@ -161,6 +161,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 2,
         "wildcard-access": 5
+      },
+      "ordering": {
+        "spawn-sites": 39,
+        "timers-disabled": 1,
+        "timers-one-shot": 5,
+        "timers-periodic": 6,
+        "unproven-joins": 21
       }
     },
     {
@@ -181,6 +188,13 @@
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
+      },
+      "ordering": {
+        "spawn-sites": 0,
+        "timers-disabled": 0,
+        "timers-one-shot": 0,
+        "timers-periodic": 0,
+        "unproven-joins": 0
       }
     }
   ]
