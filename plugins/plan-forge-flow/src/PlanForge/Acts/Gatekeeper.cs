@@ -21,6 +21,9 @@ internal static class Gatekeeper
     // string in the run state.
     private const string KILLED_BRIEF = "Your previous turn ended with work still running in the background";
 
+    // The same, for a turn the host took away before the builder answered.
+    private const string CUT_SHORT_BRIEF = "Your previous turn was cut short: the host took the call away before you answered";
+
     /// <summary>
     /// Runs <paramref name="gates"/> when the turn is worth checking, and hands back the result with
     /// <see cref="BuildResult.Gate"/> filled in and the status rewritten to what the exit code says:
@@ -110,9 +113,9 @@ internal static class Gatekeeper
     {
         if (killed.Count > 0) return KilledBrief(killed);
 
-        // A kill is about the turn that followed it and nothing later: without this, a task whose
-        // gate is a condition would carry the brief on to the next task.
-        if (previous?.StartsWith(KILLED_BRIEF, StringComparison.Ordinal) is true) previous = null;
+        // How the previous turn ended is about the turn that followed it and nothing later:
+        // without this, a task whose gate is a condition would carry the brief on to the next task.
+        if (Transient(previous)) previous = null;
         if (result.Gate is null) return previous;
 
         return result.Gate.Outcome switch
@@ -127,7 +130,7 @@ internal static class Gatekeeper
     {
         if (pending is not { Length: > 0 }) return;
 
-        if (pending.StartsWith(KILLED_BRIEF, StringComparison.Ordinal))
+        if (Transient(pending))
         {
             prompt.AppendLine()
                   .AppendLine("# The previous attempt was cut short")
@@ -195,6 +198,43 @@ internal static class Gatekeeper
                    .Append("long enough for it, and wait for it before you answer.")
                    .ToString();
     }
+
+    /// <summary>
+    /// What the next builder turn is told about a turn the host cut short. The files are the whole
+    /// of what is known — the builder never answered, so there is no status, no verification and no
+    /// gate — and naming them is what stops the retry starting over on work already on disk.
+    /// </summary>
+    /// <remarks>
+    /// The closing paragraph is aimed at the cause rather than the symptom. The builder of round 5
+    /// in run 20260917-111319-20e672 finished its work and its gates with twenty-three minutes to
+    /// spare, then spent every one of them on a check it had not been asked for, and the hour ran
+    /// out while that check hung.
+    /// </remarks>
+    public static string CutShortBrief(IReadOnlyList<string> filesWritten)
+    {
+        var text = new StringBuilder().Append(CUT_SHORT_BRIEF)
+                                      .AppendLine(", and the session was killed with it.")
+                                      .AppendLine();
+
+        if (filesWritten.Count > 0)
+        {
+            text.AppendLine("What you had already written is still on disk:").AppendLine();
+            foreach (var file in filesWritten) text.Append("- `").Append(file).AppendLine("`");
+            text.AppendLine();
+        }
+
+        return text.Append("Nothing was verified: no gate ran and the work was not counted. Read what you changed ")
+                   .Append("before you change more. The call ends at a fixed deadline you cannot see and nothing you ")
+                   .Append("do after your final answer survives it, so spend the turn on the work you were asked for ")
+                   .Append("and answer as soon as it is done — not on optional extra checks.")
+                   .ToString();
+    }
+
+    // A brief about how the previous turn ended, as opposed to a gate that failed: it is spent by
+    // the turn that reads it, while a gate failure stands until a gate passes.
+    private static bool Transient(string? brief) =>
+        brief is not null && (brief.StartsWith(KILLED_BRIEF, StringComparison.Ordinal)
+                              || brief.StartsWith(CUT_SHORT_BRIEF, StringComparison.Ordinal));
 
     private static string Quoted(IReadOnlyList<string> killed) => string.Join(", ", killed.Select(task => $"`{task}`"));
 

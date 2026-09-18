@@ -182,6 +182,14 @@ So the codex session treats only `turn.failed` as a failure: it becomes `vendor.
 No `forge.log` on this machine held the skill-budget notice as `vendor.failed`: before this change,
 an `error` item was not logged at all.
 
+**`codex doctor --json` exits `1` for a check a worker never touches.** Measured against `codex`
+0.154.0 on 2026-09-17: the report said `overallStatus: fail` and the process exited `1` because
+`sandbox.helpers` alone was `fail` ("elevated Windows sandbox provisioning recorded a structured
+failure"), while `codex exec --sandbox read-only` on the same machine exited `0` and answered. The
+report is printed in full before the exit, so the probe reads its `checks` instead of the exit code:
+`auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, and any other
+failed check is named in the readiness detail rather than withholding codex.
+
 ## A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace
 
 Measured against `codex` 0.153.2 with `windows.sandbox = "elevated"` on 2026-09-14, through
@@ -481,6 +489,23 @@ continuously active worker can now outlive it, while a silent attempt is reaped 
 30 minutes. The field was measured through `--mcp-config`; the plugin manifest declares its server
 with the same entry schema, which is the one assumption not yet measured end to end.
 
+A worker did outlive it, in round 5 of run `20260917-111319-20e672` (issue #96). The manifest
+value is now measured end to end and exact: `process.kill` with `reason: cancelled` landed
+3600.11 s after `tool.call`, and `tool.cancelled` 1 ms later. Two things the measurement settles.
+
+- The idle reaper was not involved and was not at fault: `tool_progress` heartbeats kept arriving,
+  so the thirty-minute silence window never opened. What ends a one-call act on this host is the
+  wall clock alone, and nothing the server does resets it.
+- The two clocks nest badly. The builder's own `Bash` command hit **Claude Code's 1800 s** limit
+  and was moved to the background at 02:08:12; the manifest's hour expired at 02:08:16. Half the
+  call was spent inside a single tool use of the worker's, and the worker got it back with four
+  seconds of budget left — after finishing its edits at 01:29, rewriting the baseline at 01:33 and
+  running the plan's gates green at 01:37, all of which the act then lost whole.
+
+So the hour is not a bound the server can plan around, and a cut-short turn is a normal ending
+rather than an anomaly. `BuilderTurn` records one instead of discarding it: see "A turn the host
+cut short is recorded, not lost".
+
 ## Verification is self-reported; where the gate is a command, the host's run of it decides
 
 A builder that changed files but could not execute anything used to have no honest answer: `status`
@@ -715,6 +740,42 @@ review, and it applies unchanged here.
 Both are written after the critique returns rather than before it, so a vendor timeout or a
 restarted server — both of which this run hit — records the revision once when the act is retried
 with the same arguments.
+
+## A turn the host cut short is recorded, not lost
+
+The same principle, one failure further out. Every act writes its logs and its state *after* the
+worker returns, which is right for a worker that fails — the act is retried with the same arguments
+and records once — but wrong for a worker the host takes away. Round 5 of run
+`20260917-111319-20e672` lost an hour that way: the builder had finished its edits, rewritten the
+baseline and run the plan's gates green, and `forge.review.fix` left behind no timeline entry, no
+review-log entry, no state, and no gate of the server's own. Only the edits survived, because they
+were already on disk. The orchestrator read the tree by hand and wrote the round up through
+`forge.log.append`.
+
+`BuilderTurn` used to exclude cancellation from its salvage deliberately, on the grounds that the
+host taking the call away "has no report to replace". It has no report; it has a tree. So a
+cancelled turn now leaves as a `TurnCutShortException` carrying the files git says the builder
+wrote, and `forge.review.fix` and `forge.build.next` record the turn on its way out:
+
+- the flow log gets a `cut short` entry naming those files, so the timeline stops skipping the hour;
+- the review log gets the round's fixes under a `— cut short` heading that tells the next critic to
+  judge the findings against the tree rather than against the entry, while the deferrals travel
+  unmarked because they are the orchestrator's decision and the kill does not touch them;
+- `state.json` keeps the builder's resume token — the vendor reports the session id on its first
+  stream line, long before the answer that never came — so the retry continues the conversation
+  instead of starting cold;
+- `PendingGateFailure` carries a cut-short brief, spent by the next turn the way a killed-background
+  brief is, telling the builder what is on disk and that the call ends at a deadline it cannot see.
+
+Three things it deliberately does **not** do. No gate runs: the tree is mid-edit and the token that
+would run one is already cancelled, so a verdict then would be about a tree nobody chose. Nothing
+is reconstructed from `vendor.text` — at 01:37 that builder said its gates were green and then
+changed files for another half hour, so its narration is mid-thought, and a salvaged `done` would
+be the self-report the gate exists to replace. And the cancellation still travels as cancellation,
+so the act fails and `tool.cancelled` is what the run log shows; what changes is that the failure
+is no longer silent. Saving the work itself would mean detaching the worker from the request, which
+is what `forge.work.*` already does and what the one-call surface deliberately still does not — see
+issue #96.
 
 ## A declared elicitation capability is not a rendered one
 

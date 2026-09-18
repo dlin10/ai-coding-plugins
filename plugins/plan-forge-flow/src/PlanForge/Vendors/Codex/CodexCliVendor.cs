@@ -54,27 +54,35 @@ internal sealed class CodexCliVendor : IVendor
                 : null;
 
             var spec = new ProcessSpec(executable, ["doctor", "--json"], _workingDirectory, string.Empty, environment);
-            var lines = await StreamingProcess.CollectAsync(spec, PROBE_TIMEOUT, ct).ConfigureAwait(false);
-
-            using var document = JsonDocument.Parse(string.Join('\n', lines));
-            var root = document.RootElement;
-
-            if (!root.TryGetProperty("checks", out var checks) || checks.ValueKind is not JsonValueKind.Object)
-                return Unrecognised();
-
-            if (!checks.TryGetProperty("auth.credentials", out var auth) || auth.ValueKind is not JsonValueKind.Object)
-                return Unrecognised();
-
-            if (!auth.TryGetProperty("status", out var status) || status.ValueKind is not JsonValueKind.String)
-                return Unrecognised();
-
-            if (status.GetString() is not "ok")
+            var lines = new List<string>();
+            VendorException? exitFailure = null;
+            try
             {
-                var summary = auth.TryGetProperty("summary", out var summaryValue) && summaryValue.ValueKind is JsonValueKind.String
-                    ? summaryValue.GetString()
-                    : null;
+                await foreach (var line in StreamingProcess.RunAsync(spec, PROBE_TIMEOUT, ct).ConfigureAwait(false))
+                    lines.Add(line);
+            }
+            catch (VendorException error) when (error.ExitCode is not null)
+            {
+                // doctor exits non-zero when any check fails, including checks a worker never
+                // depends on, so the report it already printed decides rather than the exit code.
+                exitFailure = error;
+            }
 
-                return new VendorReadiness(false, summary ?? "codex is not signed in");
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(string.Join('\n', lines));
+            }
+            catch (JsonException) when (exitFailure is not null)
+            {
+                return new VendorReadiness(false, exitFailure.Message);
+            }
+
+            string? warning;
+            using (document)
+            {
+                (var refusal, warning) = JudgeDoctor(document.RootElement);
+                if (refusal is not null) return refusal;
             }
 
             var modelsSpec = new ProcessSpec(executable, ["debug", "models"], _workingDirectory, string.Empty, environment);
@@ -83,7 +91,8 @@ internal sealed class CodexCliVendor : IVendor
             using var modelsDocument = JsonDocument.Parse(string.Join('\n', modelLines));
             Catalog = new VendorCatalog(ParseModels(modelsDocument.RootElement), CatalogSource.Live);
 
-            return new VendorReadiness(true, $"{Catalog.Models.Count} models");
+            var detail = $"{Catalog.Models.Count} models";
+            return new VendorReadiness(true, warning is null ? detail : $"{detail}; {warning}");
         }
         catch (Exception error) when (error is VendorException or JsonException or OperationCanceledException
                                             or KeyNotFoundException or InvalidOperationException)
@@ -113,6 +122,43 @@ internal sealed class CodexCliVendor : IVendor
 
         using var document = JsonDocument.Parse(string.Join('\n', lines));
         return ParseServerList(document.RootElement);
+    }
+
+    /// <summary>
+    /// Judges `codex doctor --json` by the checks a worker cannot run without, measured against
+    /// codex-cli 0.154.0 on 2026-09-17: that version reported `overallStatus: fail` and exited 1
+    /// for a failed `sandbox.helpers` alone, while `codex exec --sandbox read-only` answered.
+    /// Sign-in must be `ok`; `installation` and `config.load` must not `fail`. Any other failed
+    /// check is returned as a warning for the readiness detail instead of withholding codex.
+    /// </summary>
+    internal static (VendorReadiness? Refusal, string? Warning) JudgeDoctor(JsonElement root)
+    {
+        if (!root.TryGetProperty("checks", out var checks) || checks.ValueKind is not JsonValueKind.Object)
+            return (Unrecognised(), null);
+
+        if (!checks.TryGetProperty("auth.credentials", out var auth) || auth.ValueKind is not JsonValueKind.Object)
+            return (Unrecognised(), null);
+
+        if (OptionalString(auth, "status") is not { } authStatus)
+            return (Unrecognised(), null);
+
+        if (authStatus is not "ok")
+            return (new VendorReadiness(false, OptionalString(auth, "summary") ?? "codex is not signed in"), null);
+
+        var warnings = new List<string>();
+        foreach (var check in checks.EnumerateObject())
+        {
+            if (check.Value.ValueKind is not JsonValueKind.Object || OptionalString(check.Value, "status") is not "fail")
+                continue;
+
+            var summary = OptionalString(check.Value, "summary");
+            if (check.Name is "installation" or "config.load")
+                return (new VendorReadiness(false, summary ?? $"codex doctor reports {check.Name} failed"), null);
+
+            warnings.Add(summary is null ? $"{check.Name} failed" : $"{check.Name} failed: {summary}");
+        }
+
+        return (null, warnings.Count == 0 ? null : $"codex doctor warns: {string.Join("; ", warnings)}");
     }
 
     /// <summary>

@@ -10,7 +10,17 @@ CLI/ACP path, no Cursor schema has a timeout field, and progress cannot reset th
 path sends no `progressToken` at all, and the IDE path does not pass `resetTimeoutOnProgress` (all
 measured 2026-08-18, recorded in `CONTEXT.md`). Codex takes `tool_timeout_sec: 3600` and Claude Code takes
 `"timeout": 3600000`, so the problem belongs to Cursor alone, and the staff-endorsed pattern there
-is a job id returned fast plus polling. Until now `skills/forge/SKILL.md` handled it by warning the
+is a job id returned fast plus polling.
+
+> **Amended 2026-09-18 (issue #96).** "The problem belongs to Cursor alone" was wrong, and run
+> `20260917-111319-20e672` measured it wrong: a `forge.review.fix` on the Claude Code host was
+> cancelled 3600.11 s in, killing a builder whose work was finished. Every host has this ceiling;
+> Cursor's is merely a minute rather than an hour, which is the difference between an act that
+> never completes and one that usually does. What survives the amendment is the *remedy's* scope:
+> a cut-short one-call act now records the turn before the cancellation travels on, but it still
+> does not detach its worker, so the work itself is still lost where a job's would not be. The
+> argument for detaching the one-call surface too — and the cost, that cancellation stops meaning
+> "stop the builder" — is open in issue #96. Until now `skills/forge/SKILL.md` handled it by warning the
 user and pointing at another host — a workaround that concedes a run started in the Cursor Agents
 window cannot finish there.
 
