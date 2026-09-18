@@ -1,5 +1,29 @@
 # Plan Forge Flow releases
 
+## 0.30.3
+
+A builder turn the host cuts short is now recorded instead of vanishing. Round 5 of run
+`20260917-111319-20e672` measured the loss: `forge.review.fix` was cancelled 3600.11 s in — the
+hour `.claude-plugin/plugin.json` sets on itself — after the builder had finished its edits,
+rewritten the baseline and run the plan's gates green. Nothing was written: no timeline entry, no
+review-log entry, no state, no gate of the server's own. Only the edits survived, because they were
+already on disk, and the orchestrator had to read the tree by hand (issue #96).
+
+- `forge.review.fix` and `forge.build.next` now write the turn down before the cancellation travels
+  on: a `cut short` entry in the flow log naming the files git says the builder wrote, the round's
+  fixes in the review log under a `— cut short` heading telling the next critic to judge them
+  against the tree, the builder's resume token in `state.json` so the retry continues the
+  conversation instead of starting cold, and a cut-short brief for the next turn saying what is on
+  disk and that the call ends at a deadline the worker cannot see.
+- A cut-short task is not counted, and no gate runs for either act — the tree is mid-edit and the
+  token that would run one is already cancelled. Nothing is reconstructed from the worker's
+  narration: that builder called its gates green and then changed files for another half hour.
+- The cancellation is still a cancellation. The act fails, `forge.log` still records
+  `tool.cancelled`, and the work itself is still lost — saving that needs the worker detached from
+  the request, which is open in issue #96. `docs/adr/0006` is amended where it said the ceiling
+  "belongs to Cursor alone".
+- `forge.log` gains `builder.cut-short` with the file count and names.
+
 ## 0.30.2
 
 A working codex is no longer reported unavailable because `codex doctor --json` exited non-zero.

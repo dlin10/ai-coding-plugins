@@ -43,7 +43,25 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
                                                            selection, resumeToken, ct);
 
-        var reported = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
+        BuildResult reported;
+        try
+        {
+            reported = await BuilderTurn.RunAsync(builder, state.WorkspaceRoot, prompt, ct);
+        }
+        // The call is gone, so nothing can be returned — but the round happened, and what is known
+        // of it goes down before the cancellation travels on. No gate runs: the tree is mid-edit
+        // and the token that would run one is already dead.
+        catch (TurnCutShortException cutShort)
+        {
+            run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred, cutShort: true);
+            run.AppendFlowCutShort($"Fixes — round {state.CodeReviewRounds}", cutShort.FilesWritten);
+            run.WriteState(Resumed(state, builder, sameVendor) with
+            {
+                PendingGateFailure = Gatekeeper.CutShortBrief(cutShort.FilesWritten)
+            });
+
+            throw;
+        }
 
         // A fix round belongs to no single task, so the gates it answers to are the run-wide ones
         // under `## Gates` — the checks that span the whole change, which is what a fix touches.
@@ -53,17 +71,28 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         run.AppendReviewFix(state.ReviewRounds + state.CodeReviewRounds, findings, deferred);
         run.AppendFlowFix(state.CodeReviewRounds, findings, deferred, result);
-        run.WriteState(state with
+        run.WriteState(Resumed(state, builder, sameVendor) with
         {
-            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure),
-            BuilderSessionId = sameVendor
-                                   ? builder.ResumeToken ?? state.BuilderSessionId
-                                   : builder.ResumeToken ?? string.Empty,
-            BuilderVendor = vendor.Id
+            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure)
         });
 
         return result;
     }
+
+    /// <summary>
+    /// The builder's session as the run should remember it after a turn. A cut-short turn keeps its
+    /// token like any other: the id arrives on the vendor's first stream line, long before the
+    /// answer that never came, and without it the next fix starts a builder with no memory of the
+    /// round it is continuing.
+    /// </summary>
+    private RunState Resumed(RunState state, IVendorSession builder, bool sameVendor) =>
+        state with
+        {
+            BuilderSessionId = sameVendor
+                                   ? builder.ResumeToken ?? state.BuilderSessionId
+                                   : builder.ResumeToken ?? string.Empty,
+            BuilderVendor = vendor.Id
+        };
 
     private static string Compose(string findings, string? pendingGateFailure)
     {

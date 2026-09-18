@@ -438,6 +438,52 @@ public sealed class BuildTests : IDisposable
         Assert.Contains("dotnet watch test", run.ReadState().PendingGateFailure, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The task counter is the thing a cut-short turn must not move: the builder was killed before
+    /// it answered, so nothing it did was verified. What it had written is the tree's, and the
+    /// timeline says so rather than skipping the hour it ran.
+    /// </summary>
+    [Fact]
+    public async Task A_task_the_host_cut_short_lands_in_the_timeline_without_being_counted()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new OperationCanceledException(), "cut-short-token");
+        var run = NewRun("claude", "old-token");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+                .NextAsync(run, new Selection("builder-model", null), CancellationToken.None));
+
+        var state = run.ReadState();
+        Assert.Equal(0, state.TasksCompleted);
+        Assert.Equal("cut-short-token", state.BuilderSessionId);
+        Assert.Contains("cut short", state.PendingGateFailure!, StringComparison.Ordinal);
+        Assert.Contains("## Task 1 of 2: cut short", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_task_the_host_cut_short_briefs_the_builder_that_retries_it()
+    {
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new OperationCanceledException(), "cut-short-token");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("claude", "old-token");
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None));
+
+        var outcome = await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        Assert.Equal("cut-short-token", vendor.Sessions[1].StartedWithResumeToken);
+        Assert.Contains("# The previous attempt was cut short", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Task 1 of 2", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+
+        // The brief is about the turn that follows it and nothing later, so the retry clears it.
+        Assert.Equal(1, outcome.TasksCompleted);
+        Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
     private static string GatedPlan(string firstGate, string secondGate) =>
         $"## Approach\n\n1. **First.** Do it. **Gate:** `{firstGate}` (R1)\n2. **Second.** Do it. **Gate:** `{secondGate}` (R2)\n";
 

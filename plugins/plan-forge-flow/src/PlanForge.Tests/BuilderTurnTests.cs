@@ -114,7 +114,7 @@ public sealed class BuilderTurnTests : IDisposable
     }
 
     [Fact]
-    public async Task Cancellation_passes_through_untouched()
+    public async Task Cancellation_passes_through_as_cancellation()
     {
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
@@ -122,6 +122,50 @@ public sealed class BuilderTurnTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => BuilderTurn.RunAsync(session, _repo, "fix these", cancelled.Token));
+    }
+
+    /// <summary>
+    /// Run 20260917-111319-20e672: the host's hour ran out on a fix four seconds after the builder
+    /// got a hung command back, killing it with its edits finished but unreported. The cancellation
+    /// still travels — the call really is gone — but it leaves with the tree, which is the only
+    /// account of the turn anyone will get.
+    /// </summary>
+    [Fact]
+    public async Task A_turn_the_host_cut_short_carries_the_files_it_had_written()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        var session = new FailingSession(() => Write("tracked.txt", "written before the host gave up\n"),
+                                         new OperationCanceledException());
+
+        var cutShort = await Assert.ThrowsAsync<TurnCutShortException>(
+            () => BuilderTurn.RunAsync(session, _repo, "fix these", ct));
+
+        Assert.Equal("tracked.txt", Assert.Single(cutShort.FilesWritten));
+        Assert.Contains("still on disk", cutShort.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The salvage runs git on a token of its own. On the turn's own token — cancelled by
+    /// definition by the time this runs — every call would come back empty and the file the
+    /// builder wrote would go unrecorded, which is the whole failure this was written to end.
+    /// </summary>
+    [Fact]
+    public async Task The_file_list_survives_a_turn_cut_short_by_its_own_token()
+    {
+        await InitialCommitAsync(CancellationToken.None);
+        using var host = new CancellationTokenSource();
+        var session = new FailingSession(() =>
+                                         {
+                                             Write("tracked.txt", "written before the host gave up\n");
+                                             host.Cancel();
+                                         },
+                                         new OperationCanceledException());
+
+        var cutShort = await Assert.ThrowsAsync<TurnCutShortException>(
+            () => BuilderTurn.RunAsync(session, _repo, "fix these", host.Token));
+
+        Assert.Equal("tracked.txt", Assert.Single(cutShort.FilesWritten));
     }
 
     private void Write(string relativePath, string contents) =>

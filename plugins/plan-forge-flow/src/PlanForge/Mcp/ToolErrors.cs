@@ -34,9 +34,11 @@ internal static class ToolErrors
             {
                 return await next(request, ct);
             }
-            // Cancellation is the host taking the call away rather than an answer to give it, and
-            // it belongs to no assembly of ours, so it flows on untouched.
-            catch (Exception error) when (IsOwn(error))
+            // Cancellation is the host taking the call away rather than an answer to give it, so it
+            // flows on untouched. Belonging to no assembly of ours used to be enough to arrange
+            // that; it stopped being enough when TurnCutShortException — ours, and a cancellation —
+            // was added, so the exclusion is now stated rather than inferred.
+            catch (Exception error) when (error is not OperationCanceledException && IsOwn(error))
             {
                 return new CallToolResult
                 {

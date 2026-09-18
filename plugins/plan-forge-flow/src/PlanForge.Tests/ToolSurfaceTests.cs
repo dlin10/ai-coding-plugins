@@ -2,6 +2,7 @@ using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using PlanForge.Acts;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
@@ -104,6 +105,19 @@ public sealed class ToolSurfaceTests
     {
         await Assert.ThrowsAsync<OperationCanceledException>(
             async () => await Surfaced(new OperationCanceledException()));
+    }
+
+    /// <summary>
+    /// Including the one cancellation this assembly declares. Belonging to no assembly of ours used
+    /// to be what kept cancellation out of the filter, and <see cref="TurnCutShortException"/>
+    /// satisfies both halves of the old condition: ours, and a cancellation. Answering it as a tool
+    /// error would send a result for a call the host has already stopped waiting for.
+    /// </summary>
+    [Fact]
+    public async Task A_turn_the_host_cut_short_is_not_answered_as_a_tool_error_either()
+    {
+        await Assert.ThrowsAsync<TurnCutShortException>(
+            async () => await Surfaced(new TurnCutShortException(["tracked.txt"], new OperationCanceledException())));
     }
 
     /// <summary>
