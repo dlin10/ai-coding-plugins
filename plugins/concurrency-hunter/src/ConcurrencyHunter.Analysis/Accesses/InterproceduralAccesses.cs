@@ -17,17 +17,50 @@ public static class CoverageCounters
     public const string ELEMENT_OPERATION = "element-operation";
     public const string UNANALYSED_REGISTRATION = "unanalysed-registration";
     public const string NO_RECEIVER_OBJECT = "no-receiver-object";
-    public const string STARTUP_CONSTRUCTION_ACCESS = "startup-construction-access";
     public const string MERGED_CONTEXT = "merged-context";
     public const string WILDCARD_ACCESS = "wildcard-access";
     public const string UNRESOLVED_LOCATOR = "unresolved-locator";
 }
 
+/// <summary>What the execution model ordered and started, which the report shows on lines of their own: the distinct spawn sites
+/// (all APIs), timer creation sites per kind, and join operations without proven identity.</summary>
+public static class OrderingCounters
+{
+    public const string SPAWN_SITES = "spawn-sites";
+    public const string UNPROVEN_JOINS = "unproven-joins";
+    public const string TIMERS_DISABLED = "timers-disabled";
+    public const string TIMERS_ONE_SHOT = "timers-one-shot";
+    public const string TIMERS_PERIODIC = "timers-periodic";
+
+    /// <summary>The timer counters, widest last: a creation site several scopes reach is counted in the widest kind any of them gives it.</summary>
+    public static IReadOnlyList<string> TIMER_KINDS { get; } = [TIMERS_DISABLED, TIMERS_ONE_SHOT, TIMERS_PERIODIC];
+}
+
+/// <summary>One operation of one body: what makes a site the same site across scopes, so that a library site two executable scopes
+/// reach is one site, not two.</summary>
+public sealed record OperationSite(string BodyId, int OperationId);
+
+/// <summary>A spawn or async call site with the API it calls.</summary>
+public sealed record SpawnSiteCoverage(OperationSite Site, string Api);
+
+/// <summary>A timer creation site with the counter (<see cref="OrderingCounters.TIMER_KINDS"/>) of the widest kind it runs with.</summary>
+public sealed record TimerSiteCoverage(OperationSite Site, string Counter);
+
 /// <summary>What a scope's analysis covered, over what the heap reaches only; <see cref="LoweredNotReached"/> and
 /// <see cref="OutsideLoweredSet"/> are inventory, not counted against coverage.</summary>
 public sealed record InterproceduralCoverage(string ScopeId, IReadOnlyDictionary<string, int> Counters,
                                              IReadOnlyList<(string Callee, int Count)> TopOpaqueCallees, IReadOnlyList<string> LoweredNotReached,
-                                             IReadOnlyList<UnreachedMember> OutsideLoweredSet);
+                                             IReadOnlyList<UnreachedMember> OutsideLoweredSet)
+{
+    /// <summary>The <see cref="OrderingCounters"/>, apart from the generic counters.</summary>
+    public IReadOnlyDictionary<string, int> Ordering { get; init; } = new Dictionary<string, int>();
+
+    /// <summary>The sites behind the ordering counters, by source, so that the report counts a site two scopes share once.</summary>
+    public IReadOnlyList<SpawnSiteCoverage> SpawnSites { get; init; } = [];
+
+    public IReadOnlyList<TimerSiteCoverage> TimerSites { get; init; } = [];
+    public IReadOnlyList<OperationSite> UnprovenJoins { get; init; } = [];
+}
 
 public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, InterproceduralCoverage Coverage);
 
@@ -90,10 +123,17 @@ public static class InterproceduralAccesses
                                                                                      reachedMembers.Contains(member)),
             [CoverageCounters.UNRESOLVED_LOCATOR] = heap.UnresolvedLocators.Count,
             [CoverageCounters.NO_RECEIVER_OBJECT] = heap.Counters.GetValueOrDefault(HeapCounters.NO_RECEIVER_OBJECT),
-            [CoverageCounters.STARTUP_CONSTRUCTION_ACCESS] = input.Executions.Counters.GetValueOrDefault(ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS),
             [CoverageCounters.MERGED_CONTEXT] = heap.Counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT),
             [CoverageCounters.WILDCARD_ACCESS] = accesses.Where(access => access.Resource.IsWildcard)
                                                          .Select(access => (access.BodyId, access.OperationId)).Distinct().Count()
+        };
+        var ordering = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [OrderingCounters.SPAWN_SITES] = input.Executions.SpawnSites.Count,
+            [OrderingCounters.UNPROVEN_JOINS] = input.Executions.UnprovenJoins.Count,
+            [OrderingCounters.TIMERS_DISABLED] = input.Executions.Counters.GetValueOrDefault(OrderingCounters.TIMERS_DISABLED),
+            [OrderingCounters.TIMERS_ONE_SHOT] = input.Executions.Counters.GetValueOrDefault(OrderingCounters.TIMERS_ONE_SHOT),
+            [OrderingCounters.TIMERS_PERIODIC] = input.Executions.Counters.GetValueOrDefault(OrderingCounters.TIMERS_PERIODIC)
         };
         var topCallees = opaque.GroupBy(item => item.Call.Callee, StringComparer.Ordinal)
                                .Select(group => (Callee: group.Key, Count: group.Count()))
@@ -101,10 +141,16 @@ public static class InterproceduralAccesses
                                .ThenBy(item => item.Callee, StringComparer.Ordinal)
                                .Take(TOP_CALLEES)
                                .ToArray();
-        return new InterproceduralCoverage(input.Scope.ScopeId, counters, topCallees, heap.LoweredNotReached, input.Scope.Reachable.Unreached);
+        return new InterproceduralCoverage(input.Scope.ScopeId, counters, topCallees, heap.LoweredNotReached, input.Scope.Reachable.Unreached)
+        {
+            Ordering = ordering,
+            SpawnSites = input.Executions.SpawnSites,
+            TimerSites = input.Executions.TimerSites,
+            UnprovenJoins = input.Executions.UnprovenJoins
+        };
     }
 
-    private sealed record State(string Instance, string? Interval);
+    private sealed record State(string Instance, string? Interval, BodySegment Segment);
 
     private sealed record PathNode(State State, PathNode? Parent, CallEdge? Edge);
 
@@ -202,7 +248,7 @@ public static class InterproceduralAccesses
     /// (operation, instance); the roots in id order.</summary>
     private static Dictionary<string, List<Discovery>> Discoveries(InterproceduralInput input, WalkGraph graph)
     {
-        var targets = input.Executions.Executions.Where(execution => execution.RootId is null)
+        var targets = input.Executions.Executions.Where(execution => execution.Kind is ExecutionKind.LazyConstruction or ExecutionKind.TypeInitializer)
                            .SelectMany(execution => input.Executions.Entries.GetValueOrDefault(execution.Id) ?? [])
                            .Where(entry => entry.Kind != ExecutionEntryKind.Root)
                            .Select(entry => entry.InstanceId)
@@ -275,7 +321,7 @@ public static class InterproceduralAccesses
         /// interval in place of the current one. The first visit of an instance, and of a body, keeps its discovery path.</summary>
         private void Visit(ExecutionEntry entry)
         {
-            var start = new State(entry.InstanceId, entry.IntervalObject);
+            var start = new State(entry.InstanceId, entry.IntervalObject, entry.Segment);
             var visited = new HashSet<State> { start };
             var pending = new Queue<PathNode>([new PathNode(start, null, null)]);
             while (pending.TryDequeue(out var node))
@@ -290,6 +336,8 @@ public static class InterproceduralAccesses
                 {
                     var edge = step.Edge;
                     var interval = node.State.Interval;
+                    if (input.Executions.Follow(instance, node.State.Segment, edge) is not { } segment)
+                        continue;
                     if (step.Constructed is not null)
                     {
                         if (!input.Executions.InstanceExecutions.TryGetValue(edge.CalleeInstance, out var executions) ||
@@ -310,7 +358,7 @@ public static class InterproceduralAccesses
                     }
 
                     _executionEdges.Add(edge);
-                    var next = new State(edge.CalleeInstance, interval);
+                    var next = new State(edge.CalleeInstance, interval, segment);
                     if (visited.Add(next))
                         pending.Enqueue(new PathNode(next, node, edge));
                 }
@@ -332,7 +380,9 @@ public static class InterproceduralAccesses
             instances.Reverse();
 
             var paths = new List<(IReadOnlyList<string> Symbols, AccessRoot Root)>();
-            if (execution.RootId is null && entry.Kind != ExecutionEntryKind.Root && discoveries.TryGetValue(entry.InstanceId, out var found))
+            if (input.Executions.CallPathPrefixes.TryGetValue(execution.Id, out var prefix))
+                paths.Add(([.. prefix, .. Symbols(instances)], Root()));
+            else if (execution.RootId is null && entry.Kind != ExecutionEntryKind.Root && discoveries.TryGetValue(entry.InstanceId, out var found))
             {
                 foreach (var discovery in found)
                 {
@@ -554,7 +604,7 @@ public static class InterproceduralAccesses
             foreach (var (entry, node) in _visits)
             {
                 var instance = _heap.Instances[node.State.Instance];
-                foreach (var access in instance.Summary.Accesses)
+                foreach (var access in instance.Summary.Accesses.Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId)))
                 {
                     foreach (var resource in Resources(instance, access))
                     {
@@ -600,6 +650,7 @@ public static class InterproceduralAccesses
                                 OperationId = access.OperationId,
                                 InstanceId = instance.Id,
                                 CallPath = callPath,
+                                SpawnSites = input.Executions.SpawnSitesOf(execution.Id, callPath),
                                 PathRoot = pathRoot
                             });
                         }
@@ -633,7 +684,7 @@ public static class InterproceduralAccesses
                 ? new CodeFlowStep("root", $"{input.Scope.Roots.First(candidate => candidate.StableRootId == execution.RootId).Entry.Display} starts",
                                    input.Scope.Roots.First(candidate => candidate.StableRootId == execution.RootId).Entry.Source)
                 : new CodeFlowStep("root", $"{execution.Display} starts", BodySource(entryInstance.BodyId) ?? accessSource));
-            if (entry.Kind != ExecutionEntryKind.Root)
+            if (entry.Kind is ExecutionEntryKind.Construction or ExecutionEntryKind.TypeInitializer)
             {
                 var subject = entry.IntervalObject is { } interval && _heap.Regions.TryGetValue(interval, out var region) ? region.Display : entryInstance.BodyId;
                 steps.Add(new CodeFlowStep("construction", $"constructs {subject}", BodySource(entryInstance.BodyId) ?? accessSource));
@@ -672,14 +723,20 @@ public static class InterproceduralAccesses
                 ? body.Blocks.SelectMany(block => block.Operations).FirstOrDefault()?.Provenance.Span
                 : null;
 
-        /// <summary>The access's root: the root of a root execution, or the construction or type-initializer execution described as one.</summary>
+        /// <summary>The access's root: the root of its execution tree; a construction or type-initializer execution described as one; or
+        /// <c>startup</c> for a tree startup starts.</summary>
         private AccessRoot Root()
         {
-            if (execution.RootId is not null && RootOf(execution.RootId) is { } root)
+            var top = execution.TreeRootId;
+            if (top == ExecutionModel.STARTUP)
+                return new AccessRoot(ExecutionModel.STARTUP, ExecutionModel.STARTUP, ExecutionModel.STARTUP, CONSTRUCTION_PROVIDER, ExecutionModel.STARTUP,
+                                      new InvocationPolicy(Multiplicity.AtMostOnce, SelfOverlap.Serialized, ""), input.Scope.ScopeId);
+            if (RootOf(top) is { } root)
                 return root;
 
-            return new AccessRoot(execution.Id, execution.Display, execution.Display, CONSTRUCTION_PROVIDER,
-                                  execution.Kind == ExecutionKind.TypeInitializer ? "type-initializer" : "construction", execution.Policy,
+            var described = input.Executions.Executions.FirstOrDefault(candidate => candidate.Id == top) ?? execution;
+            return new AccessRoot(described.Id, described.Display, described.Display, CONSTRUCTION_PROVIDER,
+                                  described.Kind == ExecutionKind.TypeInitializer ? "type-initializer" : "construction", described.Policy,
                                   input.Scope.ScopeId);
         }
 
@@ -847,7 +904,8 @@ public static class InterproceduralAccesses
 
 /// <summary>
 /// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never construction-local, never on a
-/// thread-confined region, and only across executions that overlap. The candidates come from <see cref="CandidateIndex"/>, each unordered
+/// thread-confined region, only across executions that overlap, and never
+/// where the happens-before graph orders the two accesses. The candidates come from <see cref="CandidateIndex"/>, each unordered
 /// pair once.
 /// </summary>
 public static class InterproceduralPairing
@@ -855,6 +913,7 @@ public static class InterproceduralPairing
     public const string SKIP_READ_READ = "read-read";
     public const string SKIP_NO_OVERLAP = "no-overlap";
     public const string SKIP_CONFINED = "confined";
+    public const string SKIP_ORDERED = "ordered";
 
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
@@ -870,6 +929,7 @@ public static class InterproceduralPairing
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? SKIP_READ_READ
                 : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
                   first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first) ? SKIP_NO_OVERLAP
+                : executions.Ordered(first, second) ? SKIP_ORDERED
                 : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
                 : null;
             if (skip is not null)

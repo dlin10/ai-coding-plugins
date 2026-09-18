@@ -11,7 +11,8 @@ public sealed record FixtureOptions
     /// <summary>The output kind of every project not named in <see cref="ProjectOutputKinds"/>.</summary>
     public OutputKind OutputKind { get; init; } = OutputKind.DynamicallyLinkedLibrary;
 
-    /// <summary>Major version per stub assembly name; stubs not named here are referenced at version 10.</summary>
+    /// <summary>Major version per stub assembly name; stubs not named here are referenced at their
+    /// <see cref="StubAssemblies.DefaultVersion"/>: 10, or 2 for the gRPC stubs.</summary>
     public IReadOnlyDictionary<string, int> StubVersions { get; init; } = new Dictionary<string, int>();
 
     public IReadOnlyList<(string Project, string ReferencedProject)> ProjectReferences { get; init; } = [];
@@ -38,7 +39,7 @@ public sealed record FixtureOptions
     /// <summary>Stub assemblies one project does not reference, on top of <see cref="OmittedStubs"/>.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ProjectOmittedStubs { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 
-    internal int VersionOf(string assemblyName) => StubVersions.GetValueOrDefault(assemblyName, DEFAULT_STUB_VERSION);
+    internal int VersionOf(string assemblyName) => StubVersions.GetValueOrDefault(assemblyName, StubAssemblies.DefaultVersion(assemblyName));
 
     internal int VersionOf(string assemblyName, string project) =>
         ProjectStubVersions.TryGetValue(project, out var versions) && versions.TryGetValue(assemblyName, out var version) ? version : VersionOf(assemblyName);

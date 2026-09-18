@@ -197,14 +197,30 @@ public sealed class MethodSummaryTests
     }
 
     [Fact]
-    public void Opaque_call_records_its_callee_and_the_delegate_passed_to_it()
+    public void Spawn_call_is_a_spawn_event_whose_work_is_not_a_delegate_of_the_opaque_call()
     {
-        var summary = Summarize("class C { int _field; void M() { System.Threading.Tasks.Task.Run(() => _field = 1); } }");
+        var summary = Summarize("""
+            class C
+            {
+                int _field;
+                void M(int[] items)
+                {
+                    System.Threading.Tasks.Task.Run(() => _field = 1);
+                    System.GC.KeepAlive(System.Linq.Enumerable.Select(items, item => item));
+                }
+            }
+            """);
 
-        var opaque = Assert.Single(summary.OpaqueCalls);
-        Assert.StartsWith("System.Threading.Tasks.Task.Run", opaque.Callee, StringComparison.Ordinal);
-        Assert.EndsWith("#lambda1", Assert.Single(opaque.Delegates).Target, StringComparison.Ordinal);
-        Assert.DoesNotContain(summary.Calls, call => call.OperationId == opaque.OperationId);
+        var run = Assert.Single(summary.OpaqueCalls, call => call.Callee.StartsWith("System.Threading.Tasks.Task.Run", StringComparison.Ordinal));
+        Assert.Empty(run.Delegates);
+        Assert.DoesNotContain(summary.Calls, call => call.OperationId == run.OperationId);
+        var spawn = Assert.Single(summary.Spawns);
+        Assert.Equal((IrSpawnKind.TaskRun, run.OperationId), (spawn.Kind, spawn.CallOperationId));
+        Assert.EndsWith("#lambda1", Assert.IsType<DelegateCreationValue>(Assert.Single(Assert.Single(spawn.Work).Values)).Target, StringComparison.Ordinal);
+        Assert.Equal([new CallResultValue(run.OperationId)], spawn.Handle!.Values);
+        Assert.Empty(spawn.Handle.UnknownSources);
+        var select = Assert.Single(summary.OpaqueCalls, call => call.Callee.StartsWith("System.Linq.Enumerable.Select", StringComparison.Ordinal));
+        Assert.EndsWith("#lambda2", Assert.Single(select.Delegates).Target, StringComparison.Ordinal);
     }
 
     [Fact]

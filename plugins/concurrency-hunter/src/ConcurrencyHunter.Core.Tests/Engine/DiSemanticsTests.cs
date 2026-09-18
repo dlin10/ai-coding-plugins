@@ -545,15 +545,16 @@ public sealed class DiSemanticsTests
     }
 
     [Fact]
-    public void Instance_registration_is_a_startup_construction_whose_static_write_is_dropped_and_counted()
+    public void Instance_registration_is_a_startup_construction_whose_static_write_precedes_actions()
     {
         var run = Analyze(SEED + """
             public class GateController : ControllerBase { public object? Get() => Seed.Origin; }
             """ + Startup("services.AddSingleton(new Seed());"));
 
         Assert.Empty(run.PairsOn("Origin"));
-        Assert.DoesNotContain(run.Accesses("Origin"), access => access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
-        Assert.True(run.Counter(CoverageCounters.STARTUP_CONSTRUCTION_ACCESS) >= 1);
+        Assert.Contains(run.Accesses("Origin"), access => access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write &&
+                                                          access.ExecutionId == ExecutionModel.STARTUP);
+        Assert.True(run.Skipped(InterproceduralPairing.SKIP_ORDERED) >= 1);
     }
 
     [Fact]
@@ -646,8 +647,9 @@ public sealed class DiSemanticsTests
             public class GateController : ControllerBase { public object? Get() => Stats.Last; }
             """ + Startup("Stats.Last = 1; services.AddSingleton<Rates>(_ => new Rates());"));
 
-        Assert.DoesNotContain(run.Accesses("Last"), access => access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
-        Assert.True(run.Counter(CoverageCounters.STARTUP_CONSTRUCTION_ACCESS) >= 1);
+        var write = Assert.Single(run.Accesses("Last"), access => access.Operation == ConcurrencyHunter.Analysis.AccessOperation.Write);
+        Assert.Equal(ExecutionModel.STARTUP, write.ExecutionId);
+        Assert.Empty(run.PairsOn("Last"));
         Assert.Contains(run.Execution.Analysis.InstanceExecutions,
                         pair => pair.Key.StartsWith("body:Fixture:M:Startup.Configure", StringComparison.Ordinal) && pair.Value.SetEquals([ExecutionModel.STARTUP]));
     }

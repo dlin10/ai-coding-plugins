@@ -2,8 +2,9 @@
 
 Write an interpretation of the deterministic evidence rather than restating its text. Evidence ids
 use this convention for finding `Fk`: `[E:Fk.A]` and `[E:Fk.B]` are the two accesses,
-`[E:Fk.R]` is the resource, `[E:Fk.O]` is execution overlap, `[E:Fk.P]` is protection, and
-`[E:Fk.S]` is the scenario.
+`[E:Fk.R]` is the resource, `[E:Fk.O]` is execution overlap, `[E:Fk.P]` is protection,
+`[E:Fk.S]` is the scenario, and `[E:Fk.SP1]`, `[E:Fk.SP2]`, … are the spawn sites its listed
+occurrences pass through.
 
 ## Reading the evidence
 
@@ -60,6 +61,18 @@ use this convention for finding `Fk`: `[E:Fk.A]` and `[E:Fk.B]` are the two acce
   for each read it depends on; explain the lost update across both methods and cite that read location.
   `DCA1001` is any other unsynchronized write paired with a read or a write.
 
+## Occurrences through spawns and timers
+
+An occurrence path can pass a `spawn:<API>@<member>` segment, where work such as `Task.Run` or a thread
+started, or a `timer-callback:<timer type>@<member>` segment, where a timer's callback runs; a root of
+`startup` means the work was started while the host was starting. Each such site is a `spawn` evidence
+item `Fk.SPn` naming the API, the member and the `File.cs:line` of the site, which you may cite and put
+in backticks. The analysis already removed every pair whose order it proved with its happens-before
+graph (a proven join such as `await` or `Wait()` on the same task, a `Parallel.For` return, a continuation
+after its antecedent, startup before requests), so a reported pair is one that order did not rule out.
+Never claim a join, an `await`, a wait or a disposal that orders the two accesses unless the evidence
+shows it; say instead that no proven join separates them.
+
 ## Group narrative
 
 Use these `###` headings in this exact order, and support each section with the relevant evidence
@@ -87,9 +100,9 @@ Follow every validation rule:
 - Every recommendation must contain the words `verify manually`, ignoring case, and must contain an
   indented bullet or numbered item beginning `Check:` followed by a nonempty check.
 - Put every source location inside backticks. A location is `File.cs` or `File.cs:line`, including
-  paths with spaces. It must match whole path segments at the end of an access evidence path or of a
-  read location of a read-modify-write, ignoring case; when present, the line must lie inside that
-  evidence span. Do not mention any `.cs` location outside backticks.
+  paths with spaces. It must match whole path segments at the end of an access evidence path, of a
+  read location of a read-modify-write or of a spawn site of a `spawn` evidence item, ignoring case;
+  when present, the line must lie inside that evidence span. Do not mention any `.cs` location outside backticks.
 - Backticked identifiers are checked, including Unicode names and verbatim `@` identifiers on every
   segment. Use only an exact evidence access symbol, root entry symbol, called method of a `call` step
   or method of a read location; a dot-suffix of any of them without its parameters; the evidenced

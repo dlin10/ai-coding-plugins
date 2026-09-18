@@ -289,6 +289,27 @@ public sealed class RunLifecycleTests
     }
 
     [Fact]
+    public async Task Run_metadata_carries_the_ordering_counters()
+    {
+        using var environment = new RunTestEnvironment();
+        var registry = environment.Registry();
+        var start = registry.Start(environment.SolutionPath);
+        await registry.WaitForAnalysisAsync(start.RunId!);
+
+        var render = registry.Render(start.RunId!);
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(render.BundlePath!, "run-metadata.json")));
+        var root = json.RootElement;
+
+        Assert.Equal(root.GetProperty("pairs").GetProperty("skips").TryGetProperty("ordered", out var ordered) ? ordered.GetInt32() : 0,
+                     root.GetProperty("orderedPairs").GetInt32());
+        Assert.Equal(JsonValueKind.Object, root.GetProperty("spawnSites").ValueKind);
+        Assert.All(root.GetProperty("spawnSites").EnumerateObject(), site => Assert.True(site.Value.GetInt32() > 0));
+        Assert.Equal(["disabled", "oneShot", "periodic"], root.GetProperty("timers").EnumerateObject().Select(property => property.Name));
+        Assert.All(root.GetProperty("timers").EnumerateObject(), kind => Assert.InRange(kind.Value.GetInt32(), 0, int.MaxValue));
+        Assert.InRange(root.GetProperty("unprovenJoins").GetInt32(), 0, int.MaxValue);
+    }
+
+    [Fact]
     public async Task Second_render_returns_the_first_result()
     {
         using var environment = new RunTestEnvironment();

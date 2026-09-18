@@ -4,7 +4,7 @@ namespace ConcurrencyHunter.Ir;
 
 public static class IrSchema
 {
-    public const string VERSION = "1.1";
+    public const string VERSION = "1.2";
 }
 
 public enum IrRefKind
@@ -39,6 +39,8 @@ public enum IrBlockKind
     Exit
 }
 
+/// <summary><see cref="Exceptional"/> leads from a block inside a <c>try</c> to a handler: the block may be left at any of its
+/// operations, so none of them is known to have run on that edge.</summary>
 public enum IrEdgeKind
 {
     Explicit,
@@ -124,6 +126,65 @@ public enum IrLockMode
     UpgradeableRead
 }
 
+/// <summary>How a BCL call starts work. <see cref="AsyncCall"/> and <see cref="AsyncVoid"/> are decided on resolved call edges
+/// from <see cref="IrCallOperation.IsAwaitedImmediately"/> and the callee's <see cref="IrBody.IsAsync"/>, not by the lowering;
+/// <see cref="Unrecognized"/> is a call of a recognized BCL type in a form the lowering does not model, whose delegates run
+/// unordered.</summary>
+public enum IrSpawnKind
+{
+    TaskRun,
+    StartNew,
+    ContinueWith,
+    QueueUserWorkItem,
+    UnsafeQueueUserWorkItem,
+    ThreadStart,
+    ParallelFor,
+    ParallelForEach,
+    ParallelForEachAsync,
+    AsyncCall,
+    AsyncVoid,
+    Unrecognized
+}
+
+/// <summary>A BCL call that returns only once its handles are complete.</summary>
+public enum IrJoinKind
+{
+    Wait,
+    Join,
+    WaitAll,
+    WaitOne
+}
+
+public enum IrTimerAction
+{
+    Create,
+    Change,
+    Dispose,
+    DisposeWaitHandle,
+    DisposeAsync,
+    ElapsedSubscribe,
+    SetAutoReset,
+    SetEnabled,
+    Start,
+    Stop
+}
+
+/// <summary>A timer's due time or period: <see cref="Unknown"/> is any value that is not a constant, a <c>TimeSpan</c> included.</summary>
+public enum IrTimerInterval
+{
+    Zero,
+    Infinite,
+    Positive,
+    Unknown
+}
+
+public enum IrTimerFlag
+{
+    True,
+    False,
+    Unknown
+}
+
 public enum IrComparisonKind
 {
     Equality,
@@ -150,6 +211,10 @@ public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, 
     /// <summary>The body's parameters with their incoming value; the SSA versions of a parameter share its value's
     /// <see cref="IrValue.SymbolKey"/>, so the value a <c>ref</c> or <c>out</c> parameter holds when the body ends can be read.</summary>
     public IReadOnlyList<IrParameter> Parameters { get; init; } = [];
+
+    public bool IsAsync { get; init; }
+    public string ReturnType { get; init; } = "void";
+    public bool IsAsyncIterator { get; init; }
 }
 
 /// <summary><see cref="SymbolKey"/> identifies the local or parameter a value is a version of, across bodies: the id of the

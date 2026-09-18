@@ -16,7 +16,9 @@ public enum ReceiverKind
     None,
     PerInvocation,
     HostedService,
-    Unbound
+    Unbound,
+    /// <summary>The object the DI registration of <see cref="InstanceBindings.ReceiverTypeKey"/> gives the invocation.</summary>
+    DiService
 }
 
 public enum ParameterBindingKind
@@ -31,7 +33,7 @@ public enum ParameterBindingKind
 public sealed record ParameterBinding(string Name, string Type, ParameterBindingKind Kind, bool IsValueType = false, string? TypeKey = null);
 
 /// <summary><see cref="ReceiverType"/> names the receiver's type when there is one: the controller, the hosted-service
-/// implementation, or the type declaring an instance handler; <see cref="ReceiverTypeKey"/> identifies it.</summary>
+/// implementation, the gRPC service, or the type declaring an instance handler; <see cref="ReceiverTypeKey"/> identifies it.</summary>
 public sealed record InstanceBindings(ReceiverKind Receiver, IReadOnlyList<ParameterBinding> Parameters, string? ReceiverType = null,
                                      string? ReceiverTypeKey = null);
 

@@ -867,6 +867,208 @@ public sealed class AspNetCoreRootProviderTests
             """ + Startup));
     }
 
+    [Fact]
+    public void AspNetCore_GrpcUnaryOverride_MethodRoot()
+    {
+        Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();")) with
+        {
+            ExpectedRoots = [$"grpc-method GreeterService.SayHello(Request, ServerCallContext) receiver=PerInvocation parameters=[request:RequestData,context:RequestData] {POLICY}"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcStreamingOverrides_MethodRoots()
+    {
+        var result = Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+                public override Task Watch(Request request, IServerStreamWriter<Reply> responseStream, ServerCallContext context) => Task.CompletedTask;
+                public override Task<Reply> Upload(IAsyncStreamReader<Request> requestStream, ServerCallContext context) => Task.FromResult(new Reply());
+                public override Task Chat(IAsyncStreamReader<Request> requestStream, IServerStreamWriter<Reply> responseStream, ServerCallContext context) =>
+                    Task.CompletedTask;
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();")) with
+        {
+            ExpectedRoots =
+            [
+                $"grpc-method GreeterService.SayHello(Request, ServerCallContext) receiver=PerInvocation parameters=[request:RequestData,context:RequestData] {POLICY}",
+                $"grpc-method GreeterService.Watch(Request, IServerStreamWriter<Reply>, ServerCallContext) receiver=PerInvocation " +
+                $"parameters=[request:RequestData,responseStream:RequestData,context:RequestData] {POLICY}",
+                $"grpc-method GreeterService.Upload(IAsyncStreamReader<Request>, ServerCallContext) receiver=PerInvocation " +
+                $"parameters=[requestStream:RequestData,context:RequestData] {POLICY}",
+                $"grpc-method GreeterService.Chat(IAsyncStreamReader<Request>, IServerStreamWriter<Reply>, ServerCallContext) receiver=PerInvocation " +
+                $"parameters=[requestStream:RequestData,responseStream:RequestData,context:RequestData] {POLICY}"
+            ]
+        });
+
+        Assert.All(result.Roots, root => Assert.Equal("GreeterService", root.InstanceBindings.ReceiverType));
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcUnmappedService_NoRoots()
+    {
+        Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            """ + GrpcStartup("")));
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcHelperAndInheritedMethods_NotRoots()
+    {
+        Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(Build());
+                public Reply Build() => new Reply();
+                public Task Extra(Request request, ServerCallContext context) => Task.CompletedTask;
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();")) with
+        {
+            ExpectedRoots = [$"grpc-method GreeterService.SayHello(Request, ServerCallContext) receiver=PerInvocation parameters=[request:RequestData,context:RequestData] {POLICY}"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcOverrideInIntermediateBase_MethodRoot()
+    {
+        var result = Run(GrpcCase("""
+            public abstract class GreeterCore : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            public sealed class GreeterService : GreeterCore
+            {
+                public override Task Watch(Request request, IServerStreamWriter<Reply> responseStream, ServerCallContext context) => Task.CompletedTask;
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();")) with
+        {
+            ExpectedRoots =
+            [
+                $"grpc-method GreeterCore.SayHello(Request, ServerCallContext) receiver=PerInvocation parameters=[request:RequestData,context:RequestData] {POLICY}",
+                $"grpc-method GreeterService.Watch(Request, IServerStreamWriter<Reply>, ServerCallContext) receiver=PerInvocation " +
+                $"parameters=[request:RequestData,responseStream:RequestData,context:RequestData] {POLICY}"
+            ]
+        });
+
+        Assert.All(result.Roots, root => Assert.Equal("GreeterService", root.InstanceBindings.ReceiverType));
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcSingletonService_DiServiceReceiver()
+    {
+        Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            """ + GrpcStartup("services.AddSingleton<GreeterService>(); app.MapGrpcService<GreeterService>();")) with
+        {
+            ExpectedRoots = [$"grpc-method GreeterService.SayHello(Request, ServerCallContext) receiver=DiService parameters=[request:RequestData,context:RequestData] {POLICY}"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcServerVersion3_UnsupportedAssemblyVersion()
+    {
+        Run(GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();")) with
+        {
+            AssemblyVersions = new Dictionary<string, int> { [StubAssemblies.GRPC_ASPNETCORE_SERVER] = 3 },
+            ExpectedStatus = RootDiscoveryStatus.NotChecked,
+            ExpectedDiagnostics = ["UnsupportedAssemblyVersion Fixture: Grpc.AspNetCore.Server 3.0.0.0"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcMapWithoutBindBase_UnsupportedPattern()
+    {
+        Run(GrpcCase("""
+            public sealed class PlainService
+            {
+                public Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+            }
+            """ + GrpcStartup("app.MapGrpcService<PlainService>();")) with
+        {
+            ExpectedDiagnostics = ["UnsupportedPattern PlainService"]
+        });
+    }
+
+    [Fact]
+    public void AspNetCore_GrpcLineShift_StableIds()
+    {
+        var testCase = GrpcCase("""
+            public sealed class GreeterService : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, ServerCallContext context) => Task.FromResult(new Reply());
+                public override Task Watch(Request request, IServerStreamWriter<Reply> responseStream, ServerCallContext context) => Task.CompletedTask;
+            }
+            """ + GrpcStartup("app.MapGrpcService<GreeterService>();"));
+
+        ProviderFixture.AssertStableIds(new AspNetCoreRootProvider(), testCase);
+        var result = Run(testCase with
+        {
+            ExpectedRoots =
+            [
+                $"grpc-method GreeterService.SayHello(Request, ServerCallContext) receiver=PerInvocation parameters=[request:RequestData,context:RequestData] {POLICY}",
+                $"grpc-method GreeterService.Watch(Request, IServerStreamWriter<Reply>, ServerCallContext) receiver=PerInvocation " +
+                $"parameters=[request:RequestData,responseStream:RequestData,context:RequestData] {POLICY}"
+            ]
+        });
+        Assert.Contains(result.Roots, root => root.StableRootId ==
+                                              "aspnetcore:grpc-method:Fixture:T:GreeterService:M:GreeterService.SayHello(Request,Grpc.Core.ServerCallContext)");
+    }
+
+    /// <summary>What <c>Grpc.Tools</c> generates for a service with one method of each streaming kind, and its messages.</summary>
+    private const string GreeterProto = """
+        using Grpc.Core;
+
+        public sealed class Request { }
+        public sealed class Reply { }
+
+        public static partial class Greeter
+        {
+            [BindServiceMethod(typeof(Greeter), "BindService")]
+            public abstract partial class GreeterBase
+            {
+                public virtual Task<Reply> SayHello(Request request, ServerCallContext context) => throw new NotSupportedException();
+                public virtual Task Watch(Request request, IServerStreamWriter<Reply> responseStream, ServerCallContext context) => throw new NotSupportedException();
+                public virtual Task<Reply> Upload(IAsyncStreamReader<Request> requestStream, ServerCallContext context) => throw new NotSupportedException();
+                public virtual Task Chat(IAsyncStreamReader<Request> requestStream, IServerStreamWriter<Reply> responseStream, ServerCallContext context) =>
+                    throw new NotSupportedException();
+            }
+
+            public static ServerServiceDefinition BindService(GreeterBase serviceImpl) => throw new NotSupportedException();
+        }
+        """;
+
+    private static string GrpcStartup(string body) => $$"""
+
+        public static class Startup
+        {
+            public static void Configure(IServiceCollection services, IEndpointRouteBuilder app)
+            {
+                services.AddGrpc();
+                {{body}}
+            }
+        }
+        """;
+
+    private static ProviderCase GrpcCase(string source, [CallerMemberName] string name = "") =>
+        new(name, [("Greeter.cs", Usings + GreeterProto), ("Case.cs", Usings + "using Grpc.Core;\n" + source)]);
+
     private static RootDiscoveryResult Run(ProviderCase testCase) => ProviderFixture.Run(new AspNetCoreRootProvider(), testCase);
 
     private static ProviderCase Case(string source, [CallerMemberName] string name = "") => new(name, [("Case.cs", Usings + source)]);

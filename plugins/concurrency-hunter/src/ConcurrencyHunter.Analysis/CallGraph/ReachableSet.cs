@@ -97,6 +97,14 @@ public static class ReachableSet
                .Order(StringComparer.Ordinal)
                .ToArray();
 
+    /// <summary>The method id of a spawn's parameterless work method, as the IR names it (<c>Ns.Type.Method()</c>), among the
+    /// methods the index knows; null when the index has no such method.</summary>
+    internal static string? WorkMethodId(ProgramIndex program, string workMethod)
+    {
+        var suffix = $":M:{workMethod.TrimEnd('(', ')')}";
+        return program.Methods.FirstOrDefault(method => method.MethodId.EndsWith(suffix, StringComparison.Ordinal))?.MethodId;
+    }
+
     /// <summary>What the container passes a constructor parameter of a constructed type. The bindings resolve the type's own
     /// definition, so a closed generic resolves its parameter again with the type arguments substituted: the parameter of
     /// <c>Consumer&lt;Order&gt;</c> declared as <c>Store&lt;T&gt;</c> is <c>Store&lt;Order&gt;</c>.</summary>
@@ -132,6 +140,29 @@ public static class ReachableSet
         Startup,
         RootScope,
         Execution
+    }
+
+    /// <summary>The work values each recognized call takes: a spawn names its call, and the lowering puts a thread's or a timer's
+    /// work event right after its call.</summary>
+    internal static Dictionary<int, HashSet<int>> WorkOfCalls(IReadOnlyList<IrOperation> operations)
+    {
+        var work = new Dictionary<int, HashSet<int>>();
+        IrCallOperation? previousCall = null;
+        foreach (var operation in operations)
+        {
+            var owner = operation is IrSpawnOperation spawn ? spawn.CallOperationId : previousCall?.Id;
+            var values = Walker.WorkValues(operation).Select(item => item.Value).ToArray();
+            if (owner is int call && values.Length != 0)
+            {
+                if (!work.TryGetValue(call, out var set))
+                    work.Add(call, set = []);
+                set.UnionWith(values);
+            }
+
+            previousCall = operation as IrCallOperation;
+        }
+
+        return work;
     }
 
     private sealed class ConstructionState(string id, ConstructionKind kind, string typeKey, string? regionId)
@@ -227,6 +258,8 @@ public static class ReachableSet
                 ReachBody(root.Entry.BodyKey, $"root:{root.StableRootId}");
                 if (root.InstanceBindings is { Receiver: ReceiverKind.PerInvocation, ReceiverTypeKey: { } controller })
                     Construct(ConstructionKind.Controller, controller, null, null, trigger, ResolutionContext.Execution);
+                else if (root.InstanceBindings is { Receiver: ReceiverKind.DiService, ReceiverTypeKey: { } service })
+                    Resolve(_input.DiIndex.Resolve(service), trigger, ResolutionContext.Execution);
                 foreach (var parameter in root.InstanceBindings.Parameters.Where(parameter => parameter is { Kind: ParameterBindingKind.DiService, TypeKey: not null }))
                     Resolve(_input.DiIndex.Resolve(parameter.TypeKey!), trigger, ResolutionContext.Execution);
             }
@@ -372,6 +405,8 @@ public static class ReachableSet
                     definitions[defined] = operation;
             }
 
+            var work = WorkOfCalls(operations);
+
             foreach (var operation in operations)
             {
                 var reason = $"call:{bodyId}:{operation.Id}";
@@ -395,7 +430,7 @@ public static class ReachableSet
                         var targets = Targets(targetId, call.CallKind is IrCallKind.Virtual or IrCallKind.Interface);
                         if (targets.Count == 0)
                         {
-                            RecordOpaque(bodyId, call, definitions);
+                            RecordOpaque(bodyId, call, definitions, work.GetValueOrDefault(call.Id) ?? []);
                             ReachFactory(bodyId, call, definitions, reason);
                             Locate(bodyId, call);
                         }
@@ -408,8 +443,44 @@ public static class ReachableSet
                     case IrCreateDelegateOperation create when values.TryGetValue(create.ResultValue, out var created):
                         AddDelegateCreation(created.Type, create, bodyId);
                         break;
+                    default:
+                        foreach (var (value, method) in WorkValues(operation))
+                            ReachWork(value, method, values, definitions, $"spawn:{bodyId}:{operation.Id}");
+                        break;
                 }
             }
+        }
+
+        /// <summary>The work a spawn, a thread constructor or a timer runs: each work or callback value, with the method a spawn
+        /// calls on it instead of invoking it.</summary>
+        internal static IEnumerable<(int Value, string? Method)> WorkValues(IrOperation operation) => operation switch
+        {
+            IrSpawnOperation spawn => spawn.WorkValues.Select(value => (value, spawn.WorkMethod)),
+            IrThreadWorkOperation threadWork => [(threadWork.WorkValue, null)],
+            IrTimerOperation { CallbackValue: int callback } => [(callback, null)],
+            _ => []
+        };
+
+        /// <summary>Reaches what a spawn or a timer runs, as a DI factory's delegate: the targets of a delegate created in the body,
+        /// every delegate of the value's type when it comes from elsewhere, or the implementations of the method it calls.</summary>
+        private void ReachWork(int value, string? method, IReadOnlyDictionary<int, IrValue> values,
+                               IReadOnlyDictionary<int, IrOperation> definitions, string reason)
+        {
+            if (method is not null)
+            {
+                if (WorkMethodId(_program, method) is { } methodId)
+                {
+                    foreach (var target in Targets(methodId, virtualDispatch: true))
+                        ReachBody(target.MethodId, reason);
+                }
+
+                return;
+            }
+
+            if (DelegateCreation(value, definitions) is { } creation)
+                ReachDelegateTargets(creation, reason);
+            else if (values.TryGetValue(value, out var delegateValue))
+                AddDelegateInvocation(delegateValue.Type, reason);
         }
 
         private void AddDelegateCreation(string type, IrCreateDelegateOperation create, string bodyId)
@@ -480,9 +551,10 @@ public static class ReachableSet
             return targets;
         }
 
-        private void RecordOpaque(string bodyId, IrCallOperation call, IReadOnlyDictionary<int, IrOperation> definitions)
+        private void RecordOpaque(string bodyId, IrCallOperation call, IReadOnlyDictionary<int, IrOperation> definitions, IReadOnlySet<int> work)
         {
-            var creations = call.ArgumentValues.Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>().ToArray();
+            var creations = call.ArgumentValues.Where(value => !work.Contains(value))
+                                .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>().ToArray();
             if (!_opaqueCalls.TryGetValue(bodyId, out var calls))
                 _opaqueCalls.Add(bodyId, calls = []);
             calls.Add(new OpaqueCall(call.Id, call.Method, creations.Select(creation => creation.ResultValue).ToArray(),
@@ -502,6 +574,12 @@ public static class ReachableSet
                 return;
             }
 
+            ReachDelegateTargets(creation, reason);
+        }
+
+        /// <summary>Reaches a created delegate's nested body, or every body its method group may run.</summary>
+        private void ReachDelegateTargets(IrCreateDelegateOperation creation, string reason)
+        {
             if (creation.TargetBodyId is { } nested)
             {
                 ReachBody(nested, reason);

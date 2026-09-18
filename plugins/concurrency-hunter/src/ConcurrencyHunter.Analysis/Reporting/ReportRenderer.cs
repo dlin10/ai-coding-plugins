@@ -24,12 +24,11 @@ public static class ReportRenderer
     {
         [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
         [CoverageCounters.OPAQUE_CALL] = "calls without a source body, modelled without effect",
-        [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls, never invoked",
+        [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs, never invoked",
         [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
         [CoverageCounters.UNANALYSED_REGISTRATION] = "unsupported registrations in reached members, binding nothing",
         [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, modelled without effect",
         [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing",
-        [CoverageCounters.STARTUP_CONSTRUCTION_ACCESS] = "accesses of constructions run at startup, not paired",
         [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
         [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource"
     };
@@ -72,9 +71,14 @@ public static class ReportRenderer
             Line($"- Pairs: comparisons {Number(pairs.Comparisons)} of a Cartesian bound {Number(pairs.CartesianBound)}; " +
                  $"buckets {Number(pairs.Buckets)}, largest bucket {Number(pairs.LargestBucket)}; " +
                  $"candidates {Number(pairs.Candidates)}, suppressed {Number(pairs.Suppressed)}");
+            var ordering = Ordering(report.Analysis);
+            Line($"- pairs ordered by happens-before: {Number(ordering.OrderedPairs)}");
+            Line($"- spawn sites: {(ordering.SpawnSites.Count == 0 ? "none" : string.Join(", ", ordering.SpawnSites.Select(pair => $"{pair.Key} {Number(pair.Value)}")))}");
+            Line($"- timers: disabled {Number(ordering.Timers.Disabled)}, one-shot {Number(ordering.Timers.OneShot)}, periodic {Number(ordering.Timers.Periodic)}");
+            Line($"- joins without proven identity: {Number(ordering.UnprovenJoins)}");
             AppendScopes(markdown, report.Analysis);
         }
-        Line("- Not analyzed in this version: semantic gaps, path feasibility, spawn sites and ordering, element accesses");
+        Line("- Not analyzed in this version: semantic gaps, path feasibility, element accesses");
         Line();
 
         foreach (var label in new[] { "High", "Medium", "Low" })
@@ -104,6 +108,32 @@ public static class ReportRenderer
         }
 
         return markdown.ToString();
+    }
+
+    private sealed record TimerCounts(int Disabled, int OneShot, int Periodic);
+
+    private sealed record OrderingCounts(int OrderedPairs, IReadOnlyDictionary<string, int> SpawnSites, TimerCounts Timers, int UnprovenJoins);
+
+    /// <summary>The phase-3 ordering counters over the scopes' sites, not their numbers: comparisons happens-before removed, then each
+    /// spawn site, timer creation site and join without proven identity counted once by source however many scopes reach it, a timer site
+    /// in the widest kind any of its contexts gives it.</summary>
+    private static OrderingCounts Ordering(AnalysisResult analysis)
+    {
+        int Rank(string counter) => OrderingCounters.TIMER_KINDS.TakeWhile(kind => kind != counter).Count();
+        var spawnSites = analysis.Coverage.SelectMany(coverage => coverage.SpawnSites)
+                                 .Distinct()
+                                 .GroupBy(site => site.Api, StringComparer.Ordinal)
+                                 .OrderBy(group => group.Key, StringComparer.Ordinal)
+                                 .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var timers = analysis.Coverage.SelectMany(coverage => coverage.TimerSites)
+                             .GroupBy(site => site.Site)
+                             .Select(group => group.Max(site => Rank(site.Counter)))
+                             .ToArray();
+        int Timers(string counter) => timers.Count(rank => rank == Rank(counter));
+        return new OrderingCounts(analysis.Pairs.Skips.GetValueOrDefault(InterproceduralPairing.SKIP_ORDERED), spawnSites,
+                                  new TimerCounts(Timers(OrderingCounters.TIMERS_DISABLED), Timers(OrderingCounters.TIMERS_ONE_SHOT),
+                                                  Timers(OrderingCounters.TIMERS_PERIODIC)),
+                                  analysis.Coverage.SelectMany(coverage => coverage.UnprovenJoins).Distinct().Count());
     }
 
     private static string ProvidersCell(AnalysisResult? analysis)
@@ -481,6 +511,7 @@ public static class ReportRenderer
     private static string RenderRunMetadataJson(RunReport report)
     {
         var analysis = report.Analysis;
+        var ordering = analysis is null ? null : Ordering(analysis);
         return Serialize(new
         {
             report.RunId,
@@ -521,6 +552,10 @@ public static class ReportRenderer
                     Skips = analysis.Pairs.Skips.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
                 },
+            OrderedPairs = ordering?.OrderedPairs,
+            SpawnSites = ordering?.SpawnSites,
+            Timers = ordering?.Timers,
+            UnprovenJoins = ordering?.UnprovenJoins,
             report.MissingProjects,
             Narratives = report.Narratives.Select(narrative => new
             {

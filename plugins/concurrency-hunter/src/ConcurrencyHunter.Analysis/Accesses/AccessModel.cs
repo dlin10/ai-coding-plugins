@@ -39,6 +39,9 @@ public sealed record AccessRoot(string RootId, string Symbol, string Display, st
 
 public sealed record CodeFlowStep(string Kind, string Text, SourceSpan Source);
 
+/// <summary>A <c>spawn:</c> or <c>timer-callback:</c> segment of a call path and the source of the site it names.</summary>
+public sealed record SpawnSiteLocation(string Segment, SourceSpan Source);
+
 /// <summary>A load that feeds a read-modify-write store: its symbol, source and code flow.</summary>
 public sealed record ReadSource(string Symbol, SourceSpan Source, IReadOnlyList<CodeFlowStep> CodeFlow);
 
@@ -60,6 +63,9 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
 
     /// <summary>The member symbols of the access's discovery path, from its root's member to the member holding the access.</summary>
     public IReadOnlyList<string> CallPath { get; init; } = [];
+
+    /// <summary>The sites of the <c>spawn:</c> and <c>timer-callback:</c> segments of <see cref="CallPath"/>, in path order.</summary>
+    public IReadOnlyList<SpawnSiteLocation> SpawnSites { get; init; } = [];
 
     /// <summary>The root the call path starts at: the access's own root, or for a construction that is an execution of its own, the root
     /// whose walk first triggers it.</summary>

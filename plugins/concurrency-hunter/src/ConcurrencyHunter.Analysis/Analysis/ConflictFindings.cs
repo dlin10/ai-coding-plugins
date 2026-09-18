@@ -167,7 +167,17 @@ internal static class ConflictFindings
                                    .Order(StringComparer.Ordinal));
         var components = folded.Occurrences.Select(Components).MaxBy(Score)!;
         var confidence = new FindingConfidence(Label(Score(components)), Score(components), components);
-        var evidence = Evidence(findingId, candidate.Resource, accessA, accessB, candidate.Protection, overlap, scenario);
+        var listed = folded.Occurrences.Take(LISTED_OCCURRENCES)
+                           .Select(occurrence => new FindingOccurrence(occurrence.AccessA.PathRoot, occurrence.AccessB.PathRoot,
+                                                                       occurrence.AccessA.CallPath, occurrence.AccessB.CallPath, occurrence.Protection)
+                           {
+                               SpawnSitesA = occurrence.AccessA.SpawnSites,
+                               SpawnSitesB = occurrence.AccessB.SpawnSites
+                           })
+                           .ToArray();
+        var evidence = Evidence(findingId, candidate.Resource, accessA, accessB, candidate.Protection, overlap, scenario)
+                       .Concat(SpawnEvidence(findingId, listed))
+                       .ToArray();
         var fingerprint = Hash($"ch-fp-1|{candidate.Key.Rule}|{ResourceText(candidate.Resource)}|" +
                                $"{accessA.BodyId}#{ordinals.Of(candidate.Resource, accessA)}|{accessA.Operation.ToWireName()}|" +
                                $"{accessB.BodyId}#{ordinals.Of(candidate.Resource, accessB)}|{accessB.Operation.ToWireName()}|" +
@@ -176,11 +186,7 @@ internal static class ConflictFindings
                            accessB, candidate.Protection, confidence, [overlap], scenario, uncertainty, evidence)
         {
             OccurrenceCount = folded.Occurrences.Count,
-            Occurrences = folded.Occurrences.Take(LISTED_OCCURRENCES)
-                                .Select(occurrence => new FindingOccurrence(occurrence.AccessA.PathRoot, occurrence.AccessB.PathRoot,
-                                                                            occurrence.AccessA.CallPath, occurrence.AccessB.CallPath,
-                                                                            occurrence.Protection))
-                                .ToArray()
+            Occurrences = listed
         };
     }
 
@@ -221,6 +227,32 @@ internal static class ConflictFindings
                              $"Protection: {protection}; A holds {Holdings(accessA)}; B holds {Holdings(accessB)}."),
             new EvidenceItem($"{findingId}.S", "scenario", $"Scenario: {string.Join("; ", scenario)}")
         ];
+    }
+
+    /// <summary>
+    /// One <c>spawn</c> item per distinct site the listed occurrences pass through a <c>spawn:</c> or <c>timer-callback:</c> segment:
+    /// side A's sites, then side B's, each side in occurrence order and path order, a repeated (API, member, location) kept at its
+    /// first place. Ids continue the finding's scheme as <c>&lt;findingId&gt;.SP1</c>, <c>.SP2</c>, …
+    /// </summary>
+    internal static IReadOnlyList<EvidenceItem> SpawnEvidence(string findingId, IReadOnlyList<FindingOccurrence> occurrences)
+    {
+        var items = new List<EvidenceItem>();
+        var seen = new HashSet<(string, string, string)>();
+        foreach (var site in occurrences.SelectMany(occurrence => occurrence.SpawnSitesA).Concat(occurrences.SelectMany(occurrence => occurrence.SpawnSitesB)))
+        {
+            var named = site.Segment[(site.Segment.IndexOf(':') + 1)..];
+            var at = named.IndexOf('@');
+            var (api, member) = at < 0 ? (named, "") : (named[..at], named[(at + 1)..]);
+            var location = $"{site.Source.Path}:{site.Source.StartLine}";
+            if (!seen.Add((api, member, location)))
+                continue;
+            items.Add(new EvidenceItem($"{findingId}.SP{items.Count + 1}", "spawn", $"Spawn site: {api} in {member} at {location}.")
+            {
+                Source = site.Source
+            });
+        }
+
+        return items;
     }
 
     /// <summary>The access, and for a read-modify-write every load it depends on.</summary>

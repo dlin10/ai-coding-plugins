@@ -193,20 +193,24 @@ public sealed class ReachableSetTests
     }
 
     [Fact]
-    public void Lambda_passed_to_an_opaque_call_is_not_reached_through_it()
+    public void Task_run_lambda_is_reached_as_spawn_work_and_not_recorded_as_a_delegate_to_an_opaque_call()
     {
         var run = Reach("""
             public static class Counters { public static int Value; }
-            public class JobsController : ControllerBase { public void Post() => Task.Run(() => Counters.Value = 1); }
+            public class JobsController : ControllerBase
+            {
+                public void Post() { Task.Run(() => Counters.Value = 1); GC.KeepAlive(System.Linq.Enumerable.Select(new[] { 1 }, item => item)); }
+            }
             """ + Startup());
 
         const string POST = "body:Fixture:M:JobsController.Post";
-        Assert.False(run.Reaches(POST + "#lambda1"));
-        Assert.Contains(POST, run.LoweredMembers);
-        var opaque = Assert.Single(run.Result.OpaqueCalls[POST]);
-        Assert.StartsWith("System.Threading.Tasks.Task.Run", opaque.Callee, StringComparison.Ordinal);
-        Assert.Equal([POST + "#lambda1"], opaque.DelegateTargets);
-        Assert.Single(opaque.DelegateValues);
+        var spawn = Assert.Single(run.Result.Bodies[POST].Blocks.SelectMany(block => block.Operations).OfType<IrSpawnOperation>());
+        Assert.Equal($"spawn:{POST}:{spawn.Id}", run.Result.ReachedBodies[POST + "#lambda1"]);
+        Assert.False(run.Reaches(POST + "#lambda2"));
+        var taskRun = Assert.Single(run.Result.OpaqueCalls[POST], call => call.Callee.StartsWith("System.Threading.Tasks.Task.Run", StringComparison.Ordinal));
+        Assert.Empty(taskRun.DelegateTargets);
+        var select = Assert.Single(run.Result.OpaqueCalls[POST], call => call.Callee.StartsWith("System.Linq.Enumerable.Select", StringComparison.Ordinal));
+        Assert.Equal([POST + "#lambda2"], select.DelegateTargets);
     }
 
     [Fact]

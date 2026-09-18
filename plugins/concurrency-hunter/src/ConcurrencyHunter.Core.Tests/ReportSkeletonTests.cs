@@ -6,6 +6,7 @@ using ConcurrencyHunter.Core.Tests.Engine;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
+using Microsoft.CodeAnalysis;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests;
@@ -37,10 +38,11 @@ public sealed class ReportSkeletonTests
     {
         var markdown = (await Render()).Bundle.ReportMarkdown;
 
-        Assert.Contains("| IR schema | 1.1 |\n", markdown, StringComparison.Ordinal);
+        Assert.Contains("| IR schema | 1.2 |\n", markdown, StringComparison.Ordinal);
         Assert.Contains("| Providers | aspnetcore (Microsoft.AspNetCore.Mvc.Core 8.0.0.0..11.0.0.0, Microsoft.AspNetCore.Mvc 8.0.0.0..11.0.0.0, " +
                         "Microsoft.AspNetCore.Routing 8.0.0.0..11.0.0.0, Microsoft.AspNetCore.Http.Abstractions 8.0.0.0..11.0.0.0, " +
-                        "Microsoft.Extensions.DependencyInjection.Abstractions 8.0.0.0..11.0.0.0); " +
+                        "Microsoft.Extensions.DependencyInjection.Abstractions 8.0.0.0..11.0.0.0, " +
+                        "Grpc.AspNetCore.Server 2.0.0.0..3.0.0.0, Grpc.Core.Api 2.0.0.0..3.0.0.0); " +
                         "hosting (Microsoft.Extensions.Hosting.Abstractions 8.0.0.0..11.0.0.0) |\n", markdown, StringComparison.Ordinal);
         Assert.True(markdown.IndexOf("| Version |", StringComparison.Ordinal) < markdown.IndexOf("| IR schema |", StringComparison.Ordinal));
     }
@@ -68,7 +70,7 @@ public sealed class ReportSkeletonTests
                         StringComparison.Ordinal);
         Assert.Contains("  - Registrations: 3\n", coverage, StringComparison.Ordinal);
         Assert.Contains("  - DI diagnostics: UnresolvedBinding LedgerWorker:", coverage, StringComparison.Ordinal);
-        Assert.Contains("  - startup-construction-access 1: accesses of constructions run at startup, not paired\n", coverage, StringComparison.Ordinal);
+        Assert.DoesNotContain("startup-construction-access", coverage, StringComparison.Ordinal);
         Assert.Contains("  - Other diagnostics: No executable project was found; the whole solution is analyzed as one process scope.\n",
                         coverage, StringComparison.Ordinal);
     }
@@ -93,13 +95,188 @@ public sealed class ReportSkeletonTests
 
         foreach (var coverage in new[] { analyzed, unanalyzed })
         {
-            Assert.Contains("- Not analyzed in this version: semantic gaps, path feasibility, spawn sites and ordering, element accesses\n", coverage,
-                            StringComparison.Ordinal);
+            Assert.Contains("- Not analyzed in this version: semantic gaps, path feasibility, element accesses\n", coverage, StringComparison.Ordinal);
+            Assert.DoesNotContain("spawn sites and ordering", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Reachable set", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Calls from roots", coverage, StringComparison.Ordinal);
         }
 
         Assert.DoesNotContain("Process scope", unanalyzed, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Coverage_lists_the_ordering_lines_and_run_metadata_carries_them()
+    {
+        var (result, bundle) = await Render(source: """
+            public sealed class Clock { public int Ticks; }
+            public sealed class Ticker(Clock clock) : BackgroundService
+            {
+                protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    clock.Ticks = 1;
+                    var joined = Task.Run(() => clock.Ticks = 2);
+                    await joined;
+                    clock.Ticks = 3;
+                    new Timer(_ => clock.Ticks = 4, null, 0, 1000);
+                    new Timer(_ => clock.Ticks = 5, null, Timeout.Infinite, 1000);
+                    var tasks = new System.Collections.Generic.List<Task> { Task.Run(() => clock.Ticks = 6) };
+                    await Task.WhenAll(tasks);
+                }
+            }
+            public class ClockController(Clock clock) : ControllerBase { public void Post() => clock.Ticks = 7; }
+            """, registrations: "services.AddSingleton<Clock>(); services.AddHostedService<Ticker>();");
+        var coverage = Section(bundle.ReportMarkdown, "### Coverage");
+        var ordered = result.Pairs.Skips[InterproceduralPairing.SKIP_ORDERED];
+
+        Assert.True(ordered > 0);
+        Assert.Contains($"- pairs ordered by happens-before: {ordered}\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("- spawn sites: Task.Run 2\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("- timers: disabled 1, one-shot 0, periodic 1\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("- joins without proven identity: 1\n", coverage, StringComparison.Ordinal);
+        Assert.True(coverage.IndexOf("- Pairs: ", StringComparison.Ordinal) < coverage.IndexOf("- pairs ordered by happens-before: ", StringComparison.Ordinal));
+        using var json = JsonDocument.Parse(bundle.RunMetadataJson);
+        var root = json.RootElement;
+        Assert.Equal(ordered, root.GetProperty("orderedPairs").GetInt32());
+        Assert.Equal([("Task.Run", 2)], root.GetProperty("spawnSites").EnumerateObject().Select(property => (property.Name, property.Value.GetInt32())));
+        Assert.Equal([("disabled", 1), ("oneShot", 0), ("periodic", 1)],
+                     root.GetProperty("timers").EnumerateObject().Select(property => (property.Name, property.Value.GetInt32())));
+        Assert.Equal(1, root.GetProperty("unprovenJoins").GetInt32());
+    }
+
+    [Fact]
+    public async Task Coverage_counts_a_shared_spawn_and_timer_site_once_over_two_scopes()
+    {
+        const string library = """
+            namespace Shared;
+            public sealed class Ticker
+            {
+                public int Value;
+                public void Spawn() => Task.Run(() => Value = 1);
+                public Timer Arm() => new Timer(_ => Value = 2, null, 100, Timeout.Infinite);
+            }
+            """;
+        const string once = """
+            public static class OnceWorkerProgram { public static void Main() { } }
+            public sealed class OnceWorker(Shared.Ticker ticker) : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    ticker.Spawn();
+                    GC.KeepAlive(ticker.Arm());
+                    return Task.CompletedTask;
+                }
+            }
+            """;
+        const string periodic = """
+            public static class PeriodicWorkerProgram { public static void Main() { } }
+            public sealed class PeriodicWorker(Shared.Ticker ticker) : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    ticker.Spawn();
+                    ticker.Arm().Change(0, 1000);
+                    return Task.CompletedTask;
+                }
+            }
+            """;
+        var options = new FixtureOptions
+        {
+            ProjectOutputKinds = new Dictionary<string, OutputKind> { ["Once"] = OutputKind.ConsoleApplication, ["Periodic"] = OutputKind.ConsoleApplication },
+            ProjectReferences = [("Once", "Library"), ("Periodic", "Library")]
+        };
+        var solution = FixtureSolution.CreateProjects(
+            options,
+            ("Library", "Ticker.cs", EngineFixture.Usings + library),
+            ("Once", "Once.cs", EngineFixture.Usings + once + EngineFixture.Startup("services.AddSingleton<Shared.Ticker>(); services.AddHostedService<OnceWorker>();")),
+            ("Periodic", "Periodic.cs",
+             EngineFixture.Usings + periodic + EngineFixture.Startup("services.AddSingleton<Shared.Ticker>(); services.AddHostedService<PeriodicWorker>();")));
+        var result = await PhaseOneAnalyzer.AnalyzeAsync(solution, EngineFixture.ROOT_DIRECTORY, CancellationToken.None);
+        var bundle = ReportRenderer.Render(ReportingTestData.CreateReport(result));
+        var coverage = Section(bundle.ReportMarkdown, "### Coverage");
+
+        Assert.Equal(["Once", "Periodic"], result.Scopes.Select(scope => scope.Id).Order(StringComparer.Ordinal));
+        string Line(string prefix) => Assert.Single(coverage.Split('\n'), line => line.StartsWith(prefix, StringComparison.Ordinal));
+        Assert.Equal("- spawn sites: Task.Run 1", Line("- spawn sites: "));
+        Assert.Equal("- timers: disabled 0, one-shot 0, periodic 1", Line("- timers: "));
+        using var json = JsonDocument.Parse(bundle.RunMetadataJson);
+        var root = json.RootElement;
+        Assert.Equal([("Task.Run", 1)], root.GetProperty("spawnSites").EnumerateObject().Select(property => (property.Name, property.Value.GetInt32())));
+        Assert.Equal([("disabled", 0), ("oneShot", 0), ("periodic", 1)],
+                     root.GetProperty("timers").EnumerateObject().Select(property => (property.Name, property.Value.GetInt32())));
+    }
+
+    [Fact]
+    public async Task Coverage_ordering_lines_say_none_and_zero_without_spawns()
+    {
+        var coverage = Section((await Render()).Bundle.ReportMarkdown, "### Coverage");
+
+        Assert.Contains("- spawn sites: none\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("- timers: disabled 0, one-shot 0, periodic 0\n", coverage, StringComparison.Ordinal);
+        Assert.Contains("- joins without proven identity: 0\n", coverage, StringComparison.Ordinal);
+        Assert.Contains($"  - {CoverageCounters.DELEGATE_TO_OPAQUE} ", coverage, StringComparison.Ordinal);
+        Assert.Contains(": delegates handed to such calls other than the recognized spawn and timer APIs, never invoked\n", coverage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Occurrence_started_at_startup_shows_its_spawn_segment_and_spawn_evidence()
+    {
+        var (result, bundle) = await Render(source: Source + """
+            public sealed class Warmup : BackgroundService
+            {
+                public Warmup(Ledger ledger) { Task.Run(() => ledger.Entry = "warm"); }
+                protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+            }
+            """, registrations: "services.AddSingleton<Ledger>(); services.AddHostedService<LedgerWorker>(); services.AddHostedService<Warmup>();");
+        var finding = result.Findings.First(item => item.Occurrences.Any(occurrence => occurrence.RootA.RootId == "startup" ||
+                                                                                          occurrence.RootB.RootId == "startup"));
+        var occurrence = finding.Occurrences.First(item => item.RootA.RootId == "startup" || item.RootB.RootId == "startup");
+        var path = occurrence.RootA.RootId == "startup" ? occurrence.CallPathA : occurrence.CallPathB;
+        var segment = Assert.Single(path, step => step.StartsWith("spawn:", StringComparison.Ordinal));
+        var block = Block(bundle.ReportMarkdown, finding.FindingId);
+
+        Assert.StartsWith("spawn:Task.Run@Warmup", segment, StringComparison.Ordinal);
+        Assert.Contains(block.Split('\n'), line => line.StartsWith("  - ", StringComparison.Ordinal) && line.Contains("startup (", StringComparison.Ordinal) &&
+                                                   line.Contains($" → {segment} → ", StringComparison.Ordinal));
+        var spawn = Assert.Single(finding.Evidence, item => item.Kind == "spawn");
+        Assert.Equal($"{finding.FindingId}.SP1", spawn.Id);
+        Assert.Matches(@"^Spawn site: Task\.Run in Warmup\S* at Case\.cs:\d+\.$", spawn.Text);
+        Assert.Contains($", {spawn.Id}\n", block, StringComparison.Ordinal);
+        using var json = JsonDocument.Parse(bundle.FindingsJson);
+        var element = json.RootElement.GetProperty("findings").EnumerateArray().Single(item => item.GetProperty("findingId").GetString() == finding.FindingId);
+        Assert.Contains(element.GetProperty("occurrences").EnumerateArray(),
+                        item => item.GetProperty("roots").EnumerateArray().Any(root => root.GetString() == "startup") &&
+                                item.GetProperty("callPaths").EnumerateArray().Any(side => side.EnumerateArray().Any(step => step.GetString() == segment)));
+    }
+
+    [Fact]
+    public async Task Grpc_method_root_description_names_its_kind()
+    {
+        var (result, bundle) = await Render(source: """
+            public sealed class Request { }
+            public sealed class Reply { }
+            public static partial class Greeter
+            {
+                [Grpc.Core.BindServiceMethod(typeof(Greeter), "BindService")]
+                public abstract partial class GreeterBase
+                {
+                    public virtual Task<Reply> SayHello(Request request, Grpc.Core.ServerCallContext context) => throw new NotSupportedException();
+                }
+            }
+            public sealed class GreetingLog { public string? Last; }
+            public sealed class GreeterService(GreetingLog log) : Greeter.GreeterBase
+            {
+                public override Task<Reply> SayHello(Request request, Grpc.Core.ServerCallContext context) { log.Last = "hello"; return Task.FromResult(new Reply()); }
+            }
+            public static class GrpcMapping
+            {
+                public static void Map(IServiceCollection services, IEndpointRouteBuilder app) { services.AddGrpc(); app.MapGrpcService<GreeterService>(); }
+            }
+            """, registrations: "services.AddSingleton<GreetingLog>(); GrpcMapping.Map(services, app);");
+        var finding = Assert.Single(result.Findings);
+
+        Assert.Equal("grpc-method", finding.AccessA.Root.RootKind);
+        Assert.Contains("under root grpc-method GreeterService.SayHello(Request, ServerCallContext) of gRPC service GreeterService;",
+                        Block(bundle.ReportMarkdown, finding.FindingId), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -297,7 +474,7 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(10, counters.Length);
+        Assert.Equal(9, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));

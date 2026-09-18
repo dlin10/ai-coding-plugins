@@ -70,7 +70,7 @@ public sealed record EngineRun(ExecutionRun Execution, InterproceduralCollection
 
     public int Skipped(string reason) => Pairs.Skips.GetValueOrDefault(reason);
 
-    public int Counter(string name) => Collection.Coverage.Counters.GetValueOrDefault(name);
+    public int Counter(string name) => Collection.Coverage.Counters.GetValueOrDefault(name, Collection.Coverage.Ordering.GetValueOrDefault(name));
 }
 
 /// <summary>Runs the real pipeline on one source file the way the analyzer does: the DI index, both built-in providers, injection
@@ -210,6 +210,7 @@ public static class EngineFixture
                   first.ExecutionId == second.ExecutionId && heap.Regions[first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
                   region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
+                : executions.Ordered(first, second) ? InterproceduralPairing.SKIP_ORDERED
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
                 : null;
             if (skip is not null)

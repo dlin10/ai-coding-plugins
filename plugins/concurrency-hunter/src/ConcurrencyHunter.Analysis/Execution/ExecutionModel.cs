@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Heap;
@@ -10,13 +11,31 @@ public enum ExecutionKind
 {
     Root,
     LazyConstruction,
-    TypeInitializer
+    TypeInitializer,
+    Spawn,
+    TimerCallback,
+    Startup
 }
 
-/// <summary>One execution of the scope: a root with its invocation policy, a lazily resolved construction, or a type
-/// initializer that does not run at startup. <see cref="Subject"/> is the region or closed type a construction builds.</summary>
+/// <summary>Where a spawned execution starts: the API (<c>Task.Run</c>, <c>async-call</c>, a timer type, ...), the symbol of the member
+/// holding the site, and the site. A tail is the part of async work after its first await that its spawn does not wait for; it
+/// starts at the synthetic point where the work returns.</summary>
+public sealed record SpawnOrigin(string Api, string Symbol, string BodyId, int OperationId, bool IsTail);
+
+/// <summary>One execution of the scope: a root with its invocation policy, a lazily resolved construction, a type initializer that does
+/// not run at startup, or an execution a spawn site or a timer starts inside its <see cref="ParentId"/> (<see cref="ExecutionModel.STARTUP"/>
+/// for startup). <see cref="Subject"/> is the region or closed type a construction builds; <see cref="TreeRootId"/> is the root id, or
+/// <c>startup</c>, or the construction execution id at the top of the tree.</summary>
 public sealed record ExecutionInstance(string Id, ExecutionKind Kind, string Display, InvocationPolicy Policy, string? RootId, string? Subject)
 {
+    public string? ParentId { get; init; }
+    public SpawnOrigin? Origin { get; init; }
+    public string TreeRootId { get => field ?? RootId ?? Id; init; }
+
+    /// <summary>A spawned execution whose parent runs at most once and whose site runs at most once per run of the parent, not reached
+    /// again through its own chain; a tail has its work's value. Its handle then names one run.</summary>
+    public bool SpawnedOnce { get; init; }
+
     public bool OverlapsItself =>
         Policy is { Multiplicity: Multiplicity.Repeated, SelfOverlap: SelfOverlap.MayOverlap } ||
         Policy.Multiplicity == Multiplicity.Unknown || Policy.SelfOverlap == SelfOverlap.Unknown;
@@ -26,12 +45,26 @@ public enum ExecutionEntryKind
 {
     Root,
     Construction,
-    TypeInitializer
+    TypeInitializer,
+    Spawn
+}
+
+/// <summary>Which operations of a body an execution runs: all of them, those an async body runs before its first await, or those it
+/// runs after one. An operation reachable both ways is in both.</summary>
+public enum BodySegment
+{
+    Whole,
+    Prefix,
+    Tail
 }
 
 /// <summary>Where an execution starts: its root entry, a constructor chain it runs (starting inside the interval of the object
-/// under construction), or a type initializer (inside its closed type's static region).</summary>
-public sealed record ExecutionEntry(string InstanceId, ExecutionEntryKind Kind, string? IntervalObject);
+/// under construction), a type initializer (inside its closed type's static region), or the work of a spawn, in the
+/// <see cref="Segment"/> of its body the execution runs.</summary>
+public sealed record ExecutionEntry(string InstanceId, ExecutionEntryKind Kind, string? IntervalObject)
+{
+    public BodySegment Segment { get; init; } = BodySegment.Whole;
+}
 
 public enum OwnershipKind
 {
@@ -48,22 +81,23 @@ public sealed record RegionOwnership(OwnershipKind Kind, IReadOnlyList<string> E
 /// construction builds, before the construction publishes it, and never pairs.</summary>
 public sealed record CollectedAccess(string ExecutionId, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal);
 
-public static class ExecutionCounters
-{
-    public const string STARTUP_CONSTRUCTION_ACCESS = "startup-construction-access";
-}
-
 public sealed class ExecutionAnalysis
 {
     private readonly IReadOnlyDictionary<string, ExecutionInstance> _executions;
     private readonly IReadOnlySet<string> _singleObjects;
+    private readonly AsyncSegments? _segments;
+    private readonly HappensBefore? _order;
 
     internal ExecutionAnalysis(IReadOnlyList<ExecutionInstance> executions, IReadOnlyList<CollectedAccess> accesses,
                                IReadOnlyDictionary<string, RegionOwnership> ownership, IReadOnlyDictionary<string, int> counters,
                                IReadOnlySet<string> singleObjects, IReadOnlySet<string> publishedObjects,
                                IReadOnlyDictionary<string, IReadOnlySet<string>> instanceExecutions,
-                               IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries)
+                               IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries, AsyncSegments? segments = null,
+                               IReadOnlyDictionary<string, IReadOnlyList<string>>? callPathPrefixes = null, HappensBefore? order = null)
     {
+        _order = order;
+        _segments = segments;
+        CallPathPrefixes = callPathPrefixes ?? new Dictionary<string, IReadOnlyList<string>>();
         Entries = entries;
         Executions = executions;
         Accesses = accesses;
@@ -97,8 +131,124 @@ public sealed class ExecutionAnalysis
     /// <summary>Two executions of one scope overlap; an execution overlaps itself only when its policy says so.</summary>
     public bool Overlaps(string first, string second) => first != second || _executions[first].OverlapsItself;
 
+    /// <summary>Whether a happens-before path trusted for every instance it connects orders two accesses of different executions.</summary>
+    public bool Ordered(Access first, Access second) => first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
+
+    /// <summary>The distinct spawn and async call sites the executions reach, by source; timers are counted apart.</summary>
+    public IReadOnlyList<SpawnSiteCoverage> SpawnSites => _order?.SpawnSites ?? [];
+
+    /// <summary>The distinct join operations on spawned work whose handle identity is not proven in at least one context.</summary>
+    public IReadOnlyList<OperationSite> UnprovenJoins => _order?.UnprovenJoins ?? [];
+
+    /// <summary>The timer creation sites the executions reach, each with the counter of the widest kind a context creates it with.</summary>
+    public IReadOnlyList<TimerSiteCoverage> TimerSites { get; init; } = [];
+
     /// <summary>Whether a region is provably one object per process, as a lock identity.</summary>
     public bool IsSingleObject(string regionId) => _singleObjects.Contains(regionId);
+
+    /// <summary>For each spawned execution, the member symbols from its tree's root to its spawn site, ending with the site's
+    /// <c>spawn:</c> or <c>timer-callback:</c> segment; the execution's own path follows them.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> CallPathPrefixes { get; }
+
+    internal IReadOnlyDictionary<string, IReadOnlyList<SpawnSiteLocation>> SpawnSiteLocations { get; init; } =
+        new Dictionary<string, IReadOnlyList<SpawnSiteLocation>>();
+
+    /// <summary>The sites of the segments an access's call path passes: its execution's, when the path starts with that execution's
+    /// prefix.</summary>
+    public IReadOnlyList<SpawnSiteLocation> SpawnSitesOf(string executionId, IReadOnlyList<string> callPath) =>
+        SpawnSiteLocations.TryGetValue(executionId, out var sites) && CallPathPrefixes.TryGetValue(executionId, out var prefix) &&
+        callPath.Take(prefix.Count).SequenceEqual(prefix)
+            ? sites
+            : [];
+
+    /// <summary>Whether a segment of a body runs an operation; a negative operation is the body's entry.</summary>
+    public bool Runs(string bodyId, BodySegment segment, int operationId) => _segments?.Runs(bodyId, segment, operationId) ?? true;
+
+    /// <summary>The segment of its callee a call edge runs in the caller's execution, or null when that segment of the caller does
+    /// not run the call.</summary>
+    public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge) =>
+        _segments is null ? BodySegment.Whole : _segments.Follow(caller, segment, edge);
+}
+
+/// <summary>
+/// The segments of async bodies and how calls move between them. An operation reachable from the body's entry without passing an
+/// await is in its prefix; one reachable from an await is in its tail. An async spawn edge runs its callee's prefix in the caller;
+/// inside a prefix, an awaited call into an async body runs that body's prefix too, its tail joining the caller's tail.
+/// </summary>
+public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
+{
+    private readonly Dictionary<string, (HashSet<int> Prefix, HashSet<int> Tail)> _bodies = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Caller, int Operation), HashSet<string>> _asyncCallees =
+        heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId), site => site.Callees.ToHashSet(StringComparer.Ordinal));
+
+    public bool Runs(string bodyId, BodySegment segment, int operationId) => segment switch
+    {
+        BodySegment.Whole => true,
+        BodySegment.Prefix => operationId < 0 || Of(bodyId).Prefix.Contains(operationId),
+        _ => operationId >= 0 && Of(bodyId).Tail.Contains(operationId)
+    };
+
+    public bool IsAsyncSpawn(string caller, int operationId, string callee) =>
+        _asyncCallees.TryGetValue((caller, operationId), out var callees) && callees.Contains(callee);
+
+    /// <summary>An async body that is not an async iterator: one that starts work its caller may not wait for.</summary>
+    public bool IsAsync(string bodyId) => scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false };
+
+    public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge)
+    {
+        if (!Runs(caller.BodyId, segment, edge.OperationId))
+            return null;
+        if (edge.Reason == WholeProgram.CONSTRUCTION_REASON)
+            return BodySegment.Whole;
+        if (IsAsyncSpawn(caller.Id, edge.OperationId, edge.CalleeInstance))
+            return BodySegment.Prefix;
+        return segment == BodySegment.Prefix && IsAsync(heap.Instances[edge.CalleeInstance].BodyId) &&
+               caller.Summary.Calls.Any(call => call.OperationId == edge.OperationId && call.IsAwaitedImmediately)
+            ? BodySegment.Prefix
+            : BodySegment.Whole;
+    }
+
+    /// <summary>A body's prefix and tail operations: a block entered before any await runs its operations up to and including its
+    /// first await in the prefix and the rest in the tail; an exceptional edge may leave the block before or after that await.</summary>
+    private (HashSet<int> Prefix, HashSet<int> Tail) Of(string bodyId)
+    {
+        if (_bodies.TryGetValue(bodyId, out var cached))
+            return cached;
+
+        var (prefix, tail) = (new HashSet<int>(), new HashSet<int>());
+        _bodies.Add(bodyId, (prefix, tail));
+        if (!scope.Reachable.Bodies.TryGetValue(bodyId, out var body) || body.Blocks.Count == 0)
+            return (prefix, tail);
+
+        var successors = body.Blocks.SelectMany(block => block.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, Successor: block.Ordinal,
+                                                                                                         Exceptional: predecessor.EdgeKind == IrEdgeKind.Exceptional)))
+                             .GroupBy(edge => edge.BlockOrdinal)
+                             .ToDictionary(group => group.Key, group => group.ToArray());
+        var seen = new HashSet<(int Block, bool AfterAwait)>();
+        var pending = new Stack<(int Block, bool AfterAwait)>([(0, false)]);
+        while (pending.TryPop(out var item))
+        {
+            if (!seen.Add(item))
+                continue;
+
+            var afterAwait = item.AfterAwait;
+            foreach (var operation in body.Blocks[item.Block].Operations)
+            {
+                (afterAwait ? tail : prefix).Add(operation.Id);
+                if (operation is IrAwaitOperation)
+                    afterAwait = true;
+            }
+
+            foreach (var edge in successors.GetValueOrDefault(item.Block) ?? [])
+            {
+                pending.Push((edge.Successor, afterAwait));
+                if (edge.Exceptional)
+                    pending.Push((edge.Successor, item.AfterAwait));
+            }
+        }
+
+        return (prefix, tail);
+    }
 }
 
 /// <summary>
@@ -122,9 +272,32 @@ public static class ExecutionModel
                                                                         .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _instanceExecutions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _chains = new(StringComparer.Ordinal);
-        private readonly HashSet<(string Execution, string Instance, string Intervals)> _visits = [];
-        private readonly List<(string Execution, string Instance, HashSet<string> Intervals)> _visitList = [];
+        private readonly HashSet<(string Execution, string Instance, string Intervals, BodySegment Segment, string? Tail)> _visits = [];
+        private readonly List<(string Execution, string Instance, HashSet<string> Intervals, BodySegment Segment)> _visitList = [];
         private readonly Dictionary<string, List<ExecutionEntry>> _entries = new(StringComparer.Ordinal);
+        private readonly Queue<(string Execution, ExecutionEntry Entry, string? Tail)> _pendingEntries = new();
+        private readonly AsyncSegments _segments = new(scope, heap);
+        private readonly Dictionary<string, SpawnSite[]> _spawns = heap.Spawns.GroupBy(site => site.CallerInstance, StringComparer.Ordinal)
+                                                                       .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        private readonly Dictionary<string, TimerCallbackSite[]> _timers = heap.TimerCallbacks.GroupBy(site => site.CallerInstance, StringComparer.Ordinal)
+                                                                               .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        private readonly Dictionary<(string Caller, int Operation), AsyncSpawnSite> _asyncSpawns =
+            heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
+        private readonly Dictionary<string, HashSet<ExecutionStep>> _steps = new(StringComparer.Ordinal);
+        private readonly HashSet<SpawnAnchor> _anchors = [];
+        private readonly Dictionary<string, string> _tails = new(StringComparer.Ordinal);
+        private readonly TimerSteps _timerSteps = new(heap);
+        private readonly HashSet<TimerCallbackSite> _subscriptions = [];
+        private readonly Dictionary<string, List<TimerCallbackSite>> _timerSites = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string BodyId, int OperationId), TimerKind> _timerKinds = [];
+        private readonly Dictionary<string, HappensBefore.Flow> _flows = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _childKeys = new(StringComparer.Ordinal);
+        private readonly List<string> _childOrder = [];
+        private readonly HashSet<string> _alwaysRepeated = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _recursive = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<string>> _prefixes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<SpawnSiteLocation>> _spawnSites = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string BodyId, int Operation), bool> _inCycle = [];
         private readonly Dictionary<string, HashSet<string>> _sharedReach = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _constructed = heap.Constructions.SelectMany(construction => construction.ConstructorInstances
                                                                                          .Select(instance => (Instance: instance, construction.RegionId)))
@@ -140,10 +313,7 @@ public static class ExecutionModel
             var startupTypeInitializers = StartupTypeInitializers();
 
             foreach (var (rootId, instanceId) in heap.RootInstances.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            {
-                Walk(RootExecution(rootId), instanceId, []);
                 Entry(RootExecution(rootId), new ExecutionEntry(instanceId, ExecutionEntryKind.Root, null));
-            }
 
             foreach (var construction in heap.Constructions.OrderBy(construction => heap.Regions[construction.RegionId].Kind != HeapRegionKind.Receiver)
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))
@@ -151,10 +321,7 @@ public static class ExecutionModel
                 foreach (var execution in _regionExecutions.GetValueOrDefault(construction.RegionId) ?? [])
                 {
                     foreach (var instance in construction.ConstructorInstances)
-                    {
-                        Walk(execution, instance, [construction.RegionId]);
                         Entry(execution, new ExecutionEntry(instance, ExecutionEntryKind.Construction, construction.RegionId));
-                    }
                 }
             }
 
@@ -165,33 +332,436 @@ public static class ExecutionModel
                     : Add(new ExecutionInstance($"type-initializer:{initializer.TypeKey}", ExecutionKind.TypeInitializer,
                                                 $"type initializer of {WholeProgram.DisplayType(initializer.TypeKey)}", AT_MOST_ONCE, null,
                                                 initializer.TypeKey));
-                Walk(execution, initializer.InstanceId, [$"static:{initializer.TypeKey}"]);
                 Entry(execution, new ExecutionEntry(initializer.InstanceId, ExecutionEntryKind.TypeInitializer, $"static:{initializer.TypeKey}"));
             }
 
+            do
+            {
+                while (_pendingEntries.TryDequeue(out var pending))
+                    Walk(pending.Execution, pending.Entry, pending.Tail);
+                foreach (var site in _subscriptions.ToArray())
+                    Subscribed(site);
+            }
+            while (_pendingEntries.Count != 0);
+
+            if (_entries.ContainsKey(STARTUP))
+                Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
+            FinishSpawnedExecutions();
+
             var published = Published();
-            var (accesses, startupAccesses) = Collect(published);
+            var accesses = Collect(published);
             var ownership = Ownership(accesses);
+            var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
+            var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
+            var visits = _visitList.GroupBy(visit => visit.Execution, StringComparer.Ordinal)
+                                   .ToDictionary(group => group.Key,
+                                                 group => (IReadOnlyList<ExecutionVisit>)group.Select(visit => new ExecutionVisit(visit.Instance, visit.Segment))
+                                                                                              .Distinct().ToArray(),
+                                                 StringComparer.Ordinal);
+            var steps = _steps.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionStep>)pair.Value.ToArray(), StringComparer.Ordinal);
+            var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
+                                          visits, steps, _anchors.ToArray(), _tails);
+            var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
+                                        .OrderBy(site => site.Site.BodyId, StringComparer.Ordinal)
+                                        .ThenBy(site => site.Site.OperationId)
+                                        .ToArray();
+            var counters = OrderingCounters.TIMER_KINDS.ToDictionary(counter => counter,
+                                                                     counter => timerSites.Count(site => site.Counter == counter),
+                                                                     StringComparer.Ordinal);
             return new ExecutionAnalysis(
-                _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray(),
+                executions,
                 accesses,
                 ownership,
-                new Dictionary<string, int>(StringComparer.Ordinal) { [ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS] = startupAccesses },
+                counters,
                 SingleObjects(),
                 published,
                 _instanceExecutions.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
-                _entries.Where(pair => pair.Key != STARTUP)
-                        .ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal));
+                entries,
+                _segments,
+                _prefixes,
+                order)
+            {
+                SpawnSiteLocations = _spawnSites,
+                TimerSites = timerSites
+            };
         }
 
-        private void Entry(string execution, ExecutionEntry entry)
+        /// <summary>The counter a timer creation site of one kind is counted in.</summary>
+        private static string Counter(TimerKind kind) => kind switch
+        {
+            TimerKind.Disabled => OrderingCounters.TIMERS_DISABLED,
+            TimerKind.OneShot => OrderingCounters.TIMERS_ONE_SHOT,
+            _ => OrderingCounters.TIMERS_PERIODIC
+        };
+
+        /// <summary>Adds an entry once and queues its walk; a prefix entry names the execution its awaited callees' tails join.</summary>
+        private void Entry(string execution, ExecutionEntry entry, string? tail = null)
         {
             if (!_entries.TryGetValue(execution, out var entries))
                 _entries.Add(execution, entries = []);
+            if (entries.Contains(entry))
+                return;
             entries.Add(entry);
+            _pendingEntries.Enqueue((execution, entry, tail));
         }
 
         private static readonly InvocationPolicy AT_MOST_ONCE = new(Multiplicity.AtMostOnce, SelfOverlap.Serialized, "");
+        private static readonly InvocationPolicy REPEATED = new(Multiplicity.Repeated, SelfOverlap.MayOverlap, "");
+
+        private static string Api(IrSpawnKind kind) => kind switch
+        {
+            IrSpawnKind.TaskRun => "Task.Run",
+            IrSpawnKind.StartNew => "TaskFactory.StartNew",
+            IrSpawnKind.ContinueWith => "Task.ContinueWith",
+            IrSpawnKind.QueueUserWorkItem => "ThreadPool.QueueUserWorkItem",
+            IrSpawnKind.UnsafeQueueUserWorkItem => "ThreadPool.UnsafeQueueUserWorkItem",
+            IrSpawnKind.ThreadStart => "Thread.Start",
+            IrSpawnKind.ParallelFor => "Parallel.For",
+            IrSpawnKind.ParallelForEach => "Parallel.ForEach",
+            IrSpawnKind.ParallelForEachAsync => "Parallel.ForEachAsync",
+            IrSpawnKind.AsyncCall => "async-call",
+            IrSpawnKind.AsyncVoid => "async-void",
+            _ => "unrecognized"
+        };
+
+        private string Symbol(string bodyId) => scope.Reachable.Bodies.TryGetValue(bodyId, out var body) ? body.OwnerSymbol : bodyId;
+
+        /// <summary>The execution a spawn site of <paramref name="parent"/> starts, created once per parent and site; a site reached again
+        /// inside the chain of executions it started reuses that execution, which then overlaps itself.</summary>
+        private string Child(string parent, string key, Func<string, ExecutionInstance> create, bool alwaysRepeated)
+        {
+            for (var current = parent; current is not null && current != STARTUP; current = _executions[current].ParentId)
+            {
+                if (_childKeys.GetValueOrDefault(current) == key)
+                {
+                    _recursive.Add(current);
+                    return current;
+                }
+            }
+
+            var id = $"{parent}>{key}";
+            if (_executions.TryAdd(id, create(id)))
+            {
+                _childKeys.Add(id, key);
+                _childOrder.Add(id);
+                if (alwaysRepeated)
+                    _alwaysRepeated.Add(id);
+            }
+
+            return id;
+        }
+
+        private string Spawned(string parent, string key, ExecutionKind kind, string display, SpawnOrigin origin, bool alwaysRepeated) =>
+            Child(parent, key, id => new ExecutionInstance(id, kind, display, REPEATED, null, null) { ParentId = parent, Origin = origin }, alwaysRepeated);
+
+        private void Spawn(string parent, MethodInstance instance, SpawnSite site)
+        {
+            var api = Api(site.Kind);
+            var symbol = Symbol(instance.BodyId);
+            var child = Spawned(parent, $"spawn:{instance.BodyId}#{site.OperationId}", ExecutionKind.Spawn, $"{api} in {symbol}",
+                                new SpawnOrigin(api, symbol, instance.BodyId, site.OperationId, false),
+                                site.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach or IrSpawnKind.ParallelForEachAsync or IrSpawnKind.Unrecognized);
+            _anchors.Add(new SpawnAnchor(parent, instance.Id, site.OperationId, child, SpawnAnchorKind.Spawn));
+            var awaitsTask = instance.Summary.Spawns.Any(spawn => spawn.OperationId == site.OperationId && spawn.AwaitsWorkTask);
+            foreach (var callee in site.Callees)
+                EnterWork(child, callee.InstanceId, awaitsTask);
+        }
+
+        /// <summary>Starts the callbacks an <c>Elapsed</c> subscription runs in each execution that created its timer, at the creation site;
+        /// a timer whose creation the heap does not locate, or one that may also be a timer of unknown origin, keeps the subscription as a
+        /// site of its own, since that timer may have been created in another execution.</summary>
+        private void Subscribed(TimerCallbackSite site)
+        {
+            var subscriber = heap.Instances[site.CallerInstance];
+            foreach (var region in site.TimersKnown ? site.Timers.DefaultIfEmpty("") : site.Timers.Append(""))
+            {
+                if (heap.Regions.GetValueOrDefault(region) is { Kind: HeapRegionKind.Allocation, SiteBodyId: { } bodyId, SiteOperationId: { } operationId } timer)
+                {
+                    foreach (var creator in heap.Instances.Values.Where(instance => instance.BodyId == bodyId && instance.Context == timer.Context))
+                    {
+                        foreach (var execution in (_instanceExecutions.GetValueOrDefault(creator.Id) ?? []).ToArray())
+                            Timer(execution, creator, site, operationId);
+                    }
+                }
+                else
+                {
+                    foreach (var execution in (_instanceExecutions.GetValueOrDefault(subscriber.Id) ?? []).ToArray())
+                        Timer(execution, subscriber, site, site.OperationId);
+                }
+            }
+        }
+
+        /// <summary>Starts the callback execution of a timer site at the operation that creates its timer (or subscribes to it), unless every
+        /// timer the site names is disabled, which is only counted; a site that may run a timer of unknown origin runs its callback.</summary>
+        private void Timer(string parent, MethodInstance instance, TimerCallbackSite site, int operationId)
+        {
+            if (site.TimersKnown && site.Timers.Count != 0 && site.Timers.All(region => site.Action == IrTimerAction.Create
+                                                              ? _timerSteps.ThreadingKind(region) == TimerKind.Disabled
+                                                              : _timerSteps.Activations(region).Count == 0 && !_timerSteps.MayBeActivatedElsewhere))
+            {
+                foreach (var region in site.Timers)
+                    CountTimer(site, region, TimerKind.Disabled);
+                return;
+            }
+
+            var api = site.Action == IrTimerAction.ElapsedSubscribe ? "System.Timers.Timer" : "System.Threading.Timer";
+            var symbol = Symbol(instance.BodyId);
+            var child = Spawned(parent, $"timer:{instance.BodyId}#{operationId}", ExecutionKind.TimerCallback, $"{api} callback created in {symbol}",
+                                new SpawnOrigin(api, symbol, instance.BodyId, operationId, false), alwaysRepeated: false);
+            _anchors.Add(new SpawnAnchor(parent, instance.Id, operationId, child, SpawnAnchorKind.Timer));
+            if (!_timerSites.TryGetValue(child, out var sites))
+                _timerSites.Add(child, sites = []);
+            if (!sites.Contains(site))
+                sites.Add(site);
+            foreach (var callee in site.Callees)
+                EnterWork(child, callee, awaitsTask: false);
+        }
+
+        /// <summary>Enters spawned work: whole, or, for async work its spawn does not wait for, its prefix here and its tail in a child
+        /// execution that starts where the work returns.</summary>
+        private void EnterWork(string execution, string calleeId, bool awaitsTask)
+        {
+            if (!_segments.IsAsync(heap.Instances[calleeId].BodyId) || awaitsTask)
+            {
+                Entry(execution, new ExecutionEntry(calleeId, ExecutionEntryKind.Spawn, null));
+                return;
+            }
+
+            var spawned = _executions[execution];
+            var origin = spawned.Origin!;
+            var tail = Spawned(execution, $"tail:{origin.BodyId}#{origin.OperationId}", spawned.Kind, $"{spawned.Display} after its first await",
+                               origin with { IsTail = true }, alwaysRepeated: false);
+            if (tail != execution)
+                _tails.TryAdd(execution, tail);
+            Entry(execution, new ExecutionEntry(calleeId, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Prefix }, tail);
+            Entry(tail, new ExecutionEntry(calleeId, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+        }
+
+        /// <summary>The execution an async spawn edge starts: its callee's tail, from the synthetic point where the call returns.</summary>
+        private string AsyncChild(string parent, MethodInstance caller, int operationId)
+        {
+            var site = _asyncSpawns[(caller.Id, operationId)];
+            var api = Api(site.Kind);
+            var symbol = Symbol(caller.BodyId);
+            var child = Spawned(parent, $"async:{caller.BodyId}#{operationId}", ExecutionKind.Spawn, $"{api} in {symbol}",
+                                new SpawnOrigin(api, symbol, caller.BodyId, operationId, false), alwaysRepeated: false);
+            _anchors.Add(new SpawnAnchor(parent, caller.Id, operationId, child, SpawnAnchorKind.AsyncReturn));
+            return child;
+        }
+
+        /// <summary>Sets each spawned execution's policy, tree root and call-path prefix, parents first. A spawned execution runs at most once
+        /// without overlapping itself only when its parent does and its site runs at most once per run of the parent; a tail has its
+        /// work's policy; parallel bodies, unrecognized spawns, periodic timer callbacks and recursive spawns overlap themselves, and a
+        /// one-shot timer's callback runs at most once only when its timer is created once.</summary>
+        private void FinishSpawnedExecutions()
+        {
+            foreach (var id in _childOrder)
+            {
+                var child = _executions[id];
+                var parentId = child.ParentId!;
+                var parent = parentId == STARTUP ? null : _executions[parentId];
+                var origin = child.Origin!;
+                var parentOnce = parent is null || parent.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized };
+                var once = origin.IsTail ? parent!.SpawnedOnce
+                    : !_recursive.Contains(id) && parentOnce && SiteOnce(parentId, origin.BodyId, origin.OperationId) && OriginKnown(id);
+                var timerKind = child.Kind == ExecutionKind.TimerCallback && !origin.IsTail ? CallbackKind(id) : (TimerKind?)null;
+                var policy = _recursive.Contains(id) || _alwaysRepeated.Contains(id) || timerKind == TimerKind.Periodic ? REPEATED
+                    : origin.IsTail ? parent!.Policy
+                    : once ? AT_MOST_ONCE
+                    : REPEATED;
+                var segment = origin.Api.StartsWith("System.", StringComparison.Ordinal)
+                    ? $"timer-callback:{origin.Api}@{origin.Symbol}"
+                    : $"spawn:{origin.Api}@{origin.Symbol}";
+                _prefixes[id] = origin.IsTail
+                    ? _prefixes[parentId]
+                    : [.. _prefixes.GetValueOrDefault(parentId) ?? [], .. PathSymbols(parentId, origin.BodyId), segment];
+                _spawnSites[id] = origin.IsTail
+                    ? _spawnSites[parentId]
+                    : [.. _spawnSites.GetValueOrDefault(parentId) ?? [], new SpawnSiteLocation(segment, SiteSource(origin))];
+                _executions[id] = child with { Policy = policy, TreeRootId = parent?.TreeRootId ?? STARTUP, SpawnedOnce = once };
+            }
+        }
+
+        /// <summary>Whether every site a callback runs for names the timer it runs on: one that may run a timer of unknown origin may have
+        /// been created in another execution, so neither the site it starts at nor the execution it starts in is proven.</summary>
+        private bool OriginKnown(string callback) => (_timerSites.GetValueOrDefault(callback) ?? []).All(site => site.TimersKnown);
+
+        /// <summary>The broadest kind among the timers a callback execution's sites subscribe to, each counted at its creation site; a site
+        /// that may also run a timer of unknown origin counts as periodic, the broadest kind that timer may have.</summary>
+        private TimerKind CallbackKind(string callback)
+        {
+            var kind = TimerKind.Disabled;
+            var any = false;
+            foreach (var site in _timerSites[callback])
+            {
+                foreach (var region in site.Timers)
+                {
+                    var regionKind = !site.TimersKnown ? TimerKind.Periodic
+                        : site.Action == IrTimerAction.Create ? _timerSteps.ThreadingKind(region)
+                        : SubscribedOnce(site) ? TimersKind(region)
+                        : TimerKind.Periodic;
+                    CountTimer(site, region, regionKind);
+                    kind = regionKind > kind ? regionKind : kind;
+                    any = true;
+                }
+            }
+
+            return any ? kind : TimerKind.Periodic;
+        }
+
+        /// <summary>Whether an <c>Elapsed</c> subscription runs once in the one execution that runs it; otherwise the handler may be attached
+        /// more than once, and its callbacks overlap as periodic ones do.</summary>
+        private bool SubscribedOnce(TimerCallbackSite site) =>
+            _instanceExecutions.GetValueOrDefault(site.CallerInstance) is { Count: 1 } executions && RunsOnce(executions.First()) &&
+            SiteOnce(executions.First(), heap.Instances[site.CallerInstance].BodyId, site.OperationId);
+
+        /// <summary>
+        /// A <c>System.Timers.Timer</c>: disabled without an activation; one-shot only when every <c>AutoReset</c> assignment reaching it
+        /// assigns <c>false</c> and one of them precedes its one activation on every path, and that activation runs once in an execution that
+        /// runs once and is no callback of this timer; periodic otherwise, as <c>AutoReset</c> defaults to <c>true</c>.
+        /// </summary>
+        private TimerKind TimersKind(string region)
+        {
+            var activations = _timerSteps.Activations(region);
+            var resets = _timerSteps.AutoResets(region);
+            if (activations.Count == 0 && !_timerSteps.MayBeActivatedElsewhere)
+                return TimerKind.Disabled;
+            if (resets.Count == 0 || resets.Any(reset => !reset.Off) || _timerSteps.MayBeActivatedElsewhere || _timerSteps.MayBeResetElsewhere)
+                return TimerKind.Periodic;
+
+            var runs = activations.SelectMany(step => (_instanceExecutions.GetValueOrDefault(step.InstanceId) ?? [])
+                                                  .Select(execution => (Execution: execution, step.BodyId, step.OperationId)))
+                                  .Distinct()
+                                  .ToArray();
+            if (runs is not [var (execution, bodyId, operationId)] || !RunsOnce(execution) || !SiteOnce(execution, bodyId, operationId) ||
+                IsCallbackOf(execution, region))
+            {
+                return TimerKind.Periodic;
+            }
+
+            var flow = FlowOf(execution);
+            var cuts = resets.Select(reset => new HappensBefore.PointKey(reset.Step.InstanceId, reset.Step.OperationId, false)).ToArray();
+            return activations.All(step => flow.Dominates(cuts, new HappensBefore.PointKey(step.InstanceId, step.OperationId, false)))
+                ? TimerKind.OneShot
+                : TimerKind.Periodic;
+        }
+
+        private bool RunsOnce(string execution) =>
+            execution == STARTUP || _executions[execution].Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized };
+
+        /// <summary>Whether an execution is a callback of the timer, or runs inside one.</summary>
+        private bool IsCallbackOf(string execution, string region)
+        {
+            for (string? current = execution; current is not null && current != STARTUP; current = _executions[current].ParentId)
+            {
+                if (_timerSites.TryGetValue(current, out var sites) && sites.Any(site => site.Timers.Contains(region)))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private HappensBefore.Flow FlowOf(string execution)
+        {
+            if (_flows.TryGetValue(execution, out var flow))
+                return flow;
+            var visits = _visitList.Where(visit => visit.Execution == execution)
+                                   .Select(visit => new ExecutionVisit(visit.Instance, visit.Segment))
+                                   .Distinct()
+                                   .ToArray();
+            flow = new HappensBefore.Flow(scope, heap, _segments, _entries.GetValueOrDefault(execution) ?? [], visits,
+                                          _steps.GetValueOrDefault(execution)?.ToArray() ?? [], new HashSet<(string, int)>());
+            _flows.Add(execution, flow);
+            return flow;
+        }
+
+        /// <summary>Counts a timer at its creation site, in the broadest kind any of its contexts gives it.</summary>
+        private void CountTimer(TimerCallbackSite site, string region, TimerKind kind)
+        {
+            var key = heap.Regions[region] is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId }
+                ? (bodyId, operationId)
+                : (heap.Instances[site.CallerInstance].BodyId, site.OperationId);
+            _timerKinds[key] = _timerKinds.TryGetValue(key, out var known) && known > kind ? known : kind;
+        }
+
+        /// <summary>The source of the operation a spawned execution starts at.</summary>
+        private Analysis.SourceSpan SiteSource(SpawnOrigin origin) =>
+            scope.Reachable.Bodies[origin.BodyId].Blocks.SelectMany(block => block.Operations)
+                 .First(operation => operation.Id == origin.OperationId).Provenance.Span;
+
+        /// <summary>Whether a site runs at most once per run of an execution: no loop holds it, and the execution's call graph has at most one
+        /// path to its body, none through a recursion or a call inside a loop.</summary>
+        private bool SiteOnce(string execution, string bodyId, int operationId)
+        {
+            if (InCycle(bodyId, operationId))
+                return false;
+
+            var steps = _steps.GetValueOrDefault(execution) ?? [];
+            var entries = (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
+            var incoming = steps.GroupBy(step => step.Callee, StringComparer.Ordinal)
+                                .ToDictionary(group => group.Key, group => group.Select(step => (step.Caller, step.OperationId)).Distinct().ToArray(),
+                                              StringComparer.Ordinal);
+            var nodes = entries.Concat(incoming.Keys).ToHashSet(StringComparer.Ordinal);
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var node in nodes)
+                {
+                    var total = entries.Contains(node) ? 1 : 0;
+                    foreach (var (caller, operation) in incoming.GetValueOrDefault(node) ?? [])
+                        total += counts.GetValueOrDefault(caller) * (InCycle(heap.Instances[caller].BodyId, operation) ? 2 : 1);
+                    total = Math.Min(total, 2);
+                    if (total != counts.GetValueOrDefault(node))
+                    {
+                        counts[node] = total;
+                        changed = true;
+                    }
+                }
+            }
+
+            return counts.Where(pair => heap.Instances[pair.Key].BodyId == bodyId).Sum(pair => pair.Value) <= 1;
+        }
+
+        /// <summary>The member symbols of the shortest walk of an execution from its entries to an instance of a body, consecutive
+        /// duplicates folded; just the body's symbol when the walk does not reach it.</summary>
+        private IReadOnlyList<string> PathSymbols(string execution, string bodyId)
+        {
+            var steps = (_steps.GetValueOrDefault(execution) ?? []).GroupBy(step => step.Caller, StringComparer.Ordinal)
+                                                                    .ToDictionary(group => group.Key,
+                                                                                  group => group.OrderBy(step => step.OperationId)
+                                                                                                .ThenBy(step => step.Callee, StringComparer.Ordinal)
+                                                                                                .Select(step => step.Callee).ToArray(),
+                                                                                  StringComparer.Ordinal);
+            var parents = new Dictionary<string, string?>(StringComparer.Ordinal);
+            var pending = new Queue<string>();
+            foreach (var entry in _entries.GetValueOrDefault(execution) ?? [])
+            {
+                if (parents.TryAdd(entry.InstanceId, null))
+                    pending.Enqueue(entry.InstanceId);
+            }
+
+            while (pending.TryDequeue(out var instance))
+            {
+                if (heap.Instances[instance].BodyId == bodyId)
+                {
+                    var path = new List<string>();
+                    for (string? current = instance; current is not null; current = parents[current])
+                        path.Add(Symbol(heap.Instances[current].BodyId));
+                    path.Reverse();
+                    return path.Where((symbol, index) => index == 0 || path[index - 1] != symbol).ToArray();
+                }
+
+                foreach (var callee in steps.GetValueOrDefault(instance) ?? [])
+                {
+                    if (parents.TryAdd(callee, instance))
+                        pending.Enqueue(callee);
+                }
+            }
+
+            return [Symbol(bodyId)];
+        }
 
         private static string RootExecution(string rootId) => $"root:{rootId}";
 
@@ -246,7 +816,8 @@ public static class ExecutionModel
 
             foreach (var (rootId, instanceId) in heap.RootInstances)
             {
-                foreach (var region in heap.Instances[instanceId].Parameters.Values.SelectMany(values => values))
+                var instance = heap.Instances[instanceId];
+                foreach (var region in instance.Parameters.Values.SelectMany(values => values).Concat(instance.Receivers))
                 {
                     if (heap.Regions[region] is { Kind: HeapRegionKind.Di } di && !IsContainerWide(di) && !startup.Contains(region))
                         Executions(region).Add(RootExecution(rootId));
@@ -319,17 +890,40 @@ public static class ExecutionModel
         }
 
         /// <summary>Visits every instance an execution reaches from one entry, with the objects whose constructor chain is running: a
-        /// constructor call on a new allocation starts that object's interval for everything the call reaches.</summary>
-        private void Walk(string execution, string entry, HashSet<string> intervals)
+        /// constructor call on a new allocation starts that object's interval for everything the call reaches. A visit runs one segment of
+        /// its body: a spawn site or timer it runs starts a child execution, and an async spawn edge runs its callee's prefix here and
+        /// its tail in a child; a prefix's awaited async callees leave their tails to <paramref name="tail"/>.</summary>
+        private void Walk(string execution, ExecutionEntry entry, string? tail)
         {
-            var pending = new Stack<(string Instance, HashSet<string> Intervals)>([(entry, intervals)]);
+            HashSet<string> intervals = entry.IntervalObject is { } interval ? [interval] : [];
+            var pending = new Stack<(string Instance, HashSet<string> Intervals, BodySegment Segment, string? Tail)>(
+                [(entry.InstanceId, intervals, entry.Segment, tail)]);
             while (pending.TryPop(out var item))
             {
                 var key = string.Join(",", item.Intervals.Order(StringComparer.Ordinal));
-                if (!heap.Instances.TryGetValue(item.Instance, out var instance) || !_visits.Add((execution, item.Instance, key)))
+                if (!heap.Instances.TryGetValue(item.Instance, out var instance) ||
+                    !_visits.Add((execution, item.Instance, key, item.Segment, item.Tail)))
+                {
                     continue;
+                }
 
-                _visitList.Add((execution, item.Instance, item.Intervals));
+                _visitList.Add((execution, item.Instance, item.Intervals, item.Segment));
+                foreach (var site in _spawns.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    if (_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
+                        Spawn(execution, instance, site);
+                }
+
+                foreach (var site in _timers.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    if (!_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
+                        continue;
+                    if (site.Action == IrTimerAction.ElapsedSubscribe)
+                        _subscriptions.Add(site);
+                    else
+                        Timer(execution, instance, site, site.OperationId);
+                }
+
                 if (!_instanceExecutions.TryGetValue(item.Instance, out var executions))
                     _instanceExecutions.Add(item.Instance, executions = new HashSet<string>(StringComparer.Ordinal));
                 executions.Add(execution);
@@ -342,6 +936,27 @@ public static class ExecutionModel
 
                 foreach (var edge in _edges.GetValueOrDefault(item.Instance) ?? [])
                 {
+                    if (_segments.Follow(instance, item.Segment, edge) is not { } calleeSegment)
+                        continue;
+
+                    var calleeTail = calleeSegment == BodySegment.Prefix ? item.Tail : null;
+                    if (_segments.IsAsyncSpawn(item.Instance, edge.OperationId, edge.CalleeInstance))
+                    {
+                        calleeTail = AsyncChild(execution, instance, edge.OperationId);
+                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+                    }
+                    else if (calleeSegment == BodySegment.Prefix && calleeTail is not null)
+                    {
+                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+                    }
+                    else if (calleeSegment == BodySegment.Prefix)
+                    {
+                        calleeSegment = BodySegment.Whole;
+                    }
+
+                    if (!_steps.TryGetValue(execution, out var steps))
+                        _steps.Add(execution, steps = []);
+                    steps.Add(new ExecutionStep(item.Instance, item.Segment, edge.OperationId, edge.CalleeInstance, calleeSegment));
                     var calleeIntervals = item.Intervals;
                     if (edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructed.TryGetValue(edge.CalleeInstance, out var constructed) &&
                         !item.Intervals.Contains(constructed))
@@ -357,7 +972,7 @@ public static class ExecutionModel
                             calleeIntervals = [.. item.Intervals, .. created];
                     }
 
-                    pending.Push((edge.CalleeInstance, calleeIntervals));
+                    pending.Push((edge.CalleeInstance, calleeIntervals, calleeSegment, calleeTail));
                 }
             }
         }
@@ -452,28 +1067,20 @@ public static class ExecutionModel
 
         private IEnumerable<string> Successors(string region) => Edges(region).Select(edge => edge.Target);
 
-        private (IReadOnlyList<CollectedAccess> Accesses, int StartupAccesses) Collect(IReadOnlySet<string> published)
+        private IReadOnlyList<CollectedAccess> Collect(IReadOnlySet<string> published)
         {
             var accesses = new List<CollectedAccess>();
             var seen = new HashSet<(string, string, int, string, bool)>();
-            var startup = new HashSet<(string, int, string)>();
-            foreach (var (execution, instanceId, intervals) in _visitList)
+            foreach (var (execution, instanceId, intervals, segment) in _visitList)
             {
                 var instance = heap.Instances[instanceId];
-                foreach (var access in instance.Summary.Accesses)
+                foreach (var access in instance.Summary.Accesses.Where(access => _segments.Runs(instance.BodyId, segment, access.OperationId)))
                 {
                     var regions = access.Field.IsStatic
                         ? new HashSet<string> { heap.StaticRegionOf(instanceId, access.Field) }
                         : Resolve(instance, access.Bases);
                     foreach (var region in regions)
                     {
-                        if (execution == STARTUP)
-                        {
-                            // One source operation counts once per scope, whatever context or call site instantiated it.
-                            startup.Add((instance.BodyId, access.OperationId, region));
-                            continue;
-                        }
-
                         var local = intervals.Contains(region) && !published.Contains(region);
                         if (seen.Add((execution, instanceId, access.OperationId, region, local)))
                             accesses.Add(new CollectedAccess(execution, instanceId, access, region, local));
@@ -481,7 +1088,7 @@ public static class ExecutionModel
                 }
             }
 
-            return (accesses, startup.Count);
+            return accesses;
         }
 
         private Dictionary<string, RegionOwnership> Ownership(IReadOnlyList<CollectedAccess> accesses)
@@ -634,7 +1241,7 @@ public static class ExecutionModel
             {
                 var creators = heap.Instances.Values.Where(instance => instance.BodyId == region.SiteBodyId && instance.Context == region.Context).ToArray();
                 if (creators.Length != 0 && creators.All(instance => once.Contains(instance.Id)) &&
-                    scope.Reachable.Bodies.TryGetValue(region.SiteBodyId!, out var body) && !InCycle(body, region.SiteOperationId!.Value))
+                    scope.Reachable.Bodies.ContainsKey(region.SiteBodyId!) && !InCycle(region.SiteBodyId!, region.SiteOperationId!.Value))
                 {
                     single.Add(region.Identity);
                 }
@@ -678,6 +1285,17 @@ public static class ExecutionModel
             }
 
             return once;
+        }
+
+        private bool InCycle(string bodyId, int operationId)
+        {
+            if (!_inCycle.TryGetValue((bodyId, operationId), out var inCycle))
+            {
+                inCycle = scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && InCycle(body, operationId);
+                _inCycle.Add((bodyId, operationId), inCycle);
+            }
+
+            return inCycle;
         }
 
         private static bool InCycle(IrBody body, int operationId)

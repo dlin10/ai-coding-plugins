@@ -51,8 +51,12 @@ public sealed class IrPrinterTests
             new IrEscapeOperation(nextOperation++, 3, "return", Provenance),
             new IrReturnOperation(nextOperation++, 0, Provenance),
             new IrAwaitOperation(nextOperation++, nextValue++, 0, Provenance),
-            new IrSpawnOperation(nextOperation++, nextValue++, 0, Provenance),
-            new IrJoinOperation(nextOperation++, nextValue - 1, Provenance),
+            new IrSpawnOperation(nextOperation++, IrSpawnKind.TaskRun, 7, 6, [0], Provenance),
+            new IrThreadWorkOperation(nextOperation++, 3, 0, Provenance),
+            new IrJoinOperation(nextOperation++, IrJoinKind.Wait, 7, [6], true, Provenance),
+            new IrWhenAllOperation(nextOperation++, 6, [0], true, Provenance),
+            new IrUnwrapOperation(nextOperation++, 7, 6, Provenance),
+            new IrTimerOperation(nextOperation++, IrTimerAction.Dispose, 3, Provenance),
             new IrAcquireOperation(nextOperation++, 3, IrSynchronizationPrimitive.Monitor,
                                    IrLockMode.Exclusive, Provenance),
             new IrReleaseOperation(nextOperation++, 3, IrSynchronizationPrimitive.Monitor,
@@ -72,7 +76,7 @@ public sealed class IrPrinterTests
                  {
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
                      "store-element", "create-delegate", "capture", "escape", "return", "await",
-                     "spawn", "join", "acquire", "release", "atomic", "compute", "compare", "convert", "unknown"
+                     "spawn", "thread-work", "join", "when-all", "unwrap", "timer", "acquire", "release", "atomic", "compute", "compare", "convert", "unknown"
                  })
         {
             Assert.Contains($" {form} ", text);
@@ -144,7 +148,7 @@ public sealed class IrPrinterTests
     {
         var problems = IrValidator.Validate(WellFormedBody() with { SchemaVersion = "2.0" });
 
-        Assert.Contains(problems, problem => problem.Contains("expected '1.1'", StringComparison.Ordinal));
+        Assert.Contains(problems, problem => problem.Contains("expected '1.2'", StringComparison.Ordinal));
     }
 
     [Fact]

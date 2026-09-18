@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.0",
   "target": "concurrency-hunter/demo/Demo.slnx",
-  "revision": "563f0b6fc98f49587736208921242c3a947c0508",
+  "revision": "99d49faaff059ab2a64f3988c68d78e426e70dab",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-17T02:59:21.0273312\u002B00:00",
+  "recordedAt": "2026-09-17T14:47:52.2911100\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,134 +18,171 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 2.964
+        "seconds": 3.376
       },
       {
         "step": "scope-discovery",
-        "seconds": 0.729
+        "seconds": 0.924
       },
       {
         "step": "program-index",
-        "seconds": 0.314
+        "seconds": 0.635
       },
       {
         "step": "lowering",
-        "seconds": 0.344
+        "seconds": 0.52
       },
       {
         "step": "reachable-set",
-        "seconds": 0.037
+        "seconds": 0.05
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.145
+        "seconds": 0.206
       },
       {
         "step": "executions",
-        "seconds": 0.058
+        "seconds": 0.11
       },
       {
         "step": "accesses",
-        "seconds": 0.075
+        "seconds": 0.13
       },
       {
         "step": "pairing",
-        "seconds": 0.017
+        "seconds": 0.024
       },
       {
         "step": "findings",
-        "seconds": 0.029
+        "seconds": 0.035
       },
       {
         "step": "render",
-        "seconds": 0.06
+        "seconds": 0.124
       }
     ],
-    "totalSeconds": 6.784
+    "totalSeconds": 8.31
   },
-  "peakWorkingSetMb": 197.6,
+  "peakWorkingSetMb": 214.8,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 108,
+    "roots": 140,
     "rootsPerProvider": {
-      "aspnetcore": 69,
-      "hosting": 39
+      "aspnetcore": 77,
+      "hosting": 63
     },
-    "reachableBodies": 382,
-    "summaries": 382,
-    "regions": 229,
-    "instances": 408,
-    "accesses": 316,
+    "reachableBodies": 528,
+    "summaries": 528,
+    "regions": 343,
+    "instances": 554,
+    "accesses": 484,
     "pairs": {
-      "comparisons": 316,
-      "cartesianBound": 27967,
-      "largestBucket": 5,
-      "buckets": 182,
+      "comparisons": 490,
+      "cartesianBound": 58312,
+      "largestBucket": 8,
+      "buckets": 241,
       "skips": {
         "confined": 8,
-        "no-overlap": 51,
-        "read-read": 176
+        "no-overlap": 118,
+        "ordered": 12,
+        "read-read": 235
       },
       "suppressed": 9,
-      "candidates": 72
+      "candidates": 108
     },
-    "findings": 63,
-    "occurrences": 72,
-    "groups": 49,
+    "findings": 99,
+    "occurrences": 108,
+    "groups": 80,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
+      "06497da93092d31f",
+      "0d494ad39807c408",
       "0ff382932ec42e00",
       "1158be60ed67864f",
+      "1280365bb5b1d976",
       "19df32a1ba5e6929",
       "1aa17773c373f73a",
       "1b3a288043626abf",
+      "215abd8017e06962",
       "23027766c83eb5c9",
       "243e5f431bb28527",
       "2eb10dac39b1ab87",
       "2f2c498276cc327b",
+      "2f670aa8284d3790",
+      "33ef591448fde6b9",
       "386b91364073a8cc",
       "3b3cb21a0be99d2a",
       "3b8ef83bb3f43421",
+      "48f2eedc42c0769b",
       "490885016a06b231",
       "4cd6a654b167162b",
       "4f5246a74669365c",
       "528080baef57275e",
       "5652fb67b5bc11a6",
       "5b81465c11a8db0b",
+      "5b8791ff26b6929a",
+      "5f158cc5a1d9ae41",
       "5f4cd8fbb74fe791",
+      "63130a58ff958b92",
       "644c6073c130aa6a",
+      "64bdde19a43fcdbd",
+      "6ddc0383bbde4f1e",
       "6e6773d095a3e5ae",
+      "6f32d582595c5b55",
       "6f6d6b39d09809d6",
+      "6f8f5ae1b38c6e12",
+      "6ff1b4e5bab69f5c",
       "74f136b6977970bb",
       "7b7626abc9fea1d5",
       "7c58babcede86c11",
       "7ee04391e659cd20",
       "8187d8ad17a08bbd",
       "8405e1e3a6fff46c",
+      "878b961cd3dd728f",
+      "893c3ba82483c84a",
+      "89f506f876385f53",
+      "8c63cabb09990496",
+      "91eb8facff869387",
+      "927e2ca1ff50a0a7",
       "92e17f2f8c241563",
       "94d9a023850fa6f2",
+      "95f1a73487f174e2",
+      "980f67e92cbe9ef3",
       "99b9566881265a8a",
       "9ae6b85938700587",
       "9bf7e171c6e3076b",
       "9c9c8106b0ad6f1d",
       "9f784624fea9d5f0",
       "a56f6581531e1c11",
+      "a604518aa7f05508",
       "a70beb688295e5de",
       "aa449e473e4843e6",
+      "aba895a957e3e151",
+      "acf69ab8fcb23ea1",
       "af5eac9010c6daf5",
+      "afb2328274e72b56",
       "b3015545d26764ec",
       "b47351dfaefa4142",
       "b4d4a1932d5dec8c",
+      "b7781a14e16807d3",
       "b9060ca5ce16cf5b",
+      "bda8f12f8f43d6a4",
+      "bdb16ea449cce859",
       "c4ee66fcea6d4204",
+      "c5762a8c1e569106",
       "ca0546845082f399",
+      "ce5268aa551cfe20",
+      "cf4f4e9036edbaf8",
       "d3da03e778857633",
+      "d4732743119bbd54",
       "d5aa902d6448057f",
       "d855fe88c8d455ad",
+      "d892f286b38913e5",
       "d9249e8c1a2262c7",
+      "dad59ba9008811e9",
       "db47c80433ee81bd",
       "dd548fa2ebbf85ef",
       "df22a46d682100b3",
@@ -164,19 +201,18 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 69,
-        "hosting": 38
+        "aspnetcore": 77,
+        "hosting": 62
       },
-      "accesses": 236,
+      "accesses": 341,
       "counters": {
-        "delegate-to-opaque": 3,
+        "delegate-to-opaque": 4,
         "element-operation": 2,
         "merged-context": 0,
         "no-receiver-object": 0,
-        "opaque-call": 314,
-        "reachable-bodies": 379,
+        "opaque-call": 466,
+        "reachable-bodies": 525,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 44,
         "unanalysed-registration": 0,
         "unresolved-locator": 2,
         "wildcard-access": 5
@@ -197,7 +233,6 @@
         "opaque-call": 7,
         "reachable-bodies": 3,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -207,12 +242,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 6.784,
+      "actual": 8.31,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.193,
+      "actual": 0.21,
       "met": true
     }
   }

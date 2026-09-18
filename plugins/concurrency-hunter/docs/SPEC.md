@@ -226,9 +226,11 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 ### 4.7. Execution и concurrency model
 
-**TD-060.** Core оперирует execution instances/intervals и отношениями `MayOverlap`/`HappensBefore`.
+**TD-060.** Core оперирует execution instances/intervals и отношениями `MayOverlap`/`HappensBefore`. `HappensBefore` — граф happens-before из ADR 0008: два доступа не образуют пару, только если путь в графе упорядочивает их и каждое ребро на пути верно для всех экземпляров, которые оно связывает (внутри одного дерева исполнений); иначе пара остаётся.
 
-**TD-061.** BCL provider обнаруживает callbacks `System.Threading.Timer` и `System.Timers.Timer.Elapsed` по exact symbols. Descriptor сохраняет callback target, timer identity, `state`, captured aliases и evidence. Multiplicity учитывает доказанно отключённый timer, однократную активацию, периодические запуски и повторную активацию через `Change`; периодические callbacks одного timer могут overlap друг с другом; `Change` и `Dispose()` не создают completion edge; успешно завершённый `await DisposeAsync()` либо подтверждённое `Dispose(WaitHandle)` дают edge только для доказанно того же timer и завершившихся invocations, не для отделившейся async работы.
+**TD-060a.** Вызов async-метода без немедленного `await` — spawn: синхронный префикс до первого `await` выполняется в вызывающем исполнении, хвост после него — отдельное исполнение, которое начинается в точке возврата вызова; операции вызывающего до вызова предшествуют хвосту, операции после вызова с ним пересекаются, пока handle вызова не дождались доказанным join-ом. Вызов, результат которого сразу ожидается (`await M()` или `await M().ConfigureAwait(…)`), выполняется целиком в вызывающем исполнении.
+
+**TD-061.** BCL provider обнаруживает callbacks `System.Threading.Timer` и `System.Timers.Timer.Elapsed` по exact symbols. Descriptor сохраняет callback target, timer identity, `state`, captured aliases и evidence. Multiplicity учитывает доказанно отключённый timer, однократную активацию, периодические запуски и повторную активацию через `Change`: `System.Threading.Timer` выключен при dueTime `Infinite` без достижимого `Change`, однократен при period `Infinite` или `0` без `Change`, иначе периодический; `System.Timers.Timer` выключен без достижимых `Start()` и `Enabled = true`, однократен, только если каждое присваивание `AutoReset` — `false`, оно на всех путях предшествует единственной однократной активации, не достижимой из обработчика `Elapsed`, иначе периодический (`AutoReset` по умолчанию `true`); однократный callback не пересекается сам с собой, только если timer создан однократно; периодические callbacks одного timer могут overlap друг с другом; `Change` и `Dispose()` не создают completion edge; успешно завершённый `await DisposeAsync()` либо подтверждённое `Dispose(WaitHandle)` дают edge только для доказанно того же timer и завершившихся invocations, не для отделившейся async работы.
 
 **TD-061a.** `PeriodicTimer` не создаёт root: цикл `WaitForNextTickAsync` это часть execution instance, в котором он ждёт; итерации не overlap друг с другом и overlap с другими roots.
 
@@ -242,7 +244,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-064.** Один `BackgroundService.ExecuteAsync` на одном доказанном instance не размножается автоматически; overlap с HTTP, другими hosted services и своими spawns.
 
-**TD-065.** Spawn sites BCL: `Task.Run`, `Task.Factory.StartNew`, `ContinueWith`, `ThreadPool.QueueUserWorkItem`/`UnsafeQueueUserWorkItem`, `Thread.Start`, тело `Parallel.For`/`ForEach`/`ForEachAsync`, fire-and-forget task, вызов `async void`. Для каждого моделируется interval от spawn до completion с overlap с parent segment до доказанного join и с другими roots. Fire-and-forget и `async void` не имеют join. Handle, сохранённый и awaited где-то ещё, это spawn с join по identity handle.
+**TD-065.** Spawn sites BCL: `Task.Run`, `Task.Factory.StartNew`, `ContinueWith`, `ThreadPool.QueueUserWorkItem`/`UnsafeQueueUserWorkItem`, `Thread.Start`, тело `Parallel.For`/`ForEach`/`ForEachAsync`, fire-and-forget task, вызов `async void`. `ContinueWith` начинается после завершения antecedent, только если receiver указывает ровно на одну задачу, порождённую однократно в однократном исполнении; с родителем continuation пересекается. Возврат `Parallel.For`/`ForEach` — неявный join всех итераций, в том числе завершившихся исключением. Async-делегат, который spawn не ожидает (`Thread`, `Parallel.For`, `StartNew` без `Unwrap`), выполняет в порождённом исполнении только префикс; его хвост после первого `await` — отдельное исполнение, которое join spawn-а не ограничивает. Для каждого моделируется interval от spawn до completion с overlap с parent segment до доказанного join и с другими roots. Fire-and-forget и `async void` не имеют join. Handle, сохранённый и awaited где-то ещё, это spawn с join по identity handle.
 
 **TD-066.** `Task.WhenAll`: lifetimes аргументов могут overlap; continuation после успешного join имеет happens-before от completion всех tasks; синхронные части до фактического старта task не считаются параллельными.
 
@@ -945,9 +947,8 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 Временные границы фазы 2a и фазы, которые их снимают:
 
-- Opaque calls моделируются без эффекта, а делегаты, переданные в них, не вызываются никогда (3/5).
+- Opaque calls моделируются без эффекта, а делегаты, переданные в вызовы, отличные от распознанных spawn- и timer-API, не вызываются никогда (5).
 - Virtual, interface и delegate calls без receiver object ничего не вызывают (5).
-- Startup constructions и type initializers, которые они используют, не образуют пар (3).
 - Element accesses не анализируются (4).
 - Locator-вызовы с неконстантным типом или с provider неизвестного происхождения, non-generic и `Type`-valued регистрации, keyed services не анализируются (5).
 - `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5).

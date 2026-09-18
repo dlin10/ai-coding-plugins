@@ -243,7 +243,7 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
-    public void Hosted_service_constructor_static_write_is_dropped_and_counted()
+    public void Hosted_service_constructor_static_write_is_a_startup_access()
     {
         var run = Execute("""
             public static class Primed { public static object? Region; }
@@ -261,11 +261,11 @@ public sealed class OwnershipAndConstructionTests
             public class PrimedController : ControllerBase { public object? Get() => Primed.Region; }
             """ + Startup("services.AddTransient<Primer>().AddHostedService<PrimingWorker>().AddHostedService<SecondWorker>();"));
 
-        Assert.Empty(run.Accesses("Region", SummaryAccessKind.Store));
+        var stores = run.Accesses("Region", SummaryAccessKind.Store);
+        Assert.NotEmpty(stores);
+        Assert.All(stores, store => Assert.Equal(ExecutionKind.Startup, run.Analysis.Execution(store.ExecutionId).Kind));
         Assert.Single(run.Accesses("Region", SummaryAccessKind.Load));
-        // Two workers resolve their own Primer, so the one write runs in two constructions; the counter counts the source operation.
         Assert.Equal(2, run.Heap.Heap.Instances.Values.Count(instance => instance.BodyId == "body:Fixture:M:Primer.#ctor"));
-        Assert.Equal(1, run.Counter(ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS));
     }
 
     [Fact]
@@ -391,7 +391,7 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
-    public void Type_initializer_used_at_startup_and_by_an_action_is_a_dropped_startup_construction()
+    public void Type_initializer_used_at_startup_and_by_an_action_is_a_startup_construction()
     {
         var run = Execute("""
             public static class Defaults { public static readonly object Culture = new object(); }
@@ -404,8 +404,9 @@ public sealed class OwnershipAndConstructionTests
             """ + Startup("services.AddHostedService<Warmup>();"));
 
         Assert.DoesNotContain(run.Analysis.Executions, execution => execution.Kind == ExecutionKind.TypeInitializer);
-        Assert.Empty(run.Accesses("Culture", SummaryAccessKind.Store));
-        Assert.True(run.Counter(ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS) > 0);
+        Assert.All(run.Accesses("Culture", SummaryAccessKind.Store),
+                   store => Assert.Equal(ExecutionKind.Startup, run.Analysis.Execution(store.ExecutionId).Kind));
+        Assert.NotEmpty(run.Accesses("Culture", SummaryAccessKind.Store));
     }
 
     [Fact]
@@ -498,7 +499,7 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
-    public void Hosted_service_type_initializer_with_no_other_reference_is_a_dropped_startup_construction()
+    public void Hosted_service_type_initializer_with_no_other_reference_is_a_startup_construction()
     {
         var run = Execute("""
             public sealed class Worker : BackgroundService
@@ -510,8 +511,8 @@ public sealed class OwnershipAndConstructionTests
 
         Assert.Contains(run.Heap.Heap.TypeInitializers, initializer => initializer.TypeKey == "Fixture:Worker");
         Assert.DoesNotContain(run.Analysis.Executions, execution => execution.Kind == ExecutionKind.TypeInitializer);
-        Assert.Empty(run.Accesses("Gate", SummaryAccessKind.Store));
-        Assert.True(run.Counter(ExecutionCounters.STARTUP_CONSTRUCTION_ACCESS) > 0);
+        var store = Assert.Single(run.Accesses("Gate", SummaryAccessKind.Store));
+        Assert.Equal(ExecutionKind.Startup, run.Analysis.Execution(store.ExecutionId).Kind);
     }
 
     [Fact]

@@ -16,6 +16,12 @@ public static class StubAssemblies
     public const string ROUTING = "Microsoft.AspNetCore.Routing";
     public const string MVC_CORE = "Microsoft.AspNetCore.Mvc.Core";
     public const string MVC = "Microsoft.AspNetCore.Mvc";
+    public const string GRPC_CORE_API = "Grpc.Core.Api";
+    public const string GRPC_ASPNETCORE_SERVER = "Grpc.AspNetCore.Server";
+
+    /// <summary>The gRPC packages are versioned on their own: their stubs default to <see cref="GRPC_DEFAULT_VERSION"/> and compile
+    /// against the framework stubs at <see cref="FixtureOptions.DEFAULT_STUB_VERSION"/>.</summary>
+    public const int GRPC_DEFAULT_VERSION = 2;
 
     // Only the shared runtime's own assemblies: the trusted platform list also holds the test host's dependencies
     // (xunit.core, the test platform, Microsoft.Extensions.Hosting), which would make every fixture project look
@@ -37,12 +43,20 @@ public static class StubAssemblies
             [HTTP_ABSTRACTIONS] = ([], HttpSource),
             [ROUTING] = ([HTTP_ABSTRACTIONS], RoutingSource),
             [MVC_CORE] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING], MvcCoreSource),
-            [MVC] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, MVC_CORE], MvcSource)
+            [MVC] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, MVC_CORE], MvcSource),
+            [GRPC_CORE_API] = ([], GrpcCoreSource),
+            [GRPC_ASPNETCORE_SERVER] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, GRPC_CORE_API], GrpcServerSource)
         };
 
     private static readonly ConcurrentDictionary<(string Name, int Major, bool Empty), Lazy<MetadataReference>> Cache = new();
 
     public static IReadOnlyList<string> Names { get; } = Stubs.Keys.ToArray();
+
+    /// <summary>Whether a stub follows the target framework's major version; the gRPC stubs do not.</summary>
+    public static bool IsFramework(string name) => name is not (GRPC_CORE_API or GRPC_ASPNETCORE_SERVER);
+
+    /// <summary>The major version a stub is referenced at when a case names none.</summary>
+    public static int DefaultVersion(string name) => IsFramework(name) ? FixtureOptions.DEFAULT_STUB_VERSION : GRPC_DEFAULT_VERSION;
 
     /// <summary>The runtime's platform assemblies without any that share a name with a stub or with <paramref name="replaced"/>.</summary>
     public static IEnumerable<MetadataReference> PlatformWithout(IEnumerable<string> replaced)
@@ -75,7 +89,9 @@ public static class StubAssemblies
                 CSharpSyntaxTree.ParseText(source, parseOptions),
                 CSharpSyntaxTree.ParseText($"[assembly: System.Reflection.AssemblyVersion(\"{majorVersion}.0.0.0\")]", parseOptions)
             ],
-            PlatformWithout([name]).Concat(dependencies.Select(dependency => Get(dependency, majorVersion))),
+            PlatformWithout([name]).Concat(dependencies.Select(dependency => Get(dependency, IsFramework(dependency) == IsFramework(name)
+                                                                                                  ? majorVersion
+                                                                                                  : DefaultVersion(dependency)))),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
         using var stream = new MemoryStream();
         var emitted = compilation.Emit(stream);
@@ -807,6 +823,85 @@ public static class StubAssemblies
             public static class MvcCoreMvcBuilderExtensions
             {
                 public static IMvcBuilder AddControllersAsServices(this IMvcBuilder builder) => throw null!;
+            }
+        }
+        """;
+
+    private const string GrpcCoreSource = """
+        using System;
+        using System.Threading;
+        using System.Threading.Tasks;
+
+        namespace Grpc.Core
+        {
+            [AttributeUsage(AttributeTargets.Class)]
+            public class BindServiceMethodAttribute : Attribute
+            {
+                public BindServiceMethodAttribute(Type bindType, string bindMethodName) { }
+                public Type BindType => throw null!;
+                public string BindMethodName => throw null!;
+            }
+
+            public abstract class ServerCallContext
+            {
+                protected ServerCallContext() { }
+                public CancellationToken CancellationToken => throw null!;
+            }
+
+            public interface IAsyncStreamReader<out T>
+            {
+                T Current { get; }
+                Task<bool> MoveNext(CancellationToken cancellationToken);
+            }
+
+            public interface IAsyncStreamWriter<in T>
+            {
+                Task WriteAsync(T message);
+            }
+
+            public interface IServerStreamWriter<in T> : IAsyncStreamWriter<T>
+            {
+            }
+
+            public class ServerServiceDefinition
+            {
+            }
+
+            public abstract class ServiceBinderBase
+            {
+            }
+        }
+        """;
+
+    private const string GrpcServerSource = """
+        using System;
+        using Microsoft.AspNetCore.Routing;
+
+        namespace Microsoft.AspNetCore.Builder
+        {
+            public sealed class GrpcServiceEndpointConventionBuilder : IEndpointConventionBuilder
+            {
+                private GrpcServiceEndpointConventionBuilder() { }
+                public void Add(Action<EndpointBuilder> convention) { }
+                public void Finally(Action<EndpointBuilder> finallyConvention) { }
+            }
+
+            public static class GrpcEndpointRouteBuilderExtensions
+            {
+                public static GrpcServiceEndpointConventionBuilder MapGrpcService<TService>(this IEndpointRouteBuilder builder) where TService : class => throw null!;
+            }
+        }
+
+        namespace Microsoft.Extensions.DependencyInjection
+        {
+            public interface IGrpcServerBuilder
+            {
+                IServiceCollection Services { get; }
+            }
+
+            public static class GrpcServicesExtensions
+            {
+                public static IGrpcServerBuilder AddGrpc(this IServiceCollection services) => throw null!;
             }
         }
         """;

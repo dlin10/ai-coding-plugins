@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Roots;
@@ -30,12 +31,23 @@ public sealed record ConfidenceComponents(int ResourceIdentity, int ExecutionOve
 
 public sealed record FindingConfidence(string Label, int Score, ConfidenceComponents Components);
 
-public sealed record EvidenceItem(string Id, string Kind, string Text);
+public sealed record EvidenceItem(string Id, string Kind, string Text)
+{
+    /// <summary>The source the item names, for the narrative validator; not part of any wire format.</summary>
+    [JsonIgnore]
+    public SourceSpan? Source { get; init; }
+}
 
 /// <summary>One pair of roots reaching a finding's two sites, with the call path of each side, sides ordered as the finding's sites,
 /// and the protection of the pair chosen for it (R5).</summary>
 public sealed record FindingOccurrence(AccessRoot RootA, AccessRoot RootB, IReadOnlyList<string> CallPathA, IReadOnlyList<string> CallPathB,
-                                       string Protection);
+                                       string Protection)
+{
+    /// <summary>The sites of the <c>spawn:</c> and <c>timer-callback:</c> segments of each side's call path.</summary>
+    public IReadOnlyList<SpawnSiteLocation> SpawnSitesA { get; init; } = [];
+
+    public IReadOnlyList<SpawnSiteLocation> SpawnSitesB { get; init; } = [];
+}
 
 /// <summary>A pair of access sites on one resource under one rule (ADR 0007). <see cref="AccessA"/> and <see cref="AccessB"/> are the
 /// pair the evidence comes from; <see cref="Occurrences"/> lists the first three of <see cref="OccurrenceCount"/>.</summary>
@@ -67,6 +79,13 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
                                    IReadOnlyList<string> Diagnostics, int Registrations,
                                    IReadOnlyDictionary<string, int> Skips)
 {
+    /// <summary>The sites behind the scope's ordering counters (<see cref="OrderingCounters"/>), by source: the summary counts a site
+    /// two scopes reach once, in the widest kind any of them gives it, so identity and not only numbers crosses the scope boundary.</summary>
+    public IReadOnlyList<SpawnSiteCoverage> SpawnSites { get; init; } = [];
+
+    public IReadOnlyList<TimerSiteCoverage> TimerSites { get; init; } = [];
+    public IReadOnlyList<OperationSite> UnprovenJoins { get; init; } = [];
+    public IReadOnlyDictionary<string, int> Ordering { get; init; } = new Dictionary<string, int>();
     public IReadOnlyList<(string Callee, int Count)> TopOpaqueCallees { get; init; } = [];
     public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];

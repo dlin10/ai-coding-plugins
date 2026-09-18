@@ -123,7 +123,7 @@
 | `instance-registration-touches-static` | negative | Конструктор экземпляра в `AddSingleton(new SeedList())` пишет статик при старте, до всех roots; action читает (TD-040, ADR 0006) | нет |
 | `factory-scoped-per-request` | negative | `AddScoped(_ => new RequestTag())`: два action пишут экземпляр своего запроса (TD-040) | нет |
 
-## Фаза 3 — Execution model
+## Фаза 3 — написаны
 
 Все кейсы, кроме timer-ов против action и gRPC, живут в одном `BackgroundService` (правило 4).
 
@@ -134,30 +134,30 @@
 | `task-handle-join-order` | оба | Handle в local; лямбда пишет поля A и B, родитель пишет A до `await t` и B после | `/before-await` DCA1001; `/after-await` нет | TD-065, TD-067 | — |
 | `task-handle-awaited-elsewhere` | negative | Handle сохраняется в поле и awaited в другом методе до записи родителя: spawn с join, не fire-and-forget | нет | TD-065, CONTEXT.md | — |
 | `task-wait-join` | оба | Родитель пишет поле A до `t.Wait()` и поле B после | `/before-wait` DCA1001; `/after-wait` нет | TD-067 | — |
-| `continue-with` | оба | `Task.Run(First).ContinueWith(Second)`, тела именованные (правило 5); `Second` пишет поле, которое пишут `First` и родитель после запуска | `/vs-parent` DCA1001; `/vs-antecedent` нет (вопрос 3) | TD-065 | — |
+| `continue-with` | оба | `Task.Run(First).ContinueWith(Second)`, тела именованные (правило 5); `Second` пишет поле, которое пишут `First` и родитель после запуска | `/vs-parent` DCA1001; `/antecedent-vs-parent` DCA1001: родитель пишет до `await` цепочки; `/vs-antecedent` нет (вопрос 3) | TD-065 | — |
 | `thread-pool-queue-user-work-item` | positive | `QueueUserWorkItem` и `UnsafeQueueUserWorkItem`, по полю на вариант; callback и родитель пишут | `/queue`, `/unsafe-queue` DCA1001 | TD-065, TC-12 | — |
 | `thread-start-join` | оба | `new Thread(...).Start()`; родитель пишет поле A до `Join()` и поле B после | `/before-join` DCA1001; `/after-join` нет | TD-065, TD-067 | — |
 | `parallel-for-shared-total` | positive | `Parallel.For(0, n, i => _total += i)` | DCA1002 | TD-068 | — |
 | `parallel-foreach` | positive | `Parallel.ForEach(items, x => _last = x)` | DCA1001 | TD-068 | — |
 | `parallel-foreach-async` | positive | `Parallel.ForEachAsync`, тело с `await` делает RMW поля | DCA1002 | TD-065, TC-12 | — |
-| `when-all-siblings` | оба | Именованные `WriteA`/`WriteB` пишут поле, `await Task.WhenAll(...)`, затем родитель пишет его же | `/siblings` DCA1001; `/after-when-all` нет | TD-066 | — |
+| `when-all-siblings` | оба | Именованные `WriteA`/`WriteB` пишут поле, `await Task.WhenAll(...)`, затем родитель пишет его же | `/siblings` DCA1001; `/after-when-all` (`WriteA`), `/after-when-all-b` (`WriteB`) нет | TD-066 | — |
 | `when-all-synchronous-prefix` | оба | `Task.WhenAll(StepA(), StepB())`: оба async-метода пишут поле P до первого `await` и поле Q после | `/prefix` нет; `/after-first-await` DCA1001 | TD-066 | — |
 | `when-any-no-join` | positive | `await Task.WhenAny(a, b)`, затем родитель пишет поле, которое пишет `b` | DCA1001 | TD-067 | — |
 | `fire-and-forget-vs-awaited` | оба | `DropAsync()` без await пишет поле D; `SaveAsync()` awaited пишет поле S; родитель пишет D и S после вызовов | `/dropped` DCA1001; `/awaited` нет | TD-065, 12.2 | — |
 | `async-void-call` | positive | Вызов `async void` метода, который пишет поле после `await`; родитель пишет его же | DCA1001 | TD-065 | — |
 | `join-skipped-on-exception` | positive | `try { Risky(); await t; } catch (InvalidOperationException) { }`, затем запись: при исключении join пропущен | DCA1001 | TD-069 | — |
 | `event-wait-not-ordering` | positive | Spawn пишет поле и вызывает `ManualResetEventSlim.Set`; родитель ждёт `Wait()` и пишет | DCA1001, known limitation | TD-086, PRD 3 | — |
-| `threading-timer-vs-action` | positive | `System.Threading.Timer` в singleton-е, callback пишет, action читает | DCA1001 | TD-061, TC-12 | — |
+| `threading-timer-vs-action` | positive | `System.Threading.Timer` в singleton-е, callback пишет, action читает | DCA1001; `/callback-self` DCA1001: периодический callback пересекается сам с собой | TD-061, TC-12 | — |
 | `threading-timer-self-overlap` | positive | Периодический timer, callback делает RMW своего поля | DCA1002 | TD-061 | — |
-| `timer-state-sharing` | positive | Объект передан как `state`, callback пишет в него, action читает через singleton | DCA1001 | TD-061 | — |
-| `timer-captured-alias` | positive | Callback-лямбда захватывает объект и пишет его, action читает | DCA1001 | TD-061 | — |
+| `timer-state-sharing` | positive | Объект передан как `state`, callback пишет в него, action читает через singleton | DCA1001; `/callback-self` DCA1001: периодический callback | TD-061 | — |
+| `timer-captured-alias` | positive | Callback-лямбда захватывает объект и пишет его, action читает | DCA1001; `/callback-self` DCA1001: периодический callback | TD-061 | — |
 | `timer-never-activated` | negative | `new Timer(cb, null, Timeout.Infinite, Timeout.Infinite)` без `Change`; callback пишет, action читает | нет | TD-061 | — |
 | `timer-one-shot` | оба | `dueTime` 0, `period` `Infinite`; callback делает RMW поля A и пишет поле B, которое читает action | `/self` нет; `/vs-action` DCA1001 | TD-061 | — |
 | `timer-change-reactivates` | positive | Timer создан выключенным, `Change(0, 1000)` делает его периодическим; callback делает RMW | DCA1002 | TD-061 | — |
 | `timer-dispose-does-not-join` | positive | `timer.Dispose()`, затем запись в поле callback-а | DCA1001 | TD-061, TC-12 | — |
 | `timer-dispose-async-awaited` | оба | `await timer.DisposeAsync()`, затем запись поля A; callback ещё запускает fire-and-forget работу, которая пишет поле B | `/after-dispose` нет; `/detached-work` DCA1001 | TD-061 | — |
 | `timer-dispose-wait-handle` | оба | `Dispose(waitHandle)` и `waitHandle.WaitOne()`; запись поля A до ожидания и поля B после | `/before-wait` DCA1001; `/after-wait` нет | TD-061, TC-12 | — |
-| `timers-timer-elapsed` | оба | `System.Timers.Timer.Elapsed` с `AutoReset = true`: RMW поля A, запись поля B, которое читает action | `/self` DCA1002; `/vs-action` DCA1001 | TD-061 | — |
+| `timers-timer-elapsed` | оба | `System.Timers.Timer.Elapsed` с `AutoReset = true`: RMW поля A, запись поля B, которое читает action | `/self` DCA1002; `/vs-action` DCA1001; `/last-sample-self` DCA1001: периодический callback пишет поле B | TD-061 | — |
 | `periodic-timer-loop` | оба | `PeriodicTimer` в `ExecuteAsync`: итерация делает RMW поля A и пишет поле B, которое читает action | `/iterations` нет; `/vs-action` DCA1001 | TD-061a | — |
 | `grpc-service-method` | positive | gRPC service method пишет singleton; нужен `Grpc.AspNetCore` и proto codegen, generated code появляется в demo до фазы 6 | DCA1001, self-pair | TD-121 | — |
 
@@ -254,7 +254,7 @@
 |---|---|---|---|
 | 1 | Как в `expected-findings.json` записывается resource элемента: `accessPath` по 12.2 называет только поля и auto-properties, записи для `ElementSelector` и structural resource коллекции нет | selector-кейсы, `dictionary-disjoint-keys-structural`, `static-list-add` | 4 |
 | 2 | В какой фазе моделируются мутации обычных `List<T>` и `Dictionary<TKey, TValue>`: TD-085 и строка фазы 4 говорят о concurrent collections, TD-034a о `System.*` по immutability и чистоте; от этого же зависит escape через collection insertion из TD-052 | `static-list-add`, `dictionary-disjoint-keys-structural` | 4 или 5 |
-| 3 | Даёт ли `ContinueWith` happens-before от antecedent к continuation; TD-065–067 этого не говорят | `continue-with` | 3 |
+| 3 | Закрыт. Даёт ли `ContinueWith` happens-before от antecedent к continuation. Да: continuation упорядочен после antecedent, когда antecedent доказанно её receiver; отделившаяся работа antecedent не упорядочена | `continue-with` | 3 |
 | 4 | Правило для enumerate + mutate: DCA1004 требует `LostUpdate`, а перечисление против вставки не lost update | `concurrent-dictionary-enumerate-while-mutate` | 4 |
 | 5 | Atomic операция против незащищённой записи: DCA1001 или DCA1003, то есть считается ли atomic защитой в `protectionAnalysis` | `interlocked-mixed-with-plain-write` | 4 |
 | 6 | Пользовательский `AsyncLock` с исходником: TD-086 запрещает считать его защитой, а межпроцедурный must-hold через возвращённый releaser мог бы её доказать | `custom-async-lock-releaser` | 4 |

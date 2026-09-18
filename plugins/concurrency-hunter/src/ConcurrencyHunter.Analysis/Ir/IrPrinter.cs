@@ -9,7 +9,8 @@ public static class IrPrinter
         var lines = new List<string>
         {
             F($"body {Text(body.BodyId)} {body.Kind} owner={Text(body.OwnerSymbol)} " +
-              $"method={Text(body.MethodSymbol)} schema={Text(body.SchemaVersion)}")
+              $"method={Text(body.MethodSymbol)} schema={Text(body.SchemaVersion)} async={Boolean(body.IsAsync)} " +
+              $"returns={Text(body.ReturnType)} async-iterator={Boolean(body.IsAsyncIterator)}")
         };
 
         foreach (var value in body.Values.OrderBy(value => value.Id))
@@ -57,7 +58,7 @@ public static class IrPrinter
                                             $"{Values(store.IndexValues)} <- {Value(store.Value)}"),
         IrCallOperation call => F($"call {call.CallKind} result={OptionalValue(call.ResultValue)} " +
                                    $"method={Text(call.Method)} receiver={OptionalValue(call.ReceiverValue)} " +
-                                   $"arguments={Values(call.ArgumentValues)}"),
+                                   $"arguments={Values(call.ArgumentValues)}{(call.IsAwaitedImmediately ? " awaited" : "")}"),
         IrCreateDelegateOperation create => F($"create-delegate {Value(create.ResultValue)} " +
                                                 $"body={OptionalText(create.TargetBodyId)} " +
                                                 $"method={OptionalText(create.TargetMethod)} " +
@@ -66,9 +67,25 @@ public static class IrPrinter
         IrEscapeOperation escape => F($"escape {Value(escape.Value)} destination={Text(escape.Destination)}"),
         IrReturnOperation @return => F($"return {OptionalValue(@return.Value)}"),
         IrAwaitOperation awaitOperation => F($"await {Value(awaitOperation.AwaitableValue)} " +
-                                             $"result={OptionalValue(awaitOperation.ResultValue)}"),
-        IrSpawnOperation spawn => F($"spawn {Value(spawn.WorkValue)} handle={OptionalValue(spawn.HandleValue)}"),
-        IrJoinOperation join => F($"join {Value(join.HandleValue)}"),
+                                             $"result={OptionalValue(awaitOperation.ResultValue)}" +
+                                             (awaitOperation.TaskValue is int task ? $" task={Value(task)}" : "")),
+        IrSpawnOperation spawn => F($"spawn {spawn.Kind} call={OperationId(spawn.CallOperationId)} " +
+                                    $"handle={OptionalValue(spawn.HandleValue)} work={Values(spawn.WorkValues)} " +
+                                    $"work-method={OptionalText(spawn.WorkMethod)} state={OptionalValue(spawn.StateValue)} " +
+                                    $"antecedent={OptionalValue(spawn.AntecedentValue)} async={Boolean(spawn.WorkIsAsync)} " +
+                                    $"awaits-work={Boolean(spawn.AwaitsWorkTask)} implicit-join={Boolean(spawn.JoinsOnReturn)}"),
+        IrThreadWorkOperation threadWork => F($"thread-work {Value(threadWork.ThreadValue)} work={Value(threadWork.WorkValue)} " +
+                                                  $"async={Boolean(threadWork.WorkIsAsync)}"),
+        IrJoinOperation join => F($"join {join.Kind} call={OperationId(join.CallOperationId)} handles={Values(join.HandleValues)} " +
+                                  $"handles-known={Boolean(join.HandlesKnown)} " +
+                                  $"throws-only-after-completion={Boolean(join.ThrowsOnlyAfterCompletion)}"),
+        IrWhenAllOperation whenAll => F($"when-all {Value(whenAll.ResultValue)} tasks={Values(whenAll.TaskValues)} " +
+                                        $"tasks-known={Boolean(whenAll.TasksKnown)}"),
+        IrUnwrapOperation unwrap => F($"unwrap {Value(unwrap.ResultValue)} <- {Value(unwrap.OuterValue)}"),
+        IrTimerOperation timer => F($"timer {timer.Action} {Value(timer.TimerValue)} callback={OptionalValue(timer.CallbackValue)} " +
+                                    $"state={OptionalValue(timer.StateValue)} due={Optional(timer.DueTime)} " +
+                                    $"period={Optional(timer.Period)} wait-handle={OptionalValue(timer.WaitHandleValue)} " +
+                                    $"result={OptionalValue(timer.ResultValue)} flag={Optional(timer.Flag)}"),
         IrAcquireOperation acquire => F($"acquire {acquire.Primitive} {acquire.Mode} {Value(acquire.LockValue)}"),
         IrReleaseOperation release => F($"release {release.Primitive} {release.Mode} {Value(release.LockValue)}"),
         IrAtomicOperation atomic => F($"atomic {Text(atomic.OperationKind)} result={OptionalValue(atomic.ResultValue)} " +
@@ -118,6 +135,7 @@ public static class IrPrinter
             F($"b{N(predecessor.BlockOrdinal)}:{predecessor.EdgeKind}"))) + "]";
     private static string Boolean(bool value) => value ? "true" : "false";
     private static string Boolean(bool? value) => value is bool actual ? Boolean(actual) : "-";
+    private static string Optional<T>(T? value) where T : struct, Enum => value is T actual ? actual.ToString() : "-";
     private static string OptionalText(string? value) => value is null ? "-" : Text(value);
     private static string Text(string value) => "\"" + Escape(value) + "\"";
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal)

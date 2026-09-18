@@ -3,6 +3,7 @@ using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
+using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
@@ -277,15 +278,20 @@ public sealed class InterproceduralAccessTests
     }
 
     [Fact]
-    public void Lambda_passed_to_an_opaque_call_gives_no_access()
+    public void Task_run_lambda_is_spawn_work_and_not_a_delegate_to_an_opaque_call()
     {
         var run = Analyze("""
             public static class Counters { public static object? Value; }
             public class JobsController : ControllerBase { public void Post() => Task.Run(() => Counters.Value = new object()); }
             """ + Startup());
 
-        Assert.Empty(run.Accesses("Value"));
-        Assert.Equal(1, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
+        Assert.Equal(0, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
+        var heap = run.Execution.Heap.Heap;
+        var spawn = Assert.Single(heap.Spawns);
+        Assert.Equal(IrSpawnKind.TaskRun, spawn.Kind);
+        Assert.Equal("body:Fixture:M:JobsController.Post#lambda1", heap.Instances[Assert.Single(spawn.Callees).InstanceId].BodyId);
+        Assert.DoesNotContain(heap.Edges, edge => edge.CalleeInstance == spawn.Callees[0].InstanceId);
+        Assert.DoesNotContain("body:Fixture:M:JobsController.Post#lambda1", run.Collection.Coverage.LoweredNotReached);
     }
 
     [Fact]
@@ -305,7 +311,30 @@ public sealed class InterproceduralAccessTests
     }
 
     [Fact]
-    public void Coverage_counters_add_up_on_a_mixed_fixture()
+    public void Delegate_given_to_a_spawn_and_to_another_opaque_call_counts_for_the_other_call()
+    {
+        const string post = "body:Fixture:M:WorkController.Post";
+        var run = Analyze("""
+            public sealed class Marks { public int Value; }
+            public class WorkController(Marks marks) : ControllerBase
+            {
+                public void Post() { Func<int> work = () => marks.Value = 1; Task.Run(work); GC.KeepAlive(new Lazy<int>(work)); }
+            }
+            """ + Startup("services.AddSingleton<Marks>();"));
+
+        var spawned = Assert.Single(run.Accesses("Value"));
+        Assert.Equal(ExecutionKind.Spawn, run.Execution.Analysis.Execution(spawned.ExecutionId).Kind);
+        Assert.Equal(1, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
+        var reached = run.Execution.Heap.Program.Result.OpaqueCalls[post];
+        Assert.Single(Assert.Single(reached, call => call.Callee.StartsWith("System.Lazy", StringComparison.Ordinal)).DelegateValues);
+        Assert.Empty(Assert.Single(reached, call => call.Callee.StartsWith("System.Threading.Tasks.Task.Run", StringComparison.Ordinal)).DelegateValues);
+        var summary = run.Execution.Heap.Heap.Instances.Values.First(instance => instance.BodyId == post).Summary;
+        Assert.Single(Assert.Single(summary.OpaqueCalls, call => call.Callee.StartsWith("System.Lazy", StringComparison.Ordinal)).Delegates);
+        Assert.Empty(Assert.Single(summary.OpaqueCalls, call => call.Callee.StartsWith("System.Threading.Tasks.Task.Run", StringComparison.Ordinal)).Delegates);
+    }
+
+    [Fact]
+    public void Coverage_counters_add_up_on_a_mixed_fixture_with_a_spawn()
     {
         var run = Analyze("""
             public sealed class Rates { }
@@ -327,15 +356,17 @@ public sealed class InterproceduralAccessTests
         var coverage = run.Collection.Coverage;
         Assert.Equal(run.Execution.Heap.Heap.ReachableBodies.Count, run.Counter(CoverageCounters.REACHABLE_BODIES));
         Assert.Equal(1, run.Counter(CoverageCounters.ELEMENT_OPERATION));
-        // One delegate to Task.Run and the two Aggregate takes: the counter counts the delegates, not the calls that take them.
-        Assert.Equal(3, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
+        // The two delegates Aggregate takes: the counter counts the delegates, not the calls that take them, and Task.Run's work runs.
+        Assert.Equal(2, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
         Assert.Equal(0, run.Counter(CoverageCounters.UNANALYSED_REGISTRATION));
         Assert.Equal(1, run.Counter(CoverageCounters.NO_RECEIVER_OBJECT));
-        Assert.Equal(0, run.Counter(CoverageCounters.STARTUP_CONSTRUCTION_ACCESS));
+        Assert.Equal(1, run.Counter(OrderingCounters.SPAWN_SITES));
+        Assert.Equal(0, run.Counter(OrderingCounters.UNPROVEN_JOINS));
         Assert.Equal(0, run.Counter(CoverageCounters.MERGED_CONTEXT));
         Assert.Equal(run.Counter(CoverageCounters.OPAQUE_CALL), coverage.TopOpaqueCallees.Sum(callee => callee.Count));
-        // A lambda handed to an opaque call is lowered with its member and never reached: inventory of its own.
-        Assert.Contains("body:Fixture:M:MixedController.Post(Payload)#lambda1", coverage.LoweredNotReached);
+        // A lambda handed to an opaque call is lowered with its member and never reached: inventory of its own. Spawn work is reached.
+        Assert.DoesNotContain("body:Fixture:M:MixedController.Post(Payload)#lambda1", coverage.LoweredNotReached);
+        Assert.Contains("body:Fixture:M:MixedController.Post(Payload)#lambda2", coverage.LoweredNotReached);
         Assert.Contains(coverage.TopOpaqueCallees, callee => callee is { Callee: "System.GC.KeepAlive(object)", Count: 3 });
     }
 

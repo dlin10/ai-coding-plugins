@@ -10,7 +10,8 @@ namespace ConcurrencyHunter.Core.Tests.Providers;
 /// and the expected result written by hand in <see cref="ProviderFixture"/>'s one-line notation.</summary>
 public sealed record ProviderCase(string Name, IReadOnlyList<(string Path, string Source)> Sources)
 {
-    /// <summary><c>net&lt;major&gt;.0</c>: every stub assembly is referenced at that major version.</summary>
+    /// <summary><c>net&lt;major&gt;.0</c>: every framework stub assembly is referenced at that major version, the gRPC stubs at
+    /// their own default.</summary>
     public string TargetFramework { get; init; } = "net10.0";
 
     /// <summary>Major version per assembly name, overriding the target framework. A name that is not a stub
@@ -118,7 +119,8 @@ public static partial class ProviderFixture
             throw new ArgumentException($"Target framework '{testCase.TargetFramework}' is not net<major>.0.", nameof(testCase));
 
         var major = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-        var versions = StubAssemblies.Names.ToDictionary(name => name, _ => major, StringComparer.Ordinal);
+        var versions = StubAssemblies.Names.ToDictionary(name => name, name => StubAssemblies.IsFramework(name) ? major : StubAssemblies.DefaultVersion(name),
+                                                         StringComparer.Ordinal);
         foreach (var (name, version) in testCase.AssemblyVersions)
             versions[name] = version;
         return new FixtureOptions

@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
@@ -59,6 +60,48 @@ internal static class ReportingTestData
         }
 
         return FindingTestData.Result(findings, groups);
+    }
+
+    internal const string SPAWN_SEGMENT = "spawn:Task.Run@Ns.Worker.Start()";
+    internal const string TIMER_SEGMENT = "timer-callback:System.Threading.Timer@Ns.Worker.Arm()";
+
+    /// <summary>One High finding whose side A is a read-modify-write with a read source, listed with two occurrences whose paths pass a
+    /// <c>spawn:</c> and a <c>timer-callback:</c> segment, the spawn segment on both sides.</summary>
+    internal static AnalysisResult SpawnAnalysis()
+    {
+        var analysis = CreateAnalysis("High");
+        var finding = analysis.Findings[0];
+        var readSpan = new SourceSpan("src/Controller1.cs", 9, 5, 9, 12);
+        var accessA = finding.AccessA with
+        {
+            Operation = AccessOperation.ReadModifyWrite,
+            ReadSources = [new ReadSource("Ns.Controller1.Post()", readSpan, [new CodeFlowStep("access", "read Ns.Controller1._value1", readSpan)])]
+        };
+        var spawn = new SpawnSiteLocation(SPAWN_SEGMENT, new SourceSpan("src/Worker.cs", 30, 9, 30, 40));
+        var timer = new SpawnSiteLocation(TIMER_SEGMENT, new SourceSpan("src/Worker.cs", 40, 9, 40, 60));
+        var occurrences = new[]
+        {
+            new FindingOccurrence(accessA.Root, finding.AccessB.Root, ["Ns.Worker.ExecuteAsync(CancellationToken)", SPAWN_SEGMENT, "Ns.Worker.Start()"],
+                                  ["Ns.Worker.ExecuteAsync(CancellationToken)", SPAWN_SEGMENT, "Ns.Worker.Start()"], "partial")
+            {
+                SpawnSitesA = [spawn],
+                SpawnSitesB = [spawn]
+            },
+            new FindingOccurrence(accessA.Root, finding.AccessB.Root, ["Ns.Worker.ExecuteAsync(CancellationToken)", TIMER_SEGMENT, "Ns.Worker.Arm()"],
+                                  ["Ns.Worker.ExecuteAsync(CancellationToken)", SPAWN_SEGMENT, "Ns.Worker.Start()"], "partial")
+            {
+                SpawnSitesA = [timer],
+                SpawnSitesB = [spawn]
+            }
+        };
+        var spawned = finding with
+        {
+            AccessA = accessA,
+            OccurrenceCount = 2,
+            Occurrences = occurrences,
+            Evidence = [.. finding.Evidence, .. ConflictFindings.SpawnEvidence(finding.FindingId, occurrences)]
+        };
+        return analysis with { Findings = [spawned], Accesses = [accessA, finding.AccessB] };
     }
 
     internal static RunReport CreateReport(AnalysisResult? analysis,

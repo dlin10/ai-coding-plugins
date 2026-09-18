@@ -72,8 +72,13 @@ public static class IrValidator
                                            HashSet<int> definedValues, List<string> problems)
     {
         var sawNonPhi = false;
+        var calls = new HashSet<int>();
         foreach (var operation in block.Operations)
         {
+            if (operation is IrCallOperation call)
+                calls.Add(call.Id);
+            ValidateBclOperation(operation, calls, problems);
+
             if (operation is IrPhiOperation phi)
             {
                 if (sawNonPhi)
@@ -97,6 +102,60 @@ public static class IrValidator
                     problems.Add($"Operation {operation.Id} names unknown operand %{operand}.");
             }
         }
+    }
+
+    private static void ValidateBclOperation(IrOperation operation, IReadOnlySet<int> calls, List<string> problems)
+    {
+        switch (operation)
+        {
+            case IrSpawnOperation spawn:
+                RequireCall(spawn.Id, spawn.CallOperationId, calls, problems);
+                if (spawn.Kind == IrSpawnKind.ThreadStart != (spawn.WorkValues.Count == 0))
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} has {spawn.WorkValues.Count} work values.");
+                if (spawn.HandleValue is not null && spawn.Kind is IrSpawnKind.QueueUserWorkItem or IrSpawnKind.UnsafeQueueUserWorkItem
+                                                                   or IrSpawnKind.AsyncVoid or IrSpawnKind.Unrecognized)
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} has a handle.");
+                if (spawn.Kind == IrSpawnKind.ContinueWith != spawn.AntecedentValue is not null)
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} disagrees with its antecedent.");
+                if (spawn.WorkMethod is not null && spawn.Kind != IrSpawnKind.UnsafeQueueUserWorkItem)
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} names a work method.");
+                if (spawn.JoinsOnReturn != spawn.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach)
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} disagrees with its implicit join.");
+                break;
+            case IrJoinOperation join:
+                RequireCall(join.Id, join.CallOperationId, calls, problems);
+                if (join.Kind != IrJoinKind.WaitAll && (!join.HandlesKnown || join.HandleValues.Count != 1))
+                    problems.Add($"Join operation {join.Id} of kind {join.Kind} does not name exactly one known handle.");
+                if (!join.HandlesKnown && join.HandleValues.Count != 0)
+                    problems.Add($"Join operation {join.Id} names handles it does not know.");
+                break;
+            case IrWhenAllOperation { TasksKnown: false, TaskValues.Count: > 0 } whenAll:
+                problems.Add($"When-all operation {whenAll.Id} names tasks it does not know.");
+                break;
+            case IrTimerOperation timer:
+                var shape = (timer.CallbackValue is not null, timer.DueTime is not null && timer.Period is not null,
+                             timer.WaitHandleValue is not null, timer.ResultValue is not null, timer.Flag is not null);
+                var expected = timer.Action switch
+                {
+                    IrTimerAction.Create => (true, true, false, false, false),
+                    IrTimerAction.Change => (false, true, false, false, false),
+                    IrTimerAction.DisposeWaitHandle => (false, false, true, false, false),
+                    IrTimerAction.DisposeAsync => (false, false, false, true, false),
+                    IrTimerAction.ElapsedSubscribe => (true, false, false, false, false),
+                    IrTimerAction.SetAutoReset or IrTimerAction.SetEnabled => (false, false, false, false, true),
+                    _ => (false, false, false, false, false)
+                };
+                if (shape != expected || (timer.StateValue is not null) != (timer.Action == IrTimerAction.Create) ||
+                    (timer.DueTime is null) != (timer.Period is null))
+                    problems.Add($"Timer operation {timer.Id} does not carry the values of {timer.Action}.");
+                break;
+        }
+    }
+
+    private static void RequireCall(int operation, int call, IReadOnlySet<int> calls, List<string> problems)
+    {
+        if (!calls.Contains(call))
+            problems.Add($"Operation {operation} names operation {call}, which is not an earlier call in its block.");
     }
 
     private static void ValidatePhi(IrBlock block, IrPhiOperation phi, List<string> problems)

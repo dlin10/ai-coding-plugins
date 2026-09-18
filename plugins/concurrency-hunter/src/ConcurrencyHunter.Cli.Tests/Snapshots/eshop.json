@@ -3,24 +3,24 @@
     "projectsExpected": 30,
     "projectsLoaded": 30,
     "scopes": 14,
-    "roots": 84,
+    "roots": 89,
     "rootsPerProvider": {
-      "aspnetcore": 83,
+      "aspnetcore": 88,
       "hosting": 1
     },
-    "reachableBodies": 425,
-    "summaries": 606,
-    "regions": 876,
-    "instances": 686,
-    "accesses": 1543,
+    "reachableBodies": 483,
+    "summaries": 664,
+    "regions": 938,
+    "instances": 774,
+    "accesses": 1738,
     "pairs": {
-      "comparisons": 1263,
-      "cartesianBound": 77516,
-      "largestBucket": 10,
-      "buckets": 626,
+      "comparisons": 1523,
+      "cartesianBound": 87946,
+      "largestBucket": 14,
+      "buckets": 679,
       "skips": {
-        "confined": 420,
-        "read-read": 843
+        "confined": 439,
+        "read-read": 1084
       },
       "suppressed": 0,
       "candidates": 0
@@ -34,19 +34,18 @@
     {
       "scopeId": "Basket.API",
       "rootsPerProvider": {
-        "aspnetcore": 6,
+        "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 20,
+      "accesses": 44,
       "counters": {
-        "delegate-to-opaque": 12,
-        "element-operation": 5,
+        "delegate-to-opaque": 16,
+        "element-operation": 8,
         "merged-context": 0,
-        "no-receiver-object": 6,
-        "opaque-call": 148,
-        "reachable-bodies": 29,
+        "no-receiver-object": 14,
+        "opaque-call": 170,
+        "reachable-bodies": 44,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 10,
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
@@ -55,19 +54,18 @@
     {
       "scopeId": "Catalog.API",
       "rootsPerProvider": {
-        "aspnetcore": 13,
+        "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 77,
+      "accesses": 112,
       "counters": {
-        "delegate-to-opaque": 11,
-        "element-operation": 13,
+        "delegate-to-opaque": 17,
+        "element-operation": 14,
         "merged-context": 0,
-        "no-receiver-object": 5,
-        "opaque-call": 217,
-        "reachable-bodies": 53,
+        "no-receiver-object": 17,
+        "opaque-call": 264,
+        "reachable-bodies": 83,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 10,
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
@@ -79,7 +77,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 323,
+      "accesses": 339,
       "counters": {
         "delegate-to-opaque": 28,
         "element-operation": 13,
@@ -88,7 +86,6 @@
         "opaque-call": 896,
         "reachable-bodies": 86,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 16,
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
@@ -109,7 +106,6 @@
         "opaque-call": 91,
         "reachable-bodies": 58,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -118,19 +114,18 @@
     {
       "scopeId": "Ordering.API",
       "rootsPerProvider": {
-        "aspnetcore": 8,
+        "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 17,
+      "accesses": 29,
       "counters": {
-        "delegate-to-opaque": 9,
-        "element-operation": 15,
+        "delegate-to-opaque": 13,
+        "element-operation": 21,
         "merged-context": 0,
-        "no-receiver-object": 9,
-        "opaque-call": 143,
-        "reachable-bodies": 30,
+        "no-receiver-object": 13,
+        "opaque-call": 161,
+        "reachable-bodies": 43,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 10,
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
@@ -151,7 +146,6 @@
         "opaque-call": 43,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 7,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -163,7 +157,7 @@
         "aspnetcore": 0,
         "hosting": 0
       },
-      "accesses": 0,
+      "accesses": 6,
       "counters": {
         "delegate-to-opaque": 5,
         "element-operation": 2,
@@ -172,7 +166,6 @@
         "opaque-call": 74,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 11,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -184,7 +177,7 @@
         "aspnetcore": 0,
         "hosting": 0
       },
-      "accesses": 0,
+      "accesses": 4,
       "counters": {
         "delegate-to-opaque": 2,
         "element-operation": 2,
@@ -193,7 +186,6 @@
         "opaque-call": 75,
         "reachable-bodies": 9,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 9,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -214,7 +206,6 @@
         "opaque-call": 96,
         "reachable-bodies": 58,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -226,7 +217,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 167,
+      "accesses": 171,
       "counters": {
         "delegate-to-opaque": 16,
         "element-operation": 2,
@@ -235,7 +226,6 @@
         "opaque-call": 186,
         "reachable-bodies": 37,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 9,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -256,7 +246,6 @@
         "opaque-call": 12,
         "reachable-bodies": 4,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -268,7 +257,7 @@
         "aspnetcore": 3,
         "hosting": 0
       },
-      "accesses": 3,
+      "accesses": 8,
       "counters": {
         "delegate-to-opaque": 7,
         "element-operation": 0,
@@ -277,7 +266,6 @@
         "opaque-call": 78,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 8,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -298,7 +286,6 @@
         "opaque-call": 37,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -319,7 +306,6 @@
         "opaque-call": 95,
         "reachable-bodies": 21,
         "scc-budget-exceeded": 0,
-        "startup-construction-access": 0,
         "unanalysed-registration": 0,
         "unresolved-locator": 3,
         "wildcard-access": 0

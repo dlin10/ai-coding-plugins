@@ -157,6 +157,7 @@ public static class NarrativeValidator
     {
         var sources = scope.Findings.SelectMany(finding => new[] { finding.AccessA, finding.AccessB })
                            .SelectMany(access => access.ReadSources.Select(read => read.Source).Prepend(access.Source))
+                           .Concat(scope.Findings.SelectMany(finding => finding.Evidence).Select(item => item.Source).OfType<SourceSpan>())
                            .ToArray();
         foreach (var backtick in backticks)
         {

@@ -61,6 +61,12 @@ public sealed record DelegateCreationValue(CreationSite Site, string Target, IRe
     public override string ToString() => $"delegate:{Site.BodyId}#{Site.OperationId}";
 }
 
+/// <summary>The result of an await whose result is itself a task: the tail of the awaited task.</summary>
+public sealed record AwaitResultValue(int OperationId) : AbstractValue
+{
+    public override string ToString() => $"await:{OperationId}";
+}
+
 /// <summary>A variable a nested body captures from the body that creates it: every version, on either side.</summary>
 public sealed record CapturedValue(string SymbolKey) : AbstractValue
 {
@@ -165,7 +171,13 @@ public enum ElementOperationKind
 public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind, IReadOnlySet<AbstractValue> Arrays,
                                      IReadOnlySet<AbstractValue> Values);
 
-public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies);
+public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
+{
+    /// <summary>Where the returned value may come from besides <see cref="Values"/>, as <see cref="SummaryValue"/> records it: a caller
+    /// that sees only the regions cannot tell a returned object the heap named from one it could not.</summary>
+    public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
+    public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+}
 
 /// <summary>The values a <c>ref</c> or <c>out</c> parameter may hold when the body ends, and what they were computed from.</summary>
 public sealed record RefParameterTransfer(int Ordinal, IReadOnlySet<AbstractValue> Values)
@@ -192,9 +204,18 @@ public sealed record LockTransfer(int OperationId, bool IsAcquire, IReadOnlySet<
 /// The target type keys are as the call names them, in the calling body's own type parameters.</summary>
 public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kind, IReadOnlySet<AbstractValue> Receivers,
                                   IReadOnlyList<CallArgument> Arguments, IReadOnlyList<HeldLockValue> HeldLocks,
-                                  string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null);
+                                  string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null)
+{
+    public bool IsAwaitedImmediately { get; init; }
 
-/// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked.
+    /// <summary>Where the receiver may come from besides <see cref="Receivers"/>, as <see cref="SummaryValue"/> records it: a dispatch
+    /// over the regions alone cannot tell a receiver the heap named from one it could not.</summary>
+    public IReadOnlySet<UnknownSource> ReceiverUnknownSources { get; init; } = new HashSet<UnknownSource>();
+    public IReadOnlySet<int> ReceiverSourceCalls { get; init; } = new HashSet<int>();
+}
+
+/// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked. The
+/// work and callbacks of a recognized spawn or timer are not among <see cref="Delegates"/>: the spawn runs them.
 /// <see cref="Receivers"/>, <see cref="Arguments"/> and <see cref="ServiceCall"/> let the DI semantics model registration, locator
 /// and scope calls.</summary>
 public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates)
@@ -209,7 +230,82 @@ public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlyS
                                    IReadOnlySet<ValueDependency> Dependencies);
 
 /// <summary>The union of every version of a local or parameter in the body.</summary>
-public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies);
+public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
+{
+    public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
+}
+
+/// <summary>Where a value may come from that the analysis does not follow to an object: <c>null</c> or a default, a parameter,
+/// a field before its first write, an opaque call, a captured variable or anything else it does not model. A
+/// <see cref="SourceCall"/> result is what the callee returns; the heap knows it only for an async spawn, whose result is its
+/// handle (<c>HeapSolution.AsyncSpawns</c>).</summary>
+public enum UnknownSource
+{
+    Null,
+    Parameter,
+    FieldBeforeWrite,
+    OpaqueCall,
+    SourceCall,
+    Captured,
+    Other
+}
+
+/// <summary>A value an event names, with the unknown sources it may also come from; an empty set means it comes only from what
+/// <see cref="Values"/> name.</summary>
+public sealed record SummaryValue(IReadOnlySet<AbstractValue> Values, IReadOnlySet<UnknownSource> UnknownSources)
+{
+    /// <summary>The calls whose results the value comes from as <see cref="UnknownSource.SourceCall"/>: what each of them returns is the
+    /// callee's business, so only the region a call is known to produce excuses it.</summary>
+    public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+}
+
+/// <summary>Work a BCL call starts (<see cref="IrSpawnOperation"/>): <see cref="Handle"/> is the call's result, or the started
+/// thread for <see cref="IrSpawnKind.ThreadStart"/>, whose work a <see cref="SummaryThreadWork"/> binds.</summary>
+public sealed record SummarySpawn(int OperationId, int CallOperationId, IrSpawnKind Kind, SummaryValue? Handle,
+                                  IReadOnlyList<SummaryValue> Work, IrProvenance Provenance)
+{
+    public SummaryValue? State { get; init; }
+    public SummaryValue? Antecedent { get; init; }
+    public string? WorkMethod { get; init; }
+    public bool WorkIsAsync { get; init; }
+    public bool AwaitsWorkTask { get; init; }
+    public bool JoinsOnReturn { get; init; }
+}
+
+public sealed record SummaryThreadWork(int OperationId, SummaryValue Thread, SummaryValue Work, bool WorkIsAsync, IrProvenance Provenance);
+
+public enum SummaryJoinKind
+{
+    Await,
+    Wait,
+    Join,
+    WaitAll,
+    WaitOne
+}
+
+/// <summary>A wait for handles: an await, which throws only after its task completes, or a joining BCL call, which may throw
+/// earlier. <see cref="CallOperationId"/> is null for an await.</summary>
+public sealed record SummaryJoin(int OperationId, SummaryJoinKind Kind, int? CallOperationId, IReadOnlyList<SummaryValue> Handles,
+                                 bool HandlesKnown, bool ThrowsOnlyAfterCompletion, IrProvenance Provenance);
+
+/// <summary>A <c>Task.WhenAll</c> call; its result is a task that completes after <see cref="Tasks"/>, unless they are unknown.</summary>
+public sealed record SummaryWhenAll(int OperationId, int CallOperationId, IReadOnlyList<SummaryValue> Tasks, bool TasksKnown,
+                                    IrProvenance Provenance);
+
+/// <summary>An <c>Unwrap()</c> call: its result is the tail of <see cref="Outer"/>.</summary>
+public sealed record SummaryUnwrap(int OperationId, int CallOperationId, SummaryValue Outer, IrProvenance Provenance);
+
+/// <summary>A timer step (<see cref="IrTimerOperation"/>) with its values.</summary>
+public sealed record SummaryTimer(int OperationId, IrTimerAction Action, SummaryValue Timer, IrProvenance Provenance)
+{
+    public SummaryValue? Callback { get; init; }
+    public SummaryValue? State { get; init; }
+    public IrTimerInterval? DueTime { get; init; }
+    public IrTimerInterval? Period { get; init; }
+    public SummaryValue? WaitHandle { get; init; }
+    public SummaryValue? Result { get; init; }
+    public IrTimerFlag? Flag { get; init; }
+}
 
 public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> Accesses, IReadOnlyList<StoreTransfer> Stores,
                                    IReadOnlyList<ElementTransfer> Elements, IReadOnlyList<ReturnTransfer> Returns,
@@ -218,4 +314,10 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
                                    IReadOnlyList<CapturedStore> CapturedStores, IReadOnlyList<SummaryVariable> Variables)
 {
     public IReadOnlyList<LockTransfer> Locks { get; init; } = [];
+    public IReadOnlyList<SummarySpawn> Spawns { get; init; } = [];
+    public IReadOnlyList<SummaryThreadWork> ThreadWorks { get; init; } = [];
+    public IReadOnlyList<SummaryJoin> Joins { get; init; } = [];
+    public IReadOnlyList<SummaryWhenAll> WhenAlls { get; init; } = [];
+    public IReadOnlyList<SummaryUnwrap> Unwraps { get; init; } = [];
+    public IReadOnlyList<SummaryTimer> Timers { get; init; } = [];
 }

@@ -441,6 +441,56 @@ public sealed class NarrativeValidatorTests
         Assert.Equal(["inventedLocation:Tallies.cs:10"], rejected.Reasons);
     }
 
+    [Fact]
+    public void Citation_of_spawn_evidence_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText(body: "Race [E:F1.A]", citation: "F1.SP1"), GroupScope(SpawnFinding()));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Spawn_site_location_named_by_spawn_evidence_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText("The work starts at `Worker.cs:30`."), GroupScope(SpawnFinding()));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Citation_of_a_spawn_evidence_id_the_finding_does_not_have_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText(body: "Race [E:F1.A]", citation: "F1.SP2"), GroupScope(SpawnFinding()));
+
+        Assert.Equal(["unknownEvidence:F1.SP2"], verdict.Reasons);
+    }
+
+    [Fact]
+    public void Spawn_site_location_missing_from_the_evidence_is_rejected()
+    {
+        var withoutSpawn = GroupScope(CreateFinding());
+        var otherLine = GroupScope(SpawnFinding());
+
+        Assert.Equal(["inventedLocation:Worker.cs:30"], NarrativeValidator.Validate(ValidGroupText("It starts at `Worker.cs:30`."), withoutSpawn).Reasons);
+        Assert.Equal(["inventedLocation:Worker.cs:31"], NarrativeValidator.Validate(ValidGroupText("It starts at `Worker.cs:31`."), otherLine).Reasons);
+    }
+
+    /// <summary>A finding whose side A runs in work <c>Task.Run</c> starts at <c>src/A/Worker.cs:30</c>.</summary>
+    private static Finding SpawnFinding()
+    {
+        var finding = CreateFinding();
+        var occurrence = new FindingOccurrence(finding.AccessA.Root, finding.AccessB.Root, ["Ns.Worker.Run()", "spawn:Task.Run@Ns.Worker.Run()"], [],
+                                               "unprotected")
+        {
+            SpawnSitesA = [new SpawnSiteLocation("spawn:Task.Run@Ns.Worker.Run()", new SourceSpan("src/A/Worker.cs", 30, 9, 30, 40))]
+        };
+        return finding with
+        {
+            Occurrences = [occurrence],
+            Evidence = [.. finding.Evidence, .. ConflictFindings.SpawnEvidence(finding.FindingId, [occurrence])]
+        };
+    }
+
     private static NarrativeScope GroupScope(Finding finding) =>
         NarrativeScope.ForGroup(CreateResult(finding), finding.GroupId, 3);
 

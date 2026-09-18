@@ -58,6 +58,26 @@ A task-returning call whose handle reaches no `await`, `Wait`, `WhenAll` or `Whe
 a handle stored and awaited elsewhere is a spawn with a join, not fire-and-forget.
 _Avoid_: unawaited call, dropped task, background task
 
+**Join**:
+A point in an execution that runs only after another execution has ended: an `await`, `Wait`,
+`Join` or `WhenAll` on a handle proven to be that execution's, reached on every path including the
+exceptional ones. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
+not a join.
+_Avoid_: wait, sync point, completion (a completion is the end of an execution, a join is where someone relies on it)
+
+**Happens-before**:
+The proven order of two execution events: a path through spawns, joins, continuations and startup
+leads from one to the other, inside one instance tree whose root runs once. Two accesses with
+happens-before in either direction never overlap; without it they may.
+_Avoid_: sequential, ordered, before (a line above is not happens-before when a loop repeats it)
+
+**Instance tree**:
+A root that runs at most once without overlapping itself, together with the executions started from
+it and from its once-running descendants; its spawn and join edges hold for every instance they
+connect, which makes it the only place a **Happens-before** path is trusted. A periodic timer or a
+`Parallel` body inside it still overlaps itself.
+_Avoid_: task tree, call tree, thread tree
+
 **Construction**:
 A constructor or type initializer running to produce an object or prepare a type. What it does to
 the object it produces, or a type initializer to its own type's statics, nobody else can see unless
@@ -224,6 +244,8 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
 - A file **Suppression** names a **Fingerprint** and nothing else.
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
+- Two **Accesses** form a **Candidate** only when no **Happens-before** orders them; happens-before removes pairs and never adds one. Startup precedes every instance of every root. See `docs/adr/0008`.
+- A **Fire-and-forget** spawn and an `async void` call have no **Join**.
 - A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.

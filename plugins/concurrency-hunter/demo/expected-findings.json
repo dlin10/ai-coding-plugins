@@ -638,6 +638,402 @@
         { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.Ledger.Post(int)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.FactoryResolvesOtherService.Ledger.Post(int)", "operation": "write" }
       ]
+    },
+    {
+      "id": "task-run-vs-parent",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TaskRunVsParent.StatusWorker@Singleton", "accessPath": ["Status"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskRunVsParent.StatusWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskRunVsParent.StatusWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "task-factory-start-new",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TaskFactoryStartNew.ModeWorker@Singleton", "accessPath": ["Mode"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskFactoryStartNew.ModeWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskFactoryStartNew.ModeWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "task-handle-join-order/before-await",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker@Singleton", "accessPath": ["BeforeAwait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "task-wait-join/before-wait",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker@Singleton", "accessPath": ["BeforeWait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "continue-with/vs-parent",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ContinueWith.StageWorker@Singleton", "accessPath": ["Stage"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.Second(Task)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "continue-with/antecedent-vs-parent",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ContinueWith.StageWorker@Singleton", "accessPath": ["Stage"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.First()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "thread-pool-queue-user-work-item/queue",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker@Singleton", "accessPath": ["Queued"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "thread-pool-queue-user-work-item/unsafe-queue",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker@Singleton", "accessPath": ["UnsafeQueued"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadPoolQueueUserWorkItem.QueueWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "thread-start-join/before-join",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker@Singleton", "accessPath": ["BeforeJoin"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "parallel-for-shared-total",
+      "phase": "3",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ParallelForSharedTotal.TotalWorker@Singleton", "accessPath": ["_total"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ParallelForSharedTotal.TotalWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ParallelForSharedTotal.TotalWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "parallel-foreach",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ParallelForeach.LastItemWorker@Singleton", "accessPath": ["_last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ParallelForeach.LastItemWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ParallelForeach.LastItemWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "parallel-foreach-async",
+      "phase": "3",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ParallelForeachAsync.ProcessedWorker@Singleton", "accessPath": ["_processed"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ParallelForeachAsync.ProcessedWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ParallelForeachAsync.ProcessedWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "when-all-siblings/siblings",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllSiblings.SiblingsWorker@Singleton", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.WriteA()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.WriteB()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-synchronous-prefix/after-first-await",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker@Singleton", "accessPath": ["Suffix"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker.StepA()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker.StepB()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-any-no-join",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAnyNoJoin.WinnerWorker@Singleton", "accessPath": ["Winner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAnyNoJoin.WinnerWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAnyNoJoin.WinnerWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "fire-and-forget-vs-awaited/dropped",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker@Singleton", "accessPath": ["Dropped"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker.DropAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "async-void-call",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.AsyncVoidCall.NoticeWorker@Singleton", "accessPath": ["Notice"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AsyncVoidCall.NoticeWorker.Notify()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.AsyncVoidCall.NoticeWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "join-skipped-on-exception",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.JoinSkippedOnException.OutcomeWorker@Singleton", "accessPath": ["Outcome"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.JoinSkippedOnException.OutcomeWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.JoinSkippedOnException.OutcomeWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "event-wait-not-ordering",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.EventWaitNotOrdering.PayloadWorker@Singleton", "accessPath": ["Payload"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EventWaitNotOrdering.PayloadWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EventWaitNotOrdering.PayloadWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "threading-timer-vs-action",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadingTimerVsAction.Beat@Singleton", "accessPath": ["LastTick"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadingTimerVsAction.Beat.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadingTimerVsAction.BeatController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "threading-timer-vs-action/callback-self",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadingTimerVsAction.Beat@Singleton", "accessPath": ["LastTick"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadingTimerVsAction.Beat.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadingTimerVsAction.Beat.OnTick(object)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "threading-timer-self-overlap",
+      "phase": "3",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadingTimerSelfOverlap.PulseWorker@Singleton", "accessPath": ["_ticks"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadingTimerSelfOverlap.PulseWorker.OnTick(object)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ThreadingTimerSelfOverlap.PulseWorker.OnTick(object)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "timer-state-sharing",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.TimerStateSharing.GaugeBoard..ctor()#Demo.Web.Cases.TimerStateSharing.Gauge", "accessPath": ["Level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerStateSharing.GaugeBoard.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerStateSharing.GaugeController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "timer-state-sharing/callback-self",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.TimerStateSharing.GaugeBoard..ctor()#Demo.Web.Cases.TimerStateSharing.Gauge", "accessPath": ["Level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerStateSharing.GaugeBoard.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerStateSharing.GaugeBoard.OnTick(object)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-captured-alias",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.TimerCapturedAlias.BannerRotator..ctor()#Demo.Web.Cases.TimerCapturedAlias.Banner", "accessPath": ["Text"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerCapturedAlias.BannerRotator..ctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerCapturedAlias.BannerController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "timer-captured-alias/callback-self",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.TimerCapturedAlias.BannerRotator..ctor()#Demo.Web.Cases.TimerCapturedAlias.Banner", "accessPath": ["Text"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerCapturedAlias.BannerRotator..ctor()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerCapturedAlias.BannerRotator..ctor()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-one-shot/vs-action",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimerOneShot.Warmup@Singleton", "accessPath": ["Phase"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerOneShot.Warmup.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerOneShot.WarmupController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "timer-change-reactivates",
+      "phase": "3",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimerChangeReactivates.PollWorker@Singleton", "accessPath": ["_polls"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerChangeReactivates.PollWorker.OnTick(object)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TimerChangeReactivates.PollWorker.OnTick(object)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "timer-dispose-does-not-join",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimerDisposeDoesNotJoin.StopWorker@Singleton", "accessPath": ["LastRun"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerDisposeDoesNotJoin.StopWorker.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerDisposeDoesNotJoin.StopWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-dispose-async-awaited/detached-work",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker@Singleton", "accessPath": ["LastFlush"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker.FlushAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-dispose-wait-handle/before-wait",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker@Singleton", "accessPath": ["BeforeWait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timers-timer-elapsed/self",
+      "phase": "3",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimersTimerElapsed.Sampler@Singleton", "accessPath": ["_samples"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.Sampler.OnElapsed(object, ElapsedEventArgs)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.Sampler.OnElapsed(object, ElapsedEventArgs)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "timers-timer-elapsed/vs-action",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimersTimerElapsed.Sampler@Singleton", "accessPath": ["LastSample"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.Sampler.OnElapsed(object, ElapsedEventArgs)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.SamplerController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "timers-timer-elapsed/last-sample-self",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TimersTimerElapsed.Sampler@Singleton", "accessPath": ["LastSample"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.Sampler.OnElapsed(object, ElapsedEventArgs)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimersTimerElapsed.Sampler.OnElapsed(object, ElapsedEventArgs)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "periodic-timer-loop/vs-action",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PeriodicTimerLoop.TickSnapshot@Singleton", "accessPath": ["Last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "grpc-service-method",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.GrpcServiceMethod.GreetingLog@Singleton", "accessPath": ["LastGreeting"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GrpcServiceMethod.GreeterService.Greet(GreetRequest, ServerCallContext)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.GrpcServiceMethod.GreeterService.Greet(GreetRequest, ServerCallContext)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -803,6 +1199,124 @@
       "id": "factory-scoped-per-request",
       "phase": "2b",
       "resource": { "region": "di:Demo.Web.Cases.FactoryScopedPerRequest.RequestTag@Scoped", "accessPath": ["Id"] }
+    },
+    {
+      "id": "task-handle-join-order/after-await",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker@Singleton", "accessPath": ["AfterAwait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskHandleJoinOrder.JoinOrderWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "task-handle-awaited-elsewhere",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TaskHandleAwaitedElsewhere.PendingWorker@Singleton", "accessPath": ["Result"] }
+    },
+    {
+      "id": "task-wait-join/after-wait",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker@Singleton", "accessPath": ["AfterWait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TaskWaitJoin.WaitJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "continue-with/vs-antecedent",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.ContinueWith.StageWorker@Singleton", "accessPath": ["Stage"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.First()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ContinueWith.StageWorker.Second(Task)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "thread-start-join/after-join",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker@Singleton", "accessPath": ["AfterJoin"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ThreadStartJoin.ThreadJoinWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-siblings/after-when-all",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllSiblings.SiblingsWorker@Singleton", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.WriteA()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-siblings/after-when-all-b",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllSiblings.SiblingsWorker@Singleton", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.WriteB()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllSiblings.SiblingsWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-synchronous-prefix/prefix",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker@Singleton", "accessPath": ["Prefix"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker.StepA()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllSynchronousPrefix.PrefixWorker.StepB()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "fire-and-forget-vs-awaited/awaited",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker@Singleton", "accessPath": ["Saved"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker.SaveAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.FireAndForgetVsAwaited.DropWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-never-activated",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TimerNeverActivated.Standby@Singleton", "accessPath": ["State"] }
+    },
+    {
+      "id": "timer-one-shot/self",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TimerOneShot.Warmup@Singleton", "accessPath": ["_runs"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerOneShot.Warmup.OnTick(object)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TimerOneShot.Warmup.OnTick(object)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "timer-dispose-async-awaited/after-dispose",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker@Singleton", "accessPath": ["LastTick"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerDisposeAsyncAwaited.FlushWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "timer-dispose-wait-handle/after-wait",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker@Singleton", "accessPath": ["AfterWait"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker.OnTick(object)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.TimerDisposeWaitHandle.DrainWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "periodic-timer-loop/iterations",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.PeriodicTimerLoop.TickWorker@Singleton", "accessPath": ["_iterations"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
     }
   ]
 }

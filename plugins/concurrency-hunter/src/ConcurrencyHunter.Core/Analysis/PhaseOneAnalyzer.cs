@@ -180,6 +180,10 @@ public static class PhaseOneAnalyzer
             coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count, collection.Coverage.Counters)
             {
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
+                SpawnSites = collection.Coverage.SpawnSites,
+                TimerSites = collection.Coverage.TimerSites,
+                UnprovenJoins = collection.Coverage.UnprovenJoins,
+                Ordering = collection.Coverage.Ordering,
                 LoweredNotReached = collection.Coverage.LoweredNotReached,
                 OutsideLoweredSet = collection.Coverage.OutsideLoweredSet
                                               .SelectMany(member => member.NestedBodyIds.Prepend(member.MemberId))

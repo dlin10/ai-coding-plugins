@@ -59,6 +59,11 @@ public static class MethodSummaryBuilder
         private readonly HashSet<string> _capturedKeys;
         private readonly Dictionary<int, HashSet<AbstractValue>> _points = [];
         private readonly Dictionary<int, HashSet<ValueDependency>> _dependencies = [];
+        private readonly Dictionary<int, HashSet<UnknownSource>> _unknown = [];
+        private readonly Dictionary<int, HashSet<int>> _sourceCalls = [];
+        private readonly Dictionary<int, HashSet<int>> _workValues;
+        private readonly HashSet<int> _modeledCalls = [];
+        private readonly Dictionary<int, int> _unwrapped = [];
 
         internal Builder(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies)
         {
@@ -67,6 +72,7 @@ public static class MethodSummaryBuilder
             _limits = limits;
             _bodies = bodies;
             _operations = body.Blocks.SelectMany(block => block.Operations).ToArray();
+            _workValues = ReachableSet.WorkOfCalls(_operations);
             _values = body.Values.ToDictionary(value => value.Id);
             foreach (var operation in _operations)
             {
@@ -77,7 +83,36 @@ public static class MethodSummaryBuilder
             _parameterOrdinals = body.Parameters.ToDictionary(parameter => parameter.Value, parameter => parameter.Ordinal);
             _capturedKeys = _operations.OfType<IrCaptureOperation>().Select(capture => capture.SymbolKey).OfType<string>()
                                        .ToHashSet(StringComparer.Ordinal);
+            foreach (var operation in _operations)
+            {
+                switch (operation)
+                {
+                    case IrSpawnOperation { HandleValue: int handle }:
+                        ModelCall(handle);
+                        break;
+                    case IrTimerOperation { ResultValue: int result }:
+                        ModelCall(result);
+                        break;
+                    case IrUnwrapOperation unwrap:
+                        ModelCall(unwrap.ResultValue);
+                        _unwrapped[unwrap.ResultValue] = unwrap.OuterValue;
+                        break;
+                    case IrWhenAllOperation whenAll:
+                        ModelCall(whenAll.ResultValue);
+                        break;
+                }
+            }
         }
+
+        /// <summary>Marks the call defining <paramref name="value"/> as one whose result the heap models: a handle, a tail or a group.</summary>
+        private void ModelCall(int value)
+        {
+            if (DefiningCall(value) is int call)
+                _modeledCalls.Add(call);
+        }
+
+        private int? DefiningCall(int value) =>
+            _definitions.TryGetValue(value, out var definition) && definition is IrCallOperation call && call.ResultValue == value ? call.Id : null;
 
         internal MethodSummary Build()
         {
@@ -120,7 +155,11 @@ public static class MethodSummaryBuilder
                                                          Final(Points(element.ResultValue), delegates)));
                         break;
                     case IrReturnOperation { Value: int returned } @return:
-                        returns.Add(new ReturnTransfer(@return.Id, Final(Points(returned), delegates), Dependencies(returned)));
+                        returns.Add(new ReturnTransfer(@return.Id, Final(Points(returned), delegates), Dependencies(returned))
+                        {
+                            UnknownSources = _unknown[returned],
+                            SourceCalls = _sourceCalls[returned]
+                        });
                         break;
                     case IrCreateDelegateOperation create:
                         delegateTransfers.Add(new DelegateTransfer(create.Id, delegates[Site(create)], Final(Points(create.ReceiverValue), delegates),
@@ -128,7 +167,8 @@ public static class MethodSummaryBuilder
                         break;
                     case IrCallOperation call when IsOpaque(call):
                         opaqueCalls.Add(new SummaryOpaqueCall(call.Id, call.Method,
-                                                              call.ArgumentValues.SelectMany(value => _points[value]).OfType<DelegateCreationValue>()
+                                                              call.ArgumentValues.Where(value => _workValues.GetValueOrDefault(call.Id)?.Contains(value) != true)
+                                                                  .SelectMany(value => _points[value]).OfType<DelegateCreationValue>()
                                                                   .Distinct().Select(value => delegates[value.Site]).ToArray())
                         {
                             Receivers = Final(Points(call.ReceiverValue), delegates),
@@ -138,7 +178,12 @@ public static class MethodSummaryBuilder
                         break;
                     case IrCallOperation call:
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
-                                                   Arguments(call, delegates), locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys));
+                                                   Arguments(call, delegates), locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys)
+                        {
+                            IsAwaitedImmediately = call.IsAwaitedImmediately,
+                            ReceiverUnknownSources = call.ReceiverValue is int receiver ? _unknown[receiver] : new HashSet<UnknownSource>(),
+                            ReceiverSourceCalls = call.ReceiverValue is int source ? _sourceCalls[source] : new HashSet<int>()
+                        });
                         break;
                     case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
                         capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue)));
@@ -157,7 +202,10 @@ public static class MethodSummaryBuilder
                                          };
                                      })
                                      .ToArray();
-            var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key)))
+            var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key))
+                                          {
+                                              UnknownSources = _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _unknown[value.Id]).ToHashSet()
+                                          })
                                           .ToArray();
             var lockTransfers = _operations.Select(operation => operation switch
                                    {
@@ -172,9 +220,72 @@ public static class MethodSummaryBuilder
             return new MethodSummary(_body.BodyId, accesses, stores, elements, returns, refParameters, delegateTransfers, calls, opaqueCalls,
                                      capturedStores, variables)
             {
-                Locks = lockTransfers
+                Locks = lockTransfers,
+                Spawns = _operations.OfType<IrSpawnOperation>().Select(spawn => Spawn(spawn, delegates)).ToArray(),
+                ThreadWorks = _operations.OfType<IrThreadWorkOperation>()
+                                         .Select(work => new SummaryThreadWork(work.Id, Value(work.ThreadValue, delegates), Value(work.WorkValue, delegates),
+                                                                               work.WorkIsAsync, work.Provenance))
+                                         .ToArray(),
+                Joins = _operations.Select(operation => Join(operation, delegates)).OfType<SummaryJoin>().ToArray(),
+                WhenAlls = _operations.OfType<IrWhenAllOperation>()
+                                      .Select(whenAll => new SummaryWhenAll(whenAll.Id, DefiningCall(whenAll.ResultValue)!.Value,
+                                                                            whenAll.TaskValues.Select(task => Value(task, delegates)).ToArray(),
+                                                                            whenAll.TasksKnown, whenAll.Provenance))
+                                      .ToArray(),
+                Unwraps = _operations.OfType<IrUnwrapOperation>()
+                                     .Select(unwrap => new SummaryUnwrap(unwrap.Id, DefiningCall(unwrap.ResultValue)!.Value, Value(unwrap.OuterValue, delegates),
+                                                                         unwrap.Provenance))
+                                     .ToArray(),
+                Timers = _operations.OfType<IrTimerOperation>().Select(timer => Timer(timer, delegates)).ToArray()
             };
         }
+
+        private SummarySpawn Spawn(IrSpawnOperation spawn, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            new(spawn.Id, spawn.CallOperationId, spawn.Kind, Value(spawn.HandleValue, delegates),
+                spawn.WorkValues.Select(work => Value(work, delegates)).ToArray(), spawn.Provenance)
+            {
+                State = Value(spawn.StateValue, delegates),
+                Antecedent = Value(spawn.AntecedentValue, delegates),
+                WorkMethod = spawn.WorkMethod,
+                WorkIsAsync = spawn.WorkIsAsync,
+                AwaitsWorkTask = spawn.AwaitsWorkTask,
+                JoinsOnReturn = spawn.JoinsOnReturn
+            };
+
+        private SummaryJoin? Join(IrOperation operation, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) => operation switch
+        {
+            IrAwaitOperation awaited => new SummaryJoin(awaited.Id, SummaryJoinKind.Await, null,
+                                                        [Value(awaited.TaskValue ?? awaited.AwaitableValue, delegates)], true, true, awaited.Provenance),
+            IrJoinOperation join => new SummaryJoin(join.Id, join.Kind switch
+                                                    {
+                                                        IrJoinKind.Wait => SummaryJoinKind.Wait,
+                                                        IrJoinKind.Join => SummaryJoinKind.Join,
+                                                        IrJoinKind.WaitAll => SummaryJoinKind.WaitAll,
+                                                        IrJoinKind.WaitOne => SummaryJoinKind.WaitOne,
+                                                        _ => throw new ArgumentOutOfRangeException(nameof(operation), join.Kind, null)
+                                                    },
+                                                    join.CallOperationId, join.HandleValues.Select(handle => Value(handle, delegates)).ToArray(),
+                                                    join.HandlesKnown, join.ThrowsOnlyAfterCompletion, join.Provenance),
+            _ => null
+        };
+
+        private SummaryTimer Timer(IrTimerOperation timer, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            new(timer.Id, timer.Action, Value(timer.TimerValue, delegates), timer.Provenance)
+            {
+                Callback = Value(timer.CallbackValue, delegates),
+                State = Value(timer.StateValue, delegates),
+                DueTime = timer.DueTime,
+                Period = timer.Period,
+                WaitHandle = Value(timer.WaitHandleValue, delegates),
+                Result = Value(timer.ResultValue, delegates),
+                Flag = timer.Flag
+            };
+
+        private SummaryValue Value(int value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            new(Final(_points[value], delegates), _unknown[value]) { SourceCalls = _sourceCalls[value] };
+
+        private SummaryValue? Value(int? value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            value is int id ? Value(id, delegates) : null;
 
         private CallArgument[] Arguments(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             call.ArgumentValues.Select((value, position) => new CallArgument(
@@ -192,6 +303,8 @@ public static class MethodSummaryBuilder
             {
                 _points[value.Id] = [];
                 _dependencies[value.Id] = [];
+                _unknown[value.Id] = [];
+                _sourceCalls[value.Id] = [];
             }
 
             var changed = true;
@@ -213,9 +326,87 @@ public static class MethodSummaryBuilder
                         _dependencies[value.Id] = dependencies;
                         changed = true;
                     }
+
+                    var unknown = EvaluateUnknown(value);
+                    if (!unknown.SetEquals(_unknown[value.Id]))
+                    {
+                        _unknown[value.Id] = unknown;
+                        changed = true;
+                    }
+
+                    var sourceCalls = EvaluateSourceCalls(value);
+                    if (!sourceCalls.SetEquals(_sourceCalls[value.Id]))
+                    {
+                        _sourceCalls[value.Id] = sourceCalls;
+                        changed = true;
+                    }
                 }
             }
         }
+
+        /// <summary>The unknown sources a value may come from: <c>null</c> and defaults, parameters, captured variables, field loads
+        /// (a field holds its default before its first write), call results other than the handles, tails and groups the heap models,
+        /// and every operation the summary does not follow.</summary>
+        private HashSet<UnknownSource> EvaluateUnknown(IrValue value)
+        {
+            if (value.Kind == IrValueKind.Receiver)
+                return [];
+            if (value.SymbolKey is { } key && _capturedKeys.Contains(key))
+                return [UnknownSource.Captured];
+            if (_parameterOrdinals.ContainsKey(value.Id))
+                return [UnknownSource.Parameter];
+            if (!_definitions.TryGetValue(value.Id, out var definition))
+            {
+                return value switch
+                {
+                    { Kind: IrValueKind.Constant, Name: "null" or "default" } => [UnknownSource.Null],
+                    { Kind: IrValueKind.Constant, Name: not "exceptional" } => [],
+                    _ => [UnknownSource.Other]
+                };
+            }
+
+            return definition switch
+            {
+                IrAssignOperation assign => [.. _unknown[assign.SourceValue]],
+                IrPhiOperation phi => phi.Inputs.SelectMany(input => _unknown[input.Value]).ToHashSet(),
+                IrConvertOperation convert => [.. _unknown[convert.OperandValue]],
+                IrAllocateOperation or IrCreateDelegateOperation or IrComputeOperation or IrCompareOperation => [],
+                IrLoadFieldOperation => [UnknownSource.FieldBeforeWrite],
+                IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _unknown[outer]],
+                IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
+                IrCallOperation call => [IsOpaque(call) ? UnknownSource.OpaqueCall : UnknownSource.SourceCall],
+                IrAwaitOperation awaited when IsTaskType(value.Type) => [.. _unknown[awaited.TaskValue ?? awaited.AwaitableValue]],
+                _ => [UnknownSource.Other]
+            };
+        }
+
+        /// <summary>The calls a value comes from as <see cref="UnknownSource.SourceCall"/>, followed over the same steps as the unknown
+        /// sources themselves, so that a value merging two calls keeps both.</summary>
+        private HashSet<int> EvaluateSourceCalls(IrValue value)
+        {
+            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+                _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
+            {
+                return [];
+            }
+
+            return definition switch
+            {
+                IrAssignOperation assign => [.. _sourceCalls[assign.SourceValue]],
+                IrPhiOperation phi => phi.Inputs.SelectMany(input => _sourceCalls[input.Value]).ToHashSet(),
+                IrConvertOperation convert => [.. _sourceCalls[convert.OperandValue]],
+                IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _sourceCalls[outer]],
+                IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
+                IrCallOperation call => IsOpaque(call) ? [] : [call.Id],
+                IrAwaitOperation awaited when IsTaskType(value.Type) => [.. _sourceCalls[awaited.TaskValue ?? awaited.AwaitableValue]],
+                _ => []
+            };
+        }
+
+        private static bool IsTaskType(string type) =>
+            type is "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" ||
+            type.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal) ||
+            type.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal);
 
         private HashSet<AbstractValue> EvaluatePoints(IrValue value)
         {
@@ -244,6 +435,7 @@ public static class MethodSummaryBuilder
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))
                                             .ToHashSet(),
                 IrCreateDelegateOperation create => [new DelegateCreationValue(Site(create), Target(create), new Dictionary<string, IReadOnlySet<AbstractValue>>())],
+                IrAwaitOperation awaited when IsTaskType(value.Type) => [new AwaitResultValue(awaited.Id)],
                 _ => []
             };
         }

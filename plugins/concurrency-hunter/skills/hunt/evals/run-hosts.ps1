@@ -6,8 +6,13 @@
 # The recipes are the ones that reached CompleteWithFindings in phase 1a. Codex runs the plugin from its installed
 # cache rather than from --plugin-dir, so the cache is mirrored from this checkout first and verified by hash; a
 # stale published executable is refused, because every host would analyze with it.
+#
+# -Hosts picks the hosts to run (all three by default); only the chosen hosts' run.json files are written.
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet('claude-code', 'codex', 'cursor')]
+    [string[]]$Hosts = @('claude-code', 'codex', 'cursor')
+)
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -123,7 +128,7 @@ exit $LASTEXITCODE
 }
 
 $shell = (Get-Process -Id $PID).Path
-$hosts = @('claude-code', 'codex', 'cursor')
+$hosts = @($Hosts | Select-Object -Unique)
 $runs = @{}
 foreach ($name in $hosts) {
     $wrapper = Join-Path $logs "$name.invoke.ps1"

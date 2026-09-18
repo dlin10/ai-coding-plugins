@@ -81,6 +81,9 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     public string? TargetContainingTypeKey { get; init; }
     public IReadOnlyList<string> TargetMethodTypeArgumentKeys { get; init; } = [];
     public IrServiceCall? ServiceCall { get; init; }
+
+    /// <summary>The call's result is awaited in the same expression, directly or through <c>ConfigureAwait</c>.</summary>
+    public bool IsAwaitedImmediately { get; init; }
 }
 
 /// <summary>What a locator or scope-creation call names: the constant service type key (null when the type is not a constant)
@@ -127,25 +130,91 @@ public sealed record IrReturnOperation(int Id, int? Value, IrProvenance Provenan
     public override IReadOnlyList<int> Operands => Value is int value ? [value] : [];
 }
 
+/// <summary>An await joins the task it awaits and throws only once that task is complete. <see cref="TaskValue"/> is the task
+/// when the awaitable is its <c>ConfigureAwait</c> result; otherwise the awaitable itself is the task.</summary>
 public sealed record IrAwaitOperation(int Id, int? ResultValue, int AwaitableValue, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {
     public override IReadOnlyList<int> DefinedValues => ResultValue is int result ? [result] : [];
-    public override IReadOnlyList<int> Operands => [AwaitableValue];
+    public override IReadOnlyList<int> Operands => TaskValue is int task ? [AwaitableValue, task] : [AwaitableValue];
+    public int? TaskValue { get; init; }
 }
 
-public sealed record IrSpawnOperation(int Id, int? HandleValue, int WorkValue, IrProvenance Provenance)
-    : IrOperation(Id, Provenance)
-{
-    public override IReadOnlyList<int> DefinedValues => HandleValue is int handle ? [handle] : [];
-    public override IReadOnlyList<int> Operands => [WorkValue];
-}
-
-public sealed record IrJoinOperation(int Id, int HandleValue, IrProvenance Provenance)
+/// <summary>Work a BCL call starts; it follows its call, <see cref="CallOperationId"/>, and defines nothing: the handle is the
+/// call's result or, for <see cref="IrSpawnKind.ThreadStart"/>, the started <c>Thread</c>, whose work an
+/// <see cref="IrThreadWorkOperation"/> binds. Each work value is a delegate the spawn invokes, an array of such delegates
+/// the call does not list, or, with <see cref="WorkMethod"/>, an object the spawn calls that method on. <see cref="AwaitsWorkTask"/> (set by the overload, whatever the work's body) says the call's handle
+/// completes only after the task an async work returns; <see cref="JoinsOnReturn"/> says the call itself returns, and throws,
+/// only after every iteration is complete.</summary>
+public sealed record IrSpawnOperation(int Id, IrSpawnKind Kind, int CallOperationId, int? HandleValue,
+                                      IReadOnlyList<int> WorkValues, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {
     public override IReadOnlyList<int> DefinedValues => [];
-    public override IReadOnlyList<int> Operands => [HandleValue];
+    public override IReadOnlyList<int> Operands =>
+        [.. new[] { HandleValue }.OfType<int>(), .. WorkValues, .. new[] { StateValue, AntecedentValue }.OfType<int>()];
+    public int? StateValue { get; init; }
+    public int? AntecedentValue { get; init; }
+    public string? WorkMethod { get; init; }
+    public bool WorkIsAsync { get; init; }
+    public bool AwaitsWorkTask { get; init; }
+    public bool JoinsOnReturn { get; init; }
+}
+
+/// <summary>A <c>Thread</c> constructor binding the work its <c>Start</c> runs; a thread never waits for the task an async
+/// work returns.</summary>
+public sealed record IrThreadWorkOperation(int Id, int ThreadValue, int WorkValue, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => [ThreadValue, WorkValue];
+    public bool WorkIsAsync { get; init; }
+}
+
+/// <summary>A BCL call, <see cref="CallOperationId"/>, that returns only after its handles complete; unlike an await it may
+/// throw before they do. Handles are unknown when the call's tasks are not listed in the call itself.</summary>
+public sealed record IrJoinOperation(int Id, IrJoinKind Kind, int CallOperationId, IReadOnlyList<int> HandleValues,
+                                     bool HandlesKnown, IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => HandleValues;
+    public bool ThrowsOnlyAfterCompletion => false;
+}
+
+/// <summary>The task <c>Task.WhenAll</c> returned, <see cref="ResultValue"/>, completes after <see cref="TaskValues"/>;
+/// those are unknown when the tasks are not listed in the call itself.</summary>
+public sealed record IrWhenAllOperation(int Id, int ResultValue, IReadOnlyList<int> TaskValues, bool TasksKnown,
+                                        IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => [ResultValue, .. TaskValues];
+}
+
+/// <summary><c>Unwrap()</c>: <see cref="ResultValue"/> is the handle of the task the outer task's work returned.</summary>
+public sealed record IrUnwrapOperation(int Id, int ResultValue, int OuterValue, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => [ResultValue, OuterValue];
+}
+
+/// <summary>A step in a timer's life. <c>System.Threading.Timer</c>: <see cref="IrTimerAction.Create"/> with callback, state,
+/// due time and period, <see cref="IrTimerAction.Change"/>, the disposals; <c>System.Timers.Timer</c>: the <c>Elapsed</c>
+/// subscription with its handler as callback, <c>AutoReset</c> and <c>Enabled</c> writes with their flag, <c>Start</c>,
+/// <c>Stop</c>. <see cref="ResultValue"/> is the task <c>DisposeAsync</c> returns.</summary>
+public sealed record IrTimerOperation(int Id, IrTimerAction Action, int TimerValue, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands =>
+        new int?[] { TimerValue, CallbackValue, StateValue, WaitHandleValue, ResultValue }.OfType<int>().ToArray();
+    public int? CallbackValue { get; init; }
+    public int? StateValue { get; init; }
+    public IrTimerInterval? DueTime { get; init; }
+    public IrTimerInterval? Period { get; init; }
+    public int? WaitHandleValue { get; init; }
+    public int? ResultValue { get; init; }
+    public IrTimerFlag? Flag { get; init; }
 }
 
 public sealed record IrAcquireOperation(int Id, int LockValue, IrSynchronizationPrimitive Primitive,

@@ -7,16 +7,19 @@ using Microsoft.CodeAnalysis.Operations;
 
 namespace ConcurrencyHunter.Providers;
 
-/// <summary>HTTP roots: controller actions as ASP.NET Core's controller feature and application model decide, and
-/// minimal-API handlers mapped on an endpoint route builder.</summary>
+/// <summary>HTTP roots: controller actions as ASP.NET Core's controller feature and application model decide,
+/// minimal-API handlers mapped on an endpoint route builder, and the methods of gRPC services mapped with
+/// <c>MapGrpcService&lt;T&gt;()</c>.</summary>
 public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 {
     public const string PROVIDER_ID = "aspnetcore";
+    public const string GRPC_METHOD = "grpc-method";
 
     private const string MVC_CORE = "Microsoft.AspNetCore.Mvc.Core";
     private const string MVC = "Microsoft.AspNetCore.Mvc";
     private const string ROUTING = "Microsoft.AspNetCore.Routing";
     private const string HTTP_ABSTRACTIONS = "Microsoft.AspNetCore.Http.Abstractions";
+    private const string BIND_SERVICE_METHOD = "Grpc.Core.BindServiceMethodAttribute";
 
     private static readonly SupportedAssemblyVersion MvcCore = SupportedAssemblyVersion.Framework(MVC_CORE);
     private static readonly SupportedAssemblyVersion Mvc = SupportedAssemblyVersion.Framework(MVC);
@@ -24,6 +27,8 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     private static readonly SupportedAssemblyVersion HttpAbstractions = SupportedAssemblyVersion.Framework(HTTP_ABSTRACTIONS);
     private static readonly SupportedAssemblyVersion DependencyInjection =
         SupportedAssemblyVersion.Framework("Microsoft.Extensions.DependencyInjection.Abstractions");
+    private static readonly SupportedAssemblyVersion GrpcServer = new("Grpc.AspNetCore.Server", new Version(2, 0, 0, 0), new Version(3, 0, 0, 0));
+    private static readonly SupportedAssemblyVersion GrpcCore = new("Grpc.Core.Api", new Version(2, 0, 0, 0), new Version(3, 0, 0, 0));
 
     private static readonly HashSet<string> ControllerRegistrations = new(StringComparer.Ordinal)
     {
@@ -56,7 +61,8 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
     public string ProviderId => PROVIDER_ID;
 
-    public IReadOnlyList<SupportedAssemblyVersion> SupportedAssemblyVersions => [MvcCore, Mvc, Routing, HttpAbstractions, DependencyInjection];
+    public IReadOnlyList<SupportedAssemblyVersion> SupportedAssemblyVersions =>
+        [MvcCore, Mvc, Routing, HttpAbstractions, DependencyInjection, GrpcServer, GrpcCore];
 
     public RootDiscoveryResult Discover(RootDiscoveryContext context)
     {
@@ -70,6 +76,8 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
             DiscoverControllers(context, roots, diagnostics);
         if (ProviderSupport.References(context, Routing))
             DiscoverMinimalApis(context, roots, diagnostics);
+        if (ProviderSupport.References(context, GrpcServer))
+            DiscoverGrpcServices(context, roots, diagnostics);
         return new RootDiscoveryResult(RootDiscoveryStatus.Checked, roots, diagnostics);
     }
 
@@ -202,6 +210,77 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
         first.Parameters.Length == second.Parameters.Length &&
         first.Parameters.Zip(second.Parameters).All(pair => pair.First.RefKind == pair.Second.RefKind &&
                                                              SymbolEqualityComparer.Default.Equals(pair.First.Type, pair.Second.Type));
+
+    /// <summary>
+    /// One root per public override, in a mapped service, of a virtual method of the service's base class marked
+    /// <c>BindServiceMethod</c> (the generated <c>*Base</c>), whatever its streaming kind. The service is created per call, unless it is
+    /// registered in DI, in which case the registration decides.
+    /// </summary>
+    private void DiscoverGrpcServices(RootDiscoveryContext context, List<ExecutionRootDescriptor> roots,
+                                      List<RootDiscoveryDiagnostic> diagnostics)
+    {
+        var services = Invocations(context, ["MapGrpcService"])
+                       .Where(call => IsDeclaredIn(call, GrpcServer, "Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions") &&
+                                      call.Operation.TargetMethod.TypeArguments is [INamedTypeSymbol])
+                       .GroupBy(call => (INamedTypeSymbol)call.Operation.TargetMethod.TypeArguments[0], SymbolEqualityComparer.Default)
+                       .OrderBy(group => group.Key!.GetDocumentationCommentId(), StringComparer.Ordinal);
+        foreach (var group in services)
+        {
+            context.CancellationToken.ThrowIfCancellationRequested();
+            var service = (INamedTypeSymbol)group.Key!;
+            var display = SymbolNames.Type(service);
+            var bindBase = BaseChain(service.BaseType).FirstOrDefault(type => type.GetAttributes().Any(attribute =>
+                               ExactSymbols.IsType(attribute.AttributeClass, GrpcCore, BIND_SERVICE_METHOD)));
+            if (bindBase is null || service.IsGenericType || service.DeclaringSyntaxReferences.Length == 0)
+            {
+                diagnostics.Add(new RootDiscoveryDiagnostic(ProviderId, RootDiscoveryDiagnosticCode.UnsupportedPattern, display,
+                                                            $"MapGrpcService maps {display}, which is no source service deriving from a class marked BindServiceMethod",
+                                                            []));
+                continue;
+            }
+
+            var typeKey = SymbolNames.TypeKey(service);
+            var receiver = context.DiIndex.Resolve(typeKey).Kind == DiResolutionKind.Unregistered ? ReceiverKind.PerInvocation : ReceiverKind.DiService;
+            var mapping = group.OrderBy(call => call.Syntax.SyntaxTree.FilePath, StringComparer.Ordinal).ThenBy(call => call.Syntax.SpanStart).First();
+            foreach (var method in ServiceMethods(service, bindBase))
+            {
+                var symbol = SymbolNames.Method(method);
+                roots.Add(new ExecutionRootDescriptor(
+                    $"aspnetcore:{GRPC_METHOD}:{service.ContainingAssembly.Name}:{service.GetDocumentationCommentId()}:{method.GetDocumentationCommentId()}",
+                    GRPC_METHOD,
+                    ProviderId,
+                    new RootEntry(IrLowering.RootBodyId(method), symbol, $"{GRPC_METHOD} {symbol} of gRPC service {display}",
+                                  ProviderSupport.Source(method, context.RootDirectory)),
+                    new InstanceBindings(receiver,
+                        method.Parameters.Select(parameter => new ParameterBinding(
+                                                     parameter.Name, SymbolNames.Type(parameter.Type), ParameterBindingKind.RequestData,
+                                                     parameter.Type.IsValueType, SymbolNames.TypeKey(parameter.Type)))
+                              .ToArray(),
+                        display, typeKey),
+                    new InvocationPolicy(Multiplicity.Repeated, SelfOverlap.MayOverlap, context.ScopeId),
+                    [],
+                    [],
+                    [new DiscoveryEvidence("E1", "grpc-mapping", $"MapGrpcService maps {display}", SourceSpans.From(mapping.Syntax, context.RootDirectory))],
+                    []));
+            }
+        }
+    }
+
+    /// <summary>The declaration the runtime dispatches to on <paramref name="service"/> for each public virtual method of the bind base,
+    /// when it is a public override with a source body.</summary>
+    private static IEnumerable<IMethodSymbol> ServiceMethods(INamedTypeSymbol service, INamedTypeSymbol bindBase)
+    {
+        foreach (var virtualMethod in bindBase.GetMembers().OfType<IMethodSymbol>()
+                                              .Where(method => method is { MethodKind: MethodKind.Ordinary, IsVirtual: true, IsStatic: false,
+                                                                           DeclaredAccessibility: Accessibility.Public }))
+        {
+            var dispatched = BaseChain(service).TakeWhile(type => !SymbolEqualityComparer.Default.Equals(type, bindBase))
+                                               .SelectMany(type => type.GetMembers(virtualMethod.Name).OfType<IMethodSymbol>())
+                                               .FirstOrDefault(candidate => candidate.IsOverride && ProviderSupport.Overrides(candidate, virtualMethod));
+            if (dispatched is { DeclaredAccessibility: Accessibility.Public } && ProviderSupport.HasSourceBody(dispatched))
+                yield return dispatched;
+        }
+    }
 
     private void DiscoverMinimalApis(RootDiscoveryContext context, List<ExecutionRootDescriptor> roots,
                                      List<RootDiscoveryDiagnostic> diagnostics)

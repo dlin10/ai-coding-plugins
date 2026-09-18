@@ -183,6 +183,96 @@ public sealed class ReportRendererTests
         Assert.Empty(findings.RootElement.GetProperty("narrative").EnumerateArray());
     }
 
+    [Fact]
+    public void Spawn_evidence_lists_side_a_then_side_b_in_occurrence_and_path_order_once_per_site()
+    {
+        var analysis = ReportingTestData.SpawnAnalysis();
+        var finding = Assert.Single(analysis.Findings);
+
+        var bundle = ReportRenderer.Render(ReportingTestData.CreateReport(analysis));
+
+        // Side A: the spawn site of the first occurrence, then the timer of the second; side B repeats the spawn site twice.
+        var spawn = finding.Evidence.Where(item => item.Kind == "spawn").ToArray();
+        Assert.Equal(["F1.SP1", "F1.SP2"], spawn.Select(item => item.Id));
+        Assert.Equal(["Spawn site: Task.Run in Ns.Worker.Start() at src/Worker.cs:30.",
+                      "Spawn site: System.Threading.Timer in Ns.Worker.Arm() at src/Worker.cs:40."], spawn.Select(item => item.Text));
+        Assert.Contains("- Evidence: F1.A, F1.B, F1.R, F1.O, F1.P, F1.S, F1.SP1, F1.SP2\n", bundle.ReportMarkdown, StringComparison.Ordinal);
+        Assert.Contains($"(Ns.Worker.ExecuteAsync(CancellationToken) → {ReportingTestData.TIMER_SEGMENT} → Ns.Worker.Arm()) with ", bundle.ReportMarkdown,
+                        StringComparison.Ordinal);
+        using var json = JsonDocument.Parse(bundle.FindingsJson);
+        var evidence = json.RootElement.GetProperty("findings")[0].GetProperty("evidence").EnumerateArray()
+                           .Where(item => item.GetProperty("kind").GetString() == "spawn")
+                           .Select(item => (item.GetProperty("id").GetString(), item.GetProperty("text").GetString()))
+                           .ToArray();
+        Assert.Equal(spawn.Select(item => ((string?)item.Id, (string?)item.Text)), evidence);
+    }
+
+    [Fact]
+    public void Findings_json_property_names_are_the_base_ones_with_spawn_and_timer_segments_in_paths()
+    {
+        // Written down from what 99d49fa renders; phase 3 adds no property at any level.
+        var expected = new Dictionary<string, string[]>
+        {
+            [""] = ["findings", "groups", "narrative", "runId", "schemaVersion"],
+            ["findings[]"] = ["accesses", "aiContributions", "aliasEvidence", "analysis", "concurrencyEvidence", "confidence", "evidence", "evidenceMode",
+                              "findingId", "fingerprint", "groupFingerprint", "groupId", "occurrenceCount", "occurrences", "pathFeasibility",
+                              "protectionAnalysis", "resource", "ruleId", "scenario", "severity", "suppression", "title", "uncertainty"],
+            ["findings[].confidence"] = ["components", "isProbability", "label", "score"],
+            ["findings[].confidence.components"] = ["executionOverlap", "operation", "pathFeasibility", "protection", "resourceIdentity"],
+            ["findings[].resource"] = ["accessPath", "assembly", "domain", "member", "region", "scope"],
+            ["findings[].resource.member"] = ["declaringType", "kind", "name"],
+            ["findings[].accesses[]"] = ["codeFlow", "heldProtection", "operation", "readSources", "role", "root", "source"],
+            ["findings[].accesses[].source"] = ["path", "span", "symbol"],
+            ["findings[].accesses[].readSources[]"] = ["codeFlow", "source", "symbol"],
+            ["findings[].accesses[].readSources[].source"] = ["path", "span"],
+            ["findings[].occurrences[]"] = ["callPaths", "protection", "roots"],
+            ["findings[].protectionAnalysis"] = ["commonProtection", "result"],
+            ["findings[].pathFeasibility"] = ["result"],
+            ["findings[].analysis"] = ["ai", "coverageState", "engineVersion", "providers"],
+            ["findings[].analysis.ai"] = ["acceptedInferenceCount", "rounds", "semanticResolverInvoked", "semanticResolverSkipReason"],
+            ["findings[].evidence[]"] = ["id", "kind", "text"],
+            ["groups[]"] = ["confidenceLabel", "findingIds", "fingerprint", "groupId", "narrativeStatus", "occurrenceCount", "ownership",
+                            "representativeLocations", "resource", "ruleId", "severity"],
+            ["groups[].resource"] = ["accessPath", "assembly", "domain", "member", "region", "scope"],
+            ["groups[].resource.member"] = ["declaringType", "kind", "name"],
+            ["groups[].ownership"] = ["evidence", "kind"],
+            ["groups[].representativeLocations[]"] = ["line", "path", "symbol"],
+            ["narrative[]"] = ["target", "text"]
+        };
+        var report = ReportingTestData.CreateReport(ReportingTestData.SpawnAnalysis(), new Dictionary<string, string> { ["G1"] = "Narrative [E:F1.S]." });
+
+        using var json = JsonDocument.Parse(ReportRenderer.Render(report).FindingsJson);
+        var names = new Dictionary<string, SortedSet<string>>();
+        Collect(json.RootElement, "", names);
+
+        Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), names.Keys.Order(StringComparer.Ordinal));
+        foreach (var (path, properties) in expected)
+            Assert.Equal(properties.Order(StringComparer.Ordinal), names[path]);
+        Assert.Contains("spawn:Task.Run@Ns.Worker.Start()", json.RootElement.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("timer-callback:System.Threading.Timer@Ns.Worker.Arm()", json.RootElement.GetRawText(), StringComparison.Ordinal);
+    }
+
+    private static void Collect(JsonElement element, string path, Dictionary<string, SortedSet<string>> names)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                if (!names.TryGetValue(path, out var set))
+                    names.Add(path, set = new SortedSet<string>(StringComparer.Ordinal));
+                foreach (var property in element.EnumerateObject())
+                {
+                    set.Add(property.Name);
+                    Collect(property.Value, path.Length == 0 ? property.Name : $"{path}.{property.Name}", names);
+                }
+
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    Collect(item, path + "[]", names);
+                break;
+        }
+    }
+
     private static int Count(string text, string value)
     {
         var count = 0;

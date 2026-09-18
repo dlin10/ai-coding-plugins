@@ -6,7 +6,7 @@ Measures the three analysis limits one dimension at a time (R9) and writes the g
 After one Release build of the CLI, runs `metrics` on the demo and on eShop for each of the nine rows (depth 4, 8, 12;
 contexts 4, 16, 64; scc 16, 64, 256; the other two limits at their defaults 8, 16, 64), measuring the default row once and
 repeating it for each dimension. For each row it runs the demo matcher,
-DemoExpectationTests.Demo_matches_every_phase_2b_expectation_on_three_runs, with CH_ANALYSIS_LIMITS=depth,contexts,scc set:
+DemoExpectationTests.Demo_matches_every_phase_3_expectation_on_three_runs, with CH_ANALYSIS_LIMITS=depth,contexts,scc set:
 PhaseOneAnalyzer reads that variable only when it is set and only when its caller passes no limits, which is how the matcher
 runs under the row's limits.
 
@@ -65,7 +65,7 @@ function Test-Demo([string]$Limits) {
         $env:CH_ANALYSIS_LIMITS = $Limits
         try {
             $arguments = @('test', 'concurrency-hunter/src/ConcurrencyHunter.Core.Tests', '-c', 'Release', '--nologo',
-                           '--filter', 'FullyQualifiedName~DemoExpectationTests.Demo_matches_every_phase_2b_expectation_on_three_runs')
+                           '--filter', 'FullyQualifiedName~DemoExpectationTests.Demo_matches_every_phase_3_expectation_on_three_runs')
             if ($script:testBuilt) { $arguments += '--no-build' }
             dotnet @arguments | Out-Host
             $demoResults[$Limits] = $LASTEXITCODE -eq 0

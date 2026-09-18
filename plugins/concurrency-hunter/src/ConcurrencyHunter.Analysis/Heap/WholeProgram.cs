@@ -41,7 +41,8 @@ public enum HeapRegionKind
     Delegate,
     Container,
     Provider,
-    Symbolic
+    Symbolic,
+    Task
 }
 
 /// <summary>One object or set of objects. <see cref="Identity"/> includes the context; <see cref="Display"/> never does.
@@ -69,6 +70,38 @@ public sealed record RegionConstruction(string RegionId, IReadOnlyList<string> C
 /// <summary>An operation of an instance that triggers the construction of a region: a locator call, or the entry (operation
 /// <c>-1</c>) of a root or constructor body whose injections resolve it.</summary>
 public sealed record RegionTrigger(string InstanceId, int OperationId, string RegionId);
+
+public enum SpawnRole
+{
+    Work,
+    LocalInit,
+    LocalFinally
+}
+
+public sealed record SpawnCallee(string InstanceId, SpawnRole Role);
+
+/// <summary>A spawn of a caller instance (<see cref="SummarySpawn"/>): the handle regions its site creates in the caller's context,
+/// or the started threads; the tail region when the handle's work returns a task the handle does not wait for; the instances it
+/// runs. These are not call edges: the spawned bodies run as their own work.</summary>
+public sealed record SpawnSite(string CallerInstance, int OperationId, int CallOperationId, IrSpawnKind Kind, IReadOnlySet<string> Handles,
+                               string? Tail, IReadOnlyList<SpawnCallee> Callees);
+
+/// <summary>A timer's callback or <c>Elapsed</c> handler (<see cref="SummaryTimer"/>) with the timer regions and the instances it runs.</summary>
+public sealed record TimerCallbackSite(string CallerInstance, int OperationId, IrTimerAction Action, IReadOnlySet<string> Timers,
+                                       IReadOnlyList<string> Callees)
+{
+    /// <summary>Whether <see cref="Timers"/> names every timer the site may run: an unknown origin may be any timer, whatever the timers
+    /// beside it are.</summary>
+    public bool TimersKnown { get; init; } = true;
+}
+
+/// <summary>A resolved call edge into an async body whose result is not awaited at once: an <see cref="IrSpawnKind.AsyncCall"/>,
+/// whose result is the <see cref="Handle"/> region of the site in the caller's context, or an <see cref="IrSpawnKind.AsyncVoid"/>.
+/// The edges themselves stay call edges: the body runs in the caller up to its first await.</summary>
+public sealed record AsyncSpawnSite(string CallerInstance, int OperationId, IrSpawnKind Kind, string? Handle, IReadOnlyList<string> Callees);
+
+/// <summary>The tasks a <c>Task.WhenAll</c> result completes after, or that they are unknown.</summary>
+public sealed record TaskGroup(IReadOnlySet<string> Members, bool MembersKnown);
 
 public static class HeapCounters
 {
@@ -128,6 +161,14 @@ public sealed class HeapSolution
     public IReadOnlyList<string> LoweredNotReached { get; }
     public IReadOnlyList<(string BodyId, int OperationId)> NoReceiverObjects { get; }
 
+    /// <summary>The call results whose value may come from an origin points-to does not follow: the callee may return an object the heap
+    /// cannot name, so the regions of the result are not all the result may be.</summary>
+    public IReadOnlySet<(string Instance, int Operation)> UnfollowedCallResults { get; init; } = new HashSet<(string, int)>();
+
+    /// <summary>The virtual, interface and delegate calls whose receiver may come from such an origin: the edges of the call name the
+    /// bodies the heap could resolve, not every body the call may run.</summary>
+    public IReadOnlySet<(string Instance, int Operation)> UnresolvedCallTargets { get; init; } = new HashSet<(string, int)>();
+
     /// <summary>The locator calls that stayed opaque, once per body and operation.</summary>
     public IReadOnlyList<(string BodyId, int OperationId)> UnresolvedLocators { get; init; } = [];
 
@@ -151,6 +192,22 @@ public sealed class HeapSolution
 
     /// <summary>The entry instance of each root, by stable root id.</summary>
     public IReadOnlyDictionary<string, string> RootInstances { get; }
+
+    /// <summary>The spawns of every instance, in caller and operation order.</summary>
+    public IReadOnlyList<SpawnSite> Spawns { get; init; } = [];
+
+    public IReadOnlyList<TimerCallbackSite> TimerCallbacks { get; init; } = [];
+
+    public IReadOnlyList<AsyncSpawnSite> AsyncSpawns { get; init; } = [];
+
+    /// <summary>The tail region of each handle whose work returns a task: what <c>Unwrap()</c> and an await of the awaited handle give.</summary>
+    public IReadOnlyDictionary<string, string> Tails { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The antecedent regions of each continuation handle.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> Antecedents { get; init; } = new Dictionary<string, IReadOnlySet<string>>();
+
+    /// <summary>The group of each <c>Task.WhenAll</c> result region.</summary>
+    public IReadOnlyDictionary<string, TaskGroup> TaskGroups { get; init; } = new Dictionary<string, TaskGroup>();
 
     /// <summary>The storage region of a static field as an instance's substitution names it.</summary>
     public string StaticRegionOf(string instanceId, IrFieldRef field) => _staticRegion(instanceId, field);
@@ -230,6 +287,13 @@ public static class WholeProgram
         internal HashSet<string> CellOwners { get; } = new(StringComparer.Ordinal);
         internal Dictionary<int, HashSet<string>> Parameters { get; } = [];
         internal Dictionary<int, HashSet<string>> CallResults { get; } = [];
+
+        /// <summary>The calls whose result, and the returns of this instance, may come from an origin points-to does not follow.</summary>
+        internal HashSet<int> UnfollowedCallResults { get; } = [];
+
+        /// <summary>The calls whose receiver may come from such an origin, so their edges are not all the targets they may run.</summary>
+        internal HashSet<int> UnresolvedCallTargets { get; } = [];
+        internal bool ReturnsUnfollowed { get; set; }
         internal Dictionary<(int Operation, int Ordinal), HashSet<string>> RefResults { get; } = [];
         internal HashSet<string> Returns { get; } = new(StringComparer.Ordinal);
         internal Dictionary<int, HashSet<string>> RefParameters { get; } = [];
@@ -251,9 +315,24 @@ public static class WholeProgram
         internal HashSet<string> CapturedKeys { get; } = new(StringComparer.Ordinal);
     }
 
+    /// <summary>What a spawn, async spawn or timer callback site has run so far: a spawn has a <see cref="Kind"/> and a call, a
+    /// timer callback an <see cref="Action"/>, and only a spawn a <see cref="Tail"/>.</summary>
+    private sealed class SiteState(IrSpawnKind? kind, int callOperationId, IrTimerAction? action = null)
+    {
+        internal IrSpawnKind? Kind { get; } = kind;
+        internal int CallOperationId { get; } = callOperationId;
+        internal IrTimerAction? Action { get; } = action;
+        internal HashSet<string> Handles { get; } = new(StringComparer.Ordinal);
+        internal string? Tail { get; set; }
+        internal HashSet<(string Instance, SpawnRole Role)> Callees { get; } = [];
+    }
+
     private sealed class Solver
     {
         private static readonly IReadOnlyDictionary<string, string> NO_SUBSTITUTION = new Dictionary<string, string>();
+
+        /// <summary>The synthetic field of a <c>Thread</c> region holding the work its constructor bound.</summary>
+        private const string THREAD_WORK_FIELD = "<thread-work>";
 
         private readonly ScopeProgram _scope;
         private readonly ProgramIndex _program;
@@ -292,6 +371,12 @@ public static class WholeProgram
         private readonly HashSet<(string InstanceId, int OperationId, string RegionId)> _regionTriggers = [];
         private readonly Dictionary<(string BodyId, int OperationId), (string BodyId, SummaryOpaqueCall Call)?> _sites = [];
         private readonly Dictionary<string, DiRegistration[]> _instanceRegistrationsByMember = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string Caller, int Operation), SiteState> _spawns = [];
+        private readonly Dictionary<(string Caller, int Operation), SiteState> _timerCallbacks = [];
+        private readonly Dictionary<(string Caller, int Operation), SiteState> _asyncSpawns = [];
+        private readonly Dictionary<string, string> _tails = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _antecedents = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, (HashSet<string> Members, bool Known)> _taskGroups = new(StringComparer.Ordinal);
         private int _changes;
 
         internal Solver(ScopeProgram scope, AnalysisLimits limits)
@@ -425,11 +510,43 @@ public static class WholeProgram
                                                         pair => (IReadOnlyList<string>)pair.Value.SelectMany(Object).Distinct(StringComparer.Ordinal).ToArray(),
                                                         StringComparer.Ordinal),
                 StartupRegions = _startupRegions,
+                UnfollowedCallResults = _instances.Values
+                                                  .SelectMany(instance => instance.UnfollowedCallResults.Select(operation => (instance.Id, operation)))
+                                                  .ToHashSet(),
+                UnresolvedCallTargets = _instances.Values
+                                                  .SelectMany(instance => instance.UnresolvedCallTargets.Select(operation => (instance.Id, operation)))
+                                                  .ToHashSet(),
                 LocatorCreators = _locatorCreators.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
                 RegionTriggers = _regionTriggers.OrderBy(item => item.InstanceId, StringComparer.Ordinal).ThenBy(item => item.OperationId)
                                                 .ThenBy(item => item.RegionId, StringComparer.Ordinal)
-                                                .Select(item => new RegionTrigger(item.InstanceId, item.OperationId, item.RegionId)).ToArray()
+                                                .Select(item => new RegionTrigger(item.InstanceId, item.OperationId, item.RegionId)).ToArray(),
+                Spawns = Ordered(_spawns).Select(pair => new SpawnSite(pair.Key.Caller, pair.Key.Operation, pair.Value.CallOperationId, pair.Value.Kind!.Value,
+                                                                       Sorted(pair.Value.Handles), pair.Value.Tail,
+                                                                       pair.Value.Callees.OrderBy(callee => callee.Instance, StringComparer.Ordinal)
+                                                                           .ThenBy(callee => callee.Role)
+                                                                           .Select(callee => new SpawnCallee(callee.Instance, callee.Role)).ToArray()))
+                                         .ToArray(),
+                TimerCallbacks = Ordered(_timerCallbacks).Select(pair => new TimerCallbackSite(pair.Key.Caller, pair.Key.Operation, pair.Value.Action!.Value,
+                                                                                               Sorted(pair.Value.Handles), Callees(pair.Value))
+                {
+                    TimersKnown = TimersKnown(pair.Key.Caller, pair.Key.Operation, pair.Value.Handles)
+                })
+                                                         .ToArray(),
+                AsyncSpawns = Ordered(_asyncSpawns).Select(pair => new AsyncSpawnSite(pair.Key.Caller, pair.Key.Operation, pair.Value.Kind!.Value,
+                                                                                      pair.Value.Handles.SingleOrDefault(), Callees(pair.Value)))
+                                                   .ToArray(),
+                Tails = _tails,
+                Antecedents = _antecedents.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
+                TaskGroups = _taskGroups.ToDictionary(pair => pair.Key, pair => new TaskGroup(pair.Value.Members, pair.Value.Known), StringComparer.Ordinal)
             };
+
+            static IEnumerable<KeyValuePair<(string Caller, int Operation), SiteState>> Ordered(Dictionary<(string Caller, int Operation), SiteState> sites) =>
+                sites.OrderBy(pair => pair.Key.Caller, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation);
+
+            static IReadOnlySet<string> Sorted(IEnumerable<string> regions) => new SortedSet<string>(regions, StringComparer.Ordinal);
+
+            static IReadOnlyList<string> Callees(SiteState site) =>
+                site.Callees.Select(callee => callee.Instance).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         }
 
         /// <summary>The locator calls of every instance that resolve nothing: no constant type, a receiver standing for no scope,
@@ -573,6 +690,10 @@ public static class WholeProgram
                     receiver = Region($"receiver|{controllerKey}|{invocation}", HeapRegionKind.Receiver, $"receiver:{DisplayType(controllerKey)}",
                                       controllerKey, invocation, null);
                     Construct(receiver, controllerKey, scope);
+                }
+                else if (bindings is { Receiver: ReceiverKind.DiService, ReceiverTypeKey: { } serviceKey })
+                {
+                    receiver = Resolve(_scope.DiIndex.Resolve(serviceKey), scope, invocation, root.Entry.Symbol, "this").FirstOrDefault();
                 }
 
                 var bodyId = root.Entry.BodyKey;
@@ -940,7 +1061,14 @@ public static class WholeProgram
             }
 
             foreach (var @return in summary.Returns)
+            {
                 Add(instance.Returns, Eval(instance, @return.Values));
+                if (!instance.ReturnsUnfollowed && Unfollowed(instance, @return.UnknownSources, @return.SourceCalls))
+                {
+                    instance.ReturnsUnfollowed = true;
+                    _changes++;
+                }
+            }
             foreach (var parameter in summary.RefParameters)
                 Add(RefParameter(instance, parameter.Ordinal), Eval(instance, parameter.Values));
 
@@ -966,7 +1094,197 @@ public static class WholeProgram
                 Call(instance, call);
             foreach (var call in summary.OpaqueCalls)
                 Locate(instance, call);
+
+            foreach (var threadWork in summary.ThreadWorks)
+            {
+                var work = Eval(instance, threadWork.Work.Values);
+                foreach (var thread in Eval(instance, threadWork.Thread.Values))
+                    Add(Field(thread, THREAD_WORK_FIELD), work);
+            }
+
+            foreach (var spawn in summary.Spawns)
+                Spawn(instance, spawn);
+            foreach (var timer in summary.Timers.Where(timer => timer.Callback is not null))
+                TimerCallback(instance, timer);
+            foreach (var whenAll in summary.WhenAlls)
+                WhenAll(instance, whenAll);
+            foreach (var unwrap in summary.Unwraps)
+                Add(CallResult(instance, unwrap.CallOperationId), Tails(Eval(instance, unwrap.Outer.Values)));
         }
+
+        /// <summary>Runs a spawn's work: the delegates it names, the work bound to a started thread, or the <c>Execute()</c> of each
+        /// work item object. A handle is a region of the site in the caller's context; <c>StartNew</c>, <c>ContinueWith</c> and a
+        /// <c>Task.Run</c> overload that does not wait for its work's task also have a tail once a resolved callee's body is async. The work gets its state, a continuation its
+        /// antecedent, and a <c>Parallel</c> loop's body and <c>localFinally</c> the values <c>localInit</c> and the body return.</summary>
+        private void Spawn(InstanceState caller, SummarySpawn spawn)
+        {
+            var site = SiteOf(_spawns, caller, spawn.OperationId, () => new SiteState(spawn.Kind, spawn.CallOperationId));
+            IReadOnlyList<HashSet<string>> works;
+            string? handle = null;
+            if (spawn.Kind == IrSpawnKind.ThreadStart)
+            {
+                var threads = Eval(caller, spawn.Handle!.Values);
+                Add(site.Handles, threads);
+                works = [threads.SelectMany(thread => Load(thread, THREAD_WORK_FIELD)).ToHashSet(StringComparer.Ordinal)];
+            }
+            else
+            {
+                works = spawn.Work.Select(work => Eval(caller, work.Values)).ToArray();
+                if (spawn.Handle is not null)
+                {
+                    handle = TaskRegion(caller, spawn.CallOperationId);
+                    Add(site.Handles, [handle]);
+                    Add(CallResult(caller, spawn.CallOperationId), [handle]);
+                    if (spawn.Antecedent is { } antecedent)
+                        Add(Get(_antecedents, handle), Eval(caller, antecedent.Values));
+                }
+            }
+
+            var callees = works.Select(regions => spawn.WorkMethod is { } workMethod
+                                                      ? WorkItemCallees(regions, workMethod)
+                                                      : regions.Where(_delegates.ContainsKey)
+                                                               .SelectMany(region => DelegateCallees(caller, spawn.OperationId, _delegates[region], () => { }))
+                                                               .ToList())
+                               .ToArray();
+            if (handle is not null && site.Tail is null &&
+                (spawn.Kind is IrSpawnKind.StartNew or IrSpawnKind.ContinueWith || spawn.Kind == IrSpawnKind.TaskRun && !spawn.AwaitsWorkTask) &&
+                callees.SelectMany(list => list).Any(callee => IsAsyncBody(callee.BodyId)))
+            {
+                site.Tail = TailRegion(handle);
+                _changes++;
+            }
+
+            var state = spawn.State is { } stateValue ? Eval(caller, stateValue.Values) : [];
+            var localValues = callees.Length == 3 && spawn.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach
+                ? callees[0].Concat(callees[1]).SelectMany(callee => callee.Returns).ToHashSet(StringComparer.Ordinal)
+                : null;
+            for (var index = 0; index < callees.Length; index++)
+            {
+                var role = localValues is null ? SpawnRole.Work : index switch { 0 => SpawnRole.LocalInit, 1 => SpawnRole.Work, _ => SpawnRole.LocalFinally };
+                foreach (var callee in callees[index])
+                {
+                    switch (spawn.Kind)
+                    {
+                        case IrSpawnKind.ContinueWith:
+                            BindParameter(callee, 0, Eval(caller, spawn.Antecedent!.Values));
+                            BindParameter(callee, 1, state);
+                            break;
+                        case IrSpawnKind.StartNew or IrSpawnKind.QueueUserWorkItem or IrSpawnKind.UnsafeQueueUserWorkItem or IrSpawnKind.ThreadStart:
+                            BindParameter(callee, 0, state);
+                            break;
+                    }
+
+                    if (localValues is not null && role != SpawnRole.LocalInit)
+                        BindParameter(callee, role == SpawnRole.Work ? ParameterCount(callee) - 1 : 0, localValues);
+                    Add(callee.Requests, caller.Requests);
+                    if (site.Callees.Add((callee.Id, role)))
+                        _changes++;
+                }
+            }
+        }
+
+        private bool IsAsyncBody(string bodyId) =>
+            _scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false };
+
+        /// <summary>The <c>Execute()</c> implementations a work item region runs, with the region as receiver.</summary>
+        private List<InstanceState> WorkItemCallees(IEnumerable<string> items, string workMethod)
+        {
+            var callees = new List<InstanceState>();
+            if (ReachableSet.WorkMethodId(_program, workMethod) is not { } methodId)
+                return callees;
+            foreach (var item in items)
+                callees.AddRange(DispatchCallees(item, methodId, []).Callees);
+            return callees;
+        }
+
+        /// <summary>Runs a timer's callback or <c>Elapsed</c> handler; a created timer's callback gets the timer's state.</summary>
+        private void TimerCallback(InstanceState caller, SummaryTimer timer)
+        {
+            var site = SiteOf(_timerCallbacks, caller, timer.OperationId, () => new SiteState(null, timer.OperationId, timer.Action));
+            Add(site.Handles, Eval(caller, timer.Timer.Values));
+            var state = timer.State is { } stateValue ? Eval(caller, stateValue.Values) : [];
+            foreach (var region in Eval(caller, timer.Callback!.Values).Where(_delegates.ContainsKey))
+            {
+                foreach (var callee in DelegateCallees(caller, timer.OperationId, _delegates[region], () => { }))
+                {
+                    if (timer.Action == IrTimerAction.Create)
+                        BindParameter(callee, 0, state);
+                    Add(callee.Requests, caller.Requests);
+                    if (site.Callees.Add((callee.Id, SpawnRole.Work)))
+                        _changes++;
+                }
+            }
+        }
+
+        /// <summary>A <c>WhenAll</c> result is a region of its site whose group remembers the listed tasks, or that they are unknown.</summary>
+        private void WhenAll(InstanceState caller, SummaryWhenAll whenAll)
+        {
+            var group = TaskRegion(caller, whenAll.CallOperationId);
+            Add(CallResult(caller, whenAll.CallOperationId), [group]);
+            if (!_taskGroups.TryGetValue(group, out var members))
+            {
+                _taskGroups.Add(group, members = (new HashSet<string>(StringComparer.Ordinal), whenAll.TasksKnown));
+                _changes++;
+            }
+
+            Add(members.Members, whenAll.Tasks.SelectMany(task => Eval(caller, task.Values)).ToArray());
+        }
+
+        /// <summary>Whether the regions of a timer callback site name every timer it may run. As in <c>TimerSteps</c>, a null or a field
+        /// read before its first write is no timer, and a source call names one only when what it returned is among those regions: a call
+        /// with no resolved implementation, or one returning a value the heap does not follow, may return any timer.</summary>
+        private bool TimersKnown(string callerId, int operationId, IReadOnlySet<string> timers)
+        {
+            var caller = _instances[callerId];
+            var timer = caller.Summary.Timers.First(step => step.OperationId == operationId).Timer;
+            return !Unfollowed(caller, timer.UnknownSources, timer.SourceCalls) &&
+                   timer.SourceCalls.All(call => CallResult(caller, call) is { Count: > 0 } result && result.All(timers.Contains));
+        }
+
+        private SiteState SiteOf(Dictionary<(string Caller, int Operation), SiteState> sites, InstanceState caller, int operationId,
+                                 Func<SiteState> create)
+        {
+            if (!sites.TryGetValue((caller.Id, operationId), out var site))
+            {
+                sites.Add((caller.Id, operationId), site = create());
+                _changes++;
+            }
+
+            return site;
+        }
+
+        /// <summary>Binds a parameter of a spawned or called-back body, when the body has it.</summary>
+        private void BindParameter(InstanceState callee, int ordinal, IEnumerable<string> regions)
+        {
+            if (ordinal >= 0 && ordinal < ParameterCount(callee))
+                Add(Parameter(callee, ordinal), regions);
+        }
+
+        private int ParameterCount(InstanceState instance) =>
+            _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.Parameters.Count : 0;
+
+        /// <summary>The handle region an operation of an instance creates: a spawn's task, an async call's task or a
+        /// <c>WhenAll</c> result, one per site and context.</summary>
+        private string TaskRegion(InstanceState instance, int operationId)
+        {
+            var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
+            return Region($"task|{instance.BodyId}#{operationId}|{ContextKey(instance)}", HeapRegionKind.Task, $"task:{owner}#{operationId}", null,
+                          instance.Context, $"task|{instance.BodyId}#{operationId}", merged: instance.IsMerged,
+                          site: new CreationSite(instance.BodyId, operationId, "", 0));
+        }
+
+        private string TailRegion(string handle)
+        {
+            if (_tails.TryGetValue(handle, out var tail))
+                return tail;
+            var region = _regions[handle];
+            tail = Region($"{handle}|tail", HeapRegionKind.Task, $"{region.Display}#tail", null, region.Context, $"{region.Group}|tail",
+                          merged: region.IsMerged, site: new CreationSite(region.SiteBodyId!, region.SiteOperationId!.Value, "", 0));
+            _tails.Add(handle, tail);
+            return tail;
+        }
+
+        private IEnumerable<string> Tails(IEnumerable<string> handles) => handles.Select(_tails.GetValueOrDefault).OfType<string>();
 
         /// <summary>Models a service call: a created scope is an allocation of the calling execution whose <c>ServiceProvider</c>
         /// stands for it; a locator call with a constant type resolves in each scope its receiver stands for, and
@@ -1096,6 +1414,7 @@ public static class WholeProgram
                     var regions = Eval(caller, call.Receivers).Where(region => _delegates.ContainsKey(region)).ToArray();
                     if (regions.Length == 0)
                         NoReceiver(caller, call);
+                    UnresolvedTargets(caller, call);
                     foreach (var region in regions)
                         CallDelegate(caller, call, _delegates[region]);
                     return;
@@ -1105,6 +1424,7 @@ public static class WholeProgram
                     var receivers = Eval(caller, call.Receivers);
                     if (receivers.Count == 0)
                         NoReceiver(caller, call);
+                    UnresolvedTargets(caller, call);
                     foreach (var receiver in receivers)
                         Dispatch(caller, call, call.Target, receiver, typeArguments, _regions[receiver].Kind == HeapRegionKind.Di ? "di-binding" : "points-to");
                     return;
@@ -1150,41 +1470,63 @@ public static class WholeProgram
         /// through the program index when the method is virtual.</summary>
         private void CallDelegate(InstanceState caller, CallTransfer call, DelegateState state)
         {
+            foreach (var callee in DelegateCallees(caller, call.OperationId, state, () => NoReceiver(caller, call)))
+                Bind(caller, call, callee, "delegate");
+        }
+
+        /// <summary>The instances running a delegate's target for an operation of <paramref name="caller"/>; <paramref name="noReceiver"/>
+        /// runs when an instance method has no receiver to run on.</summary>
+        private List<InstanceState> DelegateCallees(InstanceState caller, int operationId, DelegateState state, Action noReceiver)
+        {
+            var callees = new List<InstanceState>();
             if (state.IsNestedBody)
             {
                 var owner = state.CellOwners.Select(id => _instances.GetValueOrDefault(id)).OfType<InstanceState>().FirstOrDefault();
-                var callee = Instance(state.Target, OwnerContext(state.CellOwners), state.OwnerSubstitution, state.CapturedReceivers, state.CellOwners,
-                                      owner?.IsReceiverless ?? false);
-                Bind(caller, call, callee, "delegate");
-                return;
+                if (Instance(state.Target, OwnerContext(state.CellOwners), state.OwnerSubstitution, state.CapturedReceivers, state.CellOwners,
+                             owner?.IsReceiverless ?? false) is { } nested)
+                {
+                    callees.Add(nested);
+                }
+
+                return callees;
             }
 
             if (_program.Method(state.Target) is not { } method)
-                return;
+                return callees;
             if (method.IsStatic)
             {
-                var callee = Instance(method.MethodId, $"{caller.BodyId}#{call.OperationId}",
-                                      Substitution(method, state.ContainingTypeKey, state.MethodTypeArguments), [], [], false);
-                Bind(caller, call, callee, "delegate");
+                if (Instance(method.MethodId, $"{caller.BodyId}#{operationId}", Substitution(method, state.ContainingTypeKey, state.MethodTypeArguments),
+                             [], [], false) is { } callee)
+                {
+                    callees.Add(callee);
+                }
+
                 ActivateTypeInitializer(state.ContainingTypeKey ?? method.ContainingTypeKey, caller, null);
-                return;
+                return callees;
             }
 
             if (state.CapturedReceivers.Count == 0)
-                NoReceiver(caller, call);
+                noReceiver();
             var isVirtual = method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true;
             foreach (var receiver in state.CapturedReceivers.ToArray())
             {
                 if (isVirtual)
                 {
-                    Dispatch(caller, call, method.MethodId, receiver, state.MethodTypeArguments, "delegate");
+                    var dispatched = DispatchCallees(receiver, method.MethodId, state.MethodTypeArguments);
+                    if (!dispatched.Dispatched)
+                        noReceiver();
+                    callees.AddRange(dispatched.Callees);
                     continue;
                 }
 
-                var callee = Instance(method.MethodId, receiver + TypeArgumentText(state.MethodTypeArguments),
-                                      ReceiverSubstitution(_regions[receiver], method, state.MethodTypeArguments), [receiver], [], false);
-                Bind(caller, call, callee, "delegate");
+                if (Instance(method.MethodId, receiver + TypeArgumentText(state.MethodTypeArguments),
+                             ReceiverSubstitution(_regions[receiver], method, state.MethodTypeArguments), [receiver], [], false) is { } callee)
+                {
+                    callees.Add(callee);
+                }
             }
+
+            return callees;
         }
 
         /// <summary>A lambda or local function body instance has the context of the member-body instance owning its cells.</summary>
@@ -1193,25 +1535,39 @@ public static class WholeProgram
         private void Dispatch(InstanceState caller, CallTransfer call, string methodId, string receiver, IReadOnlyList<string> typeArguments,
                               string reason)
         {
+            var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments);
+            foreach (var callee in callees)
+                Bind(caller, call, callee, reason);
+
+            if (!dispatched)
+                NoReceiver(caller, call);
+        }
+
+        /// <summary>The source implementations a receiver region runs for a call of <paramref name="methodId"/>, and whether any of its
+        /// types has one.</summary>
+        private (bool Dispatched, List<InstanceState> Callees) DispatchCallees(string receiver, string methodId, IReadOnlyList<string> typeArguments)
+        {
             var region = _regions[receiver];
             // A factory or instance registration's region dispatches on the types its factory or instance created, if any.
             IReadOnlyCollection<string> types = _registrations.ContainsKey(receiver)
                 ? _regionTypes.GetValueOrDefault(receiver)?.Order(StringComparer.Ordinal).ToArray() ?? []
                 : region.TypeKey is null ? [] : [region.TypeKey];
             var dispatched = false;
+            var callees = new List<InstanceState>();
             foreach (var type in types)
             {
                 if (_program.Implementation(type, methodId) is not { HasSourceBody: true } implementation)
                     continue;
                 dispatched = true;
-                var callee = Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
-                                      Substitution(implementation, _program.ConstructedBase(type, implementation.ContainingTypeKey), typeArguments),
-                                      [receiver], [], false);
-                Bind(caller, call, callee, reason);
+                if (Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
+                             Substitution(implementation, _program.ConstructedBase(type, implementation.ContainingTypeKey), typeArguments),
+                             [receiver], [], false) is { } callee)
+                {
+                    callees.Add(callee);
+                }
             }
 
-            if (!dispatched)
-                NoReceiver(caller, call);
+            return (dispatched, callees);
         }
 
         private void Bind(InstanceState caller, CallTransfer call, InstanceState? callee, string reason)
@@ -1220,7 +1576,14 @@ public static class WholeProgram
                 return;
             foreach (var argument in call.Arguments)
                 Add(Parameter(callee, argument.ParameterOrdinal), Eval(caller, argument.Values));
-            Add(CallResult(caller, call.OperationId), callee.Returns);
+            if (AsyncSpawnKind(call, callee) is { } kind)
+                AsyncSpawn(caller, call.OperationId, callee, kind);
+            else
+            {
+                Add(CallResult(caller, call.OperationId), callee.Returns);
+                if (callee.ReturnsUnfollowed && caller.UnfollowedCallResults.Add(call.OperationId))
+                    _changes++;
+            }
             foreach (var (ordinal, values) in callee.RefParameters)
                 Add(RefResult(caller, call.OperationId, ordinal), values);
             Add(callee.Requests, caller.Requests);
@@ -1228,7 +1591,44 @@ public static class WholeProgram
                 _changes++;
         }
 
+        /// <summary>An edge into an async body (not an async iterator) whose result the caller does not await at once starts that body
+        /// as a spawn: <see cref="IrSpawnKind.AsyncVoid"/> for a <c>void</c> body, <see cref="IrSpawnKind.AsyncCall"/> otherwise, since
+        /// an async body can only return <c>Task</c>, <c>ValueTask</c>, their generic forms or a type with an async method builder.</summary>
+        private IrSpawnKind? AsyncSpawnKind(CallTransfer call, InstanceState callee) =>
+            !call.IsAwaitedImmediately && _scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false }
+                ? body.ReturnType == "void" ? IrSpawnKind.AsyncVoid : IrSpawnKind.AsyncCall
+                : null;
+
+        /// <summary>Marks an async spawn edge; an <see cref="IrSpawnKind.AsyncCall"/>'s result is its site's handle region instead of
+        /// what the body returns, which is the task's value, not the task.</summary>
+        private void AsyncSpawn(InstanceState caller, int operationId, InstanceState callee, IrSpawnKind kind)
+        {
+            var site = SiteOf(_asyncSpawns, caller, operationId, () => new SiteState(kind, operationId));
+            if (kind == IrSpawnKind.AsyncCall)
+            {
+                var handle = TaskRegion(caller, operationId);
+                Add(site.Handles, [handle]);
+                Add(CallResult(caller, operationId), [handle]);
+            }
+
+            if (site.Callees.Add((callee.Id, SpawnRole.Work)))
+                _changes++;
+        }
+
         private void NoReceiver(InstanceState caller, CallTransfer call) => _noReceiver.Add((caller.BodyId, call.OperationId));
+
+        /// <summary>Marks a dispatch whose receiver may come from an origin points-to does not follow: the bodies it resolves to are not
+        /// every body it may run, so nothing that holds for all of them holds for the call.</summary>
+        private void UnresolvedTargets(InstanceState caller, CallTransfer call)
+        {
+            if (!Unfollowed(caller, call.ReceiverUnknownSources, call.ReceiverSourceCalls))
+                return;
+            if (caller.UnresolvedCallTargets.Add(call.OperationId))
+                _changes++;
+            // What a body the heap does not have would return is not among the regions of the result either.
+            if (caller.UnfollowedCallResults.Add(call.OperationId))
+                _changes++;
+        }
 
         /// <summary>The substitution of a method running on a receiver region: the region's type projected onto the method's declaring
         /// type, plus the call's method type arguments.</summary>
@@ -1308,6 +1708,10 @@ public static class WholeProgram
             RefResultValue result => new HashSet<string>(RefResult(instance, result.OperationId, result.Ordinal), StringComparer.Ordinal),
             DelegateCreationValue created => [DelegateRegion(instance, created)],
             CapturedValue captured => instance.CellOwners.SelectMany(owner => Cell(owner, captured.SymbolKey)).ToHashSet(StringComparer.Ordinal),
+            AwaitResultValue awaited => Tails(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
+                                                      .SelectMany(join => join.Handles)
+                                                      .SelectMany(handle => Eval(instance, handle.Values)))
+                                            .ToHashSet(StringComparer.Ordinal),
             PathValue path => EvalPath(instance, path),
             _ => new HashSet<string>(StringComparer.Ordinal)
         };
@@ -1543,6 +1947,13 @@ public static class WholeProgram
         private static HashSet<string> Parameter(InstanceState instance, int ordinal) => Get(instance.Parameters, ordinal);
 
         private static HashSet<string> CallResult(InstanceState instance, int operation) => Get(instance.CallResults, operation);
+
+        /// <summary>Whether a value may come from an origin points-to does not follow: a parameter, a captured variable, an opaque call or
+        /// an operation the summary does not model. A null or a field read before its first write is no object, and a source call is
+        /// followed to its callee, so it counts only when that callee's own result is unfollowed.</summary>
+        private static bool Unfollowed(InstanceState instance, IReadOnlySet<UnknownSource> sources, IReadOnlySet<int> calls) =>
+            sources.Any(source => source is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
+            calls.Any(instance.UnfollowedCallResults.Contains);
 
         private static HashSet<string> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
 

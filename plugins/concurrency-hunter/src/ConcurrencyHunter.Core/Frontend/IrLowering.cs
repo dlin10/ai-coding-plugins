@@ -459,6 +459,8 @@ public static class IrLowering
         private readonly Dictionary<(SyntaxTree Tree, int Start, int Length), int> _coalesceLoads = [];
         private readonly Dictionary<CaptureId, IOperation> _capturedTargets = [];
         private readonly Dictionary<IParameterSymbol, int> _parameterValues = new(SymbolEqualityComparer.Default);
+        private readonly Dictionary<IOperation, IReadOnlyList<int>> _listedElements = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<int, int> _configuredTasks = [];
         private ControlFlowGraph _graph = null!;
         private EffectiveFlowGraph _flowGraph = null!;
         private SsaPlan _ssaPlan = null!;
@@ -485,7 +487,7 @@ public static class IrLowering
 
         internal IrBody Lower()
         {
-            var blocks = _segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments();
+            var blocks = MarkComposite(MarkAwaited(_segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments()));
             var body = new IrBody(
                 _bodyId,
                 BodyKind(_method),
@@ -498,12 +500,158 @@ public static class IrLowering
                 Parameters = _method.Parameters
                                     .Select(parameter => new IrParameter(parameter.Name, TypeName(parameter.Type), RefKindOf(parameter.RefKind),
                                                                          parameter.Ordinal, _parameterValues[parameter]))
-                                    .ToArray()
+                                    .ToArray(),
+                IsAsync = _method.IsAsync,
+                ReturnType = TypeName(_method.ReturnType),
+                IsAsyncIterator = _method is { IsAsync: true, IsIterator: true }
             };
             var problems = IrValidator.Validate(body);
             if (problems.Count != 0)
                 throw new InvalidOperationException("Lowered IR is invalid: " + string.Join("; ", problems));
             return body;
+        }
+
+        /// <summary>Marks the calls whose result an await takes with nothing of the body in between. A conditional, a <c>??</c> or a
+        /// <c>switch</c> expression reaches its await through the assignments and phis the control-flow graph introduces for it, over
+        /// temporaries of its own; a task the body keeps in a local of its own does not, since it may do anything before awaiting it.</summary>
+        private IrBlock[] MarkAwaited(IrBlock[] blocks)
+        {
+            var operations = blocks.SelectMany(block => block.Operations).ToArray();
+            var definitions = new Dictionary<int, IrOperation>();
+            foreach (var operation in operations)
+            {
+                foreach (var value in operation.DefinedValues)
+                    definitions[value] = operation;
+            }
+
+            var awaited = new HashSet<int>();
+            foreach (var await in operations.OfType<IrAwaitOperation>())
+            {
+                var seen = new HashSet<int>();
+                var pending = new Stack<int>([await.TaskValue ?? await.AwaitableValue]);
+                while (pending.TryPop(out var value))
+                {
+                    if (!seen.Add(value) || !definitions.TryGetValue(value, out var definition) ||
+                        _values[value].Kind != IrValueKind.Temporary)
+                    {
+                        continue;
+                    }
+
+                    switch (definition)
+                    {
+                        case IrCallOperation call:
+                            awaited.Add(call.Id);
+                            break;
+                        case IrAssignOperation assign:
+                            pending.Push(assign.SourceValue);
+                            break;
+                        case IrPhiOperation phi:
+                            foreach (var input in phi.Inputs)
+                                pending.Push(input.Value);
+                            break;
+                    }
+                }
+            }
+
+            return awaited.Count == 0
+                ? blocks
+                : blocks.Select(block => block with
+                        {
+                            Operations = block.Operations
+                                              .Select(operation => operation is IrCallOperation call && awaited.Contains(call.Id)
+                                                  ? call with { IsAwaitedImmediately = true }
+                                                  : operation)
+                                              .ToArray()
+                        })
+                        .ToArray();
+        }
+
+        /// <summary>Turns a continuation of a composite task into the unrecognized form (R7): the plan names <c>ContinueWith</c> on the
+        /// task of one spawn, not on the task <c>WhenAll</c>, another unrecognized form or an <c>Unwrap</c> of one built, so such a
+        /// continuation runs as work that overlaps everything and its completion gives no order.</summary>
+        private static IrBlock[] MarkComposite(IrBlock[] blocks)
+        {
+            var operations = blocks.SelectMany(block => block.Operations).ToArray();
+            var continuations = operations.OfType<IrSpawnOperation>()
+                                          .Where(spawn => spawn.Kind == IrSpawnKind.ContinueWith && spawn.AntecedentValue is not null)
+                                          .ToArray();
+            if (continuations.Length == 0)
+                return blocks;
+
+            var whenAlls = operations.OfType<IrWhenAllOperation>().Select(whenAll => whenAll.ResultValue).ToHashSet();
+            var unwraps = new Dictionary<int, int>();
+            foreach (var unwrap in operations.OfType<IrUnwrapOperation>())
+                unwraps[unwrap.ResultValue] = unwrap.OuterValue;
+            var spawns = new Dictionary<int, IrSpawnOperation>();
+            foreach (var spawn in operations.OfType<IrSpawnOperation>().Where(spawn => spawn.HandleValue is not null))
+                spawns[spawn.HandleValue!.Value] = spawn;
+            var sources = new Dictionary<int, List<int>>();
+            foreach (var operation in operations)
+            {
+                switch (operation)
+                {
+                    case IrAssignOperation assign:
+                        Get(sources, assign.TargetValue).Add(assign.SourceValue);
+                        break;
+                    case IrPhiOperation phi:
+                        Get(sources, phi.TargetValue).AddRange(phi.Inputs.Select(input => input.Value));
+                        break;
+                }
+            }
+
+            var composite = new HashSet<int>();
+            bool Composite(int value)
+            {
+                var seen = new HashSet<int>();
+                var pending = new Stack<int>([value]);
+                while (pending.TryPop(out var current))
+                {
+                    if (!seen.Add(current))
+                        continue;
+                    if (whenAlls.Contains(current))
+                        return true;
+                    if (unwraps.TryGetValue(current, out var outer))
+                        pending.Push(outer);
+                    if (spawns.TryGetValue(current, out var spawn) && (spawn.Kind == IrSpawnKind.Unrecognized || composite.Contains(spawn.Id)))
+                        return true;
+                    foreach (var source in sources.GetValueOrDefault(current) ?? [])
+                        pending.Push(source);
+                }
+
+                return false;
+            }
+
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var continuation in continuations.Where(continuation => !composite.Contains(continuation.Id)))
+                {
+                    if (!Composite(continuation.AntecedentValue!.Value))
+                        continue;
+                    composite.Add(continuation.Id);
+                    changed = true;
+                }
+            }
+
+            return composite.Count == 0
+                ? blocks
+                : blocks.Select(block => block with
+                        {
+                            Operations = block.Operations
+                                              .Select(operation => operation is IrSpawnOperation spawn && composite.Contains(spawn.Id)
+                                                  ? spawn with { Kind = IrSpawnKind.Unrecognized, HandleValue = null, AntecedentValue = null }
+                                                  : operation)
+                                              .ToArray()
+                        })
+                        .ToArray();
+        }
+
+        private static List<int> Get(Dictionary<int, List<int>> map, int key)
+        {
+            if (!map.TryGetValue(key, out var values))
+                map.Add(key, values = []);
+            return values;
         }
 
         private IrBlock[] LowerSingleGraph(GraphSegment segment)
@@ -808,6 +956,10 @@ public static class IrLowering
                 IIsTypeOperation typeTest => LowerTypeTest(typeTest),
                 IIsPatternOperation pattern when IsNullPattern(pattern.Pattern) => LowerNullTest(pattern, pattern.Value, "is-pattern"),
                 IDelegateCreationOperation delegateCreation => LowerDelegateCreation(delegateCreation),
+                ICollectionExpressionOperation collection => LowerCollectionExpression(collection),
+                IEventAssignmentOperation { Adds: true, EventReference: IEventReferenceOperation { Instance: not null } reference } assignment
+                    when reference.Event.Name == "Elapsed" && Bcl.TypeOf(reference.Event) == Bcl.TIMERS_TIMER =>
+                    LowerElapsedSubscription(assignment, reference),
                 IArgumentOperation argument => LowerArgument(argument) ?? Unknown(argument, "address-taken"),
                 _ when operation.ConstantValue.HasValue => Constant(operation, "constant"),
                 _ => LowerUnsupported(operation)
@@ -1065,6 +1217,15 @@ public static class IrLowering
                 Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
             };
             _operations.Add(Call(null, setter, receiver, arguments, Provenance(source, transformation)));
+            if (receiver is int timer && Bcl.TypeOf(setter) == Bcl.TIMERS_TIMER && property.Property.Name is "AutoReset" or "Enabled")
+            {
+                var action = property.Property.Name == "AutoReset" ? IrTimerAction.SetAutoReset : IrTimerAction.SetEnabled;
+                _operations.Add(new IrTimerOperation(NextOperation(), action, timer, Provenance(source, "bcl"))
+                {
+                    Flag = Bcl.Flag((source as ISimpleAssignmentOperation)?.Value)
+                });
+            }
+
             return value;
         }
 
@@ -1162,19 +1323,241 @@ public static class IrLowering
             if (TryLowerMonitor(invocation, out var monitorResult))
                 return monitorResult;
 
+            var method = invocation.TargetMethod;
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
-            return AddCall(invocation, invocation.TargetMethod, receiver, LowerArguments(invocation.Arguments), invocation.Type,
-                           ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken));
+            var arguments = LowerArguments(invocation.Arguments);
+            var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
+                                 ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
+            var call = (IrCallOperation)_operations[^1];
+            if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
+                _configuredTasks[result] = configured;
+            AnnotateBclCall(invocation, method, call, invocation.Arguments, arguments);
+            return result;
         }
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
-                            LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null)
+                            LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null,
+                            bool awaited = false)
         {
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
-            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")) with { ServiceCall = serviceCall });
+            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")) with
+            {
+                ServiceCall = serviceCall,
+                IsAwaitedImmediately = awaited
+            });
             return result ?? Constant(source, null, "void");
+        }
+
+        /// <summary>Whether the value of <paramref name="operation"/> is awaited in the same expression, directly or through a
+        /// task's <c>ConfigureAwait</c>. A conditional, a <c>??</c> or a <c>switch</c> expression does not reach the await this way: the
+        /// control-flow graph captures its branches first, so <see cref="MarkAwaited"/> follows those to the await instead.</summary>
+        private static bool IsAwaitedImmediately(IOperation operation)
+        {
+            var child = operation;
+            var parent = operation.Parent;
+            while (parent is IConversionOperation or IParenthesizedOperation)
+            {
+                child = parent;
+                parent = parent.Parent;
+            }
+
+            if (parent is IInvocationOperation { TargetMethod.Name: "ConfigureAwait" } configure && configure.Instance == child &&
+                Bcl.IsTask(configure.TargetMethod.ContainingType, withValueTask: true))
+            {
+                return IsAwaitedImmediately(configure);
+            }
+
+            return parent is IAwaitOperation;
+        }
+
+        /// <summary>Follows a call of a recognized BCL member with what it starts, joins or does to a timer. A call of a recognized
+        /// type in another form that is handed delegates becomes an unrecognized spawn of them.</summary>
+        private void AnnotateBclCall(IOperation source, IMethodSymbol method, IrCallOperation call,
+                                     IEnumerable<IArgumentOperation> argumentOperations, LoweredArguments arguments)
+        {
+            var type = Bcl.TypeOf(method);
+            if (type is null)
+                return;
+
+            var original = method.OriginalDefinition;
+            var provenance = Provenance(source, "bcl");
+            var delegateOrdinals = original.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate)
+                                           .Select(parameter => parameter.Ordinal)
+                                           .ToArray();
+            var work = delegateOrdinals.Select(ordinal => ArgumentValue(arguments, ordinal)).OfType<int>().ToList();
+            var workIsAsync = delegateOrdinals.Any(ordinal => Bcl.IsAsyncDelegate(ArgumentOperation(ordinal)));
+            foreach (var parameter in original.Parameters.Where(parameter => parameter.Type is IArrayTypeSymbol { ElementType.TypeKind: TypeKind.Delegate }))
+            {
+                if (ArgumentValue(arguments, parameter.Ordinal) is not int array)
+                    continue;
+                var listed = ListedElements(ArgumentOperation(parameter.Ordinal));
+                work.AddRange(listed ?? [array]);
+            }
+
+            IOperation? ArgumentOperation(int ordinal) =>
+                argumentOperations.FirstOrDefault(argument => argument.Parameter?.Ordinal == ordinal)?.Value;
+
+            int? Named(string name) =>
+                original.Parameters.FirstOrDefault(parameter => parameter.Name == name) is { } parameter
+                    ? ArgumentValue(arguments, parameter.Ordinal)
+                    : null;
+
+            IrSpawnOperation Spawn(IrSpawnKind kind, int? handle, IReadOnlyList<int> values) =>
+                new(NextOperation(), kind, call.Id, handle, values, provenance) { StateValue = Named("state"), WorkIsAsync = workIsAsync };
+
+            IrJoinOperation Join(IrJoinKind kind) => new(NextOperation(), kind, call.Id, [call.ReceiverValue!.Value], true, provenance);
+
+            IrTimerOperation Timer(IrTimerAction action) => new(NextOperation(), action, call.ReceiverValue!.Value, provenance);
+
+            switch (type, method.Name, original.Parameters.Length)
+            {
+                case (Bcl.THREAD, WellKnownMemberNames.InstanceConstructorName, _):
+                    _operations.Add(new IrThreadWorkOperation(NextOperation(), call.ReceiverValue!.Value, work[0], provenance)
+                    {
+                        WorkIsAsync = workIsAsync
+                    });
+                    break;
+                case (Bcl.TIMER, WellKnownMemberNames.InstanceConstructorName, var count):
+                    _operations.Add(Timer(IrTimerAction.Create) with
+                    {
+                        CallbackValue = work[0],
+                        StateValue = count == 1 ? call.ReceiverValue : Named("state"),
+                        DueTime = count == 1 ? IrTimerInterval.Infinite : Bcl.Interval(ArgumentOperation(2)),
+                        Period = count == 1 ? IrTimerInterval.Infinite : Bcl.Interval(ArgumentOperation(3))
+                    });
+                    break;
+                case (Bcl.TASK, "Run", _):
+                    var awaitsTask = delegateOrdinals.Any(ordinal => Bcl.ReturnsTask(original.Parameters[ordinal].Type));
+                    _operations.Add(Spawn(IrSpawnKind.TaskRun, call.ResultValue, work) with { AwaitsWorkTask = awaitsTask });
+                    break;
+                case (Bcl.TASK or Bcl.TASK_T, "ContinueWith", _):
+                    _operations.Add(Spawn(IrSpawnKind.ContinueWith, call.ResultValue, work) with { AntecedentValue = call.ReceiverValue });
+                    break;
+                case (Bcl.FACTORY or Bcl.FACTORY_T, "StartNew", _):
+                    _operations.Add(Spawn(IrSpawnKind.StartNew, call.ResultValue, work));
+                    break;
+                case (Bcl.THREAD_POOL, "QueueUserWorkItem", _):
+                    _operations.Add(Spawn(IrSpawnKind.QueueUserWorkItem, null, work));
+                    break;
+                case (Bcl.THREAD_POOL, "UnsafeQueueUserWorkItem", _) when work.Count == 0 && ArgumentValue(arguments, 0) is int item:
+                    _operations.Add(Spawn(IrSpawnKind.UnsafeQueueUserWorkItem, null, [item]) with
+                    {
+                        WorkMethod = "System.Threading.IThreadPoolWorkItem.Execute()"
+                    });
+                    break;
+                case (Bcl.THREAD_POOL, "UnsafeQueueUserWorkItem", _):
+                    _operations.Add(Spawn(IrSpawnKind.UnsafeQueueUserWorkItem, null, work));
+                    break;
+                case (Bcl.THREAD, "Start" or "UnsafeStart", _):
+                    _operations.Add(Spawn(IrSpawnKind.ThreadStart, call.ReceiverValue, []) with { StateValue = Named("parameter") });
+                    break;
+                case (Bcl.PARALLEL, "For", _):
+                    _operations.Add(Spawn(IrSpawnKind.ParallelFor, call.ResultValue, work) with { JoinsOnReturn = true });
+                    break;
+                case (Bcl.PARALLEL, "ForEach", _):
+                    _operations.Add(Spawn(IrSpawnKind.ParallelForEach, call.ResultValue, work) with { JoinsOnReturn = true });
+                    break;
+                case (Bcl.PARALLEL, "ForEachAsync", _):
+                    _operations.Add(Spawn(IrSpawnKind.ParallelForEachAsync, call.ResultValue, work) with { AwaitsWorkTask = true });
+                    break;
+                case (Bcl.EXTENSIONS, "Unwrap", 1) when ArgumentValue(arguments, 0) is int outer:
+                    _operations.Add(new IrUnwrapOperation(NextOperation(), call.ResultValue!.Value, outer, provenance));
+                    break;
+                case (Bcl.TASK, "Wait", 0):
+                    _operations.Add(Join(IrJoinKind.Wait));
+                    break;
+                case (Bcl.THREAD, "Join", 0):
+                    _operations.Add(Join(IrJoinKind.Join));
+                    break;
+                case (Bcl.WAIT_HANDLE, "WaitOne", 0):
+                    _operations.Add(Join(IrJoinKind.WaitOne));
+                    break;
+                case (Bcl.TASK, "WaitAll", 1) when original.Parameters[0].Type is IArrayTypeSymbol || Bcl.IsSpan(original.Parameters[0].Type):
+                {
+                    var listed = ListedElements(ArgumentOperation(0));
+                    _operations.Add(new IrJoinOperation(NextOperation(), IrJoinKind.WaitAll, call.Id, listed ?? [], listed is not null,
+                                                        provenance));
+                    break;
+                }
+                case (Bcl.TASK, "WhenAll", 1):
+                {
+                    var listed = ListedElements(ArgumentOperation(0));
+                    _operations.Add(new IrWhenAllOperation(NextOperation(), call.ResultValue!.Value, listed ?? [], listed is not null,
+                                                           provenance));
+                    break;
+                }
+                case (Bcl.TIMER, "Change", 2):
+                    _operations.Add(Timer(IrTimerAction.Change) with
+                    {
+                        DueTime = Bcl.Interval(ArgumentOperation(0)),
+                        Period = Bcl.Interval(ArgumentOperation(1))
+                    });
+                    break;
+                case (Bcl.TIMER, "Dispose", 0):
+                    _operations.Add(Timer(IrTimerAction.Dispose));
+                    break;
+                case (Bcl.TIMER, "Dispose", 1) when ArgumentValue(arguments, 0) is int waitHandle:
+                    _operations.Add(Timer(IrTimerAction.DisposeWaitHandle) with { WaitHandleValue = waitHandle });
+                    break;
+                case (Bcl.TIMER, "DisposeAsync", 0):
+                    _operations.Add(Timer(IrTimerAction.DisposeAsync) with { ResultValue = call.ResultValue });
+                    break;
+                case (Bcl.TIMERS_TIMER, "Start", 0):
+                    _operations.Add(Timer(IrTimerAction.Start));
+                    break;
+                case (Bcl.TIMERS_TIMER, "Stop", 0):
+                    _operations.Add(Timer(IrTimerAction.Stop));
+                    break;
+                default:
+                    if (work.Count != 0 && Bcl.IsRecognizedType(type))
+                        _operations.Add(Spawn(IrSpawnKind.Unrecognized, null, work));
+                    break;
+            }
+        }
+
+        /// <summary>The values of the tasks a call lists itself (separate arguments, an array creation or a collection expression
+        /// written in the call); null for any other collection.</summary>
+        private IReadOnlyList<int>? ListedElements(IOperation? argument)
+        {
+            while (argument is IConversionOperation conversion)
+                argument = conversion.Operand;
+            return argument is not null && _listedElements.TryGetValue(argument, out var elements) ? elements : null;
+        }
+
+        private static int? ArgumentValue(LoweredArguments arguments, int ordinal)
+        {
+            for (var index = 0; index < arguments.Ordinals.Count; index++)
+            {
+                if (arguments.Ordinals[index] == ordinal)
+                    return arguments.Values[index];
+            }
+
+            return null;
+        }
+
+        /// <summary>Lowered as the unsupported operation it was, then followed by the timer subscription.</summary>
+        private int LowerElapsedSubscription(IEventAssignmentOperation assignment, IEventReferenceOperation reference)
+        {
+            var timer = LowerValue(reference.Instance!);
+            var eventValue = Unknown(reference, "unsupported", [timer]);
+            var handler = LowerValue(assignment.HandlerValue);
+            var result = Unknown(assignment, "unsupported", [eventValue, handler]);
+            _operations.Add(new IrTimerOperation(NextOperation(), IrTimerAction.ElapsedSubscribe, timer, Provenance(assignment, "bcl"))
+            {
+                CallbackValue = handler
+            });
+            return result;
+        }
+
+        /// <summary>Lowered as the unsupported operation it was; its elements are remembered when none is a spread.</summary>
+        private int LowerCollectionExpression(ICollectionExpressionOperation collection)
+        {
+            var operands = collection.ChildOperations.Select(LowerValue).ToArray();
+            if (operands.Length == collection.Elements.Length && !collection.Elements.Any(element => element is ISpreadOperation))
+                _listedElements[collection] = operands;
+            return Unknown(collection, "unsupported", operands);
         }
 
         private IrCallOperation Call(int? result, IMethodSymbol method, int? receiver, LoweredArguments arguments,
@@ -1295,7 +1678,12 @@ public static class IrLowering
                 SiteOrdinal = _context.SiteOrdinals.Of(creation)
             });
             if (creation.Constructor is not null)
-                _operations.Add(Call(null, creation.Constructor, result, LowerArguments(creation.Arguments), provenance));
+            {
+                var arguments = LowerArguments(creation.Arguments);
+                _operations.Add(Call(null, creation.Constructor, result, arguments, provenance));
+                AnnotateBclCall(creation, creation.Constructor, (IrCallOperation)_operations[^1], creation.Arguments, arguments);
+            }
+
             return result;
         }
 
@@ -1311,12 +1699,18 @@ public static class IrLowering
                 SiteOrdinal = _context.SiteOrdinals.Of(creation)
             });
             if (creation.Initializer is not null)
-                StoreElements(result, creation.Initializer, [], creation.DimensionSizes[0].Type);
+            {
+                var elements = new List<int>();
+                StoreElements(result, creation.Initializer, [], creation.DimensionSizes[0].Type, elements);
+                if (creation.DimensionSizes.Length == 1)
+                    _listedElements[creation] = elements;
+            }
+
             return result;
         }
 
         private void StoreElements(int array, IArrayInitializerOperation initializer, IReadOnlyList<int> outerIndices,
-                                   ITypeSymbol? indexType)
+                                   ITypeSymbol? indexType, List<int> elements)
         {
             for (var position = 0; position < initializer.ElementValues.Length; position++)
             {
@@ -1324,11 +1718,12 @@ public static class IrLowering
                 var index = AddValue(IrValueKind.Constant, indexType, position.ToString(CultureInfo.InvariantCulture), 0);
                 if (element is IArrayInitializerOperation nested)
                 {
-                    StoreElements(array, nested, [.. outerIndices, index], indexType);
+                    StoreElements(array, nested, [.. outerIndices, index], indexType, elements);
                     continue;
                 }
 
                 var value = LowerValue(element);
+                elements.Add(value);
                 _operations.Add(new IrStoreElementOperation(
                     NextOperation(), array, [.. outerIndices, index], value, Provenance(element, "array-initializer")));
             }
@@ -1341,7 +1736,10 @@ public static class IrLowering
                 ? null
                 : AddTemporary(awaitOperation.Type);
             _operations.Add(new IrAwaitOperation(
-                NextOperation(), result, awaitable, Provenance(awaitOperation, "await")));
+                NextOperation(), result, awaitable, Provenance(awaitOperation, "await"))
+            {
+                TaskValue = _configuredTasks.TryGetValue(awaitable, out var task) ? task : null
+            });
             return result ?? Constant(awaitOperation, null, "void");
         }
 
@@ -1807,6 +2205,83 @@ public static class IrLowering
         {
             internal static LoweredArguments None { get; } = new([], [], new Dictionary<int, int>());
         }
+    }
+
+    /// <summary>The task, thread, parallel and timer members of the BCL the lowering recognizes, by the metadata name of the type
+    /// declaring the called member. A type declared in source never matches, so a same-named user type is an ordinary call, and a
+    /// derived type that does not override a member still calls the BCL one.</summary>
+    private static class Bcl
+    {
+        internal const string TASK = "System.Threading.Tasks.Task";
+        internal const string TASK_T = "System.Threading.Tasks.Task`1";
+        internal const string FACTORY = "System.Threading.Tasks.TaskFactory";
+        internal const string FACTORY_T = "System.Threading.Tasks.TaskFactory`1";
+        internal const string EXTENSIONS = "System.Threading.Tasks.TaskExtensions";
+        internal const string PARALLEL = "System.Threading.Tasks.Parallel";
+        internal const string THREAD_POOL = "System.Threading.ThreadPool";
+        internal const string THREAD = "System.Threading.Thread";
+        internal const string TIMER = "System.Threading.Timer";
+        internal const string WAIT_HANDLE = "System.Threading.WaitHandle";
+        internal const string TIMERS_TIMER = "System.Timers.Timer";
+        private const string VALUE_TASK = "System.Threading.Tasks.ValueTask";
+        private const string VALUE_TASK_T = "System.Threading.Tasks.ValueTask`1";
+
+        internal static string? TypeOf(ISymbol member) => Name(member.ContainingType);
+
+        /// <summary>Whether a type is one whose members the lowering recognizes, so a call of it in another form is unrecognized
+        /// rather than an ordinary call.</summary>
+        internal static bool IsRecognizedType(string type) =>
+            type is TASK or TASK_T or FACTORY or FACTORY_T or EXTENSIONS or PARALLEL or THREAD_POOL or THREAD or TIMER or WAIT_HANDLE or TIMERS_TIMER;
+
+        internal static bool IsTask(ITypeSymbol? type, bool withValueTask) =>
+            Name(type) is TASK or TASK_T || withValueTask && Name(type) is VALUE_TASK or VALUE_TASK_T;
+
+        internal static bool IsSpan(ITypeSymbol type) => Name(type) == "System.ReadOnlySpan`1";
+
+        /// <summary>Whether a delegate type, as the overload declares it, returns <c>Task</c> or <c>Task&lt;T&gt;</c>; a type
+        /// parameter that a call binds to a task does not count.</summary>
+        internal static bool ReturnsTask(ITypeSymbol type) =>
+            type is INamedTypeSymbol { DelegateInvokeMethod.ReturnType: var returned } && IsTask(returned, withValueTask: false);
+
+        internal static bool IsAsyncDelegate(IOperation? value)
+        {
+            while (value is IConversionOperation or IParenthesizedOperation)
+                value = value is IConversionOperation conversion ? conversion.Operand : ((IParenthesizedOperation)value).Operand;
+            return value is IDelegateCreationOperation creation && creation.Target switch
+            {
+                IFlowAnonymousFunctionOperation function => function.Symbol.IsAsync,
+                IAnonymousFunctionOperation function => function.Symbol.IsAsync,
+                IMethodReferenceOperation reference => reference.Method.IsAsync,
+                _ => false
+            };
+        }
+
+        internal static IrTimerInterval Interval(IOperation? value) => value?.ConstantValue is { HasValue: true, Value: var constant }
+            ? constant switch
+            {
+                int number => Interval(number),
+                long number => Interval(number),
+                uint number => number == uint.MaxValue ? IrTimerInterval.Infinite : Interval(number),
+                _ => IrTimerInterval.Unknown
+            }
+            : IrTimerInterval.Unknown;
+
+        private static IrTimerInterval Interval(long value) => value switch
+        {
+            0 => IrTimerInterval.Zero,
+            -1 => IrTimerInterval.Infinite,
+            > 0 => IrTimerInterval.Positive,
+            _ => IrTimerInterval.Unknown
+        };
+
+        internal static IrTimerFlag Flag(IOperation? value) => value?.ConstantValue is { HasValue: true, Value: bool flag }
+            ? flag ? IrTimerFlag.True : IrTimerFlag.False
+            : IrTimerFlag.Unknown;
+
+        private static string? Name(ITypeSymbol? type) =>
+            type?.OriginalDefinition is INamedTypeSymbol { ContainingType: null } named && !named.Locations.Any(location => location.IsInSource)
+                ? $"{named.ContainingNamespace.ToDisplayString()}.{named.MetadataName}"
+                : null;
     }
 
     /// <summary>Recognises the service-locator and scope-creation calls of the DI semantics provider, reading the call's original
