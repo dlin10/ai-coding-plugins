@@ -1034,6 +1034,116 @@
         { "symbol": "Demo.Web.Cases.GrpcServiceMethod.GreeterService.Greet(GreetRequest, ServerCallContext)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.GrpcServiceMethod.GreeterService.Greet(GreetRequest, ServerCallContext)", "operation": "write" }
       ]
+    },
+    {
+      "id": "conditional-join-inside-work/maybe",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConditionalJoinInsideWork.NestedWorker@Singleton", "accessPath": ["Maybe"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConditionalJoinInsideWork.NestedWorker.WriteMaybe()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ConditionalJoinInsideWork.NestedWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "async-tail-entry/before",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.AsyncTailEntry.DrainWorker@Singleton", "accessPath": ["Before"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AsyncTailEntry.DrainWorker.Fill()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.AsyncTailEntry.DrainWorker.DrainAsync()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "branching-join/first",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.BranchingJoin.BranchWorker@Singleton", "accessPath": ["First"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.BranchingJoin.BranchWorker.WriteFirst()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.BranchingJoin.BranchWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "branching-join/second",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.BranchingJoin.BranchWorker@Singleton", "accessPath": ["Second"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.BranchingJoin.BranchWorker.WriteSecond()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.BranchingJoin.BranchWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "callee-joins-on-all-paths/maybe",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.CalleeJoinsOnAllPaths.DispatchWorker@Singleton", "accessPath": ["Maybe"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CalleeJoinsOnAllPaths.DispatchWorker.WriteMaybe()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.CalleeJoinsOnAllPaths.DispatchWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "await-conditional-task/deferred-first",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker@Singleton", "accessPath": ["DeferredFirst"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker.DeferredFirstAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "await-conditional-task/deferred-second",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker@Singleton", "accessPath": ["DeferredSecond"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker.DeferredSecondAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-continue-with/vs-parent",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllContinueWith.CompositeWorker@Singleton", "accessPath": ["Chained"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllContinueWith.CompositeWorker.ChainAsync(Task)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllContinueWith.CompositeWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "when-all-continue-with/self",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.WhenAllContinueWith.CompositeWorker@Singleton", "accessPath": ["Chained"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.WhenAllContinueWith.CompositeWorker.ChainAsync(Task)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.WhenAllContinueWith.CompositeWorker.ChainAsync(Task)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "maybe-null-handle/dropped",
+      "phase": "3",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.MaybeNullHandle.HandoffWorker@Singleton", "accessPath": ["Dropped"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MaybeNullHandle.HandoffWorker.WriteDropped()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MaybeNullHandle.HandoffWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -1317,6 +1427,46 @@
         { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.PeriodicTimerLoop.TickWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "conditional-join-inside-work/always",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.ConditionalJoinInsideWork.NestedWorker@Singleton", "accessPath": ["Always"] }
+    },
+    {
+      "id": "async-tail-entry/after",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.AsyncTailEntry.DrainWorker@Singleton", "accessPath": ["After"] }
+    },
+    {
+      "id": "branching-join/waited",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.BranchingJoin.BranchWorker@Singleton", "accessPath": ["Waited"] }
+    },
+    {
+      "id": "callee-joins-on-all-paths/always",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.CalleeJoinsOnAllPaths.DispatchWorker@Singleton", "accessPath": ["Always"] }
+    },
+    {
+      "id": "await-conditional-task/awaited-first",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker@Singleton", "accessPath": ["AwaitedFirst"] }
+    },
+    {
+      "id": "await-conditional-task/awaited-second",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.AwaitConditionalTask.ChoiceWorker@Singleton", "accessPath": ["AwaitedSecond"] }
+    },
+    {
+      "id": "maybe-null-handle/taken",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.MaybeNullHandle.HandoffWorker@Singleton", "accessPath": ["Taken"] }
+    },
+    {
+      "id": "dispose-async-configure-await",
+      "phase": "3",
+      "resource": { "region": "di:Demo.Web.Cases.DisposeAsyncConfigureAwait.ConfiguredWorker@Singleton", "accessPath": ["LastTick"] }
     }
   ]
 }

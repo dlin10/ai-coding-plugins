@@ -3,8 +3,13 @@
 using Demo.Web.Cases.ActionSelfOverlap;
 using Demo.Web.Cases.AliasTwoFields;
 using Demo.Web.Cases.AmbiguousRegistrationScopedWins;
+using Demo.Web.Cases.AsyncTailEntry;
 using Demo.Web.Cases.AsyncVoidCall;
+using Demo.Web.Cases.AwaitConditionalTask;
 using Demo.Web.Cases.BackgroundStopReadsOwnField;
+using Demo.Web.Cases.BranchingJoin;
+using Demo.Web.Cases.CalleeJoinsOnAllPaths;
+using Demo.Web.Cases.ConditionalJoinInsideWork;
 using Demo.Web.Cases.ConstructionOtherState;
 using Demo.Web.Cases.ConstructorLeaksThis;
 using Demo.Web.Cases.ContinueWith;
@@ -17,6 +22,7 @@ using Demo.Web.Cases.DiInstanceRegistration;
 using Demo.Web.Cases.DiScopedPerRequest;
 using Demo.Web.Cases.DiSingletonControllerVsWorker;
 using Demo.Web.Cases.DiSingletonSameLockOnInstance;
+using Demo.Web.Cases.DisposeAsyncConfigureAwait;
 using Demo.Web.Cases.DistinctAllocationSites;
 using Demo.Web.Cases.DiTransient;
 using Demo.Web.Cases.EscapeIntoSingleton;
@@ -48,6 +54,7 @@ using Demo.Web.Cases.LocatorTransientDistinct;
 using Demo.Web.Cases.LocatorUnregisteredOpaque;
 using Demo.Web.Cases.LockHeldByCaller;
 using Demo.Web.Cases.LockIdentityThroughAlias;
+using Demo.Web.Cases.MaybeNullHandle;
 using Demo.Web.Cases.MinimalApiLambdaHandler;
 using Demo.Web.Cases.MinimalApiReadWrite;
 using Demo.Web.Cases.MonitorEnterExitSameGate;
@@ -88,6 +95,7 @@ using Demo.Web.Cases.TimerOneShot;
 using Demo.Web.Cases.TimerStateSharing;
 using Demo.Web.Cases.TimersTimerElapsed;
 using Demo.Web.Cases.VirtualDispatchPointsTo;
+using Demo.Web.Cases.WhenAllContinueWith;
 using Demo.Web.Cases.WhenAllSiblings;
 using Demo.Web.Cases.WhenAllSynchronousPrefix;
 using Demo.Web.Cases.WhenAnyNoJoin;
@@ -185,7 +193,15 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddTimerDisposeWaitHandle()
                 .AddTimersTimerElapsed()
                 .AddPeriodicTimerLoop()
-                .AddGrpcServiceMethod();
+                .AddGrpcServiceMethod()
+                .AddAsyncTailEntry()
+                .AddAwaitConditionalTask()
+                .AddBranchingJoin()
+                .AddCalleeJoinsOnAllPaths()
+                .AddConditionalJoinInsideWork()
+                .AddDisposeAsyncConfigureAwait()
+                .AddMaybeNullHandle()
+                .AddWhenAllContinueWith();
 
 var app = builder.Build();
 

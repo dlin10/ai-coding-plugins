@@ -127,6 +127,8 @@
 
 Все кейсы, кроме timer-ов против action и gRPC, живут в одном `BackgroundService` (правило 4).
 
+Последние восемь кейсов написаны после code review фазы 3 по SPEC 12.3: каждый закрепляет форму, на которой ревью нашло ложное доказательство порядка, а стерегли её до сих пор только точечные тесты `ConcurrencyHunter.Core.Tests`. Все восемь проверены на падение: мутация, снимающая охраняемое правило, красит гейт demo.
+
 | Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
 |---|---|---|---|---|---|
 | `task-run-vs-parent` | positive | `Task.Run`, лямбда пишет поле; родитель пишет его до `await` handle | DCA1001 | TD-065 | — |
@@ -160,6 +162,14 @@
 | `timers-timer-elapsed` | оба | `System.Timers.Timer.Elapsed` с `AutoReset = true`: RMW поля A, запись поля B, которое читает action | `/self` DCA1002; `/vs-action` DCA1001; `/last-sample-self` DCA1001: периодический callback пишет поле B | TD-061 | — |
 | `periodic-timer-loop` | оба | `PeriodicTimer` в `ExecuteAsync`: итерация делает RMW поля A и пишет поле B, которое читает action | `/iterations` нет; `/vs-action` DCA1001 | TD-061a | — |
 | `grpc-service-method` | positive | gRPC service method пишет singleton; нужен `Grpc.AspNetCore` и proto codegen, generated code появляется в demo до фазы 6 | DCA1001, self-pair | TD-121 | — |
+| `conditional-join-inside-work` | оба | Внешняя задача ждёт один свой spawn на всех путях, другой только в одной ветке; родитель пишет оба поля после `await` внешней задачи | `/maybe` DCA1001; `/always` нет | TD-067, ADR 0008 | — |
+| `async-tail-entry` | оба | Отделённый async-вызов: `await Task.Yield()`, затем spawn, запись поля до `await` этого spawn-а и другого после него | `/before` DCA1001; `/after` нет | TD-065, TD-067 | — |
+| `branching-join` | оба | Три spawn-а до ветвления: обе ветки делают `Wait()` над одним handle, и каждая ждёт ещё свой | `/waited` нет; `/first`, `/second` DCA1001 | TD-067 | — |
+| `callee-joins-on-all-paths` | оба | Виртуальный `Run()` с двумя реализациями: базовая ждёт одну задачу, производная обе; handles лежат в полях receiver-а (вопрос 15) | `/always` нет; `/maybe` DCA1001 | TD-067 | — |
+| `await-conditional-task` | оба | `await (c ? A() : B())` и тот же conditional через local с записью между вызовом и `await` | `/awaited-first`, `/awaited-second` нет; `/deferred-first`, `/deferred-second` DCA1001 | TD-065, TD-067 | — |
+| `when-all-continue-with` | positive | `Task.WhenAll(...).ContinueWith(...)`: составная форма нераспознана, `await ...Unwrap()` порядка не даёт | `/vs-parent` DCA1001; `/self` DCA1001: хвост continuation пересекается сам с собой | TD-065 | — |
+| `maybe-null-handle` | оба | `Task? t = null; if (c) t = Task.Run(...); try { await t!; } catch { }` рядом с тем же `try`/`await` над всегда присвоенным handle | `/dropped` DCA1001; `/taken` нет | TD-067, TD-069 | — |
+| `dispose-async-configure-await` | negative | `await timer.DisposeAsync().ConfigureAwait(false)`, затем запись поля, которое пишет callback | нет | TD-061, TC-12 | — |
 
 ## Фаза 4 — Protection и selectors
 
@@ -215,6 +225,8 @@
 | `json-serialize-reads-deep` | positive | GET сериализует singleton через `JsonSerializer.Serialize`, worker пишет вложенное поле | DCA1001 `Deterministic` по эффекту `reads-deep` | TD-034a | — |
 | `ef-core-no-db-verdict` | negative | Scoped `DbContext`, два запроса делают `item.Stock--` и `SaveChangesAsync`; нужен пакет EF Core | нет находки и нет DB verdict (вопрос 14) | PRD 7 п. 4, TD-034a | ⚠ |
 | `channel-handoff` | positive | Producer пишет объект в `Channel<T>` и продолжает его менять, consumer читает | finding или uncertainty (вопрос 7) | TD-086 | — |
+| `opaque-task-source` | positive | Хелпер возвращает либо известную запущенную задачу, либо задачу из opaque-фабрики; родитель `await`-ит результат и пишет поле работы. Отложен из фазы 3: opaque-вызов становится gap по TD-034, а метку находки решает TD-108 (вопрос 16) | DCA1001 | TD-034, TD-108 | — |
+| `mixed-source-timer` | positive | Подписка на `c ? knownDisabledTimer : factory.Get()`; callback пишет поле, action читает. Отложен из фазы 3 по той же причине | DCA1001 и self-pair: смешанный источник периодический | TD-034, TD-061 | — |
 
 ## Фаза 6 — Triage
 
@@ -266,3 +278,5 @@
 | 12 | Конфликтует ли `UnknownEffect` как запись по TD-072, когда gap не разрешён | `unknown-call-model-not-noop` | 5 |
 | 13 | Что именно redaction убирает из snippets | `redaction-in-snippet` | 6 |
 | 14 | Region и ownership сущности, которую вернул opaque persistence-вызов EF Core | `ef-core-no-db-verdict` | 5 |
+| 15 | Join над параметром не поднимается на call site: `void Run(Task t) => t.Wait();` с доказанным handle в аргументе не упорядочивает запись после вызова ни из local, ни inline, доказывается только handle из поля. Измерено на demo в фазе 3; ложный positive на обычном C# | `callee-joins-on-all-paths` | 4 |
+| 16 | Создаёт ли вызов нераспознанного interface-метода semantic gap по TD-034 и опускает ли TD-108 метку таких находок до Medium: от этого зависит, можно ли писать кейсы неизвестного происхождения задачи и таймера раньше фазы 5 | `opaque-task-source`, `mixed-source-timer` | 5 |
