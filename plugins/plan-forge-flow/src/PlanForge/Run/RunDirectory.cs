@@ -201,11 +201,27 @@ internal sealed class RunDirectory
     /// reads it as a decision rather than an omission, which is what stops it re-raising the same
     /// out-of-scope finding as a blocker every round.
     /// </summary>
-    public void AppendReviewFix(int round, string findings, string? deferred)
+    /// <param name="round">The review round these fixes answer.</param>
+    /// <param name="findings">What the orchestrator sent to the builder.</param>
+    /// <param name="deferred">What it withheld, with reasons.</param>
+    /// <param name="cutShort">
+    /// Whether the host took the call away before the builder answered. The deferrals survive that
+    /// untouched — they are the orchestrator's decision, not the builder's — but the fixes have to
+    /// carry the warning, because an entry that reads like a closed round is exactly what would
+    /// stop the next critic looking.
+    /// </param>
+    public void AppendReviewFix(int round, string findings, string? deferred, bool cutShort = false)
     {
-        var entry = new StringBuilder().Append("## Round ").Append(round).Append(" fixes").AppendLine()
-                                       .AppendLine()
-                                       .AppendLine(findings.TrimEnd());
+        var entry = new StringBuilder().Append("## Round ").Append(round).Append(" fixes")
+                                       .AppendLine(cutShort ? " — cut short" : string.Empty)
+                                       .AppendLine();
+
+        if (cutShort)
+            entry.AppendLine("The host killed the builder before it answered, so these findings may be wholly or "
+                             + "partly unaddressed. Judge them against the tree, not against this entry.")
+                 .AppendLine();
+
+        entry.AppendLine(findings.TrimEnd());
 
         if (deferred is { Length: > 0 })
             entry.AppendLine()
@@ -344,6 +360,41 @@ internal sealed class RunDirectory
 
         AppendBuildResult(entry, result);
         AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
+    /// <summary>
+    /// A turn the host took away before the builder answered. There is no status, no verification
+    /// and no gate to record — the builder never reported — so the files on disk are the entry,
+    /// and the timeline says plainly that nothing here was checked.
+    /// </summary>
+    /// <remarks>
+    /// Round 5 of run 20260917-111319-20e672 is why this exists: an hour of finished work, and a
+    /// timeline that stepped straight from the critique to the next round as though the fix had
+    /// never run.
+    /// </remarks>
+    /// <param name="heading">What the act calls this turn, without the cut-short suffix.</param>
+    /// <param name="filesWritten">What the builder had written, as git saw it after the kill.</param>
+    public void AppendFlowCutShort(string heading, IReadOnlyList<string> filesWritten)
+    {
+        var entry = new StringBuilder().Append("## ").Append(heading).AppendLine(": cut short")
+                                       .AppendLine()
+                                       .AppendLine("The host took the call away before the builder answered, so the session was killed "
+                                                   + "with it. No gate ran and nothing was counted.")
+                                       .AppendLine();
+
+        if (filesWritten.Count == 0)
+        {
+            entry.AppendLine("It had written nothing the working tree can show.");
+        }
+        else
+        {
+            entry.AppendLine("What it had already written is still on disk:")
+                 .AppendLine();
+
+            foreach (var file in filesWritten) entry.Append("- `").Append(file).AppendLine("`");
+        }
+
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
 
     private static string CritiqueEntry(string heading, Critique critique)

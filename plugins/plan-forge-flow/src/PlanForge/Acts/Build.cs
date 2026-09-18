@@ -43,7 +43,24 @@ internal sealed class Build
                                                            resumeToken,
                                                            ct);
 
-        var reported = await BuilderTurn.RunAsync(session, state.WorkspaceRoot, prompt, ct);
+        BuildResult reported;
+        try
+        {
+            reported = await BuilderTurn.RunAsync(session, state.WorkspaceRoot, prompt, ct);
+        }
+        // The call is gone, so nothing can be returned — but the turn happened, and what is known
+        // of it goes down before the cancellation travels on. The task counter does not move: the
+        // builder never answered, so nothing it did was verified and this stays the next task.
+        catch (TurnCutShortException cutShort)
+        {
+            run.AppendFlowCutShort($"Task {task.Number} of {tasks.Count}", cutShort.FilesWritten);
+            run.WriteState(Resumed(state, session, sameVendor) with
+            {
+                PendingGateFailure = Gatekeeper.CutShortBrief(cutShort.FilesWritten)
+            });
+
+            throw;
+        }
 
         // The host's run of the task's gate, where the gate is a command, is what decides the task
         // — not the builder's account of the checks it ran. See docs/adr/0015.
@@ -56,18 +73,29 @@ internal sealed class Build
         var tasksCompleted = Gatekeeper.IsDone(result) ? state.TasksCompleted + 1 : state.TasksCompleted;
 
         run.AppendFlowBuild(task.Number, tasks.Count, result);
-        run.WriteState(state with
+        run.WriteState(Resumed(state, session, sameVendor) with
         {
             TasksCompleted = tasksCompleted,
-            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure),
-            BuilderSessionId = sameVendor
-                ? session.ResumeToken ?? state.BuilderSessionId
-                : session.ResumeToken ?? string.Empty,
-            BuilderVendor = _vendor.Id
+            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure)
         });
 
         return new BuildOutcome(result, tasksCompleted, tasks.Count);
     }
+
+    /// <summary>
+    /// The builder's session as the run should remember it after a turn. A cut-short turn keeps its
+    /// token like any other: the id arrives on the vendor's first stream line, long before the
+    /// answer that never came, and without it the retry starts a builder with no memory of the
+    /// attempt it is repeating.
+    /// </summary>
+    private RunState Resumed(RunState state, IVendorSession session, bool sameVendor) =>
+        state with
+        {
+            BuilderSessionId = sameVendor
+                ? session.ResumeToken ?? state.BuilderSessionId
+                : session.ResumeToken ?? string.Empty,
+            BuilderVendor = _vendor.Id
+        };
 
     private static string Compose(PlanTask task, int total, string? pendingGateFailure)
     {

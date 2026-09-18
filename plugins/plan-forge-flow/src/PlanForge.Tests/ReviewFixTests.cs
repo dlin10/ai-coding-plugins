@@ -272,6 +272,66 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Null(run.ReadState().PendingGateFailure);
     }
 
+    /// <summary>
+    /// Run 20260917-111319-20e672: the host took the call away an hour in, after the builder had
+    /// finished its edits, and the round left no trace at all — no timeline entry, no review-log
+    /// entry, nothing. The edits stayed on disk, so the orchestrator had to read the tree by hand
+    /// and write the round up through <c>forge.log.append</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_fix_round_the_host_cut_short_lands_in_the_timeline_and_the_review_log()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("claude");
+        builder.Enqueue(new OperationCanceledException(), "cut-short-token");
+        var run = NewRun(reviewRounds: 5, codeReviewRounds: 1);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => NewFix(builder).FixAsync(run, new Selection("builder-model", null),
+                                           "- **major** tracked.txt — fix it",
+                                           "- staged coverage — the approved plan excludes it", ct));
+
+        Assert.Contains("## Fixes — round 1: cut short", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+
+        // The deferrals are the orchestrator's decision and survive the kill untouched; the fixes
+        // are marked, because the builder never said which of them it reached.
+        var review = run.ReadReviewLog();
+        Assert.Contains("## Round 6 fixes — cut short", review, StringComparison.Ordinal);
+        Assert.Contains("the approved plan excludes it", review, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A cut-short round runs no gate: the call is already gone and the tree is mid-edit. The gate
+    /// in this plan would fail if it ran, which is what makes a brief without it proof that it did
+    /// not — and the second round, which is not cut short, runs the same gate and fails it.
+    /// </summary>
+    [Fact]
+    public async Task A_fix_round_the_host_cut_short_runs_no_gate_and_briefs_the_next_fix()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("claude");
+        builder.Enqueue(new OperationCanceledException(), "cut-short-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun(builderVendor: "claude",
+                         plan: "## Gates\n\n1. **G1.** `cmd /c exit 3` passes.\n\n## Approach\n\n1. Task.\n");
+        var fix = NewFix(builder);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fix.FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct));
+
+        var state = run.ReadState();
+        Assert.Equal("cut-short-token", state.BuilderSessionId);
+        Assert.Equal("claude", state.BuilderVendor);
+        Assert.DoesNotContain("exit 3", state.PendingGateFailure!, StringComparison.Ordinal);
+        Assert.Contains("cut short", state.PendingGateFailure!, StringComparison.Ordinal);
+
+        await fix.FixAsync(run, new Selection("builder-model", null), "- fix it again", null, ct);
+
+        Assert.Equal("cut-short-token", builder.Sessions[1].StartedWithResumeToken);
+        Assert.Contains("cut short", builder.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Contains("exit 3", run.ReadState().PendingGateFailure!, StringComparison.Ordinal);
+    }
+
     private ReviewFix NewFix(RecordingVendor builder) =>
         new(builder, new PromptLibrary(RepositoryPrompts()));
 

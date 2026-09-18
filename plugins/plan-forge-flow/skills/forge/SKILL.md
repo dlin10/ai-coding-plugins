@@ -383,6 +383,28 @@ Read `gate.outcome` first:
 Say the gate's outcome in your one line of narration — a task whose gate failed, or whose gate
 nobody could run, must never read like a clean `done` in the chat.
 
+### When the host times the call out
+
+`forge.build.next` and `forge.review.fix` can run longer than the host's clock — an hour on Claude
+Code and Codex — and the host then cancels the call and kills the builder wherever it had got to.
+You get an error such as `MCP server "plan-forge-flow" timed out after 3600s` and no result.
+
+**It is not an act that changed nothing.** The builder may have finished the work and been killed
+before it could report, so before you do anything else read the run's own account of it:
+
+- the flow log has a `cut short` entry naming the files the builder had written, which are still on
+  disk;
+- the review log has that round's fixes under a `— cut short` heading, meaning the findings may be
+  wholly or partly done;
+- the task was not counted and no gate ran, so nothing is verified.
+
+Do **not** re-send the same findings as a fresh round, and do not tell the user the work was lost
+before you have looked. Call the same act again: it resumes the same builder session, and the
+builder is told what it had written and that its previous turn was cut short. If you need to know
+where the tree actually stands first, `forge.status` gives you the drift and `git diff` gives you
+the content. Should the retry time out the same way, the work is too big for one call — split it,
+or run the remaining checks yourself and record them with `forge.log.append`.
+
 ## The code-review loop
 
 After the last task and before the first review round, run the plan's `## Gates` entries yourself,
