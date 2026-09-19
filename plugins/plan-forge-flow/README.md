@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.30.3
+# Plan Forge Flow 0.31.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes fifteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes sixteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -91,10 +91,12 @@ interview: `forge.models` serves them so the model question offers what the vend
 newest first, rather than the orchestrator's memory of the line-up. They remain advisory for
 validation — the vendor CLI decides, and an unfamiliar model is a warning rather than a refusal.
 
-Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited per project without
-rebuilding the binary. The shared [Roslyn contract](prompts/roslyn-contract.md) is appended to every
-critic prompt; the [scope contract](prompts/scope-contract.md) is appended for code review, where
-the critic judges against the approved plan.
+Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited without rebuilding
+the binary — in a checkout. An installed plugin keeps them under its plugin root, where an edit
+reaches every project and is lost on upgrade, so what a user wants said for one run goes through
+`forge.instructions.set` instead. The shared [Roslyn contract](prompts/roslyn-contract.md) is
+appended to every critic prompt; the [scope contract](prompts/scope-contract.md) is appended for
+code review, where the critic judges against the approved plan.
 
 ## Requirements
 
