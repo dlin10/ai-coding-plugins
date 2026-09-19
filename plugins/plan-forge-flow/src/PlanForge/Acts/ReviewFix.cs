@@ -23,7 +23,13 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
-        var prompt = Compose(findings, state.PendingGateFailure);
+        // Settled before the prompt is composed: the user's instructions go to a builder only on the
+        // turn that starts its session, and a resumed one already has them. See docs/adr/0019.
+        var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
+        var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
+
+        var prompt = Compose(findings, state.PendingGateFailure,
+                             resumeToken is null ? state.BuilderInstructions : null);
         SensitiveInput.Guard(prompt, "the code-review fixes");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
 
@@ -37,8 +43,6 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             return skipped;
         }
 
-        var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
-        var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
         await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder),
                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
                                                            selection, resumeToken, ct);
@@ -94,12 +98,13 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             BuilderVendor = vendor.Id
         };
 
-    private static string Compose(string findings, string? pendingGateFailure)
+    private static string Compose(string findings, string? pendingGateFailure, string? instructions)
     {
         var prompt = new StringBuilder().AppendLine("# Fix these review findings")
                                         .AppendLine()
                                         .AppendLine(findings);
         Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
+        RunInstructions.Append(prompt, instructions);
         return prompt.ToString();
     }
 }

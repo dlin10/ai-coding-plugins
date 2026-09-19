@@ -36,7 +36,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         if (window.Diff.Length == 0)
             return WithReviewWindow(new Critique("approve", [], "nothing to review"), window);
 
-        var review = ComposeReview(run.ReadPlan(), window, run.ReadReviewLog());
+        var review = ComposeReview(run.ReadPlan(), window, run.ReadReviewLog(), state);
         SensitiveInput.Guard(review, "the diff under review");
 
         Critique critique;
@@ -77,7 +77,14 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         }
     }
 
-    private static string ComposeReview(string plan, ReviewWindow window, string reviewLog)
+    /// <summary>
+    /// The two instruction blocks end the prompt in the order they escalate: what the builder was
+    /// told, which is data, and then what this critic was told, which is addressed to it. The
+    /// builder's text is whatever is set now — a user who changes it mid-run can have the critic
+    /// told about instructions the running builder never received, which the flow log records and
+    /// docs/adr/0019 accepts.
+    /// </summary>
+    private static string ComposeReview(string plan, ReviewWindow window, string reviewLog, RunState state)
     {
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
@@ -107,6 +114,9 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
                   .AppendLine("# Review log from earlier rounds")
                   .AppendLine()
                   .AppendLine(reviewLog);
+
+        RunInstructions.AppendBuilderContext(prompt, state.BuilderInstructions);
+        RunInstructions.Append(prompt, state.CriticInstructions);
 
         return prompt.ToString();
     }

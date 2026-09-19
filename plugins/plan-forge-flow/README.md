@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.30.3
+# Plan Forge Flow 0.31.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes fifteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes sixteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -17,6 +17,7 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
+| `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | One review round: a fresh critic judges the written draft, beside the orchestrator's account of what the previous round changed |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
@@ -90,10 +91,12 @@ interview: `forge.models` serves them so the model question offers what the vend
 newest first, rather than the orchestrator's memory of the line-up. They remain advisory for
 validation — the vendor CLI decides, and an unfamiliar model is a warning rather than a refusal.
 
-Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited per project without
-rebuilding the binary. The shared [Roslyn contract](prompts/roslyn-contract.md) is appended to every
-critic prompt; the [scope contract](prompts/scope-contract.md) is appended for code review, where
-the critic judges against the approved plan.
+Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited without rebuilding
+the binary — in a checkout. An installed plugin keeps them under its plugin root, where an edit
+reaches every project and is lost on upgrade, so what a user wants said for one run goes through
+`forge.instructions.set` instead. The shared [Roslyn contract](prompts/roslyn-contract.md) is
+appended to every critic prompt; the [scope contract](prompts/scope-contract.md) is appended for
+code review, where the critic judges against the approved plan.
 
 ## Requirements
 

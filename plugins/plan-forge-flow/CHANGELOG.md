@@ -1,5 +1,33 @@
 # Plan Forge Flow releases
 
+## 0.31.0
+
+The user can now tell this run's workers something of their own. Until now there was no channel but
+the plan: a critic saw the plan or the diff, the review log and its role contract, and a builder saw
+`# Task N of M` and nothing else, so "answer in Russian" or "use the ponytail-net skill" had to be
+copied into every task or written into `prompts/` — which is a per-project knob only in a checkout,
+never in an installed plugin (issue #95).
+
+- New tool `forge.instructions.set` records one free text for the critic and one for the builder,
+  asked for at the end of the interview and kept in the run state. An omitted argument leaves that
+  role alone; an empty string clears it. Both come back in `forge.status`, so an orchestrator whose
+  context was compacted can read them again.
+- The text travels in the **act prompt**, not the role prompt: every vendor carries the user turn on
+  every call, while a resumed codex thread keeps the `developer_instructions` its thread started
+  with. `PromptLibrary` and the three vendor implementations are untouched.
+- A critic is fresh every round and is handed its text every round. A builder is handed its text by
+  the call that **starts** its session — no resume token, which a vendor switch and a reopened plan
+  also produce — and never by a resumed one. Setting builder instructions while a session is running
+  answers with a note saying that session will not see them, rather than refusing the call.
+- A code-review critic is additionally shown the builder's text as data, framed as context for
+  judging the diff: a builder told "the simplest solution that works" should not draw findings for
+  the abstractions it left out on purpose. Plan review never carries that section.
+- Both texts are guarded for secrets before anything is recorded, and both go verbatim into
+  `flow_log.md` and `forge.log`. Nothing checks that the text is the user's own rather than the
+  orchestrator's — the hole `approved` has, and the reason the timeline entry exists. See
+  `docs/adr/0019`.
+- A run that sets no instructions composes exactly the prompts it composed before.
+
 ## 0.30.3
 
 A builder turn the host cuts short is now recorded instead of vanishing. Round 5 of run
