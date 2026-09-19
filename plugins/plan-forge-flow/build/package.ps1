@@ -170,7 +170,7 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
         # The canvas is two halves that only work together: the tool has to point at the resource,
@@ -271,6 +271,9 @@ function Test-PublishedServer([string]$Executable) {
             'forge.review.fix'  = @('effort', 'vendor', 'deferred')
             'forge.plan.confirm' = @('gateEnvironment', 'builderRoots')
             'forge.log.append'  = @('level', 'detail')
+            # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
+            # had to send them together could not correct one without restating the other.
+            'forge.instructions.set' = @('criticInstructions', 'builderInstructions')
         }
         foreach ($name in $optional.Keys) {
             $tool = $tools | Where-Object { $_.name -eq $name } | Select-Object -First 1

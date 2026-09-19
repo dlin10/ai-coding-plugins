@@ -79,7 +79,7 @@ internal sealed class PlanReview
             new RoleSpec(VendorRole.Critic, systemPrompt, WorkerTools: WorkerTools.Effective(state.WorkerTools)),
             selection, resumeToken: null, ct);
 
-        var prompt = Compose(draft, run.ReadReviewLog());
+        var prompt = Compose(draft, run.ReadReviewLog(), state.CriticInstructions);
         SensitiveInput.Guard(prompt, "the plan under review");
 
         var critique = await session.RunAsync(prompt, Schemas.Critique, ct);
@@ -191,7 +191,11 @@ internal sealed class PlanReview
             throw new RevisionMissingException(roundsSoFar);
     }
 
-    private static string Compose(string planDraft, string reviewLog)
+    /// <summary>
+    /// The critic's own instructions come last, after everything it is judging. The builder's never
+    /// appear here: they explain code, and at plan review there is none.
+    /// </summary>
+    private static string Compose(string planDraft, string reviewLog, string? criticInstructions)
     {
         var prompt = new StringBuilder()
             .AppendLine("# Plan under review")
@@ -203,6 +207,8 @@ internal sealed class PlanReview
                   .AppendLine("# Review log from earlier rounds")
                   .AppendLine()
                   .AppendLine(reviewLog);
+
+        RunInstructions.Append(prompt, criticInstructions);
 
         return prompt.ToString();
     }

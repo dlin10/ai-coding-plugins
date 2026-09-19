@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all fourteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all sixteen `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -124,7 +124,11 @@ what was measured for each.
 ## Prompts are data, not code
 
 Role prompts live under `prompts/` and are copied beside the binary, so they can be edited and tuned
-per project **without a rebuild**. `builder-contract.md` and `critic-contract.md` carry the whole of
+**without a rebuild** — in a checkout. They are not a per-project knob once the plugin is installed:
+an installed `prompts/` sits under the plugin root, where an edit reaches every project that uses
+the plugin and is overwritten by the next upgrade. What a user wants said for one run goes through
+`forge.instructions.set` instead, which carries it in the act prompt — see
+[docs/adr/0019](docs/adr/0019-instruct-the-workers-through-the-act-prompt.md). `builder-contract.md` and `critic-contract.md` carry the whole of
 what a worker is told; `prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
 must hand its answer back — and is optional, which is why codex, whose `--output-schema` settles the
 question, has no file at all. The role text lived in three copies until they drifted: the codex and

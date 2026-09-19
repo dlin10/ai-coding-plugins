@@ -278,6 +278,35 @@ internal sealed class RunDirectory
     }
 
     /// <summary>
+    /// The instructions the user gave this run's workers, verbatim. The server cannot tell text the
+    /// user typed from text the orchestrator invented — the same hole `approved` has, see
+    /// docs/adr/0019 — so this entry is what makes the answer auditable by the one person who knows.
+    /// </summary>
+    /// <param name="critic">The critic's new text, <see langword="null"/> when the call left it alone.</param>
+    /// <param name="builder">The builder's new text, <see langword="null"/> when the call left it alone.</param>
+    public void AppendFlowInstructions(string? critic, string? builder)
+    {
+        var entry = new StringBuilder().AppendLine("## Instructions for this run's workers")
+                                       .AppendLine();
+
+        Section(entry, "Critic", critic);
+        Section(entry, "Builder", builder);
+
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+        return;
+
+        static void Section(StringBuilder entry, string role, string? text)
+        {
+            if (text is null) return;
+
+            entry.Append("### ").AppendLine(role)
+                 .AppendLine()
+                 .AppendLine(text.Length == 0 ? "(cleared)" : text.TrimEnd())
+                 .AppendLine();
+        }
+    }
+
+    /// <summary>
     /// A review round run against an already-approved plan takes the approval back, and the user
     /// meets that as a build refusing for no visible reason unless it is in the timeline. The
     /// entry names the task count that went with it, because that is the part that costs money to
@@ -512,7 +541,9 @@ internal sealed record RunState(string RunId,
                                 IReadOnlyDictionary<string, string>? GateEnvironment = null,
                                 IReadOnlyList<string>? BuilderRoots = null,
                                 string? PendingGateFailure = null,
-                                IReadOnlyList<string>? WorkerTools = null);
+                                IReadOnlyList<string>? WorkerTools = null,
+                                string? CriticInstructions = null,
+                                string? BuilderInstructions = null);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 
