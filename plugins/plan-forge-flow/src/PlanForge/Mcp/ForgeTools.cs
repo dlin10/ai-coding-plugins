@@ -113,6 +113,39 @@ internal sealed class ForgeTools
             ]);
 
     /// <summary>
+    /// The user's own instructions to this run's workers, recorded once instead of carried. A
+    /// per-call argument would have to survive every round in the orchestrator's context, and text
+    /// that has to survive a compaction is text that can quietly stop being sent. See docs/adr/0019.
+    /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run the instructions belong to.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="criticInstructions">The critic's instructions, or null to leave them as they stand.</param>
+    /// <param name="builderInstructions">The builder's instructions, or null to leave them as they stand.</param>
+    [McpServerTool(Name = "forge.instructions.set"), Description("Records the user's own free-text instructions to this run's workers, asked for at the end of the interview and kept in the run state. Pass only what the user typed, never anything of your own: nothing here is enforced, and the text goes verbatim into the run's timeline where they will read it. An argument you omit leaves that role's instructions as they stand; an empty string clears them. The critic is handed its text at every round, the builder only by a call that starts its session, so setting builder instructions while a builder session is running answers with a note saying that session will not see them.")]
+    public static async Task<string> SetInstructions(SessionRoots roots,
+                                                     [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                     [Description("Run id from forge.begin.")] string runId,
+                                                     CancellationToken ct,
+                                                     [Description("What the user wants every critic of this run told, verbatim — e.g. a language to answer in, or a class of finding this repository does not want raised. Appended to each review round's prompt after the material under review. Omit to leave it unchanged; pass \"\" to clear it.")] string? criticInstructions = null,
+                                                     [Description("What the user wants the builder of this run told, verbatim — e.g. a skill to use, or a house style. Appended to the first prompt of each builder session. Omit to leave it unchanged; pass \"\" to clear it. A code-review critic is shown this text as context for judging the diff.")] string? builderInstructions = null)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, "forge.instructions.set",
+            [("criticInstructions", criticInstructions), ("builderInstructions", builderInstructions)],
+            () =>
+            {
+                var outcome = RunInstructions.Set(run, criticInstructions, builderInstructions);
+
+                return Task.FromResult(JsonSerializer.Serialize(
+                    new InstructionsResult(outcome.CriticInstructions, outcome.BuilderInstructions,
+                                           outcome.Note, Documents(run)),
+                    ForgeToolJson.Default.InstructionsResult));
+            });
+    }
+
+    /// <summary>
     /// Writing the plan, split off from reviewing it. The write used to happen inside
     /// <c>forge.plan.review</c>, which meant the file the user is told to watch appeared only once
     /// a 50–90 KB draft had finished streaming into the call that then ran the critic for minutes:
@@ -694,6 +727,15 @@ internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList
 /// <summary>What <c>forge.plan.write</c> answers with: nothing but the file it wrote and where to show it.</summary>
 internal sealed record PlanWriteResult(string RunId, RunDocuments Documents);
 
+/// <param name="Note">
+/// What the call could not do: a builder session already running was started before this text and
+/// will not see it. Null when there was nothing of the kind to say.
+/// </param>
+internal sealed record InstructionsResult(string? CriticInstructions,
+                                          string? BuilderInstructions,
+                                          string? Note,
+                                          RunDocuments Documents);
+
 /// <summary>
 /// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`,
 /// because the file holds the draft of the last review round while the orchestrator may be holding
@@ -802,6 +844,7 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
 [JsonSerializable(typeof(PlanWriteResult))]
+[JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ActiveJob))]

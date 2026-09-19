@@ -32,11 +32,16 @@ internal sealed class Build
             return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
         var task = tasks[state.TasksCompleted];
-        var prompt = Compose(task, tasks.Count, state.PendingGateFailure);
-        SensitiveInput.Guard(prompt, $"task {task.Number}");
 
+        // Which session this turn belongs to is settled before the prompt is composed, because the
+        // user's instructions go to a builder exactly once: the turn that starts a session carries
+        // them, and a resumed one already has them in its history. See docs/adr/0019.
         var sameVendor = string.Equals(state.BuilderVendor, _vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
+
+        var prompt = Compose(task, tasks.Count, state.PendingGateFailure,
+                             resumeToken is null ? state.BuilderInstructions : null);
+        SensitiveInput.Guard(prompt, $"task {task.Number}");
         await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder),
                                                                         state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
                                                            selection,
@@ -97,12 +102,13 @@ internal sealed class Build
             BuilderVendor = _vendor.Id
         };
 
-    private static string Compose(PlanTask task, int total, string? pendingGateFailure)
+    private static string Compose(PlanTask task, int total, string? pendingGateFailure, string? instructions)
     {
         var prompt = new StringBuilder().Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
                                         .AppendLine()
                                         .AppendLine(task.Text);
         Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
+        RunInstructions.Append(prompt, instructions);
         return prompt.ToString();
     }
 }

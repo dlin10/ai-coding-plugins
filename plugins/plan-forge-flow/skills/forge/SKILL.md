@@ -24,6 +24,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic and builder may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — critics get the same grant. |
 | `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
+| `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
@@ -443,7 +444,8 @@ only reason they were not fixed here, and they are candidates for the next run.
 This happens at the end of Act 1, after the last interview question and before the first plan
 draft — the depth rule above reads the builder's selection.
 
-Choose vendors and models in two steps, asking at most four questions total. The combinations come
+Choose vendors and models in two steps, asking at most four questions total, and then ask the two
+instruction questions of step 3 as one round — six questions at the outside. The combinations come
 from the server, not from your own knowledge: `forge.begin` already started every vendor's probe in
 the background, so call `forge.models` (no `vendor` argument) once before the vendor question and
 work from its answer.
@@ -481,6 +483,21 @@ work from its answer.
    bracket-override syntax the CLI's own tip advertises (`model[effort=high]`): measured on
    2026-08-19, cursor-agent rejects even the tip's own example.
 
+3. Ask, as one round of two questions, whether the user wants to tell either worker anything for
+   this run — one question for the critic, one for the builder, each offering "no instructions"
+   first. This is their only channel to a worker besides the plan: a language to answer in, a class
+   of finding this repository does not want raised, a skill the builder should use, a house style.
+   Pass what they answer to `forge.instructions.set` **verbatim**, and add nothing of your own. If
+   both answers are "no instructions", do not call the tool at all.
+
+   The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
+   every round and is handed its text every round. A builder holds a session and is handed its text
+   only when a session starts, so instructions given after the first task reach it only once a
+   vendor switch or a reopened plan starts a new one — the tool's answer says so when that is the
+   case, and you should pass that on rather than assume it landed. The builder's text is also shown
+   to the code-review critic as context, so that critic does not raise findings for a choice the
+   user asked for.
+
 The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
 refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The
 builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
@@ -508,6 +525,10 @@ consequences to hold yourself to:
 - These paths are excluded from `forge.status` drift and from the code-review diff. Documentation
   the orchestrator wrote must not be reported as drift and must not be expected back from the
   critic.
+- What you send to `forge.instructions.set` must be the user's own words. Nothing checks that —
+  it is the hole `approved` has, see `docs/adr/0003` — and instructions of your own invention would
+  be steering the critic that exists to judge you. The run's timeline carries the text verbatim, so
+  the one person who can tell whether they said it is reading it.
 - Do not stop mid-run without telling the user where you stopped and what remains.
 
 Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and

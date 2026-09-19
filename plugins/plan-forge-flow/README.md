@@ -17,6 +17,7 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
+| `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | One review round: a fresh critic judges the written draft, beside the orchestrator's account of what the previous round changed |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
