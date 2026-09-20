@@ -114,6 +114,18 @@ _Avoid_: expression, member chain, variable (a local's name is never part of a p
 A heap region plus an access path: the unit two accesses are compared on.
 _Avoid_: shared state, variable, field (a field of two different regions is two resources)
 
+**Selector**:
+What an access path's last step picks out of an array, span or collection: a proven constant, a
+symbolic expression or conservative range with the guards that bound it, or unknown. Two selectors
+tell two locations apart only when their values are proven never to meet.
+_Avoid_: index, key, subscript (an index is one shape a selector takes)
+
+**Collection structure**:
+A collection's own shape — its count, its slots and their order — as a resource separate from the
+storage of any element. Two mutations of one collection conflict on its structure however far apart
+their keys are proven to be.
+_Avoid_: the collection, the container, bucket (the candidate index's cell)
+
 **Ownership**:
 What the analysis proved about who can reach a region: `Owned`, `ThreadConfined`, `Escaped`, `Shared`
 or `Unknown`, each with its evidence chain.
@@ -164,6 +176,23 @@ _Avoid_: id (the run-local `F1` the narrative cites), hash, key
 The synchronizer identity and mode an access must hold, as proved on every path reaching it; a
 protection that may hold is evidence, never proof.
 _Avoid_: lock (one of its kinds), guard (a guard is a path condition), synchronization
+
+**Atomic operation**:
+One read, write or read-modify-write the platform performs indivisibly on a single location:
+`Interlocked`, `Volatile` and a `volatile` field. It is a property of the operation, never a
+protection, and a read and a write that are each atomic do not make the pair between them atomic.
+_Avoid_: lock-free, thread-safe, synchronized
+
+**Protection result**:
+What the analysis proved about a pair's common protection: `sufficient`, `partial`,
+`different-identity`, `incompatible-mode` or `unprotected`. Only `sufficient` removes the pair; the
+other four describe a finding.
+_Avoid_: protection level, protection status, safe/unsafe
+
+**Guard**:
+The path condition an access runs under: the branch, type test, comparison or switch case that must
+hold for control to reach it. Two accesses whose guards cannot both hold never meet.
+_Avoid_: protection, lock, condition (bare)
 
 **Confidence label**:
 The `High`, `Medium` or `Low` band a finding's confidence score falls in; the report's three

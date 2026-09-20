@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
@@ -41,6 +41,36 @@ public sealed class ConflictRuleTests
         Assert.Equal(["A reads `_hits`", "B writes `_hits`", "A writes a value computed from its stale read, overwriting B's update"],
                      finding.Scenario);
         Assert.Equal(["Path feasibility is not analyzed in this version."], finding.Uncertainty);
+    }
+
+    /// <summary>An update made atomically is an update all the same: a plain read-modify-write writes back what it read and
+    /// overwrites it, so the sequence loses it (R1, TD-072).</summary>
+    [Fact]
+    public async Task A_read_modify_write_against_an_atomic_write_is_DCA1002()
+    {
+        var result = await Analyze(Shared + """
+            public sealed class Gauge { public int Level; }
+            public class BumpController : ControllerBase
+            {
+                private readonly Gauge _gauge;
+                public BumpController(Gauge gauge) => _gauge = gauge;
+                public void Post() => _gauge.Level = _gauge.Level + 1;
+            }
+            public sealed class ResetWorker : BackgroundService
+            {
+                private readonly Gauge _gauge;
+                public ResetWorker(Gauge gauge) => _gauge = gauge;
+                protected override Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    Volatile.Write(ref _gauge.Level, 0);
+                    return Task.CompletedTask;
+                }
+            }
+            """ + Startup("services.AddSingleton<Gauge>(); services.AddHostedService<ResetWorker>();"));
+
+        var mixed = Assert.Single(result.Findings, finding => finding.AccessA.Operation == AccessOperation.AtomicWrite ||
+                                                              finding.AccessB.Operation == AccessOperation.AtomicWrite);
+        Assert.Equal("DCA1002", mixed.RuleId);
     }
 
     [Fact]
@@ -100,7 +130,7 @@ public sealed class ConflictRuleTests
     }
 
     [Fact]
-    public async Task Lock_on_a_per_request_object_is_a_different_identity_DCA1001()
+    public async Task Lock_on_a_per_request_object_is_a_different_identity_DCA1003()
     {
         var result = await Analyze(Shared + """
             public class GateController : ControllerBase
@@ -111,7 +141,7 @@ public sealed class ConflictRuleTests
             """ + Startup());
 
         var finding = Assert.Single(result.Findings);
-        Assert.Equal("DCA1001", finding.RuleId);
+        Assert.Equal("DCA1003", finding.RuleId);
         Assert.Same(finding.AccessA, finding.AccessB);
         Assert.Equal("different-identity", finding.ProtectionResult);
         Assert.Single(finding.AccessA.HeldProtection);
@@ -490,7 +520,7 @@ public sealed class ConflictRuleTests
 
         var wildcard = result.Findings.Where(item => item.Resource.IsWildcard).ToArray();
         Assert.NotEmpty(wildcard);
-        Assert.All(wildcard, finding => Assert.Equal(new FindingConfidence("Medium", 70, new ConfidenceComponents(10, 20, 20, 20, 0)), finding.Confidence));
+        Assert.All(wildcard, finding => Assert.Equal(new FindingConfidence("Medium", 75, new ConfidenceComponents(10, 20, 20, 20, 5)), finding.Confidence));
         Assert.All(wildcard, finding => Assert.Contains("The resource is a wildcard: an access path longer than the analysis limit was collapsed.", finding.Uncertainty));
         Assert.All(result.Groups.Where(group => group.Resource.IsWildcard), group => Assert.Equal("Medium", group.ConfidenceLabel));
         Assert.DoesNotContain(result.Findings, finding => !finding.Resource.IsWildcard && finding.Confidence.Label != "High");
@@ -511,7 +541,7 @@ public sealed class ConflictRuleTests
         var merged = result.Findings.Where(finding => finding.Uncertainty.Contains("Contexts of Grow.F<T>(object, int) were merged; the objects involved may be more than one."))
                            .ToArray();
         Assert.NotEmpty(merged);
-        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 20, 0)), finding.Confidence));
+        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 90, new ConfidenceComponents(25, 20, 20, 20, 5)), finding.Confidence));
     }
 
     [Fact]

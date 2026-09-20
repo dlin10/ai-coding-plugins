@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
@@ -313,11 +313,30 @@ public sealed class ReportSkeletonTests
         var prefixes = new[]
         {
             "- Access A: ", "- Access B: ", "- Code path A: ", "- Code path B: ", "- Occurrences: ", "- Resource: ", "- Binding evidence: ",
-            "- Overlap: ", "- Protection: ", "- Scenario: ", "- Uncertainty: ", "- Confidence: ", "- Evidence: "
+            "- Overlap: ", "- Protection: ", "- Path feasibility: ", "- Scenario: ", "- Remediation: ", "- Uncertainty: ", "- Confidence: ",
+            "- Evidence: "
         };
         Assert.Equal(prefixes, block.Split('\n', StringSplitOptions.RemoveEmptyEntries).Skip(1)
                                     .Where(line => !line.StartsWith("  - ", StringComparison.Ordinal))
                                     .Select(line => prefixes.First(prefix => line.StartsWith(prefix, StringComparison.Ordinal))));
+    }
+
+    /// <summary>The skeleton carries a remediation of its own before any narrative is accepted, and it is the one the pair's
+    /// operations ask for, not the one its resource would suggest (ADR 0010).</summary>
+    [Fact]
+    public async Task Finding_block_carries_the_remediation_its_operations_ask_for()
+    {
+        var (result, bundle) = await Render();
+        var lostUpdate = result.Findings.First(finding => finding.RuleId == "DCA1002");
+        var block = Block(bundle.ReportMarkdown, lostUpdate.FindingId);
+
+        // A lost update on a field is neither a sequence over a collection nor a read against a write, so what it asks for is
+        // one primitive held over the whole update rather than an atomic member of a collection.
+        Assert.Contains("- Remediation: make every access to this resource hold one synchronization primitive for the whole of its update",
+                        block, StringComparison.Ordinal);
+        Assert.Contains("- Path feasibility: ", block, StringComparison.Ordinal);
+        Assert.All(result.Findings.Select(finding => Block(bundle.ReportMarkdown, finding.FindingId)),
+                   item => Assert.Contains("verify manually.\n", item, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -372,7 +391,10 @@ public sealed class ReportSkeletonTests
         var headings = bundle.ReportMarkdown.Split('\n').Where(line => line.StartsWith("#### G", StringComparison.Ordinal))
                              .Select(line => line[5..line.IndexOf(' ', 5)])
                              .ToArray();
-        Assert.Equal(["di:Ledger@Singleton", "static:Hits"], result.Groups.Select(group => group.Resource.Region));
+        // One resource carries two groups: the two workers race it unprotected, and the locked action against a worker is the
+        // protection rule, and a group is one rule on one object.
+        Assert.Equal(["di:Ledger@Singleton", "static:Hits", "di:Ledger@Singleton"], result.Groups.Select(group => group.Resource.Region));
+        Assert.Equal(["DCA1001", "DCA1002", "DCA1003"], result.Groups.Select(group => group.RuleId));
         Assert.Equal(result.Groups.Select(group => group.GroupId), headings);
     }
 
@@ -387,7 +409,7 @@ public sealed class ReportSkeletonTests
 
         Assert.Equal(["schemaVersion", "runId", "findings", "groups", "narrative"],
                      json.RootElement.EnumerateObject().Select(property => property.Name));
-        Assert.Equal("Unsynchronized access to shared Ledger.Entry", finding.GetProperty("title").GetString());
+        Assert.Equal("Inconsistent synchronization of shared Ledger.Entry", finding.GetProperty("title").GetString());
         Assert.Equal(JsonValueKind.Null, finding.GetProperty("severity").ValueKind);
         Assert.Equal("deterministic", finding.GetProperty("evidenceMode").GetString());
         Assert.False(finding.GetProperty("confidence").GetProperty("isProbability").GetBoolean());

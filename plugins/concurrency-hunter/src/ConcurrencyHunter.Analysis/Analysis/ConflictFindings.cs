@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Ir;
@@ -6,19 +6,28 @@ using ConcurrencyHunter.Ir;
 namespace ConcurrencyHunter.Analysis;
 
 /// <summary>
-/// Findings from candidate pairs (R10): <c>DCA1002</c> when one side is a read-modify-write and the other writes, else
-/// <c>DCA1001</c>. Findings are grouped by rule and object: scope, assembly, region identity, path and member key.
+/// Findings from candidate pairs (R10), classified in the order of SPEC 7: <c>DCA1002</c> when one side is a read-modify-write and
+/// the other writes, <c>DCA1003</c> when what is left is protected but not enough, else <c>DCA1001</c>. Findings are grouped by rule
+/// and object: scope, assembly, region identity, path and member key.
 /// </summary>
 internal static class ConflictFindings
 {
     internal const string CONFLICT_RULE = "DCA1001";
     internal const string LOST_UPDATE_RULE = "DCA1002";
+    internal const string PROTECTION_RULE = "DCA1003";
+    internal const string COMPOUND_RULE = "DCA1004";
+    internal const string KEY_EQUALITY_UNCERTAINTY =
+        "The collection's comparer is not known, so no two keys are proven to name different entries.";
     internal const string PATH_UNCERTAINTY = "Path feasibility is not analyzed in this version.";
     internal const string LIFECYCLE_UNCERTAINTY = "Ordering between lifecycle methods of one hosted service is not analyzed in this version.";
     internal const string WILDCARD_UNCERTAINTY = "The resource is a wildcard: an access path longer than the analysis limit was collapsed.";
 
     private const string HOSTING_PROVIDER = "hosting";
     private const int RESOURCE_IDENTITY = 25;
+    private const int PROTECTION = 20;
+    private const int PARTIAL_PROTECTION = 12;
+    private const int PATH_FEASIBILITY = 10;
+    private const int UNASKED_PATH_FEASIBILITY = 5;
     private const int WILDCARD_RESOURCE_IDENTITY = 10;
     private const int HIGH_MINIMUM = 80;
     private const int MEDIUM_MINIMUM = 55;
@@ -43,11 +52,12 @@ internal static class ConflictFindings
         var folded = pairList.Select(pair =>
                                  {
                                      var (accessA, accessB) = Orient(pair.First, pair.Second, pair.Resource, ordinals);
-                                     return new Candidate(GroupKey.From(Rule(accessA, accessB), pair.Resource), pair.Resource, accessA, accessB,
-                                                          pair.Protection, pair.Uncertainties);
+                                     return new Candidate(GroupKey.From(OperationRule(accessA, accessB), pair.Resource), pair.Resource,
+                                                          accessA, accessB, pair.Protection, pair.Uncertainties, pair.Feasibility);
                                  })
                              .GroupBy(FindingIdentity, StringComparer.Ordinal)
                              .Select(Fold)
+                             .Select(Classify)
                              .ToArray();
 
         var groups = folded.GroupBy(finding => finding.Evidence.Key)
@@ -121,29 +131,92 @@ internal static class ConflictFindings
 
     private static string PathText(Access access) => string.Join(" → ", access.CallPath);
 
+    /// <summary>How protected a verdict says a pair is, least first: folding keeps the least protected occurrence.</summary>
     private static int ProtectionRank(string protection) => protection switch
     {
         PairProtection.UNPROTECTED => 0,
-        PairProtection.PARTIAL => 1,
-        PairProtection.DIFFERENT_IDENTITY => 2,
-        _ => 3
+        PairProtection.DIFFERENT_IDENTITY => 1,
+        PairProtection.INCOMPATIBLE_MODE => 2,
+        PairProtection.PARTIAL => 3,
+        PairProtection.SUFFICIENT => 4,
+        _ => 5
     };
-    private static string Rule(Access accessA, Access accessB) =>
-        (accessA.Operation, accessB.Operation) switch
+
+    /// <summary>The part of the classification the operations decide. It keys the finding, so occurrences that differ only in how
+    /// protected they are still fold into one finding (R5).</summary>
+    private static string OperationRule(Access accessA, Access accessB)
+    {
+        // An update is lost only where one side can lose one and the other makes one: a side that reads the cell and writes back
+        // a value built from what it read, and a second side that changes the cell between those two steps. A read of any kind
+        // changes nothing and so takes nothing away, and a side performed as one step has no gap for a change to fall into.
+        if (!LosesUpdate(accessA.Operation, accessB.Operation) && !LosesUpdate(accessB.Operation, accessA.Operation))
+            return CONFLICT_RULE;
+
+        // Where each step of both sides is performed as one, the only thing left to report is that the sequence is not: a
+        // thread-safe collection answers for its members and never for a sequence of them (ADR 0010).
+        return IsIndivisible(accessA.Operation) && IsIndivisible(accessB.Operation) ? COMPOUND_RULE : LOST_UPDATE_RULE;
+    }
+
+    /// <summary>Whether <paramref name="stale"/> can lose an update that <paramref name="other"/> makes: it reads the cell and
+    /// writes back what it read, in two steps that the other side's change can fall between (TD-072).</summary>
+    private static bool LosesUpdate(AccessOperation stale, AccessOperation other) =>
+        stale is AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation && Changes(other);
+
+    /// <summary>Whether an operation changes the cell at all. Only a change can be lost, and only a change can take one away.</summary>
+    private static bool Changes(AccessOperation operation) =>
+        operation is AccessOperation.Write or AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation
+                  or AccessOperation.AtomicWrite or AccessOperation.AtomicReadModifyWrite;
+
+    /// <summary>Whether an operation is performed as one: an atomic member, or a compound operation of which each step is.</summary>
+    private static bool IsIndivisible(AccessOperation operation) =>
+        operation is AccessOperation.CompoundOperation or AccessOperation.AtomicRead or AccessOperation.AtomicWrite
+                  or AccessOperation.AtomicReadModifyWrite;
+
+    /// <summary>The classification of SPEC 7 in its order: a lost update keeps its own rule however protected the pair is, and only
+    /// a conflict that is not one falls to the protection rule. A folded finding is classified by the verdict it reports, which is
+    /// its least protected occurrence's.</summary>
+    private static FoldedFinding Classify(FoldedFinding folded)
+    {
+        var evidence = folded.Evidence;
+        if (evidence.Key.Rule is LOST_UPDATE_RULE or COMPOUND_RULE ||
+            evidence.Protection is not (PairProtection.PARTIAL or PairProtection.DIFFERENT_IDENTITY or PairProtection.INCOMPATIBLE_MODE))
         {
-            (AccessOperation.ReadModifyWrite, AccessOperation.Write or AccessOperation.ReadModifyWrite) => LOST_UPDATE_RULE,
-            (AccessOperation.Write, AccessOperation.ReadModifyWrite) => LOST_UPDATE_RULE,
-            _ => CONFLICT_RULE
-        };
+            return folded;
+        }
+
+        return folded with { Evidence = evidence with { Key = evidence.Key with { Rule = PROTECTION_RULE } } };
+    }
 
     private static int Score(Candidate candidate) => Score(Components(candidate));
+
+    /// <summary>What a pair is expected to score before the solver is asked, which is what the budget is spent in the order of
+    /// (TD-103): every component but the path feasibility is decided by then — the resource's identity and, no less, how
+    /// protected the pair is — and the feasibility counts as the one of a pair that was never asked.</summary>
+    internal static int ExpectedScore(AccessPair pair) =>
+        Score(new ConfidenceComponents(pair.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
+                                       pair.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+                                       UNASKED_PATH_FEASIBILITY));
 
     private static int Score(ConfidenceComponents components) =>
         components.ResourceIdentity + components.ExecutionOverlap + components.Operation + components.Protection + components.PathFeasibility;
 
-    /// <summary>The TD-103 components: a wildcard resource lowers resource identity; path feasibility is not analyzed.</summary>
+    /// <summary>
+    /// The TD-103 components. A wildcard resource lowers resource identity. Protection counts full where nothing on either side
+    /// claims to protect the resource, and less where something does and does not reach: a verdict between the two says someone
+    /// already treated the resource as shared, which is a reason to report it and a reason to be less certain about what the
+    /// analysis did not see. Path feasibility counts most where the solver proved the two paths can hold at once, less where it
+    /// was never asked, and nothing where it was asked and could not answer — which is how an unavailable, timed-out or
+    /// undecided solver costs a finding confidence rather than its verdict (TD-093).
+    /// </summary>
     private static ConfidenceComponents Components(Candidate candidate) =>
-        new(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20, 20, 0);
+        new(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
+            candidate.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+            candidate.Feasibility switch
+            {
+                SolverAnswer.Sat => PATH_FEASIBILITY,
+                SolverAnswer.Unknown => 0,
+                _ => UNASKED_PATH_FEASIBILITY
+            });
 
     private static string Label(int score) => score >= HIGH_MINIMUM ? "High" : score >= MEDIUM_MINIMUM ? "Medium" : "Low";
 
@@ -186,7 +259,8 @@ internal static class ConflictFindings
                            accessB, candidate.Protection, confidence, [overlap], scenario, uncertainty, evidence)
         {
             OccurrenceCount = folded.Occurrences.Count,
-            Occurrences = listed
+            Occurrences = listed,
+            PathFeasibility = candidate.Feasibility
         };
     }
 
@@ -255,10 +329,10 @@ internal static class ConflictFindings
         return items;
     }
 
-    /// <summary>The access, and for a read-modify-write every load it depends on.</summary>
+    /// <summary>The access, and for a read-modify-write or a compound operation every read it depends on.</summary>
     private static string AccessText(string role, AccessResource resource, Access access)
     {
-        var reads = access.Operation == AccessOperation.ReadModifyWrite
+        var reads = access.Operation is AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation
             ? string.Concat(access.ReadSources.Select(read => $"; reads it at {read.Source.Path}:{read.Source.StartLine} in {read.Symbol}"))
             : "";
         return $"Access {role}: {access.Symbol} performs {access.Operation.ToWireName()} on {Field(resource)} at " +
@@ -281,6 +355,17 @@ internal static class ConflictFindings
     private static IReadOnlyList<string> Scenario(AccessResource resource, Access accessA, Access accessB)
     {
         var field = $"`{Field(resource)}`";
+        if (accessA.Operation == AccessOperation.CompoundOperation || accessB.Operation == AccessOperation.CompoundOperation)
+        {
+            var sequence = accessA.Operation == AccessOperation.CompoundOperation ? "A" : "B";
+            var other = sequence == "A" ? "B" : "A";
+            return
+            [
+                $"{sequence} reads {field}", $"{other} changes {field} before {sequence} acts on what it read",
+                $"{sequence} changes {field} as if {other} had not run"
+            ];
+        }
+
         if (accessA.Operation == AccessOperation.ReadModifyWrite || accessB.Operation == AccessOperation.ReadModifyWrite)
         {
             var modification = accessA.Operation == AccessOperation.ReadModifyWrite ? "A" : "B";
@@ -364,7 +449,7 @@ internal static class ConflictFindings
     }
 
     private sealed record Candidate(GroupKey Key, AccessResource Resource, Access AccessA, Access AccessB, string Protection,
-                                    IReadOnlyList<string> Uncertainties);
+                                    IReadOnlyList<string> Uncertainties, SolverAnswer? Feasibility = null);
 
     private sealed record FoldedFinding(Candidate Evidence, IReadOnlyList<Candidate> Occurrences, int Score);
 

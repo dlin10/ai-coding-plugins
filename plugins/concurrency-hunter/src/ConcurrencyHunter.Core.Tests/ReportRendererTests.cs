@@ -1,4 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
+using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Reporting;
 using Xunit;
 
@@ -103,6 +105,26 @@ public sealed class ReportRendererTests
         Assert.Contains("- Scenario: A writes `_value1`; B reads `_value1` at the same time", markdown);
         Assert.Contains("- Uncertainty: Path feasibility is not analyzed in this version.\n- Confidence: High (85)\n", markdown);
         Assert.Contains("- Evidence: F1.A, F1.B, F1.R, F1.O, F1.P, F1.S", markdown);
+    }
+
+    /// <summary>What the last phases added reaches the file a model reads: which of a collection's two resources the finding
+    /// is about, what the solver said, and what to do about it (ADR 0010, TD-093).</summary>
+    [Fact]
+    public void Findings_json_carries_the_cell_the_solver_answer_and_the_remediation()
+    {
+        var analysis = ReportingTestData.CreateAnalysis("High");
+        var finding = analysis.Findings[0];
+        var resource = finding.Resource with { Selector = ElementSelector.Exact(2), AccessPath = [finding.Resource.AccessPath[0], "[2]"] };
+        var report = ReportingTestData.CreateReport(
+            FindingTestData.Result([finding with { Resource = resource, PathFeasibility = SolverAnswer.Sat }], analysis.Groups));
+
+        using var json = JsonDocument.Parse(ReportRenderer.Render(report).FindingsJson);
+        var rendered = json.RootElement.GetProperty("findings")[0];
+
+        Assert.Equal("[2]", rendered.GetProperty("resource").GetProperty("selector").GetString());
+        Assert.Equal("element", rendered.GetProperty("resource").GetProperty("kind").GetString());
+        Assert.Equal("sat", rendered.GetProperty("pathFeasibility").GetProperty("result").GetString());
+        Assert.Contains("verify manually", rendered.GetProperty("remediation").GetString()!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -216,10 +238,11 @@ public sealed class ReportRendererTests
             [""] = ["findings", "groups", "narrative", "runId", "schemaVersion"],
             ["findings[]"] = ["accesses", "aiContributions", "aliasEvidence", "analysis", "concurrencyEvidence", "confidence", "evidence", "evidenceMode",
                               "findingId", "fingerprint", "groupFingerprint", "groupId", "occurrenceCount", "occurrences", "pathFeasibility",
-                              "protectionAnalysis", "resource", "ruleId", "scenario", "severity", "suppression", "title", "uncertainty"],
+                              "protectionAnalysis", "remediation", "resource", "ruleId", "scenario", "severity", "suppression", "title",
+                              "uncertainty"],
             ["findings[].confidence"] = ["components", "isProbability", "label", "score"],
             ["findings[].confidence.components"] = ["executionOverlap", "operation", "pathFeasibility", "protection", "resourceIdentity"],
-            ["findings[].resource"] = ["accessPath", "assembly", "domain", "member", "region", "scope"],
+            ["findings[].resource"] = ["accessPath", "assembly", "domain", "kind", "member", "region", "scope", "selector"],
             ["findings[].resource.member"] = ["declaringType", "kind", "name"],
             ["findings[].accesses[]"] = ["codeFlow", "heldProtection", "operation", "readSources", "role", "root", "source"],
             ["findings[].accesses[].source"] = ["path", "span", "symbol"],
@@ -227,13 +250,13 @@ public sealed class ReportRendererTests
             ["findings[].accesses[].readSources[].source"] = ["path", "span"],
             ["findings[].occurrences[]"] = ["callPaths", "protection", "roots"],
             ["findings[].protectionAnalysis"] = ["commonProtection", "result"],
-            ["findings[].pathFeasibility"] = ["result"],
+            ["findings[].pathFeasibility"] = ["result", "solver"],
             ["findings[].analysis"] = ["ai", "coverageState", "engineVersion", "providers"],
             ["findings[].analysis.ai"] = ["acceptedInferenceCount", "rounds", "semanticResolverInvoked", "semanticResolverSkipReason"],
             ["findings[].evidence[]"] = ["id", "kind", "text"],
             ["groups[]"] = ["confidenceLabel", "findingIds", "fingerprint", "groupId", "narrativeStatus", "occurrenceCount", "ownership",
                             "representativeLocations", "resource", "ruleId", "severity"],
-            ["groups[].resource"] = ["accessPath", "assembly", "domain", "member", "region", "scope"],
+            ["groups[].resource"] = ["accessPath", "assembly", "domain", "kind", "member", "region", "scope", "selector"],
             ["groups[].resource.member"] = ["declaringType", "kind", "name"],
             ["groups[].ownership"] = ["evidence", "kind"],
             ["groups[].representativeLocations[]"] = ["line", "path", "symbol"],

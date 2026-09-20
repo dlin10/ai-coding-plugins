@@ -1,4 +1,4 @@
-{
+﻿{
   "schemaVersion": "1",
   "findings": [
     {
@@ -1144,9 +1144,305 @@
         { "symbol": "Demo.Web.Cases.MaybeNullHandle.HandoffWorker.WriteDropped()", "operation": "write" },
         { "symbol": "Demo.Web.Cases.MaybeNullHandle.HandoffWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "volatile-rmw-not-atomic",
+      "phase": "4",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.VolatileRmwNotAtomic.HitCountController", "accessPath": ["_hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.VolatileRmwNotAtomic.HitCountController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.VolatileRmwNotAtomic.HitCountController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "spin-lock-not-protection",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SpinLockNotProtection.Gauge@Singleton", "accessPath": ["_level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpinLockNotProtection.Gauge.Set(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SpinLockNotProtection.Gauge.Set(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "array-symbolic-indices",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArraySymbolicIndices.Rack@Singleton", "accessPath": ["_slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArraySymbolicIndices.Rack.SetFromFirst(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ArraySymbolicIndices.Rack.SetFromSecond(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "escape-via-array-element/cell",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.EscapeViaArrayElement.SlotBoard@Singleton", "accessPath": ["Slots", "[0]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaArrayElement.SlotWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaArrayElement.SlotController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "monitor-try-enter/unguarded",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.MonitorTryEnter.Slotboard@Singleton", "accessPath": ["_unguarded"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MonitorTryEnter.Slotboard.SetUnguarded(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MonitorTryEnter.Slotboard.SetUnguardedWithLock(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "semaphore-slim-not-a-mutex/unknown-capacity",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse@Singleton", "accessPath": ["_unknownCapacity"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetUnknownCapacity(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetUnknownCapacity(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "semaphore-slim-not-a-mutex/capacity-two",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse@Singleton", "accessPath": ["_capacityTwo"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetCapacityTwo(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetCapacityTwo(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "semaphore-slim-not-a-mutex/release-not-in-finally",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse@Singleton", "accessPath": ["_releaseNotInFinally"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetWithoutFinally(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SemaphoreSlimNotAMutex.Gatehouse.SetWithoutFinally(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "reader-writer-lock-slim/write-under-read-lock",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ReaderWriterLockSlim.Catalogue@Singleton", "accessPath": ["_shared"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ReaderWriterLockSlim.Catalogue.WriteUnderReadLock(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ReaderWriterLockSlim.Catalogue.WriteUnderReadLock(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "lock-different-identity",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LockDifferentIdentity.Board@Singleton", "accessPath": ["_owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LockDifferentIdentity.Board.SetUnderA(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LockDifferentIdentity.Board.SetUnderB(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "system-threading-lock/mixed-mechanisms",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SystemThreadingLock.Roster@Singleton", "accessPath": ["_standby"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SystemThreadingLock.Roster.SetUnderAMonitorOnTheLock(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SystemThreadingLock.Roster.SetUnderTheLockItself(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "lock-protected-vs-unprotected",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LockProtectedVsUnprotected.Logbook@Singleton", "accessPath": ["_entry"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LockProtectedVsUnprotected.Logbook.Append(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LockProtectedVsUnprotected.Logbook.Overwrite(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "lock-on-fresh-object",
+      "phase": "4",
+      "rule": "DCA1003",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LockOnFreshObject.Marker@Singleton", "accessPath": ["_state"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LockOnFreshObject.Marker.Set(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LockOnFreshObject.Marker.Set(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "interlocked-mixed-with-plain-write",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterlockedMixedWithPlainWrite.Meter@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterlockedMixedWithPlainWrite.CountingWorker.ExecuteAsync(CancellationToken)", "operation": "atomic-read-modify-write" },
+        { "symbol": "Demo.Web.Cases.InterlockedMixedWithPlainWrite.MeterResetWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "unsupported-guard-kept",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.UnsupportedGuardKept.NodeState@Singleton", "accessPath": ["Owner"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.UnsupportedGuardKept.NamedNodeWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.UnsupportedGuardKept.OtherNodeWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-disjoint-keys-structural",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryDisjointKeysStructural.Ledger@Singleton", "accessPath": ["Entries"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryDisjointKeysStructural.Ledger.AddFirst()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryDisjointKeysStructural.Ledger.AddSecond()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "static-list-add",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticListAdd.AuditTrail", "accessPath": ["Log"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticListAdd.AuditController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaticListAdd.AuditController.Post(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "static-list-add/cell",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticListAdd.AuditTrail", "accessPath": ["Log", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticListAdd.AuditController.Post(string)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StaticListAdd.AuditController.Post(string)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "concurrent-dictionary-compound/contains-then-set",
+      "phase": "4",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryCompound.Registry@Singleton", "accessPath": ["Flags", "[\"ready\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryCompound.RegistryController.PostFlag()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryCompound.RegistryController.PostFlag()", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "concurrent-dictionary-compound/indexer-increment",
+      "phase": "4",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryCompound.Registry@Singleton", "accessPath": ["Counts", "[\"hits\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryCompound.RegistryController.PostCount()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryCompound.RegistryController.PostCount()", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "concurrent-bag-count-then-add",
+      "phase": "4",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentBagCountThenAdd.Intake@Singleton", "accessPath": ["Items"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConcurrentBagCountThenAdd.Intake.Accept(string)", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.ConcurrentBagCountThenAdd.Intake.Accept(string)", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "concurrent-dictionary-enumerate-while-mutate/plain-dictionary",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.Feeds@Singleton", "accessPath": ["Plain"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.FeedController.GetPlain()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.FeedWriterWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "concurrent-dictionary-enumerate-while-mutate/plain-dictionary-cell",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.Feeds@Singleton", "accessPath": ["Plain", "[\"latest\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.FeedController.GetPlain()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.FeedWriterWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "key-equality-comparer/ignore-case-equal",
+      "phase": "4",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.KeyEqualityComparer.Boards@Singleton", "accessPath": ["IgnoringCase", "[\"a\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.KeyEqualityComparer.Boards.BumpIgnoringCaseFirst()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.KeyEqualityComparer.Boards.BumpIgnoringCaseSecond()", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "index-overflow-wraps",
+      "phase": "4",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.IndexOverflowWraps.Frame@Singleton", "accessPath": ["_slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.IndexOverflowWraps.Frame.WriteDirect(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.IndexOverflowWraps.Frame.WriteWrapped(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "key-equality-comparer/custom-comparer",
+      "phase": "4",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.KeyEqualityComparer.Boards@Singleton", "accessPath": ["Custom", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.KeyEqualityComparer.Boards.BumpCustomFirst()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.KeyEqualityComparer.Boards.BumpCustomSecond()", "operation": "compound-operation" }
+      ]
     }
   ],
   "notDefects": [
+    {
+      "id": "concurrent-dictionary-enumerate-while-mutate/concurrent-dictionary",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate.Feeds@Singleton", "accessPath": ["Safe"] }
+    },
+    {
+      "id": "key-equality-comparer/ordinal-distinct",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.KeyEqualityComparer.Boards@Singleton", "accessPath": ["Ordinal"] }
+    },
     {
       "id": "static-field-same-lock",
       "phase": "1a",
@@ -1467,6 +1763,126 @@
       "id": "dispose-async-configure-await",
       "phase": "3",
       "resource": { "region": "di:Demo.Web.Cases.DisposeAsyncConfigureAwait.ConfiguredWorker@Singleton", "accessPath": ["LastTick"] }
+    },
+    {
+      "id": "custom-async-lock-releaser",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.CustomAsyncLockReleaser.Ledger@Singleton", "accessPath": ["_entry"] }
+    },
+    {
+      "id": "callee-joins-on-a-parameter/local",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.CalleeJoinsOnAParameter.HandoffWorker@Singleton", "accessPath": ["_fromLocal"] }
+    },
+    {
+      "id": "callee-joins-on-a-parameter/inline",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.CalleeJoinsOnAParameter.HandoffWorker@Singleton", "accessPath": ["_fromInline"] }
+    },
+    {
+      "id": "monitor-try-enter/guarded",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.MonitorTryEnter.Slotboard@Singleton", "accessPath": ["_guarded"] }
+    },
+    {
+      "id": "reader-writer-lock-slim/read-vs-write",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ReaderWriterLockSlim.Catalogue@Singleton", "accessPath": ["_entry"] }
+    },
+    {
+      "id": "system-threading-lock",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.SystemThreadingLock.Roster@Singleton", "accessPath": ["_onDuty"] }
+    },
+    {
+      "id": "mutex-in-process",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.MutexInProcess.Turnstile@Singleton", "accessPath": ["LastPass"] }
+    },
+    {
+      "id": "semaphore-slim-capacity-one",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.SemaphoreSlimCapacityOne.Airlock@Singleton", "accessPath": ["Occupant"] }
+    },
+    {
+      "id": "interlocked-increment",
+      "phase": "4",
+      "resource": { "region": "static:Demo.Web.Cases.InterlockedIncrement.TicketController", "accessPath": ["_issued"] }
+    },
+    {
+      "id": "interlocked-compare-exchange-loop",
+      "phase": "4",
+      "resource": { "region": "static:Demo.Web.Cases.InterlockedCompareExchangeLoop.RunningTotalController", "accessPath": ["_total"] }
+    },
+    {
+      "id": "volatile-read-write-flag",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.VolatileReadWriteFlag.ShutdownFlag@Singleton", "accessPath": ["_stop"] }
+    },
+    {
+      "id": "concurrent-dictionary-atomic-ops/structure",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryAtomicOps.VoteBox@Singleton", "accessPath": ["Votes"] }
+    },
+    {
+      "id": "concurrent-dictionary-atomic-ops/slot",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentDictionaryAtomicOps.VoteBox@Singleton", "accessPath": ["Votes", "[?]"] }
+    },
+    {
+      "id": "concurrent-queue-single-ops",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ConcurrentQueueSingleOps.Inbox@Singleton", "accessPath": ["Messages"] }
+    },
+    {
+      "id": "array-disjoint-constant-indices/front",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayDisjointConstantIndices.Shelf@Singleton", "accessPath": ["_slots", "[0]"] }
+    },
+    {
+      "id": "array-disjoint-constant-indices/back",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayDisjointConstantIndices.Shelf@Singleton", "accessPath": ["_slots", "[1]"] }
+    },
+    {
+      "id": "parallel-for-disjoint-index/unproven",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ParallelForDisjointIndex.ResultsWorker@Singleton", "accessPath": ["_results", "[?]"] }
+    },
+    {
+      "id": "array-disjoint-guarded-ranges/low",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayDisjointGuardedRanges.Register@Singleton", "accessPath": ["_slots", "[0..5]"] }
+    },
+    {
+      "id": "array-disjoint-guarded-ranges/high",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayDisjointGuardedRanges.Register@Singleton", "accessPath": ["_slots", "[5..10]"] }
+    },
+    {
+      "id": "parallel-for-disjoint-index",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.ParallelForDisjointIndex.ResultsWorker@Singleton", "accessPath": ["_results", "[0..8]"] }
+    },
+    {
+      "id": "span-slices-disjoint/low",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.SpanSlicesDisjoint.Frame@Singleton", "accessPath": ["_buffer", "[0..8]"] }
+    },
+    {
+      "id": "span-slices-disjoint/high",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.SpanSlicesDisjoint.Frame@Singleton", "accessPath": ["_buffer", "[8..16]"] }
+    },
+    {
+      "id": "mutually-exclusive-paths/boolean",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.MutuallyExclusivePaths.PathState@Singleton", "accessPath": ["Boolean"] }
+    },
+    {
+      "id": "mutually-exclusive-paths/enum-switch",
+      "phase": "4",
+      "resource": { "region": "di:Demo.Web.Cases.MutuallyExclusivePaths.PathState@Singleton", "accessPath": ["EnumSwitch"] }
     }
   ]
 }

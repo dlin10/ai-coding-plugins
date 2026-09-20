@@ -1,4 +1,4 @@
-using ConcurrencyHunter.Analysis;
+﻿using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Execution;
@@ -154,7 +154,25 @@ public static class InterproceduralAccesses
 
     private sealed record PathNode(State State, PathNode? Parent, CallEdge? Edge);
 
-    private sealed record LockInfo(string Display, string? SingleObjectId, SourceSpan Acquisition);
+    /// <summary><see cref="Capacity"/> is the count the lock object was constructed with, when it is a constant.</summary>
+    private sealed record LockInfo(string Display, string? SingleObjectId, SourceSpan Acquisition, int? Capacity);
+
+    /// <summary>A lock held at an access: what the lock object is, plus the mechanism, the mode and the acquisition site the state
+    /// holds it from. The site tells one lock section from the next, which is what protection across a whole span needs (R2).</summary>
+    private sealed record HeldProtectionInfo(string Display, string? SingleObjectId, SourceSpan Acquisition,
+                                             IrSynchronizationPrimitive Primitive, IrLockMode Mode, string Site, bool IsExclusive)
+    {
+        /// <summary>The lock object as the must-hold analysis keys it, which is what asking whether the holding ever broke between
+        /// two operations needs.</summary>
+        public string Key { get; init; } = "";
+    }
+
+    /// <summary>What a body does to primitives it does not both enter and leave: <see cref="Opened"/> are the entries it hands to its
+    /// caller, <see cref="Closed"/> the exits it makes of a scope its caller opened (ADR 0009).</summary>
+    private sealed record LiftedLocks(IReadOnlyList<HeldLock> Opened, IReadOnlyList<HeldLock> Closed)
+    {
+        internal static LiftedLocks None { get; } = new([], []);
+    }
 
     /// <summary>An edge the walk follows from an instance: a call edge, or a construction edge from the operation that triggered a
     /// construction to one of its instances; <see cref="Constructed"/> is the object or type the construction builds.</summary>
@@ -300,6 +318,10 @@ public static class InterproceduralAccesses
         private readonly HashSet<CallEdge> _executionEdges = [];
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, LiftedLocks> _lifted = new(StringComparer.Ordinal);
+        private HashSet<string>? _writtenOutsideConstruction;
+        private Dictionary<string, int>? _iterationParameters;
+        private readonly HashSet<string> _liftingInProgress = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Dictionary<int, IrProvenance>> _provenance = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<(string Instance, int Operation)>> _returnLoads = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Instance, int Ordinal), HashSet<(string Instance, int Operation)>> _parameterLoads = [];
@@ -424,7 +446,7 @@ public static class InterproceduralAccesses
 
         private IEnumerable<string> VisitedInstances() => _firstPaths.Keys;
 
-        /// <summary>The locks each instance must hold on entry: none for an execution's entries, and otherwise the intersection of the
+        /// <summary>The locks each instance must hold on entry: none for an execution's entries, and otherwise the join of the
         /// states at every incoming call site, iterated from the top until nothing changes.</summary>
         private void SolveLocks()
         {
@@ -434,14 +456,19 @@ public static class InterproceduralAccesses
                 entryLocks[instance] = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
 
             var changed = true;
+            var rounds = 0;
+            var bounded = false;
             while (changed)
             {
                 changed = false;
                 foreach (var instanceId in VisitedInstances())
                 {
                     if (entryLocks.TryGetValue(instanceId, out var entry) && input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[instanceId].BodyId, out var body))
-                        _lockStates[instanceId] = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), entry);
+                        _lockStates[instanceId] = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), entry).Operations;
                 }
+
+                if (bounded)
+                    break;
 
                 var incoming = new Dictionary<string, Dictionary<string, HeldLock>>(StringComparer.Ordinal);
                 foreach (var edge in _executionEdges)
@@ -452,27 +479,40 @@ public static class InterproceduralAccesses
                         continue;
                     }
 
-                    incoming[edge.CalleeInstance] = incoming.TryGetValue(edge.CalleeInstance, out var previous)
-                        ? previous.Where(pair => atCall.ContainsKey(pair.Key))
-                                  .ToDictionary(pair => pair.Key, pair => pair.Value with { Depth = 1 }, StringComparer.Ordinal)
-                        : atCall.ToDictionary(pair => pair.Key, pair => pair.Value with { Depth = 1 }, StringComparer.Ordinal);
+                    // Entering at the top of a body is depth one whatever the caller's nesting; everything else about the holding
+                    // is weakened to what every incoming call site has, exactly as the paths inside one body are joined.
+                    var atEntry = atCall.ToDictionary(pair => pair.Key, pair => pair.Value with { Depth = 1 }, StringComparer.Ordinal);
+                    incoming[edge.CalleeInstance] = MustHeldLocks.Join(incoming.GetValueOrDefault(edge.CalleeInstance), atEntry)!;
                 }
 
                 foreach (var (instanceId, locks) in incoming)
                 {
-                    if (!entryLocks.TryGetValue(instanceId, out var current) || !current.Keys.ToHashSet().SetEquals(locks.Keys))
+                    if (!entryLocks.TryGetValue(instanceId, out var current) || !Same(current, locks))
                     {
                         entryLocks[instanceId] = locks;
                         changed = true;
                     }
                 }
+
+                // Each round weakens what an entry holds, so the states descend and this is a bound and not a policy; reaching it
+                // would mean a state that does not settle, and a body whose entry nothing settles holds nothing.
+                if (++rounds <= (VisitedInstances().Count() + 1) * ROUNDS_PER_INSTANCE)
+                    continue;
+
+                foreach (var instanceId in entryLocks.Keys.ToArray().Where(instanceId => !entryInstances.Contains(instanceId)))
+                    entryLocks[instanceId] = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
+                (bounded, changed) = (true, true);
             }
         }
 
         /// <summary>A lock's identity is the set of regions its value points to; every lock is released by value, so a release of a
-        /// lock not held as such clears every held lock it may be.</summary>
+        /// lock not held as such clears every held lock it may be. A call carries what its callee leaves open or closes on an object
+        /// somebody else opened, which is what makes a wrapper transparent (ADR 0009).</summary>
         private LockEffect Effect(MethodInstance instance, IrOperation operation)
         {
+            if (operation is IrCallOperation call)
+                return Lifted(instance, call);
+
             if (operation is not (IrAcquireOperation or IrReleaseOperation) ||
                 instance.Summary.Locks.FirstOrDefault(candidate => candidate.OperationId == operation.Id) is not { } transfer)
             {
@@ -480,18 +520,110 @@ public static class InterproceduralAccesses
             }
 
             var regions = transfer.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct().Order(StringComparer.Ordinal).ToArray();
-            var key = regions.Length != 0 ? "locks:" + string.Join(",", regions) : $"unresolved:{instance.Id}:{transfer.Origin}";
+            // Two mechanisms on one object are independent, so the kind is part of what a release matches (TD-083).
+            var key = $"{transfer.Primitive}:" +
+                      (regions.Length != 0 ? "locks:" + string.Join(",", regions) : $"unresolved:{instance.Id}:{transfer.Origin}");
             if (transfer.IsAcquire && !_locks.ContainsKey(key))
             {
                 var single = regions.Length == 1 && input.Executions.IsSingleObject(regions[0]) ? $"{input.Scope.ScopeId}|{regions[0]}" : null;
                 var display = regions.Length == 0
                     ? $"lock on an unresolved object at {transfer.Provenance.Span.Path}:{transfer.Provenance.Span.StartLine} (identity unknown, not one object per process)"
                     : string.Join(", ", regions.Select(region => _heap.Regions[region].Display)) + (single is null ? " (not one object per process)" : "");
-                _locks[key] = new LockInfo(display, single, transfer.Provenance.Span);
+                _locks[key] = new LockInfo(display, single, transfer.Provenance.Span, Capacity(regions));
             }
 
             return new LockEffect(transfer.IsAcquire ? LockEffectKind.Acquire : LockEffectKind.Release,
-                                  new LockObject(key, key, null, IdentityUnknown: true));
+                                  new LockObject(key, key, null, IdentityUnknown: true)
+                                  {
+                                      Primitive = transfer.Primitive,
+                                      Mode = transfer.Mode,
+                                      Site = $"{instance.Id}:{operation.Id}",
+                                      NamesObject = regions.Length != 0
+                                  })
+            {
+                Permits = transfer.Permits
+            };
+        }
+
+        /// <summary>What a call does to a primitive its callee does not enter and leave itself: entering one it leaves open is an
+        /// entry here, and leaving one it never entered — the disposal of a scope its caller opened — is a release here. Only one
+        /// such primitive is carried, and only when every callee the call may reach agrees on it (ADR 0009).</summary>
+        private LockEffect Lifted(MethodInstance instance, IrCallOperation call)
+        {
+            var callees = _executionEdges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.Id)
+                                         .Select(edge => edge.CalleeInstance)
+                                         .Distinct(StringComparer.Ordinal)
+                                         .ToArray();
+            if (callees.Length == 0)
+                return LockEffect.None;
+
+            var lifted = callees.Select(LiftedOf).ToArray();
+            if (Single(lifted.Select(item => item.Opened)) is { } opened && CanExclude(opened))
+                return new LockEffect(LockEffectKind.Acquire, opened.Lock with { Site = $"{instance.Id}:{call.Id}", IsLifted = true });
+            if (Single(lifted.Select(item => item.Closed)) is { } closed && CanExclude(closed))
+                return new LockEffect(LockEffectKind.Release, closed.Lock) { Permits = closed.IsPaired ? 1 : null };
+
+            return LockEffect.None;
+
+            // The one lock the call carries. A must-effect is what every callee does, so a callee that carries nothing out of
+            // itself takes the proof away: a call that may run an implementation which acquires nothing holds nothing after it,
+            // whatever its siblings acquire. Among the callees that do carry something, every one that names an object at all has
+            // to name the same one; a context that named none carries the effect without saying which object it is on, and it is
+            // no evidence either way about the object its siblings named.
+            static HeldLock? Single(IEnumerable<IReadOnlyList<HeldLock>> perCallee)
+            {
+                var carried = perCallee.ToArray();
+                if (carried.Length == 0 || carried.Any(locks => locks.Count == 0))
+                    return null;
+
+                var named = carried.SelectMany(locks => locks).Where(held => held.Lock.NamesObject).ToArray();
+                return named.Length != 0 && named.Select(held => held.Lock.Key).Distinct(StringComparer.Ordinal).Count() == 1
+                    ? named[0]
+                    : null;
+            }
+        }
+
+        /// <summary>Whether an entry can exclude anyone at all, which is what a call carries out of its callee: a
+        /// <c>SemaphoreSlim</c> whose capacity nothing proves to be one gives the caller nothing, exactly as a type the analysis
+        /// does not model gives it nothing (ADR 0009).</summary>
+        private bool CanExclude(HeldLock held) =>
+            held.Lock.Primitive != IrSynchronizationPrimitive.SemaphoreSlim ||
+            (_locks.TryGetValue(held.Lock.Key, out var info) && info.Capacity == 1);
+
+        /// <summary>What an instance leaves open and what it closes without having opened it, read from its own body alone.</summary>
+        private LiftedLocks LiftedOf(string instanceId)
+        {
+            if (_lifted.TryGetValue(instanceId, out var known))
+                return known;
+            if (!_liftingInProgress.Add(instanceId))
+                return LiftedLocks.None;
+
+            var lifted = LiftedLocks.None;
+            if (input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[instanceId].BodyId, out var body))
+            {
+                var state = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation));
+                var candidates = body.Blocks.SelectMany(block => block.Operations)
+                                     .Select(operation => (operation, Effect: Effect(_heap.Instances[instanceId], operation)))
+                                     .Where(item => item.Effect is { Kind: LockEffectKind.Release, Lock: { } } &&
+                                                    state.Operations.TryGetValue(item.operation.Id, out var held) &&
+                                                    !held.ContainsKey(item.Effect.Lock!.Key))
+                                     // An exit that gives back more permits than an entry takes is carried as such, so that the
+                                     // caller whose scope it closes counts what came back and not merely that something did (R3).
+                                     .Select(item => new HeldLock(1, item.Effect.Lock!, item.operation.Id) { IsPaired = item.Effect.Permits == 1 })
+                                     .DistinctBy(held => held.Lock.Key)
+                                     .ToArray();
+                // A release somewhere in the body is a release on some path. What the caller's scope needs is a release on every
+                // path, so each candidate is re-solved from a state that already holds it: it is carried back only where the body
+                // ends holding it no longer, which is what a `Dispose` with a conditional release fails (R3, R4, ADR 0009).
+                var closed = candidates.Where(held => MustHeldLocks.ReleasesOnEveryPath(
+                                                          body, operation => Effect(_heap.Instances[instanceId], operation), held.Lock.Key))
+                                       .ToArray();
+                lifted = new LiftedLocks(state.AtExit.Values.ToArray(), closed);
+            }
+
+            _liftingInProgress.Remove(instanceId);
+            _lifted[instanceId] = lifted;
+            return lifted;
         }
 
         /// <summary>The loads each return value, parameter, capture cell and store depends on, as sets that only grow over the
@@ -570,30 +702,49 @@ public static class InterproceduralAccesses
             var feeding = new Dictionary<(string Instance, int Operation, string Resource), List<(string Instance, int Operation)>>();
             // Only the load of the instance that feeds the write is folded into it; another instance of that body still reads.
             var dropped = new HashSet<(string Instance, int Operation, string Resource)>();
+            // The stores whose compare-and-swap checks the cell against what the value it writes was read from. That, and not
+            // the name of the member called, is what makes the sequence around it as atomic as the call itself (R1).
+            var verified = new HashSet<(string Instance, int Operation, string Resource)>();
             foreach (var instanceId in VisitedInstances())
             {
                 var instance = _heap.Instances[instanceId];
                 foreach (var store in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store))
                 {
                     var loads = Loads(instance, store.Dependencies);
+                    // The comparand has to be the value those reads produced, not a value computed from them: a swap that checks
+                    // `old + 2` checks a number nobody ever observed in the cell (R1).
+                    var observed = store.ComparandLoad is { } checkedLoad &&
+                                   loads.Count != 0 &&
+                                   loads.All(load => load.Operation == checkedLoad &&
+                                                     string.Equals(load.Instance, instanceId, StringComparison.Ordinal));
                     foreach (var resource in Resources(instance, store))
                     {
+                        if (observed)
+                            verified.Add((instanceId, store.OperationId, resource.Identity));
+
                         foreach (var (loadInstanceId, loadOperation) in loads.OrderBy(load => load.Instance, StringComparer.Ordinal).ThenBy(load => load.Operation))
                         {
                             var loadInstance = _heap.Instances[loadInstanceId];
-                            if (loadInstance.Summary.Accesses.FirstOrDefault(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
-                                    is not { } load ||
-                                !Resources(loadInstance, load).Any(candidate => candidate.Identity == resource.Identity))
-                            {
+                            // A compound operation reaches over the whole collection: its check may read the structure while its
+                            // change writes a cell, so the two meet on the collection rather than on one resource (ADR 0010).
+                            var reads = loadInstance.Summary.Accesses
+                                                    .Where(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
+                                                    .SelectMany(load => Resources(loadInstance, load))
+                                                    .Where(candidate => candidate.Identity == resource.Identity ||
+                                                                        store.IsCompound && candidate.StructuralIdentity == resource.StructuralIdentity)
+                                                    .ToArray();
+                            if (reads.Length == 0)
                                 continue;
-                            }
 
                             var key = (instanceId, store.OperationId, resource.Identity);
                             if (!feeding.TryGetValue(key, out var list))
                                 feeding.Add(key, list = []);
                             if (!list.Contains((loadInstanceId, loadOperation)))
                                 list.Add((loadInstanceId, loadOperation));
-                            dropped.Add((loadInstance.Id, loadOperation, resource.Identity));
+                            // Only a read of the very resource the change is on is folded into it; a check of another resource
+                            // stays an access of its own.
+                            if (reads.Any(candidate => candidate.Identity == resource.Identity))
+                                dropped.Add((loadInstance.Id, loadOperation, resource.Identity));
                         }
                     }
                 }
@@ -612,15 +763,18 @@ public static class InterproceduralAccesses
                             continue;
 
                         var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, resource.Identity));
-                        var operation = access.Kind == SummaryAccessKind.Load ? AccessOperation.Read
-                            : sources is { Count: > 0 } ? AccessOperation.ReadModifyWrite
-                            : AccessOperation.Write;
+                        var operation = Operation(access, sources is { Count: > 0 },
+                                                  verified.Contains((instance.Id, access.OperationId, resource.Identity)));
+                        var conditions = Conditions(instance, access, node);
                         var regionId = resource.RegionId!;
                         var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
                         // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
                         // an occurrence keeps can be the least protected one (R5).
-                        var held = HeldLocks(instance.Id, access.OperationId);
-                        var heldKey = string.Join("|", held.Select(info => info.Display).Order(StringComparer.Ordinal));
+                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, sources);
+                        // Which object is held is not the whole protection: one context may hold it for reading and another for
+                        // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
+                        var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
+                                                           .Order(StringComparer.Ordinal));
                         var region = _heap.Regions[regionId];
                         var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
                         // A construction triggered by several roots gives one access per root, so each root pair is an occurrence (R5).
@@ -639,8 +793,18 @@ public static class InterproceduralAccesses
                                 held.Select(info => info.SingleObjectId).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
                                 BindingEvidenceOf(region),
                                 CodeFlow(entry, node, held, $"{operation.ToWireName()} {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span),
-                                Uncertainties(instance, region))
+                                Uncertainties(instance, region, access, resource, conditions))
                             {
+                                // One object can be held by more than one mechanism at once, and the two are independent, so the
+                                // holdings of an object are a list and never one entry that the last mechanism wins (TD-083).
+                                HeldProtections = held.Where(info => info.SingleObjectId is not null)
+                                                      .GroupBy(info => info.SingleObjectId!, StringComparer.Ordinal)
+                                                      .ToDictionary(group => group.Key,
+                                                                    group => (IReadOnlyList<HeldProtection>)group
+                                                                             .Select(info => new HeldProtection(info.Primitive, info.Mode, info.IsExclusive))
+                                                                             .Distinct()
+                                                                             .ToArray(),
+                                                                    StringComparer.Ordinal),
                                 ExecutionId = execution.Id,
                                 Ownership = ownership?.Kind ?? OwnershipKind.Unknown,
                                 OwnershipEvidence = ownership?.Evidence ?? [],
@@ -651,7 +815,14 @@ public static class InterproceduralAccesses
                                 InstanceId = instance.Id,
                                 CallPath = callPath,
                                 SpawnSites = input.Executions.SpawnSitesOf(execution.Id, callPath),
-                                PathRoot = pathRoot
+                                PathRoot = pathRoot,
+                                Conditions = conditions,
+                                IsIterationIndexed = access.SelectorParameter is { } ordinal &&
+                                                     IterationParameters.GetValueOrDefault(instance.BodyId, -1) == ordinal &&
+                                                     (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
+                                // Values of independent executions are independent unknowns, whatever they are called in the
+                                // body they come from (TD-092).
+                                SelectorTerm = access.SelectorTerm is { } term ? Bind(term, instance.Id) : null
                             });
                         }
                     }
@@ -660,6 +831,28 @@ public static class InterproceduralAccesses
 
             return accesses;
         }
+
+        /// <summary>What an access does to its cell. An atomic mark decides it (TD-082), with two exceptions: a read-modify-write is
+        /// only atomic when one operation performs the whole of it, so a store fed by loads stays an ordinary read-modify-write
+        /// however atomic the operation that performs it is, and a change decided by an earlier read of the same collection is a
+        /// compound operation however atomic each of its steps is (ADR 0010). What a single call does atomically and what a
+        /// sequence of them does are two questions: <c>Interlocked.Exchange</c> given a value an earlier read produced writes
+        /// atomically and still loses every update made between that read and it. A compare-and-swap is the exception that shows
+        /// the rule — it is handed the value that read saw and writes only where the cell still holds it, so the sequence is as
+        /// atomic as the call — but only where it verifies that read, which is a fact about the comparand it was handed and never
+        /// about the member's name. A compare-and-swap given another read of the cell as its comparand checks a value nobody
+        /// built anything from, and the sequence loses updates like any other (R1).</summary>
+        private static AccessOperation Operation(SummaryAccess access, bool isReadModifyWrite, bool verifiesItsRead) =>
+            (access.Atomic, access.Kind) switch
+        {
+            _ when access.IsCompound => AccessOperation.CompoundOperation,
+            (IrAtomicEffect.Read, _) => AccessOperation.AtomicRead,
+            (IrAtomicEffect.CompareAndSwap, _) when !isReadModifyWrite || verifiesItsRead => AccessOperation.AtomicReadModifyWrite,
+            (IrAtomicEffect.ReadModifyWrite, _) when !isReadModifyWrite => AccessOperation.AtomicReadModifyWrite,
+            (IrAtomicEffect.Write, _) when !isReadModifyWrite => AccessOperation.AtomicWrite,
+            (_, SummaryAccessKind.Load) => AccessOperation.Read,
+            _ => isReadModifyWrite ? AccessOperation.ReadModifyWrite : AccessOperation.Write
+        };
 
         private ReadSource ReadSourceOf((string Instance, int Operation) load)
         {
@@ -671,12 +864,232 @@ public static class InterproceduralAccesses
                                   CodeFlow(entry, node, held, $"read {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span));
         }
 
-        private IReadOnlyList<LockInfo> HeldLocks(string instanceId, int operationId) =>
+        /// <summary>What protects an operation that spans a read and the write depending on it: only a lock section that covers the
+        /// whole span, so a lock around the write alone protects nothing, and two sections, one around the read and one around the
+        /// write, protect nothing either (R2). Every other operation is protected by what is held where it stands.</summary>
+        private IReadOnlyList<HeldProtectionInfo> HeldOverSpan(string instanceId, int operationId, AccessOperation operation,
+                                                               IReadOnlyList<(string Instance, int Operation)>? sources)
+        {
+            var held = HeldLocks(instanceId, operationId);
+            if (operation is not (AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation) || sources is not { Count: > 0 })
+                return held;
+
+            return held.Where(protection => sources.All(source => Spans(protection, instanceId, operationId, source))).ToArray();
+        }
+
+        /// <summary>Whether one holding covers the span from a read to the write that depends on it: the same section at both ends,
+        /// and, where both ends stand in one body, a holding that was never let go in between. A section is named by the acquisition
+        /// it comes from, and one acquisition inside a loop is a new section on every iteration, so the name alone would call a read
+        /// of one iteration and a write of the next one protected by one section (R2).</summary>
+        private bool Spans(HeldProtectionInfo protection, string instanceId, int operationId, (string Instance, int Operation) source)
+        {
+            if (!HeldLocks(source.Instance, source.Operation).Any(other => other.Site == protection.Site))
+                return false;
+
+            var instance = _heap.Instances[instanceId];
+            return !string.Equals(source.Instance, instanceId, StringComparison.Ordinal) ||
+                   !input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
+                   MustHeldLocks.HoldsBetween(body, operation => Effect(instance, operation), protection.Key,
+                                              source.Operation, operationId);
+        }
+
+        private IReadOnlyList<HeldProtectionInfo> HeldLocks(string instanceId, int operationId) =>
             _lockStates.TryGetValue(instanceId, out var states) && states.TryGetValue(operationId, out var held)
-                ? held.Keys.Select(key => _locks.GetValueOrDefault(key)).OfType<LockInfo>().ToArray()
+                // A scope a call opened is protection only where the exit is proven too: nothing else says it ever closes.
+                ? held.Values.Where(lockHeld => !lockHeld.Lock.IsLifted || lockHeld.IsReleasedOnAllPaths)
+                      .Select(lockHeld => _locks.TryGetValue(lockHeld.Lock.Key, out var info)
+                                         ? new HeldProtectionInfo(info.Display, info.SingleObjectId, info.Acquisition,
+                                                                  lockHeld.Lock.Primitive, lockHeld.Lock.Mode, lockHeld.Lock.Site,
+                                                                  Excludes(lockHeld, info)) { Key = lockHeld.Lock.Key }
+                                         : null)
+                      .OfType<HeldProtectionInfo>()
+                      .ToArray()
                 : [];
 
-        private IReadOnlyList<CodeFlowStep> CodeFlow(ExecutionEntry entry, PathNode node, IReadOnlyList<LockInfo> held, string accessText, SourceSpan accessSource)
+        /// <summary>Whether one holding excludes anyone at all. A primitive owned by the thread that took it holds nothing over a
+        /// suspension point, because the continuation may resume on another thread; a <c>SemaphoreSlim</c> is a mutex only at a
+        /// capacity proven to be one, released on every path, and given back one permit for one (TD-083).</summary>
+        private static bool Excludes(HeldLock held, LockInfo info) => held.Lock.Primitive switch
+        {
+            IrSynchronizationPrimitive.SemaphoreSlim => info.Capacity == 1 && held.IsReleasedOnAllPaths && held.IsPaired,
+            _ => !held.CrossesSuspension
+        };
+
+        /// <summary>The predicates that hold where an access runs, with each subject named as far as it is proven (TD-090). A
+        /// field read gets one canonical identity across executions only when everything is proven at once: its region is one
+        /// object per process, the field cannot change after construction, nothing writes it outside the construction of that
+        /// region, and the read happens once that construction is over. Anything less is this execution's own value, which no
+        /// other execution shares, so it can never take a pair away.</summary>
+        private IReadOnlyList<PathPredicate> Conditions(MethodInstance instance, SummaryAccess access, PathNode node)
+        {
+            var conditions = new List<PathPredicate>(Predicates(instance, access.Conditions, node));
+            // What reaches the access is part of the condition it runs under (R8). A call site's guards are added only while the
+            // path to the access is the one way there: where several calls reach an instance, the access runs under one of their
+            // conditions and under no one of them for certain, and the weaker fact is that nothing is known.
+            for (var step = node; step is { Edge: { } edge, Parent: { } caller }; step = caller)
+            {
+                if (_executionEdges.Count(candidate => string.Equals(candidate.CalleeInstance, step.State.Instance, StringComparison.Ordinal)) != 1)
+                    break;
+                if (_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance) &&
+                    callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
+                {
+                    conditions.AddRange(Predicates(callerInstance, transfer.Conditions, caller));
+                }
+            }
+
+            return conditions;
+        }
+
+        /// <summary>The predicates of one body, with each subject named as the execution names it.</summary>
+        private IReadOnlyList<PathPredicate> Predicates(MethodInstance instance, IReadOnlyList<SummaryPredicate> predicates, PathNode node)
+        {
+            var conditions = new List<PathPredicate>();
+            foreach (var condition in predicates)
+            {
+                var subject = condition switch
+                {
+                    { Relation: PathRelation.Unsupported } => "",
+                    { SubjectLoad: { } load } => Canonical(instance, load, node) ?? Local(instance, $"{instance.BodyId}#{load}"),
+                    // The same name a cell's expression gets, so that a bound on an index constrains the cell it names.
+                    { SubjectValue: { } value } => Local(instance, $"{instance.BodyId}:{value}"),
+                    _ => ""
+                };
+                conditions.Add(new PathPredicate(subject, condition.Relation, condition.Value, condition.Text)
+                {
+                    Width = condition.Width,
+                    Signed = condition.Signed
+                });
+            }
+
+            return conditions;
+        }
+
+        /// <summary>
+        /// The term with every value in it named by the execution it belongs to, so that one body read by two executions states
+        /// two unknowns and never one (TD-092). The name is the one a predicate over that same value gets, which is what ties a
+        /// guard to the cell it decides: without it the solver is handed <c>i &lt; 5</c>, <c>j &gt;= 5</c> and <c>i == j</c> over
+        /// three unrelated unknowns and can prove nothing, although the three together are unsatisfiable.
+        /// </summary>
+        private static ValueTerm Bind(ValueTerm term, string instanceId) => term switch
+        {
+            VariableTerm variable => variable with { Identity = Local(instanceId, variable.Identity) },
+            SumTerm sum => new SumTerm(Bind(sum.Left, instanceId), Bind(sum.Right, instanceId)),
+            ConvertTerm convert => convert with { Operand = Bind(convert.Operand, instanceId) },
+            _ => term
+        };
+
+        /// <summary>What one execution's own value is called, wherever the query names it.</summary>
+        private static string Local(MethodInstance instance, string value) => Local(instance.Id, value);
+
+        private static string Local(string instanceId, string value) => $"local|{instanceId}|{value}";
+
+        /// <summary>The identity of the value a field load reads, when every execution that reads it reads the same one.</summary>
+        private string? Canonical(MethodInstance instance, int loadOperationId, PathNode node)
+        {
+            if (instance.Summary.Accesses.FirstOrDefault(candidate => candidate.OperationId == loadOperationId &&
+                                                                      candidate.Kind == SummaryAccessKind.Load) is not { } load ||
+                !load.Field.IsReadOnly || WrittenOutsideConstruction.Contains(FieldSlot.Key(load.Field)))
+            {
+                return null;
+            }
+
+            var resources = Resources(instance, load);
+            if (resources.Count != 1 || resources[0].RegionId is not { } regionId)
+                return null;
+            // A read while the object is still being built sees a field the construction has not finished writing.
+            if (node.State.Interval == regionId)
+                return null;
+
+            return _heap.Regions[regionId].Kind == HeapRegionKind.Static || input.Executions.IsSingleObject(regionId)
+                ? $"{PathPredicate.CANONICAL}{resources[0].Identity}"
+                : null;
+        }
+
+        /// <summary>The field slots something writes outside a constructor, which are the ones a reader cannot take for
+        /// settled however the field is declared.</summary>
+        private HashSet<string> WrittenOutsideConstruction =>
+            _writtenOutsideConstruction ??= _heap.Instances.Values
+                .SelectMany(instance => instance.Summary.Accesses
+                                                .Where(access => access.Kind == SummaryAccessKind.Store && !IsConstructor(instance.BodyId))
+                                                .Select(access => FieldSlot.Key(access.Field)))
+                .ToHashSet(StringComparer.Ordinal);
+
+        private static bool IsConstructor(string bodyId) =>
+            bodyId.Contains(".#ctor", StringComparison.Ordinal) || bodyId.Contains(".#cctor", StringComparison.Ordinal);
+
+        /// <summary>How many bits an iteration number of a parallel loop needs to stay one number: <c>Parallel.For</c> counts
+        /// with an <c>int</c>, and the indexed <c>ForEach</c> numbers the elements of a source whose count is one, so an index
+        /// that keeps 32 bits keeps every iteration apart and a narrower one folds them onto each other (TD-068).</summary>
+        private const int ITERATION_WIDTH = 32;
+
+        /// <summary>How many rounds each visited instance is allowed before the entry states are taken as unsettled: one round can
+        /// weaken a holding by its mode, its suspension, its proof of release and its site, and one more carries the weakening on
+        /// to the next instance.</summary>
+        private const int ROUNDS_PER_INSTANCE = 8;
+
+        /// <summary>Whether two entry states hold the same locks with the same properties: a holding that changed only by its mode
+        /// or by losing its proof of release still has to travel to everything the instance calls.</summary>
+        private static bool Same(Dictionary<string, HeldLock> left, Dictionary<string, HeldLock> right) =>
+            left.Count == right.Count &&
+            left.All(pair => right.TryGetValue(pair.Key, out var other) && other == pair.Value);
+
+        /// <summary>The bodies a parallel loop runs, with the parameter it binds the iteration number to: the counter of
+        /// <c>Parallel.For</c> and the index of the indexed <c>Parallel.ForEach</c> overload. The element the plain overload
+        /// passes is not one, because the source it comes from may hold the same element twice (TD-068).</summary>
+        private Dictionary<string, int> IterationParameters =>
+            _iterationParameters ??= _heap.Instances.Values
+                .SelectMany(instance => instance.Summary.Spawns)
+                .Where(spawn => spawn.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach)
+                .SelectMany(spawn => spawn.Work.SelectMany(work => work.Values).OfType<DelegateCreationValue>()
+                                          .Select(work => (work.Target, Ordinal: IterationParameter(spawn.Kind, work.Target))))
+                .Where(work => work.Ordinal is not null)
+                .GroupBy(work => work.Target, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().Ordinal!.Value, StringComparer.Ordinal);
+
+        private int? IterationParameter(IrSpawnKind kind, string bodyId)
+        {
+            if (!input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
+                return null;
+            var ordinal = kind == IrSpawnKind.ParallelFor ? 0 : 2;
+            return body.Parameters.FirstOrDefault(parameter => parameter.Ordinal == ordinal) is { } parameter &&
+                   parameter.Type is "int" or "long" or "System.Int32" or "System.Int64"
+                ? ordinal
+                : null;
+        }
+
+        /// <summary>How the collection a field holds compares the keys of its cells: what each object the field points to was
+        /// constructed with, taken at its weakest. A keyed collection this scope never constructs may compare keys any way at all,
+        /// so nothing about its keys is proven (ADR 0010).</summary>
+        private IrKeyEquality Equality(string regionId, IrFieldRef field)
+        {
+            if (!field.Type.Contains("Dictionary<", StringComparison.Ordinal))
+                return IrKeyEquality.Value;
+
+            var equalities = _heap.PointsTo(regionId, FieldSlot.Key(field))
+                                  .Select(target => _heap.Regions.TryGetValue(target, out var region) ? Allocation(region)?.KeyEquality : null)
+                                  .ToArray();
+            return equalities.Length != 0 && equalities.All(equality => equality is not null)
+                ? equalities.Max(equality => equality!.Value)
+                : IrKeyEquality.Unknown;
+        }
+
+        /// <summary>The <c>new</c> a region was created by, when the body that holds it is at hand.</summary>
+        private IrAllocateOperation? Allocation(HeapRegion region) =>
+            region is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId } && input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body)
+                ? body.Blocks.SelectMany(block => block.Operations).OfType<IrAllocateOperation>().FirstOrDefault(allocate => allocate.Id == operationId)
+                : null;
+
+        /// <summary>The count the one object a lock resolves to was constructed with, read from its allocation site.</summary>
+        private int? Capacity(IReadOnlyList<string> regions) =>
+            regions.Count == 1 && _heap.Regions.TryGetValue(regions[0], out var region) &&
+            region is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId } &&
+            input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body)
+                ? body.Blocks.SelectMany(block => block.Operations).OfType<IrAllocateOperation>()
+                      .FirstOrDefault(allocate => allocate.Id == operationId)?.SynchronizationCapacity
+                : null;
+
+        private IReadOnlyList<CodeFlowStep> CodeFlow(ExecutionEntry entry, PathNode node, IReadOnlyList<HeldProtectionInfo> held, string accessText,
+                                                     SourceSpan accessSource)
         {
             var steps = new List<CodeFlowStep>();
             var entryInstance = _heap.Instances[entry.InstanceId];
@@ -754,9 +1167,17 @@ public static class InterproceduralAccesses
 
         /// <summary>A merged context of the accessing instance, or of the region's creation, and an unresolved registration that may
         /// change a container object's binding.</summary>
-        private IReadOnlyList<string> Uncertainties(MethodInstance instance, HeapRegion region)
+        private IReadOnlyList<string> Uncertainties(MethodInstance instance, HeapRegion region, SummaryAccess access, AccessResource resource,
+                                                    IReadOnlyList<PathPredicate> conditions)
         {
             var uncertainties = new List<string>();
+            // A guard the analysis cannot read is abstracted away rather than dropped, and says so on the finding (TD-095).
+            uncertainties.AddRange(conditions.Where(condition => !condition.IsSupported)
+                                             .Select(condition => PathConditions.UnsupportedUncertainty(condition.Text))
+                                             .Distinct(StringComparer.Ordinal));
+            // A comparer the analysis cannot read leaves the cell unknown; the candidate stays, with the reason recorded.
+            if (access.Selector is not null && access.Selector != ElementSelector.Unknown && resource.Selector == ElementSelector.Unknown)
+                uncertainties.Add(ConflictFindings.KEY_EQUALITY_UNCERTAINTY);
             if (instance.IsMerged)
                 uncertainties.Add(ConflictFindings.MergedContextUncertainty(MethodSymbol(instance.BodyId)));
             else if (region.IsMerged || region.IsOpen)
@@ -796,27 +1217,57 @@ public static class InterproceduralAccesses
         /// wildcard resource of each region a wildcard path starts from.</summary>
         private IReadOnlyList<AccessResource> Resources(MethodInstance instance, SummaryAccess access)
         {
-            if (access.Field.IsStatic)
-                return [Resource(_heap.StaticRegionOf(instance.Id, access.Field), access.Field, false)];
-
             var resources = new List<AccessResource>();
-            foreach (var @base in access.Bases)
+
+            void Add(string regionId, bool wildcard)
             {
-                var (value, wildcard) = @base is PathValue { IsWildcard: true } path ? (path.Base, true) : (@base, false);
-                foreach (var region in _heap.Resolve(instance.Id, value).Order(StringComparer.Ordinal))
+                foreach (var collection in CollectionsOf(regionId, access))
                 {
-                    var resource = Resource(region, access.Field, wildcard);
+                    var resource = Resource(regionId, access.Field, wildcard, access.Selector, collection);
                     if (!resources.Any(candidate => candidate.Identity == resource.Identity))
                         resources.Add(resource);
                 }
             }
 
+            if (access.Field.IsStatic)
+            {
+                Add(_heap.StaticRegionOf(instance.Id, access.Field), false);
+                return resources;
+            }
+
+            foreach (var @base in access.Bases)
+            {
+                var (value, wildcard) = @base is PathValue { IsWildcard: true } path ? (path.Base, true) : (@base, false);
+                foreach (var region in _heap.Resolve(instance.Id, value).Order(StringComparer.Ordinal))
+                    Add(region, wildcard);
+            }
+
             return resources;
         }
 
-        private AccessResource Resource(string regionId, IrFieldRef field, bool wildcard)
+        /// <summary>
+        /// The collections an access on a collection may work on: what the field of that object holds, which is the collection
+        /// itself and not the name it was reached by. It is read from the field's slot and not from the values of this one
+        /// access, so every access of that field on that object answers it alike. A field that may hold several collections is
+        /// an access on each of them, exactly as a base that may point to several objects is an access on each: an ambiguity is
+        /// not a proof that two accesses touch different collections, and naming such a field after itself would leave it unable
+        /// to meet a field that names one of them (ADR 0010). A collection the analysis cannot name at all leaves the field as
+        /// the only identity there is.
+        /// </summary>
+        private IReadOnlyList<string?> CollectionsOf(string regionId, SummaryAccess access)
+        {
+            if (!access.IsOnCollection)
+                return [null];
+
+            var targets = _heap.PointsTo(regionId, FieldSlot.Key(access.Field));
+            return targets.Count == 0 ? [null] : targets.Order(StringComparer.Ordinal).Select(target => (string?)target).ToArray();
+        }
+
+        private AccessResource Resource(string regionId, IrFieldRef field, bool wildcard, ElementSelector? selector,
+                                        string? collectionId = null)
         {
             var region = _heap.Regions[regionId];
+            selector = selector?.UnderEquality(Equality(regionId, field));
             if (wildcard)
             {
                 return new AccessResource(DeclaringAssembly(region.TypeKey) ?? field.Assembly, input.Scope.ScopeId, region.Display, [PathValue.WILDCARD],
@@ -826,12 +1277,16 @@ public static class InterproceduralAccesses
                 };
             }
 
-            return new AccessResource(field.Assembly, input.Scope.ScopeId, region.Display, [field.Name],
+            // A cell is the collection's own path with the cell appended, so the collection and its cells read as one family.
+            return new AccessResource(field.Assembly, input.Scope.ScopeId, region.Display,
+                                      selector is null ? [field.Name] : [field.Name, selector.Text],
                                       new MemberKey(field.ContainingType, field.Name, field.Kind,
                                                     field.ContainingTypeIdentity == field.ContainingType ? null : field.ContainingTypeIdentity),
                                       regionId)
             {
-                RegionKey = RegionKey(region)
+                RegionKey = RegionKey(region),
+                Selector = selector,
+                CollectionId = collectionId
             };
         }
 
@@ -903,7 +1358,8 @@ public static class InterproceduralAccesses
 }
 
 /// <summary>
-/// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never construction-local, never on a
+/// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never a pair neither of whose sides
+/// is a conflicting operation (TD-072), never construction-local, never on a
 /// thread-confined region, only across executions that overlap, and never
 /// where the happens-before graph orders the two accesses. The candidates come from <see cref="CandidateIndex"/>, each unordered
 /// pair once.
@@ -911,9 +1367,12 @@ public static class InterproceduralAccesses
 public static class InterproceduralPairing
 {
     public const string SKIP_READ_READ = "read-read";
+    public const string SKIP_NO_CONFLICTING_OPERATION = "no-conflicting-operation";
     public const string SKIP_NO_OVERLAP = "no-overlap";
     public const string SKIP_CONFINED = "confined";
     public const string SKIP_ORDERED = "ordered";
+    public const string SKIP_UNSATISFIABLE_PATH = "unsatisfiable-path";
+    public const string SKIP_DISJOINT_ITERATION = "disjoint-iteration";
 
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
@@ -927,10 +1386,13 @@ public static class InterproceduralPairing
         {
             counted++;
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? SKIP_READ_READ
+                : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
                   first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first) ? SKIP_NO_OVERLAP
                 : executions.Ordered(first, second) ? SKIP_ORDERED
                 : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
+                : PathConditions.Contradict(first.Conditions, second.Conditions) ? SKIP_UNSATISFIABLE_PATH
+                : IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION
                 : null;
             if (skip is not null)
             {
@@ -938,18 +1400,13 @@ public static class InterproceduralPairing
                 return;
             }
 
-            if (first.HeldProtectionIds.Intersect(second.HeldProtectionIds, StringComparer.Ordinal).Any())
+            var protection = PairProtection.Of(first, second);
+            if (protection == PairProtection.SUFFICIENT)
             {
                 suppressed++;
                 return;
             }
 
-            var protection = (first.HeldProtection.Count != 0, second.HeldProtection.Count != 0) switch
-            {
-                (false, false) => PairProtection.UNPROTECTED,
-                (true, true) => PairProtection.DIFFERENT_IDENTITY,
-                _ => PairProtection.PARTIAL
-            };
             pairs.Add(new AccessPair(first, second, protection) { Resource = reported, Uncertainties = uncertainties });
         }
 
@@ -973,6 +1430,14 @@ public static class InterproceduralPairing
             LargestBucket = index.LargestBucket
         };
     }
+
+    /// <summary>Whether the two accesses are two iterations of one run of a parallel loop, each naming the cell its own
+    /// iteration number names. Two runs of a loop prove nothing, so the two must be one execution of one body: a loop that
+    /// joins before it returns can only overlap itself within one run (TD-068).</summary>
+    internal static bool IsDisjointIteration(Access first, Access second) =>
+        first.IsIterationIndexed && second.IsIterationIndexed &&
+        string.Equals(first.ExecutionId, second.ExecutionId, StringComparison.Ordinal) &&
+        string.Equals(first.BodyId, second.BodyId, StringComparison.Ordinal);
 }
 
 internal enum PairEnumeration
@@ -1004,6 +1469,10 @@ internal sealed class CandidateIndex
     }
 
     private readonly SortedDictionary<string, List<Access>> _resources = new(StringComparer.Ordinal);
+
+    /// <summary>The cell buckets of one collection, by that collection's identity: a cell meets the cells it may be, and no more
+    /// (TD-075).</summary>
+    private readonly SortedDictionary<string, List<List<Access>>> _cells = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Scope, string RegionId), RegionBuckets> _regions = [];
     private readonly List<RegionBuckets> _regionOrder = [];
     private readonly Dictionary<Access, int> _positions = new(ReferenceEqualityComparer.Instance);
@@ -1035,6 +1504,12 @@ internal sealed class CandidateIndex
             {
                 index._resources.Add(access.Resource.Identity, bucket = []);
                 region.Resources.Add(bucket);
+                if (access.Resource.Selector is not null)
+                {
+                    if (!index._cells.TryGetValue(access.Resource.StructuralIdentity, out var cells))
+                        index._cells.Add(access.Resource.StructuralIdentity, cells = []);
+                    cells.Add(bucket);
+                }
             }
 
             bucket.Add(access);
@@ -1070,6 +1545,25 @@ internal sealed class CandidateIndex
                 yield return pair;
         }
 
+        // Two cells of one collection meet only where their selectors may name one cell; proven-distinct cells never do, which is
+        // what keeps this short of the all-pairs loop (TD-075).
+        foreach (var cells in _cells.Values)
+        {
+            for (var first = 0; first < cells.Count; first++)
+            {
+                for (var second = first + 1; second < cells.Count; second++)
+                {
+                    if (!cells[first][0].Resource.Selector!.MayOverlap(cells[second][0].Resource.Selector!))
+                        continue;
+                    foreach (var pair in Across(cells[first], cells[second], (item, other) => ReportedCell(item.Resource, other.Resource),
+                                                _ => [], PairEnumeration.Resource))
+                    {
+                        yield return pair;
+                    }
+                }
+            }
+        }
+
         foreach (var region in _regionOrder.Where(region => region.Wildcard.Count != 0))
         {
             foreach (var pair in Within(region.Wildcard, PairEnumeration.Wildcard))
@@ -1092,6 +1586,16 @@ internal sealed class CandidateIndex
             }
         }
     }
+
+    /// <summary>Which of two cells a pair between them is reported on: the cell that is proven, since that is what a reader can
+    /// act on, and the first by text where that does not decide it. The choice does not depend on which side is which.</summary>
+    internal static AccessResource ReportedCell(AccessResource first, AccessResource second) =>
+        (first.Selector!.IsProven, second.Selector!.IsProven) switch
+        {
+            (false, true) => second,
+            (true, false) => first,
+            _ => string.CompareOrdinal(second.Selector.Text, first.Selector.Text) < 0 ? second : first
+        };
 
     private static IEnumerable<CandidatePair> OpenAndClosed(RegionBuckets open, RegionBuckets closed)
     {

@@ -103,6 +103,24 @@ public enum IrServiceCallKind
     ScopeCreation
 }
 
+/// <summary>What a collection member does to one of the collection's two resources (ADR 0010).</summary>
+public enum IrCollectionEffect
+{
+    None,
+    Read,
+    Write,
+    ReadWrite
+}
+
+/// <summary>How a collection compares the keys of its cells, read from the comparer it was constructed with: by value, ignoring
+/// case, or by a comparer the analysis cannot read, under which no two keys are proven apart.</summary>
+public enum IrKeyEquality
+{
+    Value,
+    IgnoreCase,
+    Unknown
+}
+
 /// <summary>Where a service provider receiver syntactically comes from.</summary>
 public enum IrProviderKind
 {
@@ -113,9 +131,15 @@ public enum IrProviderKind
     InjectedProvider
 }
 
+/// <summary>The synchronization mechanisms the lowering models (TD-080, TD-083). Two mechanisms on one object are independent, so
+/// the kind takes part in matching a release to its acquisition and in the verdict of a pair.</summary>
 public enum IrSynchronizationPrimitive
 {
-    Monitor
+    Monitor,
+    Lock,
+    Mutex,
+    SemaphoreSlim,
+    ReaderWriterLockSlim
 }
 
 public enum IrLockMode
@@ -185,12 +209,37 @@ public enum IrTimerFlag
     Unknown
 }
 
+/// <summary>What an atomic operation does to the cell it names (TD-082): <c>Volatile.Read</c> and a <c>volatile</c> field read are
+/// <see cref="Read"/>, <c>Volatile.Write</c> and a <c>volatile</c> field write <see cref="Write"/>, and the <c>Interlocked</c>
+/// members that replace a value <see cref="ReadModifyWrite"/>. <see cref="CompareAndSwap"/> is the one that writes only where the
+/// cell still holds the value it is given, which is what lets it carry a value an earlier read produced without losing what
+/// happened in between (R1).</summary>
+public enum IrAtomicEffect
+{
+    Read,
+    Write,
+    ReadModifyWrite,
+    CompareAndSwap
+}
+
 public enum IrComparisonKind
 {
     Equality,
     Ordering,
     Null,
     Type
+}
+
+/// <summary>Which way a comparison runs. The kind alone does not say it: <c>==</c> and <c>!=</c> are both equality, and a path
+/// predicate built from one without the other would claim the opposite of what the branch tests (TD-090).</summary>
+public enum IrComparisonOperator
+{
+    Equal,
+    NotEqual,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual
 }
 
 public enum IrConversionKind
@@ -249,6 +298,9 @@ public sealed record IrFieldRef(string Assembly, string ContainingType, string N
                                 bool IsStatic, bool IsReadOnly, string Type, string? ContainingTypeIdentity = null)
 {
     public string ContainingTypeId => ContainingTypeIdentity ?? ContainingType;
+
+    /// <summary>The field is declared <c>volatile</c>, so each of its reads and writes is atomic on its cell (TD-082).</summary>
+    public bool IsVolatile { get; init; }
 }
 
 public sealed record IrPhiInput(IrFlowPredecessor Predecessor, int Value);

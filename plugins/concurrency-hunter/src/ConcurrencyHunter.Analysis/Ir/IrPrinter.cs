@@ -88,8 +88,8 @@ public static class IrPrinter
                                     $"result={OptionalValue(timer.ResultValue)} flag={Optional(timer.Flag)}"),
         IrAcquireOperation acquire => F($"acquire {acquire.Primitive} {acquire.Mode} {Value(acquire.LockValue)}"),
         IrReleaseOperation release => F($"release {release.Primitive} {release.Mode} {Value(release.LockValue)}"),
-        IrAtomicOperation atomic => F($"atomic {Text(atomic.OperationKind)} result={OptionalValue(atomic.ResultValue)} " +
-                                       $"operands={Values(atomic.OperandValues)}"),
+        IrAtomicOperation atomic => F($"atomic {Text(atomic.OperationKind)} {atomic.Effect} result={OptionalValue(atomic.ResultValue)} " +
+                                       $"operands={Values(atomic.OperandValues)} target={OperationId(atomic.TargetOperationId)}"),
         IrComputeOperation compute => F($"compute {Value(compute.ResultValue)} {Text(compute.Operator)} " +
                                          $"operands={Values(compute.OperandValues)}"),
         IrCompareOperation compare => F($"compare {Value(compare.ResultValue)} {compare.Comparison} " +

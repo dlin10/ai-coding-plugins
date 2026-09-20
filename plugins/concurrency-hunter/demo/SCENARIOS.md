@@ -1,4 +1,4 @@
-# Каталог сценариев demo
+﻿# Каталог сценариев demo
 
 | Поле | Значение |
 |---|---|
@@ -171,38 +171,39 @@
 | `maybe-null-handle` | оба | `Task? t = null; if (c) t = Task.Run(...); try { await t!; } catch { }` рядом с тем же `try`/`await` над всегда присвоенным handle | `/dropped` DCA1001; `/taken` нет | TD-067, TD-069 | — |
 | `dispose-async-configure-await` | negative | `await timer.DisposeAsync().ConfigureAwait(false)`, затем запись поля, которое пишет callback | нет | TD-061, TC-12 | — |
 
-## Фаза 4 — Protection и selectors
+## Фаза 4 — написаны
 
 | Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
 |---|---|---|---|---|---|
 | `interlocked-increment` | negative | `Interlocked.Increment(ref _count)` в action | нет | TD-082 | nD |
 | `interlocked-compare-exchange-loop` | negative | CAS-цикл: чтение в local, вычисление, `CompareExchange` | нет | TD-072, TD-082 | nD |
-| `interlocked-mixed-with-plain-write` | positive | `Interlocked.Increment` в одном worker-е, `_count = 0` в другом | DCA1001 или DCA1003 (вопрос 5) | FR-07, TD-082 | ⚠ |
+| `interlocked-mixed-with-plain-write` | positive | `Interlocked.Increment` в одном worker-е, `_count = 0` в другом | DCA1001 (вопрос 5) | FR-07, TD-082 | ⚠ |
 | `volatile-rmw-not-atomic` | positive | `volatile int _hits; _hits++` в action | DCA1002 | TD-082, FR-09 | — |
 | `volatile-read-write-flag` | negative | `Volatile.Write(ref _stop, true)` в action, `Volatile.Read(ref _stop)` в worker-е | нет | TD-082 | nD |
 | `lock-different-identity` | positive | Два worker-а пишут поле под `lock (_a)` и `lock (_b)` | DCA1003 `different-identity` | TD-081, FR-07 | ⚠ |
 | `lock-protected-vs-unprotected` | positive | Один worker пишет под `lock`, другой без | DCA1003 `partial` | FR-07 | ⚠ |
 | `lock-on-fresh-object` | positive | `lock (new object())` в методе singleton-а, два worker-а | DCA1003 | TD-044, TD-081 | ⚠ |
 | `monitor-try-enter` | оба | Поле A пишется внутри `if (Monitor.TryEnter(gate))` с `Exit` в `finally`; поле B после `TryEnter` без проверки результата | `/guarded` нет; `/unguarded` DCA1003 | TD-080 | nD / ⚠ |
-| `system-threading-lock` | negative | `System.Threading.Lock`: `lock (_gate)` в одном worker-е, `using (_gate.EnterScope())` в другом | нет | TD-080 | nD |
+| `system-threading-lock` | оба | `System.Threading.Lock` во всех трёх формах: `Enter`/`Exit` в `finally`, `using (_gate.EnterScope())`, `lock (_gate)`; второе поле пишется под `lock (_gate)` и под `lock ((object)_gate)`. Компилятор не переписывает `lock` над `Lock` ни в enter, ни в exit и не даёт региона, поэтому секция читается из самого оператора; там, где её тело компилятор разложил по нескольким блокам, форма не доказывает защиты | `_onDuty` нет; `/mixed-mechanisms` DCA1003 `incompatible-mode` | TD-080, TD-083 | nD / ⚠ |
 | `mutex-in-process` | negative | `Mutex.WaitOne` и `ReleaseMutex` в `finally` в двух worker-ах | нет | TD-083 | nD |
 | `semaphore-slim-capacity-one` | negative | `new SemaphoreSlim(1, 1)`, `await WaitAsync()` и `Release()` в `finally` | нет | TD-083 | nD |
 | `semaphore-slim-not-a-mutex` | positive | По полю на вариант: capacity из параметра конструктора; константа 2; `Release` вне `finally` | `/unknown-capacity`, `/capacity-two`, `/release-not-in-finally` DCA1003 `partial` | TD-083, PRD 7 п. 2 | ⚠ |
 | `reader-writer-lock-slim` | оба | Поле A: чтение под `EnterReadLock`, запись под `EnterWriteLock`; поле B: два worker-а пишут под `EnterReadLock` | `/read-vs-write` нет; `/write-under-read-lock` DCA1003 `incompatible-mode` | TD-083 | nD / ⚠ |
 | `spin-lock-not-protection` | positive | Оба writer-а под `SpinLock.Enter`/`Exit` | DCA1001 | PRD 3, TD-086 | — |
-| `custom-async-lock-releaser` | positive | Пользовательский `AsyncLock` на `SemaphoreSlim(1, 1)` с releaser-ом `IDisposable`; оба writer-а под `using (await _lock.LockAsync())` | решить (вопрос 6) | TD-086 | ⚠ |
+| `custom-async-lock-releaser` | negative | Пользовательский `AsyncLock` на `SemaphoreSlim(1, 1)` с releaser-ом `IDisposable`; оба writer-а под `using (_lock.Enter())`. Область берётся синхронно: анализ пока не проводит результат async-метода до объекта, который тот вернул, поэтому у `Dispose` над `await`-полученным releaser-ом нет ни одного разрешённого callee | нет (вопрос 6) | TD-086, ADR 0009 | ⚠ |
+| `callee-joins-on-a-parameter` | negative | Метод, принимающий `Task` параметром и ждущий его на всех путях, вызванный из local и inline; записи по полю на форму | `/local`, `/inline` нет | ADR 0009, вопрос 15 | ⚠ |
 | `concurrent-dictionary-atomic-ops` | negative | `GetOrAdd`, `AddOrUpdate`, `TryUpdate` из action и worker-а | нет | TD-085 | nD |
 | `concurrent-dictionary-compound` | positive | `if (!d.ContainsKey(k)) d[k] = v` и `d[k] = d[k] + 1` на разных словарях | `/contains-then-set`, `/indexer-increment` DCA1004 | TD-085 | ⚠ |
 | `concurrent-bag-count-then-add` | positive | `if (bag.Count < Limit) bag.Add(x)` в action | DCA1004 | TD-085 | ⚠ |
 | `concurrent-queue-single-ops` | negative | `Enqueue` в action, `TryDequeue` в worker-е | нет | PRD 3 | nD |
-| `concurrent-dictionary-enumerate-while-mutate` | positive | Worker перечисляет словарь `foreach`, action добавляет | finding, правило по вопросу 4 | TD-085 | ⚠ |
+| `concurrent-dictionary-enumerate-while-mutate` | оба | Action перечисляет `foreach` два словаря, worker пишет в оба: thread-safe и обычный | `/concurrent-dictionary` нет; `/plain-dictionary` DCA1001 по структуре и по записанной ячейке | TD-085, ADR 0010 | ⚠ |
 | `dictionary-disjoint-keys-structural` | positive | Обычный `Dictionary`: два worker-а пишут константные ключи `"a"` и `"b"` | DCA1001 на structural resource | TD-070 | ⚠ |
-| `static-list-add` | positive | `static readonly List<string>`, `Add` из action | DCA1001, self-pair на structural resource (вопрос 2) | TD-070 | ⚠ |
+| `static-list-add` | positive | `static readonly List<string>`, `Add` из action | DCA1001, self-pair на структуре и на ячейке, которую `Add` не называет (вопрос 2) | TD-070, ADR 0010 | ⚠ |
 | `array-disjoint-constant-indices` | negative | Два worker-а пишут `_slots[0]` и `_slots[1]` | нет, без solver | TD-092, TC-17 | nD (вопрос 1) |
 | `array-symbolic-indices` | positive | Два worker-а пишут `_slots[i]` и `_slots[j]`, индексы из независимых источников | DCA1001, SAT model | TD-092, TC-17 | вопрос 1 |
-| `array-disjoint-guarded-ranges` | negative | `if (i < 5) _slots[i] = …` и `if (j >= 5) _slots[j] = …` | нет, UNSAT | TD-043, TD-092 | nD |
+| `array-disjoint-guarded-ranges` | negative | `if (i < 5) _slots[i] = …` и `if (j >= 5) _slots[j] = …` | нет, UNSAT: предикат по локальному индексу и выражение ячейки называют одно значение одинаково, поэтому `i < 5`, `j >= 5` и `i == j` попадают в один запрос | TD-043, TD-092 | nD |
 | `parallel-for-disjoint-index` | negative | `Parallel.For(0, n, i => results[i] = …)` | нет | TD-068, TC-17 | nD |
-| `span-slices-disjoint` | negative | Два worker-а пишут через `_buffer.AsSpan(0, 8)` и `_buffer.AsSpan(8, 8)` | нет | TD-043 | nD |
+| `span-slices-disjoint` | negative | Два worker-а пишут через `_buffer.AsSpan(0, 8)` и `_buffer.AsSpan(8, 8)` | нет: индексатор, возвращающий ссылку, понижается в element operation над срезаемым массивом, срез сводится к смещению, и ячейки `[0]` и `[8]` разведены | TD-043 | nD |
 | `index-overflow-wraps` | positive | `_slots[(byte)i]` и `_slots[(byte)(i + 256)]`: алгебраически разные, равны после conversion | DCA1001 | TD-043, TC-17 | вопрос 1 |
 | `key-equality-comparer` | оба | `ConcurrentDictionary`, compound `TryGetValue` + indexer set в двух worker-ах: ключи `"a"`/`"b"`; `"a"`/`"A"` с `StringComparer.OrdinalIgnoreCase`; пользовательский comparer | `/ordinal-distinct` нет; `/ignore-case-equal` DCA1004; `/custom-comparer` DCA1004 с uncertainty | TD-043 | ⚠ |
 | `mutually-exclusive-paths` | negative | Singleton-опции с `readonly bool IsPrimary`; worker A пишет под `if (IsPrimary)`, worker B под `if (!IsPrimary)`; вариант со `switch` по enum | `/boolean`, `/enum-switch` нет, UNSAT (вопрос 10) | TD-090, TD-092, 12.2 | nD |
@@ -264,19 +265,24 @@
 
 | # | Вопрос | Кейсы | Фаза |
 |---|---|---|---|
-| 1 | Как в `expected-findings.json` записывается resource элемента: `accessPath` по 12.2 называет только поля и auto-properties, записи для `ElementSelector` и structural resource коллекции нет | selector-кейсы, `dictionary-disjoint-keys-structural`, `static-list-add` | 4 |
-| 2 | В какой фазе моделируются мутации обычных `List<T>` и `Dictionary<TKey, TValue>`: TD-085 и строка фазы 4 говорят о concurrent collections, TD-034a о `System.*` по immutability и чистоте; от этого же зависит escape через collection insertion из TD-052 | `static-list-add`, `dictionary-disjoint-keys-structural` | 4 или 5 |
+| 1 | Закрыт в фазе 4: ячейка это отдельный сегмент `accessPath` сразу после поля коллекции — `[0]` для доказанной константы, `["a"]` для доказанного ключа, `[0..8]` для консервативного диапазона, `[?]` для всего остального; сегмент входит в идентичность ресурса, а к самой коллекции обращаются без него (SPEC 12.2, TD-043, [ADR 0010](../docs/adr/0010-a-collections-structure-is-a-resource-of-its-own.md)) | selector-кейсы, `dictionary-disjoint-keys-structural`, `static-list-add` | 4 |
+| 2 | Закрыт в фазе 4: обычные `List<T>` и `Dictionary<TKey, TValue>` моделируются здесь же, по таблице членов ADR 0010, наравне с concurrent-коллекциями; общая таблица семантики библиотек TD-034a остаётся в фазе 5, где по ней же решается escape через collection insertion | `static-list-add`, `dictionary-disjoint-keys-structural` | 4 |
 | 3 | Закрыт. Даёт ли `ContinueWith` happens-before от antecedent к continuation. Да: continuation упорядочен после antecedent, когда antecedent доказанно её receiver; отделившаяся работа antecedent не упорядочена | `continue-with` | 3 |
-| 4 | Правило для enumerate + mutate: DCA1004 требует `LostUpdate`, а перечисление против вставки не lost update | `concurrent-dictionary-enumerate-while-mutate` | 4 |
-| 5 | Atomic операция против незащищённой записи: DCA1001 или DCA1003, то есть считается ли atomic защитой в `protectionAnalysis` | `interlocked-mixed-with-plain-write` | 4 |
-| 6 | Пользовательский `AsyncLock` с исходником: TD-086 запрещает считать его защитой, а межпроцедурный must-hold через возвращённый releaser мог бы её доказать | `custom-async-lock-releaser` | 4 |
+| 4 | Закрыт в фазе 4: enumerate + mutate это не составная операция и не DCA1004. Перечисление читает структуру, вставка её пишет; на thread-safe коллекции обе операции атомарны по структуре и пары нет, на обычной не атомарна ни одна и срабатывает обычное правило конфликта. DCA1004 остаётся потерей обновления и не расширяется (ADR 0010, TD-085) | `concurrent-dictionary-enumerate-while-mutate` | 4 |
+| 5 | Закрыт. Atomic операция против незащищённой записи: DCA1001. Атомарность это свойство операции по TD-071 и TD-072, а не защита: пара, у которой одна сторона неатомарна, остаётся обычным незащищённым конфликтом, и `protectionAnalysis` о ней ничего не знает | `interlocked-mixed-with-plain-write` | 4 |
+| 6 | Закрыт [ADR 0009](../docs/adr/0009-a-synchronization-wrapper-is-transparent-never-a-lock-type.md): обёртка прозрачна, а не распознана. Защиту доказывает тот же must-hold анализ на регионе нижележащего примитива, если захват сводится к моделируемому примитиву с доказанной identity, освобождение сводится к нему же и происходит на всех путях | `custom-async-lock-releaser` | 4 |
 | 7 | Как результат `ChannelReader.ReadAsync` связывается с записанным объектом; фаза для `Channel<T>` в 14.3 не названа | `channel-handoff` | 5 |
 | 8 | Закрыт: конструкторы и type initializers решены в [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md); ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal` переносится в фазу 5 | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; кейсов на thread-local нет | 5 |
 | 9 | Корень репозитория для `.concurrency-hunter/suppressions.json`, когда demo лежит внутри репозитория CodexPlugins (14.1 п. 6) | `suppress-file-fingerprint` | 6 |
-| 10 | Получает ли `readonly` значение одного региона одну canonical identity в независимых instances, если TD-092 даёт им отдельные bindings | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
-| 11 | Как ввести ⚠-кейс, не покраснев на гейте предыдущей фазы: код кейса в одной задаче с классификацией, переключение константы фазы в той же задаче или правка матчера; 2b: код кейса и классификация в одной задаче, константа фазы переключена там же | все ⚠ | план каждой фазы |
+| 10 | Закрыт в фазе 4: да, но только когда доказано всё сразу — регион представляет ровно один объект на процесс (статическое хранилище, DI singleton или allocation site, выполняющийся не более одного раза), поле `readonly` или get-only auto-property, вне конструирования своего региона его никто не пишет, и чтение происходит после этого конструирования. Всё остальное это значение одного исполнения, которого не разделяет никакое другое, и пару оно снять не может. Граница односторонняя: ошибка здесь подавляет настоящую гонку (TD-090, TD-092) | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
+| 11 | Закрыт: файл ⚠-кейса входит в demo в той же задаче, что и изменение движка, дающее его находкам записанную identity, — и константа фазы матчера переключается в последней задаче фазы, когда все её записи уже верны | все ⚠ | план каждой фазы |
 | 12 | Конфликтует ли `UnknownEffect` как запись по TD-072, когда gap не разрешён | `unknown-call-model-not-noop` | 5 |
 | 13 | Что именно redaction убирает из snippets | `redaction-in-snippet` | 6 |
 | 14 | Region и ownership сущности, которую вернул opaque persistence-вызов EF Core | `ef-core-no-db-verdict` | 5 |
-| 15 | Join над параметром не поднимается на call site: `void Run(Task t) => t.Wait();` с доказанным handle в аргументе не упорядочивает запись после вызова ни из local, ни inline, доказывается только handle из поля. Измерено на demo в фазе 3; ложный positive на обычном C# | `callee-joins-on-all-paths` | 4 |
+| 15 | Закрыт в фазе 4: связывание параметра именует экземпляр, а не summary, поэтому handle, переданный параметром, доказан так же, как прочитанный из поля, и `void Run(Task t) => t.Wait();` упорядочивает вызывающего | `callee-joins-on-all-paths`, `callee-joins-on-a-parameter` | 4 |
 | 16 | Создаёт ли вызов нераспознанного interface-метода semantic gap по TD-034 и опускает ли TD-108 метку таких находок до Medium: от этого зависит, можно ли писать кейсы неизвестного происхождения задачи и таймера раньше фазы 5 | `opaque-task-source`, `mixed-source-timer` | 5 |
+| 17 | Как guard точки вызова на значении, переданном как индекс, связать с термом индекса. Измерено в фазе 4: субъекты именуются по экземпляру и связывания аргумента с параметром нет, поэтому `Index < 4` в вызывающем не доказывает, что ячейка не `[9]`. Граница односторонняя в безопасную сторону — это потеря точности, а не подавление находки | `array-disjoint-guarded-ranges`, `array-symbolic-indices` | 5 |
+| 18 | Как доказывать семантику смещения для пользовательского типа со срезом или ref-returning индексатором. Фаза 4 сопоставляет объявляющий тип вместе с членом, поэтому чужой `Slice` не даёт ячейку вовсе: `Cell` требует, чтобы коллекция прослеживалась до чтения поля. Это безопаснее прежнего поведения, где любой член с таким именем принимался за `Span` и ячейка оказывалась не на месте | `span-slices-disjoint` | 5 |
+| 19 | Проводить ли `MustHeldState.AtExit` через `Mark`. Без этого scope, поднятый из итератора, который делает `yield return` под удержанием, потерял бы `CrossesSuspension`. Измерено в фазе 4: через async недостижимо, поэтому находку это сейчас не теряет | кейса нет; ограничение закреплено тестом `A_monitor_held_over_a_yield_return_is_partial` | 5 |
+
+**Как закрывать остаток.** Четыре раунда код-ревью фазы 4 дали 20, 8, 8 и 7 находок, и около половины каждого раунда были следствиями правок предыдущего: правило вводилось в одном слое и не применялось в соседнем, либо две независимо добавленные фичи фазы не сочетались друг с другом — атомарность на элементе и `Span` не знали друг о друге, пока это не проверили попарно. Мутационный тест доказывает, что правка что-то меняет, и не доказывает, что она не открыла дыру рядом. Поэтому остаток этого хвоста дешевле закрывать систематическим проходом — перечислить все распознаватели, все места, где решает каждое правило, и все пары фич, обязанных сочетаться, — чем новыми раундами ревью.

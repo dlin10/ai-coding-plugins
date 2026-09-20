@@ -10,25 +10,28 @@
     },
     "reachableBodies": 483,
     "summaries": 664,
-    "regions": 938,
+    "regions": 912,
     "instances": 774,
-    "accesses": 1738,
+    "accesses": 1651,
     "pairs": {
-      "comparisons": 1523,
-      "cartesianBound": 87946,
-      "largestBucket": 14,
-      "buckets": 679,
+      "comparisons": 1230,
+      "cartesianBound": 68616,
+      "largestBucket": 8,
+      "buckets": 649,
       "skips": {
-        "confined": 439,
-        "read-read": 1084
+        "confined": 447,
+        "read-read": 781
       },
       "suppressed": 0,
-      "candidates": 0
+      "candidates": 2
     },
-    "findings": 0,
-    "occurrences": 0,
-    "groups": 0,
-    "fingerprints": []
+    "findings": 2,
+    "occurrences": 2,
+    "groups": 2,
+    "fingerprints": [
+      "7c919c7aedc4b38e",
+      "fa3fbc528c46593e"
+    ]
   },
   "coverage": [
     {
@@ -37,7 +40,7 @@
         "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 44,
+      "accesses": 39,
       "counters": {
         "delegate-to-opaque": 16,
         "element-operation": 8,
@@ -46,6 +49,7 @@
         "opaque-call": 170,
         "reachable-bodies": 44,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
@@ -64,7 +68,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 112,
+      "accesses": 91,
       "counters": {
         "delegate-to-opaque": 17,
         "element-operation": 14,
@@ -73,6 +77,7 @@
         "opaque-call": 264,
         "reachable-bodies": 83,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
@@ -91,7 +96,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 339,
+      "accesses": 286,
       "counters": {
         "delegate-to-opaque": 28,
         "element-operation": 13,
@@ -100,6 +105,7 @@
         "opaque-call": 896,
         "reachable-bodies": 86,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 1,
         "wildcard-access": 0
@@ -118,7 +124,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 81,
+      "accesses": 83,
       "counters": {
         "delegate-to-opaque": 22,
         "element-operation": 6,
@@ -127,6 +133,7 @@
         "opaque-call": 91,
         "reachable-bodies": 58,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -145,7 +152,7 @@
         "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 29,
+      "accesses": 25,
       "counters": {
         "delegate-to-opaque": 13,
         "element-operation": 21,
@@ -154,6 +161,7 @@
         "opaque-call": 161,
         "reachable-bodies": 43,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 6,
         "wildcard-access": 0
@@ -181,6 +189,7 @@
         "opaque-call": 43,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -208,6 +217,7 @@
         "opaque-call": 74,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -235,6 +245,7 @@
         "opaque-call": 75,
         "reachable-bodies": 9,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -253,7 +264,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 86,
+      "accesses": 88,
       "counters": {
         "delegate-to-opaque": 23,
         "element-operation": 10,
@@ -262,6 +273,7 @@
         "opaque-call": 96,
         "reachable-bodies": 58,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -280,7 +292,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 171,
+      "accesses": 168,
       "counters": {
         "delegate-to-opaque": 16,
         "element-operation": 2,
@@ -289,6 +301,7 @@
         "opaque-call": 186,
         "reachable-bodies": 37,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -316,6 +329,7 @@
         "opaque-call": 12,
         "reachable-bodies": 4,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -343,6 +357,7 @@
         "opaque-call": 78,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -361,7 +376,7 @@
         "aspnetcore": 3,
         "hosting": 0
       },
-      "accesses": 17,
+      "accesses": 14,
       "counters": {
         "delegate-to-opaque": 0,
         "element-operation": 3,
@@ -370,6 +385,9 @@
         "opaque-call": 37,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
+        "solver-queries": 2,
+        "solver-sat": 2,
         "unanalysed-registration": 0,
         "unresolved-locator": 0,
         "wildcard-access": 0
@@ -388,7 +406,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 31,
+      "accesses": 29,
       "counters": {
         "delegate-to-opaque": 5,
         "element-operation": 12,
@@ -397,6 +415,7 @@
         "opaque-call": 95,
         "reachable-bodies": 21,
         "scc-budget-exceeded": 0,
+        "solver-available": 1,
         "unanalysed-registration": 0,
         "unresolved-locator": 3,
         "wildcard-access": 0

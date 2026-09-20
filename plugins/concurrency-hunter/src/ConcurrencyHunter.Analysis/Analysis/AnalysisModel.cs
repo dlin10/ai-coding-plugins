@@ -6,11 +6,18 @@ using ConcurrencyHunter.Scopes;
 
 namespace ConcurrencyHunter.Analysis;
 
+/// <summary>What an access does to its cell (TD-071). The atomic kinds are the ones a single hardware operation performs:
+/// <c>Interlocked</c>, <c>Volatile</c> and a <c>volatile</c> field (TD-082). A read-modify-write built from a volatile read and a
+/// volatile write is not one of them.</summary>
 public enum AccessOperation
 {
     Read,
     Write,
-    ReadModifyWrite
+    ReadModifyWrite,
+    AtomicRead,
+    AtomicWrite,
+    AtomicReadModifyWrite,
+    CompoundOperation
 }
 
 public static class AccessOperationExtensions
@@ -20,8 +27,17 @@ public static class AccessOperationExtensions
         AccessOperation.Read => "read",
         AccessOperation.Write => "write",
         AccessOperation.ReadModifyWrite => "read-modify-write",
+        AccessOperation.AtomicRead => "atomic-read",
+        AccessOperation.AtomicWrite => "atomic-write",
+        AccessOperation.AtomicReadModifyWrite => "atomic-read-modify-write",
+        AccessOperation.CompoundOperation => "compound-operation",
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
+
+    /// <summary>Whether an access can make a pair a conflict: only a non-atomic write, a non-atomic read-modify-write or a
+    /// compound operation can (TD-072). Two accesses of which neither can are never reported.</summary>
+    public static bool Conflicts(this AccessOperation operation) =>
+        operation is AccessOperation.Write or AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation;
 }
 
 public sealed record SourceSpan(string Path, int StartLine, int StartColumn, int EndLine, int EndColumn);
@@ -60,6 +76,9 @@ public sealed record Finding(string FindingId, string Fingerprint, string GroupI
     public string GroupFingerprint { get; init; } = "";
     public int OccurrenceCount { get; init; } = 1;
     public IReadOnlyList<FindingOccurrence> Occurrences { get; init; } = [];
+
+    /// <summary>What the solver said about the two paths meeting, null where it was never asked (TD-093).</summary>
+    public SolverAnswer? PathFeasibility { get; init; }
 }
 
 /// <summary>Findings of one rule on one object: the same scope and resource identity. Two singleton registrations

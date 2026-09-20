@@ -11,3 +11,12 @@
 | scc | 8 | 16 | 256 | true | 0 | 0 | e3b0c44298fc1c14 | 0 | 27.3 |
 
 Chosen: depth=8, contexts=16, scc=16
+
+## Published executable size
+
+Measured after the solver joined the package in phase 4. SPEC 14.3 asks for the size to be measured, not gated, so there is no ceiling here; the number is checked against the file it describes.
+
+| File | Bytes | Measured | Engine |
+|---|---|---|---|
+| concurrency-hunter.exe | 49051566 | 2026-09-19 | 0.1.0 |
+| concurrency-hunter.exe | 49084334 | 2026-09-20 | 0.1.0 |

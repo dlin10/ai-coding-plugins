@@ -16,7 +16,7 @@ public sealed class MetricsCommandTests
     private static readonly string[] STEPS =
     [
         "load", "scope-discovery", "program-index", "lowering", "reachable-set", "summaries-and-fixpoint", "executions", "accesses", "pairing",
-        "findings", "render"
+        "solver", "findings", "render"
     ];
 
     private static readonly Lazy<Task<(Measurement Measurement, AnalysisResult Analysis)>> DEMO = new(MeasureDemoAsync, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -52,7 +52,7 @@ public sealed class MetricsCommandTests
     }
 
     [Fact]
-    public async Task Demo_measurement_has_every_field_and_eleven_steps()
+    public async Task Demo_measurement_has_every_field_and_twelve_steps()
     {
         var (measurement, _) = await DEMO.Value;
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));

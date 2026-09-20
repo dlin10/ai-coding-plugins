@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using Xunit;
 using Xunit.Abstractions;
@@ -12,6 +13,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
     private const string REQUIRE_VARIABLE = "CONCURRENCYHUNTER_REQUIRE_E2E";
     private static readonly TimeSpan HANDSHAKE_TIMEOUT = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ANALYSIS_TIMEOUT = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PUBLISH_TIMEOUT = TimeSpan.FromMinutes(10);
 
     [Fact]
     public async Task Published_server_lists_exactly_the_five_tools_with_only_json_rpc_on_stdout()
@@ -188,6 +190,73 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             if (Directory.Exists(localApplicationData))
                 Directory.Delete(localApplicationData, true);
         }
+    }
+
+    /// <summary>
+    /// The one check that a silently broken package cannot pass. The solver degrades to Unknown by design (ADR 0004), so an
+    /// executable published without its native library analyses the demo exactly as a working one does, only with less
+    /// precision — and no other test would notice. This one publishes the executable, runs it over the demo, and requires the
+    /// coverage it prints to say the solver was there and that it decided at least one query.
+    /// </summary>
+    [Fact]
+    public async Task Published_executable_carries_a_solver_that_answers_over_the_demo()
+    {
+        await DemoWorkspace.EnsureRestoredAsync();
+        var project = RepositoryFiles.FindRepositoryFile(
+            "plugins", "concurrency-hunter", "src", "ConcurrencyHunter.Cli", "ConcurrencyHunter.Cli.csproj");
+        var demoSolution = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");
+        var directory = Path.Combine(Path.GetTempPath(), $"concurrency-hunter-solver-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            await RunAsync("dotnet", ["publish", project, "-c", "Release", "-o", directory, "--disable-build-servers", "-nodeReuse:false"],
+                           PUBLISH_TIMEOUT);
+            var executable = Path.Combine(directory, "concurrency-hunter.exe");
+            Assert.True(File.Exists(executable), $"The publish produced no executable in {directory}.");
+
+            var metrics = Path.Combine(directory, "metrics.json");
+            await RunAsync(executable, ["metrics", "--target", demoSolution, "--out", metrics], ANALYSIS_TIMEOUT);
+
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(metrics));
+            var counters = document.RootElement.GetProperty("coverage").EnumerateArray()
+                                   .Select(scope => scope.GetProperty("counters"))
+                                   .ToArray();
+            Assert.All(counters, scope => Assert.Equal(1, Counter(scope, SolverCounters.AVAILABLE)));
+            Assert.All(counters, scope => Assert.Equal(0, Counter(scope, SolverCounters.UNAVAILABLE)));
+            Assert.True(counters.Sum(scope => Counter(scope, SolverCounters.SAT) + Counter(scope, SolverCounters.UNSAT)) > 0,
+                        "The published executable answered no query either way: the solver it ships decided nothing.");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    private static int Counter(JsonElement counters, string name) =>
+        counters.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
+
+    /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed.</summary>
+    private async Task RunAsync(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout)
+    {
+        var start = new ProcessStartInfo(fileName)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var argument in arguments)
+            start.ArgumentList.Add(argument);
+
+        using var process = Process.Start(start)!;
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var cancellation = new CancellationTokenSource(timeout);
+        await process.WaitForExitAsync(cancellation.Token);
+        var text = $"{await standardOutput}{await standardError}";
+        output.WriteLine($"{fileName} {string.Join(' ', arguments)} exited with {process.ExitCode}");
+        Assert.True(process.ExitCode == 0, $"{fileName} failed with {process.ExitCode}: {text}");
     }
 
     /// <summary>A narrative built from a group digest alone: it cites an evidence id of every finding the digest lists

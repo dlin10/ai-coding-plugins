@@ -391,7 +391,7 @@ public sealed class IrSpawnLoweringTests
     {
         Expect(
             [
-                "6 timer Create %3 callback=%4 state=%6 due=Infinite period=Infinite wait-handle=- result=- flag=-"
+                "4 timer Create %3 callback=%4 state=%6 due=Infinite period=Infinite wait-handle=- result=- flag=-"
             ],
             await Bcl("void M() { var timer = new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite); }"));
     }

@@ -569,7 +569,8 @@ public static class ReachableSet
             if (call.ArgumentValues.Count == 0 ||
                 !_input.DiIndex.Registrations.Any(registration => registration is { IsSupported: true, Form: DiRegistrationForm.Factory } &&
                                                                   registration.BodyId == memberId && registration.OperationId == call.Id) ||
-                DelegateCreation(call.ArgumentValues[^1], definitions) is not { } creation)
+                // The factory is the member's last parameter, taken by its ordinal: a named argument may be written anywhere.
+                call.LastArgument() is not { } factory || DelegateCreation(factory, definitions) is not { } creation)
             {
                 return;
             }

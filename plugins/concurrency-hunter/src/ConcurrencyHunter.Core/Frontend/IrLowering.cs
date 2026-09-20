@@ -194,19 +194,6 @@ public static class IrLowering
     internal static string RootBodyId(IMethodSymbol method) =>
         $"body:{method.ContainingAssembly.Name}:{method.GetDocumentationCommentId() ?? method.ToDisplayString()}";
 
-    internal static bool IsMonitorEnterOrExit(IMethodSymbol method) => IsMonitorEnter(method) || IsMonitorExit(method);
-
-    private static bool IsMonitorEnter(IMethodSymbol method) =>
-        IsMonitor(method) && method.Name == "Enter" &&
-        (method.Parameters.Length == 1 ||
-         method.Parameters is [{ Type.SpecialType: SpecialType.System_Object },
-             { Type.SpecialType: SpecialType.System_Boolean, RefKind: RefKind.Ref }]);
-
-    private static bool IsMonitorExit(IMethodSymbol method) => IsMonitor(method) && method.Name == "Exit" && method.Parameters.Length == 1;
-
-    private static bool IsMonitor(IMethodSymbol method) =>
-        method.IsStatic && method.ContainingType?.ToDisplayString() == "System.Threading.Monitor";
-
     /// <summary>A source property whose accessors all lack bodies and which is neither abstract, extern nor an interface
     /// member: its accessors have synthesized bodies over its backing field.</summary>
     internal static bool IsAutoProperty(IPropertySymbol property, CancellationToken cancellationToken) =>
@@ -461,6 +448,20 @@ public static class IrLowering
         private readonly Dictionary<IParameterSymbol, int> _parameterValues = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<IOperation, IReadOnlyList<int>> _listedElements = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<int, int> _configuredTasks = [];
+
+        /// <summary>The scope each <c>EnterScope</c> handed back, by its value: disposing it leaves the lock.</summary>
+        private readonly Dictionary<int, LockScope> _lockScopes = [];
+
+        /// <summary>The entry each asynchronous wait would make, by the value awaiting it completes.</summary>
+        private readonly Dictionary<int, PendingEntry> _pendingEntries = [];
+
+        /// <summary>The lock sections of this body, found once; and the value each one that has been entered was entered on.</summary>
+        private List<LockSectionInfo>? _lockSections;
+
+        private readonly Dictionary<LockStatementSyntax, int> _openLocks = [];
+
+        /// <summary>The sections already left in the block being lowered, so that one is never left twice.</summary>
+        private readonly HashSet<LockStatementSyntax> _closedHere = [];
         private ControlFlowGraph _graph = null!;
         private EffectiveFlowGraph _flowGraph = null!;
         private SsaPlan _ssaPlan = null!;
@@ -833,9 +834,13 @@ public static class IrLowering
                         new IrFlowPredecessor(input.Edge.Source + _offset, input.Edge.Kind),
                         ResolveToken(input.Token)))
                     .ToArray();
+                var merged = ResolveToken(token);
                 _operations.Add(new IrPhiOperation(
-                    NextOperation(), ResolveToken(token), inputs,
+                    NextOperation(), merged, inputs,
                     Provenance(block.Operations.FirstOrDefault() ?? block.BranchValue ?? _graph.OriginalOperation, "phi")));
+                // A value merged from paths that all carry the same meaning carries it too; where they disagree it means
+                // nothing, and nothing is what a reader of the merged value then finds.
+                Merge(merged, inputs.Select(input => input.Value).ToArray());
             }
 
             if (block.Ordinal == 0)
@@ -851,10 +856,11 @@ public static class IrLowering
                 }
             }
 
-            foreach (var operation in block.Operations)
-                LowerTop(operation);
+            LowerOperations(block);
 
             int? branchValue = block.BranchValue is null ? null : LowerValue(block.BranchValue);
+            // The section's exit stands after everything the block runs inside it, the condition it leaves on included.
+            LowerLockExits(block);
             if (block.FallThroughSuccessor?.Semantics == ControlFlowBranchSemantics.Return)
             {
                 _operations.Add(new IrReturnOperation(
@@ -894,6 +900,141 @@ public static class IrLowering
                 branch.FinallyRegions.Select(region => _regionIds[region]).ToArray());
         }
 
+        /// <summary>
+        /// The operations of one block, with the entry of a <c>lock</c> statement the compiler leaves unlowered put in front of
+        /// its body. A <c>lock</c> over a <c>System.Threading.Lock</c> is not rewritten into an enter and an exit the way a
+        /// <c>lock</c> over an object is: the control flow graph keeps one operation whose syntax is the statement itself, lays
+        /// the body out after it as ordinary operations, and marks the section with no region at all. The statement's own span
+        /// is what the region would have been, so the section is every block the body's operations fall in, however the compiler
+        /// spread them (TD-080).
+        /// </summary>
+        private void LowerOperations(BasicBlock block)
+        {
+            _closedHere.Clear();
+            var sections = LockSections().Where(candidate => candidate.Blocks.Contains(block.Ordinal)).ToArray();
+            for (var index = 0; index < block.Operations.Length; index++)
+            {
+                var operation = block.Operations[index];
+                if (LockSectionOf(operation) is { } opened)
+                {
+                    var value = LowerValue(opened.Gate);
+                    _openLocks[opened.Statement] = value;
+                    _operations.Add(new IrAcquireOperation(NextOperation(), value, IrSynchronizationPrimitive.Lock,
+                                                           IrLockMode.Exclusive, Provenance(operation, "lock-statement")));
+                    // A body with nothing in it is left where it was entered: the section covers this block alone and nothing
+                    // after the statement here belongs to it.
+                    if (opened.Blocks.Count == 1 && !CoversAfter(opened, block, index))
+                        Release(opened, operation);
+                    continue;
+                }
+
+                LowerTop(operation);
+
+                // A section whose span ends inside this block is left here and not at the block's end: whatever the block runs
+                // after the statement is outside it, and holding the lock over that would protect what nothing protects.
+                foreach (var section in sections.Where(candidate => Covers(candidate, operation) &&
+                                                                    !CoversAfter(candidate, block, index))
+                                                .OrderBy(candidate => candidate.Statement.Statement.Span.Length))
+                {
+                    Release(section, operation);
+                }
+            }
+        }
+
+        private static bool Covers(LockSectionInfo section, IOperation operation) =>
+            section.Statement.Statement.Span.Contains(operation.Syntax.Span);
+
+        /// <summary>Whether anything this block runs after <paramref name="index"/>, its branch condition included, is still
+        /// inside the section.</summary>
+        private static bool CoversAfter(LockSectionInfo section, BasicBlock block, int index) =>
+            block.Operations.Skip(index + 1).Concat(block.BranchValue is { } value ? [value] : [])
+                 .Any(later => Covers(section, later));
+
+        private void Release(LockSectionInfo section, IOperation at)
+        {
+            if (!_openLocks.TryGetValue(section.Statement, out var value) || !_closedHere.Add(section.Statement))
+                return;
+
+            _operations.Add(new IrReleaseOperation(NextOperation(), value, IrSynchronizationPrimitive.Lock,
+                                                   IrLockMode.Exclusive, Provenance(at, "lock-statement")));
+        }
+
+        /// <summary>
+        /// The exits of the <c>lock</c> sections this block is the last block of, appended once its own operations are lowered.
+        /// A section ends on every edge that leaves the blocks its body covers — the fall-through past the statement, a branch
+        /// out of it, a <c>return</c> inside it — which is what the language guarantees and what the missing region would have
+        /// said. The innermost section is left first, so nesting unwinds the way it was entered (R3).
+        /// </summary>
+        private void LowerLockExits(BasicBlock block)
+        {
+            foreach (var section in LockSections().Where(candidate => candidate.Blocks.Contains(block.Ordinal))
+                                                  .OrderBy(candidate => candidate.Statement.Statement.Span.Length))
+            {
+                if (LeavesSection(block, section))
+                    Release(section, block.Operations.LastOrDefault() ?? _graph.OriginalOperation);
+            }
+        }
+
+        /// <summary>Whether control leaves a section's blocks from this one: a successor outside them, or no successor at all.</summary>
+        private static bool LeavesSection(BasicBlock block, LockSectionInfo section) =>
+            Successors(block).Any(successor => successor is not { } ordinal || !section.Blocks.Contains(ordinal));
+
+        private static IEnumerable<int?> Successors(BasicBlock block)
+        {
+            if (block.ConditionalSuccessor is { } conditional)
+                yield return conditional.Destination?.Ordinal;
+            if (block.FallThroughSuccessor is { } fallThrough)
+                yield return fallThrough.Destination?.Ordinal;
+            if (block.ConditionalSuccessor is null && block.FallThroughSuccessor is null)
+                yield return null;
+        }
+
+        /// <summary>The <c>lock</c> statement an operation opens, when the statement is one over a <c>System.Threading.Lock</c>.</summary>
+        private LockSectionInfo? LockSectionOf(IOperation operation) =>
+            operation.Syntax is LockStatementSyntax statement
+                ? LockSections().FirstOrDefault(section => section.Statement == statement)
+                : null;
+
+        /// <summary>
+        /// The <c>lock</c> sections of this body: each statement the compiler left unlowered, the expression it locks, and every
+        /// block its body's operations fall in. Membership is read from the statement's own span, which is the only thing left
+        /// saying where the section ends once the graph has dropped the region.
+        /// </summary>
+        private IReadOnlyList<LockSectionInfo> LockSections()
+        {
+            if (_lockSections is not null)
+                return _lockSections;
+
+            _lockSections = [];
+            foreach (var block in _graph.Blocks)
+            {
+                foreach (var operation in block.Operations)
+                {
+                    if (operation.Syntax is not LockStatementSyntax statement ||
+                        operation.DescendantsAndSelf().FirstOrDefault(child => child.Syntax == statement.Expression &&
+                                                                               child is not IInvalidOperation) is not { } gate ||
+                        Bcl.TypeName(gate.Type) != Synchronization.LOCK_TYPE)
+                    {
+                        continue;
+                    }
+
+                    var blocks = _graph.Blocks
+                        .Where(candidate => candidate.Ordinal == block.Ordinal ||
+                                            candidate.Operations.Concat(candidate.BranchValue is { } value ? [value] : [])
+                                                     .Any(other => statement.Statement.Span.Contains(other.Syntax.Span)))
+                        .Select(candidate => candidate.Ordinal)
+                        .ToHashSet();
+                    _lockSections.Add(new LockSectionInfo(statement, gate, blocks));
+                }
+            }
+
+            return _lockSections;
+        }
+
+        /// <summary>One <c>lock</c> statement the compiler left unlowered: the statement, the expression it locks and the blocks
+        /// its body covers.</summary>
+        private sealed record LockSectionInfo(LockStatementSyntax Statement, IOperation Gate, HashSet<int> Blocks);
+
         private void LowerTop(IOperation operation)
         {
             _cancellationToken.ThrowIfCancellationRequested();
@@ -919,6 +1060,12 @@ public static class IrLowering
                 case IDeconstructionAssignmentOperation deconstruction:
                     LowerDeconstruction(deconstruction);
                     break;
+                // The iterator stops here and is resumed by whoever enumerates it, possibly on another thread (R3).
+                case IReturnOperation { Kind: OperationKind.YieldReturn } yielded:
+                    _operations.Add(new IrYieldOperation(NextOperation(),
+                                                         yielded.ReturnedValue is null ? null : LowerValue(yielded.ReturnedValue),
+                                                         Provenance(yielded, "yield-return")));
+                    break;
                 default:
                     LowerValue(operation);
                     break;
@@ -937,6 +1084,11 @@ public static class IrLowering
                 ICompoundAssignmentOperation compound => LowerCompoundAssignment(compound),
                 IIncrementOrDecrementOperation increment => LowerIncrement(increment),
                 IDeconstructionAssignmentOperation deconstruction => LowerDeconstruction(deconstruction),
+                // A `const` is not a field but the value the compiler already put in its place, so a guard written against one is
+                // a guard against that value. An enum member is such a constant and reaches the IR as its number: two members
+                // of one value are one value however differently they are spelled, and a name is no proof of difference.
+                IFieldReferenceOperation { Field.IsConst: true } field when field.ConstantValue.HasValue =>
+                    Constant(field, "constant"),
                 IFieldReferenceOperation field => LowerFieldLoad(field, "direct"),
                 IPropertyReferenceOperation property => LowerPropertyLoad(property),
                 IParameterReferenceOperation parameter => LowerParameter(parameter),
@@ -950,7 +1102,8 @@ public static class IrLowering
                 IAwaitOperation awaitOperation => LowerAwait(awaitOperation),
                 IArrayElementReferenceOperation element => LowerElementLoad(element),
                 IIsNullOperation isNull => LowerNullTest(isNull, isNull.Operand, "null-test"),
-                IBinaryOperation binary when NullTestOperand(binary) is { } tested => LowerNullTest(binary, tested, "binary"),
+                IBinaryOperation binary when NullTestOperand(binary) is { } tested =>
+                    LowerNullTest(binary, tested, "binary", Operator(binary.OperatorKind) ?? IrComparisonOperator.Equal),
                 IBinaryOperation binary => LowerBinary(binary),
                 IUnaryOperation unary => LowerUnary(unary),
                 IIsTypeOperation typeTest => LowerTypeTest(typeTest),
@@ -981,12 +1134,14 @@ public static class IrLowering
                 var provenance = Provenance(compound, "compound-assignment");
                 _operations.Add(new IrLoadFieldOperation(
                     loadId, loaded, location.Receiver, location.Field, provenance));
+                MarkVolatile(location.Field, loadId, IrAtomicEffect.Read, provenance);
                 var right = LowerValue(compound.Value);
                 var result = AddTemporary(compound.Type);
                 _operations.Add(new IrComputeOperation(
                     NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], provenance));
-                _operations.Add(new IrStoreFieldOperation(
-                    NextOperation(), location.Receiver, location.Field, result, loadId, provenance));
+                var storeId = NextOperation();
+                _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, result, loadId, provenance));
+                MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
                 return result;
             }
 
@@ -1043,12 +1198,14 @@ public static class IrLowering
             var loaded = AddTemporary(increment.Target.Type);
             var loadId = NextOperation();
             _operations.Add(new IrLoadFieldOperation(loadId, loaded, location.Receiver, location.Field, provenance));
+            MarkVolatile(location.Field, loadId, IrAtomicEffect.Read, provenance);
             var one = Constant(increment, 1, "increment");
             var result = AddTemporary(increment.Type);
             var @operator = increment.Kind == OperationKind.Decrement ? "Subtract" : "Add";
             _operations.Add(new IrComputeOperation(NextOperation(), result, @operator, [loaded, one], provenance));
-            _operations.Add(new IrStoreFieldOperation(
-                NextOperation(), location.Receiver, location.Field, result, loadId, provenance));
+            var storeId = NextOperation();
+            _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, result, loadId, provenance));
+            MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
             return increment.IsPostfix ? loaded : result;
         }
 
@@ -1112,9 +1269,10 @@ public static class IrLowering
                 {
                     var location = GetFieldLocation(field);
                     var coalesceLoad = CoalesceLoad(target);
-                    _operations.Add(new IrStoreFieldOperation(
-                        NextOperation(), location.Receiver, location.Field, value, coalesceLoad,
-                        Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment")));
+                    var provenance = Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment");
+                    var storeId = NextOperation();
+                    _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, value, coalesceLoad, provenance));
+                    MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
                     return value;
                 }
                 case IPropertyReferenceOperation property when IsAutomatic(property.Property):
@@ -1124,6 +1282,19 @@ public static class IrLowering
                     _operations.Add(new IrStoreFieldOperation(
                         NextOperation(), location.Receiver, location.Field, value, coalesceLoad,
                         Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment")));
+                    return value;
+                }
+                // An indexer that hands back a reference hands back one cell of its receiver's own storage, so assigning through
+                // it writes that cell and never a property of the receiver (TD-043).
+                case IPropertyReferenceOperation property when IsElementIndexer(property):
+                {
+                    var receiver = LowerValue(property.Instance!);
+                    var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
+                    _operations.Add(new IrStoreElementOperation(
+                        NextOperation(), receiver, indices, value, Provenance(source, transformation))
+                    {
+                        NamesOneCell = NamesOneCell(property)
+                    });
                     return value;
                 }
                 case IPropertyReferenceOperation property:
@@ -1168,7 +1339,55 @@ public static class IrLowering
             SetCurrent(variable, targetValue);
             _operations.Add(new IrAssignOperation(
                 NextOperation(), targetValue, sourceValue, Provenance(source, transformation)));
+            Carry(sourceValue, targetValue);
             return targetValue;
+        }
+
+        /// <summary>
+        /// What a value means to the lowering, carried to the value it is copied into. A copy is the same value, so everything
+        /// the old name carried has to be found under the new one: the scope whose disposal leaves a lock, the entry an
+        /// <c>await</c> of this value completes, and the task a <c>ConfigureAwait</c> result stands for. This is the one place
+        /// a copy is made to mean what it copies, so a meaning added later travels without every copy site being found again
+        /// (R3, ADR 0009).
+        /// </summary>
+        private void Carry(int sourceValue, int targetValue)
+        {
+            if (_lockScopes.TryGetValue(sourceValue, out var scope))
+                _lockScopes[targetValue] = scope;
+            if (_pendingEntries.TryGetValue(sourceValue, out var pending))
+                _pendingEntries[targetValue] = pending;
+            if (_configuredTasks.TryGetValue(sourceValue, out var task))
+                _configuredTasks[targetValue] = task;
+        }
+
+        /// <summary>The same for a value merged from several paths: it means what they all mean, and means nothing where they
+        /// disagree — one path's scope is no proof about the value that arrives on the other.</summary>
+        private void Merge(int targetValue, IReadOnlyList<int> sources)
+        {
+            if (sources.Count == 0)
+                return;
+
+            if (Same(sources, _lockScopes, out var scope))
+                _lockScopes[targetValue] = scope;
+            if (Same(sources, _pendingEntries, out var pending))
+                _pendingEntries[targetValue] = pending;
+            if (Same(sources, _configuredTasks, out var task))
+                _configuredTasks[targetValue] = task;
+        }
+
+        /// <summary>Whether every one of these values carries the same meaning, and what it is. A meaning is a value type as
+        /// often as not, so "found" is answered on its own and never by testing the meaning against null.</summary>
+        private static bool Same<TMeaning>(IReadOnlyList<int> sources, Dictionary<int, TMeaning> meanings, out TMeaning shared)
+        {
+            shared = default!;
+            if (!meanings.TryGetValue(sources[0], out var first) ||
+                !sources.All(source => meanings.TryGetValue(source, out var other) && Equals(other, first)))
+            {
+                return false;
+            }
+
+            shared = first;
+            return true;
         }
 
         private int LowerFieldLoad(IFieldReferenceOperation field, string transformation)
@@ -1176,14 +1395,29 @@ public static class IrLowering
             var location = GetFieldLocation(field);
             var result = AddTemporary(field.Type);
             var operationId = NextOperation();
-            _operations.Add(new IrLoadFieldOperation(
-                operationId, result, location.Receiver, location.Field, Provenance(field, transformation)));
+            var provenance = Provenance(field, transformation);
+            _operations.Add(new IrLoadFieldOperation(operationId, result, location.Receiver, location.Field, provenance));
+            MarkVolatile(location.Field, operationId, IrAtomicEffect.Read, provenance);
             RememberCoalesceLoad(field, operationId);
             return result;
         }
 
         private int LowerPropertyLoad(IPropertyReferenceOperation property)
         {
+            // Reading through a ref-returning indexer reads one cell of the receiver's own storage (TD-043).
+            if (IsElementIndexer(property))
+            {
+                var element = AddTemporary(property.Type);
+                var instance = LowerValue(property.Instance!);
+                var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
+                _operations.Add(new IrLoadElementOperation(
+                    NextOperation(), element, instance, indices, Provenance(property, "element-load"))
+                {
+                    NamesOneCell = NamesOneCell(property)
+                });
+                return element;
+            }
+
             if (IsAutomatic(property.Property))
             {
                 var location = GetPropertyLocation(property);
@@ -1308,6 +1542,7 @@ public static class IrLowering
             SetCurrent(variable, targetValue);
             _operations.Add(new IrAssignOperation(
                 NextOperation(), targetValue, sourceValue, Provenance(capture, "flow-capture")));
+            Carry(sourceValue, targetValue);
             return targetValue;
         }
 
@@ -1320,8 +1555,10 @@ public static class IrLowering
 
         private int LowerInvocation(IInvocationOperation invocation)
         {
-            if (TryLowerMonitor(invocation, out var monitorResult))
-                return monitorResult;
+            if (TryLowerSynchronization(invocation, out var synchronizationResult))
+                return synchronizationResult;
+            if (TryLowerAtomic(invocation, out var atomicResult))
+                return atomicResult;
 
             var method = invocation.TargetMethod;
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
@@ -1570,44 +1807,209 @@ public static class IrLowering
             {
                 ArgumentParameterOrdinals = arguments.Ordinals,
                 RefResults = arguments.RefResults,
+                Collection = Collections.Of(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
             };
         }
 
-        private bool TryLowerMonitor(IInvocationOperation invocation, out int result)
+        /// <summary>Lowers a call that enters or leaves a synchronization primitive into that entry or exit (TD-080, TD-083). An
+        /// entry with a timeout holds the primitive only where its success flag is true, and an asynchronous entry only where its
+        /// result is awaited; an unrecognized type stays an ordinary call and is no protection.</summary>
+        private bool TryLowerSynchronization(IInvocationOperation invocation, out int result)
         {
+            result = 0;
             var method = invocation.TargetMethod;
-            var isEnter = IsMonitorEnter(method);
-            if (!isEnter && !IsMonitorExit(method))
+            if (method.Name == "Dispose" && invocation.Instance is not null && _lockScopes.TryGetValue(LowerValue(invocation.Instance), out var scope))
             {
-                result = 0;
+                _operations.Add(new IrReleaseOperation(NextOperation(), scope.LockValue, scope.Primitive, scope.Mode,
+                                                       Provenance(invocation, Transformation(invocation, scope.Primitive))));
+                result = Constant(invocation, null, "void");
+                return true;
+            }
+
+            if (Synchronization.EffectOf(method, invocation.Instance?.Type) is not { } effect)
+                return false;
+
+            // `Monitor` names the object it works on in its first parameter; every other primitive is the object itself. Every
+            // argument is lowered in the order it is written, for its side effects, and read by the parameter it is bound to.
+            var isMonitor = Synchronization.IsMonitor(method);
+            var arguments = LowerArguments(invocation.Arguments);
+            if ((isMonitor ? arguments.At(Synchronization.MONITOR_OBJECT) : LowerValue(invocation.Instance!)) is not int lockValue)
+                return false;
+
+            var provenance = Provenance(invocation, Transformation(invocation, effect.Primitive));
+            if (effect.Kind is SyncEffectKind.EnterAsync or SyncEffectKind.TryEnterAsync)
+            {
+                // An asynchronous wait stays the call it is and holds nothing until its result is awaited; an unawaited one holds
+                // nothing at all.
+                result = AddCall(invocation, method, lockValue, arguments, invocation.Type, awaited: IsAwaitedImmediately(invocation));
+                _pendingEntries[result] = new PendingEntry(lockValue, effect.Primitive, effect.Mode,
+                                                           effect.Kind == SyncEffectKind.TryEnterAsync);
+                return true;
+            }
+
+            int? value = invocation.Type is null || invocation.Type.SpecialType == SpecialType.System_Void
+                ? null
+                : AddTemporary(invocation.Type);
+            result = value ?? Constant(invocation, null, "void");
+
+            switch (effect.Kind)
+            {
+                case SyncEffectKind.Exit:
+                    _operations.Add(new IrReleaseOperation(NextOperation(), lockValue, effect.Primitive, effect.Mode, provenance)
+                    {
+                        Permits = Synchronization.PermitsOf(invocation, method)
+                    });
+                    break;
+                case SyncEffectKind.Enter:
+                    _operations.Add(new IrAcquireOperation(NextOperation(), lockValue, effect.Primitive, effect.Mode, provenance));
+                    // `EnterScope` hands back the scope whose disposal leaves the lock.
+                    if (value is int scopeValue && method.Name == "EnterScope")
+                        _lockScopes[scopeValue] = new LockScope(lockValue, effect.Primitive, effect.Mode);
+                    break;
+                case SyncEffectKind.TryEnter:
+                    // The success flag is the returned value, or the `ref bool` the call writes when it returns none — found by
+                    // the parameter that declares it, since which position holds it differs between the overloads.
+                    var flag = value ?? (Synchronization.SuccessFlag(method) is { } ordinal &&
+                                         arguments.RefResults.TryGetValue(ordinal, out var written) ? written : 0);
+                    _operations.Add(new IrAcquireOperation(NextOperation(), lockValue, effect.Primitive, effect.Mode, provenance)
+                    {
+                        ConditionValue = flag == 0 ? null : flag
+                    });
+                    break;
+            }
+
+            return true;
+        }
+
+        /// <summary>The entry an <c>await</c> completes, if the value it awaits is the result of one.</summary>
+        private void LowerPendingEntry(int awaitable, int? awaited, IOperation source)
+        {
+            var key = _configuredTasks.TryGetValue(awaitable, out var task) ? task : awaitable;
+            if (!_pendingEntries.TryGetValue(key, out var entry))
+                return;
+
+            _operations.Add(new IrAcquireOperation(NextOperation(), entry.LockValue, entry.Primitive, entry.Mode,
+                                                   Provenance(source, "synchronization-await"))
+            {
+                ConditionValue = entry.IsConditional ? awaited : null
+            });
+        }
+
+        private static string Transformation(IInvocationOperation invocation, IrSynchronizationPrimitive primitive) =>
+            invocation.IsImplicit && invocation.Syntax.AncestorsAndSelf().Any(syntax => syntax is LockStatementSyntax or UsingStatementSyntax)
+                ? "lock-statement"
+                : primitive == IrSynchronizationPrimitive.Monitor ? "monitor-call" : "synchronization-call";
+
+        /// <summary>Lowers a call of an <c>Interlocked</c> or <c>Volatile</c> member that names one cell into the load or store it
+        /// performs on that cell, marked atomic. A cell of an array is such a cell as much as a field is: nothing else in the
+        /// program says that <c>Interlocked.Increment(ref slots[0])</c> changes that element at all (R1). A target the analysis
+        /// does not name, a local among them, stays an ordinary call, as does every member that names no cell at all.</summary>
+        private bool TryLowerAtomic(IInvocationOperation invocation, out int result)
+        {
+            result = 0;
+            // The cell is the parameter the member declares it in, whichever argument the caller wrote there.
+            if (Atomics.EffectOf(invocation.TargetMethod) is not { } effect ||
+                Atomics.ArgumentAt(invocation, Atomics.LOCATION) is not { } target)
+            {
                 return false;
             }
 
-            var lockValue = LowerValue(invocation.Arguments[0].Value);
-            foreach (var argument in invocation.Arguments.Skip(1))
-                LowerArgument(argument);
-            var transformation = invocation.IsImplicit && invocation.Syntax.AncestorsAndSelf().Any(syntax => syntax is LockStatementSyntax)
-                ? "lock-statement"
-                : "monitor-call";
-            var provenance = Provenance(invocation, transformation);
-            if (isEnter)
+            if (UnwrapTarget(target.Value) is IArrayElementReferenceOperation element)
+                return TryLowerAtomicElement(invocation, effect, element.ArrayReference, element.Indices, true, out result);
+
+            // A `Span` is indexed by a ref-returning indexer, and a cell reached through one is a cell as much as a cell of an
+            // array is: the atomic operation is on that cell and never on the receiver holding it (R1, TD-043).
+            if (UnwrapTarget(target.Value) is IPropertyReferenceOperation indexer && IsElementIndexer(indexer))
             {
-                _operations.Add(new IrAcquireOperation(
-                    NextOperation(), lockValue, IrSynchronizationPrimitive.Monitor,
-                    IrLockMode.Exclusive, provenance));
+                return TryLowerAtomicElement(invocation, effect, indexer.Instance!,
+                                             indexer.Arguments.Select(argument => argument.Value).ToArray(),
+                                             NamesOneCell(indexer), out result);
             }
-            else
+
+            if (!TryLocation(target.Value, out var location))
+                return false;
+
+            var provenance = Provenance(invocation, "atomic-call");
+            var kind = $"{invocation.TargetMethod.ContainingType.Name}.{invocation.TargetMethod.Name}";
+            var arguments = LowerArguments(invocation.Arguments.Where(argument => argument.Parameter?.Ordinal != Atomics.LOCATION));
+            if (effect == IrAtomicEffect.Read)
             {
-                _operations.Add(new IrReleaseOperation(
-                    NextOperation(), lockValue, IrSynchronizationPrimitive.Monitor,
-                    IrLockMode.Exclusive, provenance));
+                var loaded = AddTemporary(invocation.Type);
+                var loadId = NextOperation();
+                _operations.Add(new IrLoadFieldOperation(loadId, loaded, location.Receiver, location.Field, provenance));
+                _operations.Add(Atomic(loadId, effect, kind, null, provenance));
+                result = loaded;
+                return true;
             }
-            result = Constant(invocation, null, "void");
+
+            // The stored value is the one the call is given; a member that computes it, an increment among them, names a number
+            // no value of this body holds.
+            var stored = arguments.At(Atomics.VALUE) ?? Constant(invocation, null, "atomic-call");
+            var storeId = NextOperation();
+            _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, stored, null, provenance));
+            int? replaced = invocation.Type is null || invocation.Type.SpecialType == SpecialType.System_Void
+                ? null
+                : AddTemporary(invocation.Type);
+            _operations.Add(Atomic(storeId, effect, kind, replaced, provenance, ComparandOf(effect, arguments)));
+            result = replaced ?? Constant(invocation, null, "void");
             return true;
         }
+
+        /// <summary>The same as <see cref="TryLowerAtomic"/> for a cell of a collection, which is a cell of the collection's own
+        /// resource and not of any field of it (ADR 0010).</summary>
+        private bool TryLowerAtomicElement(IInvocationOperation invocation, IrAtomicEffect effect, IOperation collection,
+                                           IReadOnlyList<IOperation> indexOperations, bool namesOneCell, out int result)
+        {
+            var provenance = Provenance(invocation, "atomic-call");
+            var kind = $"{invocation.TargetMethod.ContainingType.Name}.{invocation.TargetMethod.Name}";
+            var receiver = LowerValue(collection);
+            var indices = indexOperations.Select(LowerValue).ToArray();
+            var arguments = LowerArguments(invocation.Arguments.Where(argument => argument.Parameter?.Ordinal != Atomics.LOCATION));
+            if (effect == IrAtomicEffect.Read)
+            {
+                var loaded = AddTemporary(invocation.Type);
+                var loadId = NextOperation();
+                _operations.Add(new IrLoadElementOperation(loadId, loaded, receiver, indices, provenance) { NamesOneCell = namesOneCell });
+                _operations.Add(Atomic(loadId, effect, kind, null, provenance));
+                result = loaded;
+                return true;
+            }
+
+            var stored = arguments.At(Atomics.VALUE) ?? Constant(invocation, null, "atomic-call");
+            var storeId = NextOperation();
+            _operations.Add(new IrStoreElementOperation(storeId, receiver, indices, stored, provenance) { NamesOneCell = namesOneCell });
+            int? replaced = invocation.Type is null || invocation.Type.SpecialType == SpecialType.System_Void
+                ? null
+                : AddTemporary(invocation.Type);
+            _operations.Add(Atomic(storeId, effect, kind, replaced, provenance, ComparandOf(effect, arguments)));
+            result = replaced ?? Constant(invocation, null, "void");
+            return true;
+        }
+
+        /// <summary>Marks a field load or store atomic when its field is <c>volatile</c>: each read and write of such a field is
+        /// atomic on its cell, although a read-modify-write built from two of them is not (TD-082).</summary>
+        private void MarkVolatile(IrFieldRef field, int operationId, IrAtomicEffect effect, IrProvenance provenance)
+        {
+            if (field.IsVolatile)
+                _operations.Add(Atomic(operationId, effect, Atomics.VOLATILE_FIELD, null, provenance));
+        }
+
+        private IrAtomicOperation Atomic(int targetOperationId, IrAtomicEffect effect, string kind, int? result, IrProvenance provenance,
+                                         int? comparand = null) =>
+            new(NextOperation(), result, kind, [], provenance)
+            {
+                Effect = effect,
+                TargetOperationId = targetOperationId,
+                ComparandValue = comparand
+            };
+
+        /// <summary>The value a compare-and-swap checks the cell against, which is the parameter it declares for it; every other
+        /// member checks nothing and writes what it was handed (R1).</summary>
+        private static int? ComparandOf(IrAtomicEffect effect, LoweredArguments arguments) =>
+            effect == IrAtomicEffect.CompareAndSwap ? arguments.At(Atomics.COMPARAND) : null;
 
         /// <summary>Lowers the arguments in evaluation order, then defines a new version of every local or parameter passed by
         /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds.</summary>
@@ -1675,7 +2077,9 @@ public static class IrLowering
             _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(creation.Type), provenance)
             {
                 AllocatedTypeKey = TypeKeyOf(creation.Type),
-                SiteOrdinal = _context.SiteOrdinals.Of(creation)
+                SiteOrdinal = _context.SiteOrdinals.Of(creation),
+                SynchronizationCapacity = Synchronization.CapacityOf(creation),
+                KeyEquality = Collections.EqualityOf(creation)
             });
             if (creation.Constructor is not null)
             {
@@ -1740,6 +2144,7 @@ public static class IrLowering
             {
                 TaskValue = _configuredTasks.TryGetValue(awaitable, out var task) ? task : null
             });
+            LowerPendingEntry(awaitable, result, awaitOperation);
             return result ?? Constant(awaitOperation, null, "void");
         }
 
@@ -1762,14 +2167,20 @@ public static class IrLowering
             {
                 _operations.Add(new IrCompareOperation(
                     NextOperation(), result, IrComparisonKind.Equality, left, right, null,
-                    Provenance(binary, "binary")));
+                    Provenance(binary, "binary"))
+                {
+                    Operator = Operator(binary.OperatorKind)
+                });
             }
             else if (binary.OperatorKind is BinaryOperatorKind.LessThan or BinaryOperatorKind.LessThanOrEqual or
                      BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual)
             {
                 _operations.Add(new IrCompareOperation(
                     NextOperation(), result, IrComparisonKind.Ordering, left, right, null,
-                    Provenance(binary, "binary")));
+                    Provenance(binary, "binary"))
+                {
+                    Operator = Operator(binary.OperatorKind)
+                });
             }
             else
             {
@@ -1780,15 +2191,32 @@ public static class IrLowering
             return result;
         }
 
-        /// <summary>A null test of <paramref name="tested"/>. A negated test has the same compare, as <c>!=</c> has today.</summary>
-        private int LowerNullTest(IOperation test, IOperation tested, string transformation)
+        /// <summary>A null test of <paramref name="tested"/>. Which way it runs is the comparison's operator: the compare itself
+        /// is the same for <c>== null</c> and <c>!= null</c>.</summary>
+        private int LowerNullTest(IOperation test, IOperation tested, string transformation,
+                                  IrComparisonOperator comparison = IrComparisonOperator.Equal)
         {
             var value = LowerValue(tested);
             var result = AddTemporary(test.Type);
             _operations.Add(new IrCompareOperation(
-                NextOperation(), result, IrComparisonKind.Null, value, null, null, Provenance(test, transformation)));
+                NextOperation(), result, IrComparisonKind.Null, value, null, null, Provenance(test, transformation))
+            {
+                Operator = comparison
+            });
             return result;
         }
+
+        /// <summary>The comparison an operator kind names.</summary>
+        private static IrComparisonOperator? Operator(BinaryOperatorKind kind) => kind switch
+        {
+            BinaryOperatorKind.Equals => IrComparisonOperator.Equal,
+            BinaryOperatorKind.NotEquals => IrComparisonOperator.NotEqual,
+            BinaryOperatorKind.LessThan => IrComparisonOperator.Less,
+            BinaryOperatorKind.LessThanOrEqual => IrComparisonOperator.LessOrEqual,
+            BinaryOperatorKind.GreaterThan => IrComparisonOperator.Greater,
+            BinaryOperatorKind.GreaterThanOrEqual => IrComparisonOperator.GreaterOrEqual,
+            _ => null
+        };
 
         /// <summary>The operand <c>==</c> or <c>!=</c> compares with the <c>null</c> constant, when the operand is a reference
         /// or nullable value type and no user-defined operator is involved.</summary>
@@ -1829,7 +2257,10 @@ public static class IrLowering
             var result = AddTemporary(typeTest.Type);
             _operations.Add(new IrCompareOperation(
                 NextOperation(), result, IrComparisonKind.Type, value, null,
-                SymbolNames.Type(typeTest.TypeOperand), Provenance(typeTest, "type-test")));
+                SymbolNames.Type(typeTest.TypeOperand), Provenance(typeTest, "type-test"))
+            {
+                Operator = typeTest.IsNegated ? IrComparisonOperator.NotEqual : IrComparisonOperator.Equal
+            });
             return result;
         }
 
@@ -1848,6 +2279,9 @@ public static class IrLowering
             _operations.Add(new IrConvertOperation(
                 NextOperation(), result, operand, TypeName(conversion.Type), kind,
                 Provenance(conversion, "conversion")));
+            // A conversion that keeps the value keeps what it means; one that makes a number of it means nothing here.
+            if (kind is not IrConversionKind.Numeric)
+                Carry(operand, result);
             return result;
         }
 
@@ -1965,7 +2399,10 @@ public static class IrLowering
                     field.IsStatic,
                     field.IsReadOnly,
                     SymbolNames.Type(field.Type),
-                    SymbolNames.TypeIdentity(field.ContainingType)));
+                    SymbolNames.TypeIdentity(field.ContainingType))
+                {
+                    IsVolatile = field.IsVolatile
+                });
         }
 
         private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference) =>
@@ -1981,6 +2418,20 @@ public static class IrLowering
                 property.SetMethod is null,
                 SymbolNames.Type(property.Type),
                 SymbolNames.TypeIdentity(property.ContainingType));
+
+        /// <summary>Whether a property reference names one cell of its receiver's storage rather than a value the receiver
+        /// computes: an indexer that hands back a reference hands back the cell itself, which is what <c>Span&lt;T&gt;</c> and
+        /// every other ref-returning indexer do. Anything a caller can assign through is storage, and storage of a receiver is
+        /// an element of it (TD-043).</summary>
+        private static bool IsElementIndexer(IPropertyReferenceOperation property) =>
+            property is { Property.IsIndexer: true, Property.RefKind: RefKind.Ref or RefKind.RefReadOnly, Instance: not null } &&
+            property.Arguments.Length != 0;
+
+        /// <summary>Whether the index of such an indexer names one cell of the receiver: proven for the types
+        /// <see cref="SpanTypes"/> knows and for nothing else, since a foreign indexer may hand back one cell for every index it
+        /// is given, and numbering its cells would take a real pair away as two disjoint ones (TD-043).</summary>
+        private static bool NamesOneCell(IPropertyReferenceOperation property) =>
+            SpanTypes.Names(Bcl.TypeName(property.Property.ContainingType));
 
         private bool IsAutomatic(IPropertySymbol property)
         {
@@ -2200,10 +2651,33 @@ public static class IrLowering
 
         private readonly record struct FieldLocation(int? Receiver, IrFieldRef Field);
 
+        /// <summary>A lock a scope object holds until it is disposed.</summary>
+        private readonly record struct LockScope(int LockValue, IrSynchronizationPrimitive Primitive, IrLockMode Mode);
+
+        /// <summary>An asynchronous entry waiting to be awaited; a conditional one holds the primitive only where the value the
+        /// await produces is true.</summary>
+        private readonly record struct PendingEntry(int LockValue, IrSynchronizationPrimitive Primitive, IrLockMode Mode,
+                                                    bool IsConditional);
+
         private sealed record LoweredArguments(IReadOnlyList<int> Values, IReadOnlyList<int> Ordinals,
                                                IReadOnlyDictionary<int, int> RefResults)
         {
             internal static LoweredArguments None { get; } = new([], [], new Dictionary<int, int>());
+
+            /// <summary>The value bound to the parameter with this ordinal, null where the call passes none. Arguments are
+            /// lowered in the order they are written, for their side effects, and read by the parameter they are bound to: a
+            /// named argument may be written in any order, so a position names a different parameter for every caller who
+            /// writes them differently.</summary>
+            internal int? At(int ordinal)
+            {
+                for (var position = 0; position < Values.Count; position++)
+                {
+                    if ((position < Ordinals.Count ? Ordinals[position] : position) == ordinal)
+                        return Values[position];
+                }
+
+                return null;
+            }
         }
     }
 
@@ -2278,10 +2752,236 @@ public static class IrLowering
             ? flag ? IrTimerFlag.True : IrTimerFlag.False
             : IrTimerFlag.Unknown;
 
+        /// <summary>The metadata name of a type declared outside source; null for a type of this compilation, so a same-named user
+        /// type is never taken for the framework one.</summary>
+        internal static string? TypeName(ITypeSymbol? type) => Name(type);
+
         private static string? Name(ITypeSymbol? type) =>
             type?.OriginalDefinition is INamedTypeSymbol { ContainingType: null } named && !named.Locations.Any(location => location.IsInSource)
                 ? $"{named.ContainingNamespace.ToDisplayString()}.{named.MetadataName}"
                 : null;
+    }
+
+    /// <summary>How a call enters or leaves a synchronization primitive (TD-080, TD-083). An unconditional entry holds it once
+    /// control goes on normally; a conditional one, which is every entry with a timeout, holds it only where its success flag is
+    /// true; the asynchronous forms do both at the point the result is awaited.</summary>
+    private enum SyncEffectKind
+    {
+        Enter,
+        TryEnter,
+        EnterAsync,
+        TryEnterAsync,
+        Exit
+    }
+
+    private sealed record SyncEffect(SyncEffectKind Kind, IrSynchronizationPrimitive Primitive, IrLockMode Mode);
+
+    /// <summary>The synchronization members the lowering models, by the primitive they belong to. A member that names no primitive,
+    /// <c>SpinLock</c> and every unrecognized type among them, stays an ordinary call and is no protection (TD-086).</summary>
+    private static class Synchronization
+    {
+        private const string MONITOR = "System.Threading.Monitor";
+        private const string LOCK = "System.Threading.Lock";
+
+        /// <summary>The type a <c>lock</c> statement names when it is not a monitor.</summary>
+        internal const string LOCK_TYPE = LOCK;
+
+        /// <summary>The parameter every <c>Monitor</c> member names its object in.</summary>
+        internal const int MONITOR_OBJECT = 0;
+
+        /// <summary>The parameter a conditional entry writes its success into: the <c>ref bool</c> the overload declares, which
+        /// stands second on one overload and third on another, so it is found by what it is and never by where it is.</summary>
+        internal static int? SuccessFlag(IMethodSymbol method) =>
+            method.Parameters.FirstOrDefault(parameter => parameter.RefKind == RefKind.Ref &&
+                                                          parameter.Type.SpecialType == SpecialType.System_Boolean)?.Ordinal;
+        private const string MUTEX = "System.Threading.Mutex";
+        private const string SEMAPHORE_SLIM = "System.Threading.SemaphoreSlim";
+        private const string READER_WRITER_LOCK_SLIM = "System.Threading.ReaderWriterLockSlim";
+
+        internal static bool IsMonitor(IMethodSymbol method) => Bcl.TypeOf(method) == MONITOR;
+
+        /// <summary>What a call does, read from the type of the object it works on: <c>WaitOne</c> is declared by
+        /// <c>WaitHandle</c>, so only the receiver says whether it is a mutex.</summary>
+        internal static SyncEffect? EffectOf(IMethodSymbol method, ITypeSymbol? receiverType)
+        {
+            var type = IsMonitor(method) ? MONITOR : Bcl.TypeName(receiverType);
+            var timed = HasTimeout(method);
+            return (type, method.Name) switch
+            {
+                (MONITOR, "Enter") => new SyncEffect(SyncEffectKind.Enter, IrSynchronizationPrimitive.Monitor, IrLockMode.Exclusive),
+                (MONITOR, "TryEnter") => new SyncEffect(SyncEffectKind.TryEnter, IrSynchronizationPrimitive.Monitor, IrLockMode.Exclusive),
+                (MONITOR, "Exit") => new SyncEffect(SyncEffectKind.Exit, IrSynchronizationPrimitive.Monitor, IrLockMode.Exclusive),
+                (LOCK, "Enter" or "EnterScope") => new SyncEffect(SyncEffectKind.Enter, IrSynchronizationPrimitive.Lock, IrLockMode.Exclusive),
+                (LOCK, "TryEnter") => new SyncEffect(SyncEffectKind.TryEnter, IrSynchronizationPrimitive.Lock, IrLockMode.Exclusive),
+                (LOCK, "Exit") => new SyncEffect(SyncEffectKind.Exit, IrSynchronizationPrimitive.Lock, IrLockMode.Exclusive),
+                (MUTEX, "WaitOne") => new SyncEffect(timed ? SyncEffectKind.TryEnter : SyncEffectKind.Enter,
+                                                     IrSynchronizationPrimitive.Mutex, IrLockMode.Exclusive),
+                (MUTEX, "ReleaseMutex") => new SyncEffect(SyncEffectKind.Exit, IrSynchronizationPrimitive.Mutex, IrLockMode.Exclusive),
+                (SEMAPHORE_SLIM, "Wait") => new SyncEffect(timed ? SyncEffectKind.TryEnter : SyncEffectKind.Enter,
+                                                           IrSynchronizationPrimitive.SemaphoreSlim, IrLockMode.Exclusive),
+                (SEMAPHORE_SLIM, "WaitAsync") => new SyncEffect(timed ? SyncEffectKind.TryEnterAsync : SyncEffectKind.EnterAsync,
+                                                                IrSynchronizationPrimitive.SemaphoreSlim, IrLockMode.Exclusive),
+                (SEMAPHORE_SLIM, "Release") => new SyncEffect(SyncEffectKind.Exit, IrSynchronizationPrimitive.SemaphoreSlim, IrLockMode.Exclusive),
+                (READER_WRITER_LOCK_SLIM, var name) when ReaderWriterMode(name) is { } mode =>
+                    new SyncEffect(name.StartsWith("Exit", StringComparison.Ordinal) ? SyncEffectKind.Exit
+                                       : name.StartsWith("TryEnter", StringComparison.Ordinal) ? SyncEffectKind.TryEnter
+                                       : SyncEffectKind.Enter,
+                                   IrSynchronizationPrimitive.ReaderWriterLockSlim, mode),
+                _ => null
+            };
+        }
+
+        /// <summary>Whether the entry can come back without the primitive: every overload with a timeout can.</summary>
+        private static bool HasTimeout(IMethodSymbol method) =>
+            method.Parameters.Any(parameter => parameter.Type.SpecialType == SpecialType.System_Int32 ||
+                                               Bcl.TypeName(parameter.Type) == "System.TimeSpan");
+
+        private static IrLockMode? ReaderWriterMode(string name) => name switch
+        {
+            "EnterReadLock" or "TryEnterReadLock" or "ExitReadLock" => IrLockMode.Read,
+            "EnterWriteLock" or "TryEnterWriteLock" or "ExitWriteLock" => IrLockMode.Write,
+            "EnterUpgradeableReadLock" or "TryEnterUpgradeableReadLock" or "ExitUpgradeableReadLock" => IrLockMode.UpgradeableRead,
+            _ => null
+        };
+
+        /// <summary>How many permits an exit gives back: one for every primitive taken and given back once, including
+        /// <c>SemaphoreSlim.Release()</c>; the constant a <c>Release(n)</c> names, read from the parameter that declares the count
+        /// and never from the position it is written in; and null where that count is no constant (TD-083).</summary>
+        internal static int? PermitsOf(IInvocationOperation invocation, IMethodSymbol method) =>
+            Bcl.TypeName(method.ContainingType) != SEMAPHORE_SLIM || method.Name != "Release" || method.Parameters.Length == 0
+                ? 1
+                : invocation.Arguments.FirstOrDefault(argument => argument.Parameter?.Ordinal == 0)?.Value.ConstantValue
+                      is { HasValue: true, Value: int permits }
+                    ? permits
+                    : null;
+
+        /// <summary>The count a <c>SemaphoreSlim</c> was constructed with, when it is a constant: the parameter that declares it
+        /// and never the argument that stands first, which a caller naming them may write anywhere (TD-083).</summary>
+        internal static int? CapacityOf(IObjectCreationOperation creation) =>
+            Bcl.TypeName(creation.Type) == SEMAPHORE_SLIM &&
+            creation.Arguments.FirstOrDefault(argument => argument.Parameter?.Ordinal == 0)?.Value.ConstantValue
+                is { HasValue: true, Value: int capacity }
+                ? capacity
+                : null;
+    }
+
+    /// <summary>
+    /// The collections modelled by their members (ADR 0010) and what each member does to the two resources of one: the structure,
+    /// which is the collection itself, and the storage of its cells. A member that shifts its neighbours, scans for a value or
+    /// enumerates touches cells it cannot name, so it takes no key argument and touches all of them. A thread-safe collection
+    /// performs every member of it atomically on both resources; a <c>List</c> or a <c>Dictionary</c> performs none of them so.
+    /// Every other type, and every member not listed here, stays an ordinary call.
+    /// </summary>
+    private static class Collections
+    {
+        private const string LIST = "System.Collections.Generic.List`1";
+        private const string DICTIONARY = "System.Collections.Generic.Dictionary`2";
+        private const string CONCURRENT_DICTIONARY = "System.Collections.Concurrent.ConcurrentDictionary`2";
+        private const string CONCURRENT_QUEUE = "System.Collections.Concurrent.ConcurrentQueue`1";
+        private const string CONCURRENT_STACK = "System.Collections.Concurrent.ConcurrentStack`1";
+        private const string CONCURRENT_BAG = "System.Collections.Concurrent.ConcurrentBag`1";
+
+        internal static IrCollectionCall? Of(IMethodSymbol method)
+        {
+            if (Bcl.TypeOf(method) is not { } type || !IsModelled(type))
+                return null;
+            var keyed = type is DICTIONARY or CONCURRENT_DICTIONARY || type == LIST && method.Name is "get_Item" or "set_Item";
+            return (type, method.Name) switch
+            {
+                (_, "Add" or "TryAdd" or "Enqueue" or "Push" or "set_Item") => Effects(method, type, keyed, IrCollectionEffect.Write,
+                                                                                      IrCollectionEffect.Write),
+                (LIST, "Insert" or "RemoveAt" or "Remove") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (_, "Remove" or "TryRemove") => Effects(method, type, keyed, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (_, "TryDequeue" or "TryPop" or "TryTake") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (_, "Clear") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (CONCURRENT_DICTIONARY, "GetOrAdd" or "AddOrUpdate") => Effects(method, type, true, IrCollectionEffect.Write,
+                                                                                IrCollectionEffect.ReadWrite),
+                (CONCURRENT_DICTIONARY, "TryUpdate") => Effects(method, type, true, IrCollectionEffect.Read, IrCollectionEffect.ReadWrite),
+                (_, "get_Item" or "TryGetValue") => Effects(method, type, keyed, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                (_, "TryPeek") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                // A key lookup never reaches a value, so it reads no cell, while a scan over the values reads every one of them.
+                // Its key is carried all the same: a check that names a cell decides where the sequence it guards is reported.
+                (_, "get_Count" or "ContainsKey") => Effects(method, type, keyed, IrCollectionEffect.Read, IrCollectionEffect.None),
+                (_, "Contains" or "GetEnumerator") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                _ => null
+            };
+        }
+
+        /// <summary>How a collection compares the keys of its cells, read from the comparer its <c>new</c> is given.</summary>
+        internal static IrKeyEquality? EqualityOf(IObjectCreationOperation creation)
+        {
+            if (Bcl.TypeName(creation.Type) is not { } type || type is not (DICTIONARY or CONCURRENT_DICTIONARY))
+                return null;
+            var comparer = creation.Arguments.FirstOrDefault(argument => argument.Parameter?.Type.Name == "IEqualityComparer");
+            return comparer?.Value switch
+            {
+                null => IrKeyEquality.Value,
+                IConversionOperation { Operand: ILiteralOperation { ConstantValue.Value: null } } or ILiteralOperation { ConstantValue.Value: null } =>
+                    IrKeyEquality.Value,
+                // Only a comparer the analysis can decide for itself proves two keys apart, and that is the ordinal pair: one
+                // compares the characters, the other folds their case. Every culture-sensitive comparer decides by collation,
+                // which makes characters the analysis never reads ignorable — `"a­"` and `"a"` are one key under
+                // `InvariantCulture`, measured on this runtime — so nothing about such keys is proven and the uncertainty is
+                // reported instead (R7, ADR 0010).
+                var value when Comparer(value) is { } name =>
+                    name is "Ordinal" ? IrKeyEquality.Value
+                        : name is "OrdinalIgnoreCase" ? IrKeyEquality.IgnoreCase
+                        : IrKeyEquality.Unknown,
+                _ => IrKeyEquality.Unknown
+            };
+        }
+
+        /// <summary>The name of the <c>StringComparer</c> member a comparer argument names, null for anything else.</summary>
+        private static string? Comparer(IOperation value) =>
+            (value is IConversionOperation conversion ? conversion.Operand : value) is IPropertyReferenceOperation property &&
+            Bcl.TypeName(property.Property.ContainingType) == "System.StringComparer"
+                ? property.Property.Name
+                : null;
+
+        /// <summary>A member's effects, with the ordinal of the argument naming its cell when it names one: without it the member
+        /// touches every cell of the collection.</summary>
+        private static IrCollectionCall Effects(IMethodSymbol method, string type, bool keyed, IrCollectionEffect structure,
+                                                IrCollectionEffect element) =>
+            new($"{type}.{method.Name}", structure, element, keyed && method.Parameters.Length != 0 ? 0 : null,
+                type is CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG);
+
+        private static bool IsModelled(string type) =>
+            type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG;
+    }
+
+    /// <summary>The <c>Interlocked</c> and <c>Volatile</c> members that name one cell, with what each does to it (TD-082). The two
+    /// memory barriers are deliberately absent: they name no cell, so they stay an ordinary call, which is neither an access nor a
+    /// protection. Modelling barriers and reordering is not part of this version.</summary>
+    private static class Atomics
+    {
+        private const string INTERLOCKED = "System.Threading.Interlocked";
+        private const string VOLATILE = "System.Threading.Volatile";
+
+        /// <summary>What an atomic mark on a <c>volatile</c> field's load or store is called.</summary>
+        internal const string VOLATILE_FIELD = "volatile-field";
+
+        /// <summary>The parameters every modelled member declares its cell, the value it writes and the value it checks against
+        /// in. An argument is read by the parameter it is bound to and never by where the caller happened to write it.</summary>
+        internal const int LOCATION = 0;
+
+        internal const int VALUE = 1;
+
+        internal const int COMPARAND = 2;
+
+        internal static IArgumentOperation? ArgumentAt(IInvocationOperation invocation, int ordinal) =>
+            invocation.Arguments.FirstOrDefault(argument => argument.Parameter?.Ordinal == ordinal);
+
+        internal static IrAtomicEffect? EffectOf(IMethodSymbol method) => (Bcl.TypeOf(method), method.Name) switch
+        {
+            (INTERLOCKED, "Read") or (VOLATILE, "Read") => IrAtomicEffect.Read,
+            (VOLATILE, "Write") => IrAtomicEffect.Write,
+            // The one member that writes on a condition: it is given the value it expects to find, and leaves the cell alone
+            // where it finds another. Every other member writes whatever it was handed.
+            (INTERLOCKED, "CompareExchange") => IrAtomicEffect.CompareAndSwap,
+            (INTERLOCKED, "Increment" or "Decrement" or "Add" or "Exchange" or "And" or "Or") =>
+                IrAtomicEffect.ReadModifyWrite,
+            _ => null
+        };
     }
 
     /// <summary>Recognises the service-locator and scope-creation calls of the DI semantics provider, reading the call's original

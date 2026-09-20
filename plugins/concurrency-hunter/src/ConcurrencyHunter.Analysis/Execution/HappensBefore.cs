@@ -851,8 +851,20 @@ internal sealed class HappensBefore
         {
             UnknownSource.FieldBeforeWrite => FieldStoreDominates(execution, instance, value, region, operation),
             UnknownSource.SourceCall => _asyncHandles.Contains(region) && CallsReturn(execution, instance, value, region),
+            UnknownSource.Parameter => BoundToRegion(instance, value, region),
             _ => false
         });
+
+    /// <summary>Whether every parameter the value comes from binds, in this instance, to that one region and nothing else. A summary
+    /// cannot name what a parameter holds, which is why it records the parameter as an unknown source; the instance the call site
+    /// made can, so a handle handed to a callee is as proven there as one it read from a field (R4).</summary>
+    private static bool BoundToRegion(MethodInstance instance, SummaryValue value, string region)
+    {
+        var parameters = value.Values.OfType<ParameterValue>().ToArray();
+        return parameters.Length != 0 &&
+               parameters.All(parameter => instance.Parameters.TryGetValue(parameter.Ordinal, out var bound) &&
+                                           bound.Count == 1 && bound.Contains(region));
+    }
 
     /// <summary>Whether every call a value comes from returns that region and nothing else; a call whose result the heap does not follow
     /// there, or whose callee may return an object the heap cannot name, may return any task.</summary>

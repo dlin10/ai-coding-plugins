@@ -15,6 +15,9 @@ public static class ReportRenderer
     private const int GROUP_HEADING_LEVEL = 4;
     private const int REPRESENTATIVE_LOCATIONS = 3;
 
+    /// <summary>Which solver decided a candidate, as the schema names it (ADR 0004).</summary>
+    private const string SOLVER = "z3";
+
     private static readonly JsonSerializerOptions JSON_OPTIONS = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -256,7 +259,7 @@ public static class ReportRenderer
         AppendReadSources(markdown, "B", finding.AccessB);
         markdown.Append("- Resource: ").Append(finding.Resource.Assembly).Append(" · ")
                 .Append(finding.Resource.Region).Append(" · ")
-                .Append(string.Join(".", finding.Resource.AccessPath)).Append(" · scope ").Append(finding.Resource.Scope)
+                .Append(ResourceText(finding.Resource)).Append(" · scope ").Append(finding.Resource.Scope)
                 .Append(" · ownership ").Append(Ownership(ResourceAccess(finding))).Append('\n');
         markdown.Append("- Binding evidence: ").Append(Items(BindingEvidence(finding))).Append('\n');
         markdown.Append("- Overlap: ").Append(string.Join(" ", finding.ConcurrencyEvidence)).Append(" A: ")
@@ -264,7 +267,9 @@ public static class ReportRenderer
         markdown.Append("- Protection: ").Append(finding.ProtectionResult).Append("; A holds ").Append(Holdings(finding.AccessA))
                 .Append("; B holds ").Append(Holdings(finding.AccessB)).Append("; common single-object protection: ")
                 .Append(Items(CommonProtection(finding))).Append('\n');
+        markdown.Append("- Path feasibility: ").Append(PathFeasibility(finding)).Append('\n');
         markdown.Append("- Scenario: ").Append(string.Join("; ", finding.Scenario)).Append('\n');
+        markdown.Append("- Remediation: ").Append(Remediation(finding)).Append('\n');
         markdown.Append("- Uncertainty: ").Append(finding.Uncertainty.Count == 0 ? "none" : string.Join(" ", finding.Uncertainty)).Append('\n');
         markdown.Append("- Confidence: ").Append(finding.Confidence.Label).Append(" (")
                 .Append(Number(finding.Confidence.Score)).Append(")\n");
@@ -290,6 +295,55 @@ public static class ReportRenderer
                     .Append(':').Append(Number(read.Source.StartLine)).Append("; code path: ").Append(CodePath(read.CodeFlow)).Append('\n');
         }
     }
+
+    /// <summary>What the resource is, in words a reader can act on: a collection has two of them, and which one a finding is
+    /// about decides what fixes it (ADR 0010).</summary>
+    internal static string ResourceText(AccessResource resource) =>
+        resource.Selector is null
+            ? string.Join(".", resource.AccessPath)
+            : $"{string.Join(".", resource.AccessPath.Take(resource.AccessPath.Count - 1))}, cell {resource.Selector.Text}";
+
+    /// <summary>
+    /// What to do about the pair, chosen by what the two sides do and never by the resource alone. A pair of compound
+    /// operations is not answered by a thread-safe collection: <c>Count</c> and then <c>Add</c> are two atomic calls with a gap
+    /// between them, and only one critical section over the check and the change closes it. A read against a write needs both
+    /// sides under one primitive, since a lock around the write alone leaves the read unguarded. An atomic member answers only
+    /// the last case: two plain operations on one cell.
+    /// </summary>
+    internal static string Remediation(Finding finding)
+    {
+        var operations = new[] { finding.AccessA.Operation, finding.AccessB.Operation };
+        if (operations.Any(operation => operation == AccessOperation.CompoundOperation))
+        {
+            return "put the check and the change of the sequence inside one critical section; a thread-safe collection does " +
+                   "not help here, because its members are already atomic one by one and the gap is between them; " +
+                   "verify manually.";
+        }
+
+        if (operations.Any(operation => operation == AccessOperation.Read))
+        {
+            return "put both the read and the write under one synchronization primitive; guarding the write alone leaves the " +
+                   "read free to observe a half-finished update; verify manually.";
+        }
+
+        if (finding.Resource.Selector is not null)
+        {
+            return "perform the whole update of this cell with one atomic member, so that no execution can act on a value " +
+                   "another has already replaced; verify manually.";
+        }
+
+        return "make every access to this resource hold one synchronization primitive for the whole of its update; " +
+               "verify manually.";
+    }
+
+    /// <summary>What the solver said about the two paths meeting (TD-093), and that it was never asked where it was not.</summary>
+    private static string PathFeasibility(Finding finding) => finding.PathFeasibility switch
+    {
+        SolverAnswer.Sat => "satisfiable: the solver found values on which both paths run",
+        SolverAnswer.Unsat => "unsatisfiable",
+        SolverAnswer.Unknown => "unknown: the solver did not decide it",
+        _ => "not analyzed: the candidate carried nothing for the solver to decide"
+    };
 
     /// <summary>The access whose resource is the finding's, whose region's ownership the finding reports.</summary>
     private static Access ResourceAccess(Finding finding) =>
@@ -322,7 +376,12 @@ public static class ReportRenderer
     private static string Title(Finding finding)
     {
         var member = $"{finding.Resource.Member.DeclaringType}.{finding.Resource.Member.Name}";
-        return finding.RuleId == "DCA1002" ? $"Non-atomic update of shared {member}" : $"Unsynchronized access to shared {member}";
+        return finding.RuleId switch
+        {
+            "DCA1002" => $"Non-atomic update of shared {member}",
+            "DCA1003" => $"Inconsistent synchronization of shared {member}",
+            _ => $"Unsynchronized access to shared {member}"
+        };
     }
 
     private static void AppendAccess(StringBuilder markdown, string role, Access access)
@@ -398,8 +457,19 @@ public static class ReportRenderer
             Result = finding.ProtectionResult,
             CommonProtection = CommonProtection(finding).ToArray()
         },
-        PathFeasibility = new { Result = "not-analyzed" },
+        PathFeasibility = new
+        {
+            Result = finding.PathFeasibility switch
+            {
+                SolverAnswer.Sat => "sat",
+                SolverAnswer.Unsat => "unsat",
+                SolverAnswer.Unknown => "unknown",
+                _ => "not-analyzed"
+            },
+            Solver = finding.PathFeasibility is null ? null : SOLVER
+        },
         finding.Scenario,
+        Remediation = Remediation(finding),
         finding.Uncertainty,
         AiContributions = Array.Empty<object>(),
         Suppression = (object?)null,
@@ -457,6 +527,10 @@ public static class ReportRenderer
         resource.Assembly,
         resource.Region,
         resource.AccessPath,
+        // Which cell of the collection, beside the path that already ends with it: a reader of the schema should not have to
+        // parse a segment to tell the collection's structure from one of its cells (ADR 0010, TD-043).
+        Selector = resource.Selector?.Text,
+        Kind = resource.Selector is null ? "storage" : "element",
         resource.Scope,
         Member = new
         {

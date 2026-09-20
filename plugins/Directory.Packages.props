@@ -30,6 +30,10 @@
     <PackageVersion Include="MassTransit" Version="8.5.10" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageVersion Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
+    <!-- The solver concurrency-hunter refines candidates with (concurrency-hunter/docs/adr/0004): its
+         native library ships inside that plugin's single published executable, and a run whose native
+         library does not load answers every query Unknown instead of failing. -->
+    <PackageVersion Include="Microsoft.Z3" Version="4.12.2" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="ModelContextProtocol.Extensions.Apps" Version="2.2.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />

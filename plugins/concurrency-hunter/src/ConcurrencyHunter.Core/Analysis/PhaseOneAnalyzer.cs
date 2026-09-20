@@ -8,6 +8,7 @@ using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
+using ConcurrencyHunter.Solving;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Analysis;
@@ -22,6 +23,7 @@ public static class PhaseOneAnalyzer
     public const string EXECUTIONS = "executions";
     public const string ACCESSES = "accesses";
     public const string PAIRING = "pairing";
+    public const string SOLVER = "solver";
     public const string FINDINGS = "findings";
     public const string ANALYSIS_LIMITS_VARIABLE = "CH_ANALYSIS_LIMITS";
 
@@ -57,10 +59,21 @@ public static class PhaseOneAnalyzer
         return new AnalysisLimits(values[0], values[1], values[2]);
     }
 
-    private static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
-                                                           Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
-                                                           AnalysisLimits limits, CancellationToken cancellationToken)
+    private static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
+                                                     Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                     AnalysisLimits limits, CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken);
+
+    /// <summary>The analysis with another solver behind the last filter: the seam a test uses to run as if the native library
+    /// had never loaded, which no environment variable of a shipped build can do (ADR 0004).</summary>
+    internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
+                                                            Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                            AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
+                                                            CancellationToken cancellationToken)
     {
+        using var solver = solverFactory();
+        // One budget for the whole run, spent scope by scope: the share of the deadline belongs to the run (TD-094).
+        var solverBudget = new SolverBudget(SolverPolicy.Budget);
         var timings = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
         var sizes = new List<ScopeSize>();
         var step = Stopwatch.StartNew();
@@ -163,6 +176,12 @@ public static class PhaseOneAnalyzer
             Record(timings, ACCESSES, step);
             var scopePairs = pairing(collection.Accesses, executions, heap);
             Record(timings, PAIRING, step);
+            // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
+            // run's share of its deadline. A solver that never started answers every question Unknown (ADR 0004).
+            var refined = SolverRefinement.Refine(scopePairs, solver, solverBudget, SolverPolicy.QueryLimit);
+            scopePairs = refined.Pairs;
+            diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
+            Record(timings, SOLVER, step);
             sizes.Add(new ScopeSize(scope.Id, heap.ReachableBodies.Count, summaries.Built, heap.Regions.Count, heap.Instances.Count,
                                     collection.Accesses.Count(access => !access.IsConstructionLocal)));
 
@@ -177,7 +196,8 @@ public static class PhaseOneAnalyzer
             suppressed += scopePairs.Suppressed;
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
-            coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count, collection.Coverage.Counters)
+            coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count,
+                                           Merged(collection.Coverage.Counters, refined.Counters))
             {
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
                 SpawnSites = collection.Coverage.SpawnSites,
@@ -205,7 +225,11 @@ public static class PhaseOneAnalyzer
                                   new PairCounters(comparisons, cartesianBound, buckets, largestBucket, candidates, suppressed, pairSkips),
                                   providers)
         {
-            Timings = new[] { SCOPE_DISCOVERY, PROGRAM_INDEX, LOWERING, REACHABLE_SET, SUMMARIES_AND_FIXPOINT, EXECUTIONS, ACCESSES, PAIRING, FINDINGS }
+            Timings = new[]
+                      {
+                          SCOPE_DISCOVERY, PROGRAM_INDEX, LOWERING, REACHABLE_SET, SUMMARIES_AND_FIXPOINT, EXECUTIONS, ACCESSES,
+                          PAIRING, SOLVER, FINDINGS
+                      }
                       .Select(name => new StepTiming(name, timings.GetValueOrDefault(name).TotalSeconds))
                       .ToArray(),
             ScopeSizes = sizes
@@ -213,6 +237,16 @@ public static class PhaseOneAnalyzer
     }
 
     /// <summary>Adds the step's elapsed time to its total and restarts the stopwatch for the next step.</summary>
+    /// <summary>The scope's coverage counters with what the solver did to its candidates beside them.</summary>
+    private static IReadOnlyDictionary<string, int> Merged(IReadOnlyDictionary<string, int> counters,
+                                                           IReadOnlyDictionary<string, int> solver)
+    {
+        var merged = new SortedDictionary<string, int>(counters.ToDictionary(), StringComparer.Ordinal);
+        foreach (var (name, count) in solver)
+            merged[name] = merged.GetValueOrDefault(name) + count;
+        return merged;
+    }
+
     private static void Record(Dictionary<string, TimeSpan> timings, string name, Stopwatch step)
     {
         timings[name] = timings.GetValueOrDefault(name) + step.Elapsed;

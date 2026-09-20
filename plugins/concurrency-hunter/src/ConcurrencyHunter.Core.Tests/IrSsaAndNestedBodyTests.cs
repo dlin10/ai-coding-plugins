@@ -1,4 +1,4 @@
-using ConcurrencyHunter.Core.Tests.Fixtures;
+﻿using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
@@ -338,8 +338,10 @@ public sealed class IrSsaAndNestedBodyTests
         Assert.Equal(IrRegionKind.Finally, RegionOf(body, release).Kind);
     }
 
+    /// <summary>Every entry with a timeout is conditional: the flag that proves it, the `ref bool` of the first form and the
+    /// returned value of the second, is what the acquisition names (TD-083).</summary>
     [Fact]
-    public async Task Monitor_try_enter_stays_a_call()
+    public async Task Monitor_try_enter_acquires_on_its_success_flag()
     {
         var body = (await Lower("""
             using System.Threading;
@@ -355,12 +357,17 @@ public sealed class IrSsaAndNestedBodyTests
             }
             """)).Body;
 
-        Assert.Empty(Operations<IrAcquireOperation>(body));
-        Assert.Equal(2, Operations<IrCallOperation>(body).Count(call => call.Method.StartsWith("System.Threading.Monitor.TryEnter(", StringComparison.Ordinal)));
+        var acquires = Operations<IrAcquireOperation>(body).ToArray();
+        Assert.Equal(2, acquires.Length);
+        Assert.All(acquires, acquire => Assert.Equal(IrSynchronizationPrimitive.Monitor, acquire.Primitive));
+        Assert.All(acquires, acquire => Assert.NotNull(acquire.ConditionValue));
+        Assert.DoesNotContain(Operations<IrCallOperation>(body), call => call.Method.StartsWith("System.Threading.Monitor.", StringComparison.Ordinal));
     }
 
+    /// <summary>`System.Threading.Lock` is its own mechanism: the `lock` statement over it enters a scope, and `Enter` and `Exit`
+    /// are its own pair (TD-080).</summary>
     [Fact]
-    public async Task System_threading_lock_stays_calls()
+    public async Task System_threading_lock_lowers_to_its_own_primitive()
     {
         var body = (await Lower($$"""
             using System.Threading;
@@ -369,6 +376,7 @@ public sealed class IrSsaAndNestedBodyTests
                 static readonly Lock Gate = new();
                 void M()
                 {
+                    using (Gate.EnterScope()) { Work(); }
                     lock (Gate) { Work(); }
                     Gate.Enter();
                     Gate.Exit();
@@ -377,11 +385,11 @@ public sealed class IrSsaAndNestedBodyTests
             }
             """)).Body;
 
-        Assert.Empty(Operations<IrAcquireOperation>(body));
-        Assert.Empty(Operations<IrReleaseOperation>(body));
-        var methods = Operations<IrCallOperation>(body).Select(call => call.Method).ToArray();
-        Assert.Contains("System.Threading.Lock.Enter()", methods);
-        Assert.Contains("System.Threading.Lock.Exit()", methods);
+        Assert.Equal(3, Operations<IrAcquireOperation>(body).Count());
+        Assert.Equal(3, Operations<IrReleaseOperation>(body).Count());
+        Assert.All(Operations<IrAcquireOperation>(body), acquire => Assert.Equal(IrSynchronizationPrimitive.Lock, acquire.Primitive));
+        Assert.All(Operations<IrReleaseOperation>(body), release => Assert.Equal(IrSynchronizationPrimitive.Lock, release.Primitive));
+        Assert.DoesNotContain(Operations<IrCallOperation>(body), call => call.Method.StartsWith("System.Threading.Lock.", StringComparison.Ordinal));
     }
 
     [Fact]

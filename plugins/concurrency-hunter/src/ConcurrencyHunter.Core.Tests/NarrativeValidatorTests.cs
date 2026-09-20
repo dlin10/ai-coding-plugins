@@ -494,6 +494,40 @@ public sealed class NarrativeValidatorTests
     private static NarrativeScope GroupScope(Finding finding) =>
         NarrativeScope.ForGroup(CreateResult(finding), finding.GroupId, 3);
 
+    /// <summary>A cell's access path ends with the selector, which names no member; the field before it is what a narrative
+    /// about that cell writes, and it has to pass (ADR 0010).</summary>
+    [Fact]
+    public void The_collection_field_of_a_finding_on_one_cell_is_not_an_invented_symbol()
+    {
+        var finding = CreateFinding(region: "di:Ns.Ledger@Singleton", field: "Entries");
+        var cell = finding.Resource with { Selector = ElementSelector.Key("a"), AccessPath = ["Entries", "[\"a\"]"] };
+        var scope = GroupScope(finding with { Resource = cell });
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("The cell of `Ledger.Entries` is written by both."), scope);
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void The_protection_verdicts_and_the_plain_collections_pass_the_vocabulary()
+    {
+        var body = "The pair is `unprotected`; another is `partial` and a third `sufficient`, and `different-identity` is " +
+                   "the fourth. Neither `Dictionary` nor `List` is safe here.";
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText(body), GroupScope(CreateFinding()));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    /// <summary>The vocabulary is a list, not a licence: a type nobody named is still an invention.</summary>
+    [Fact]
+    public void A_type_outside_the_vocabulary_and_the_evidence_is_still_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Use a `PersistentDictionary` instead."), GroupScope(CreateFinding()));
+
+        Assert.Equal(["inventedSymbol:PersistentDictionary"], verdict.Reasons);
+    }
+
     private static string ValidGroupText(string body = "Race explanation.", string citation = "F1.A") => $"""
         {body}
         [E:{citation}]

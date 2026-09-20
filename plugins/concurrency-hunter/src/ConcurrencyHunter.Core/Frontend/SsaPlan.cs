@@ -190,7 +190,7 @@ internal sealed class SsaPlan
             case IFlowCaptureReferenceOperation capture:
                 GetVariable(capture.Id, capture);
                 return;
-            case IInvocationOperation invocation when !IrLowering.IsMonitorEnterOrExit(invocation.TargetMethod):
+            case IInvocationOperation invocation:
                 ScanCall(invocation, invocation.Arguments, blockOrdinal);
                 return;
             case IObjectCreationOperation { Constructor: not null } creation:
@@ -313,7 +313,8 @@ internal sealed class SsaPlan
         var variable = new SsaVariable(
             symbol,
             null,
-            symbol.Name,
+            // A local the compiler synthesized, the flag of a `lock` statement among them, has no name of its own.
+            symbol.Name ?? "",
             type,
             symbol is IParameterSymbol ? IrValueKind.Parameter : IrValueKind.Local,
             symbol is IParameterSymbol incomingParameter &&

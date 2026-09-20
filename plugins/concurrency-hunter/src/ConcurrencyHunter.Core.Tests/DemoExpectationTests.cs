@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Common.Roslyn;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
@@ -20,7 +20,7 @@ public sealed class DemoExpectationTests
     };
 
     [Fact]
-    public async Task Demo_matches_every_phase_3_expectation_on_three_runs()
+    public async Task Demo_matches_every_phase_4_expectation_on_three_runs()
     {
         var expectationPath = RepositoryFiles.FindRepositoryFile(
             "plugins", "concurrency-hunter", "demo", "expected-findings.json");
@@ -39,7 +39,7 @@ public sealed class DemoExpectationTests
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "3");
+            "4");
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +

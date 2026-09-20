@@ -45,7 +45,16 @@ public static class NarrativeValidator
         "const",
         "async",
         "await",
-        "Task"
+        "Task",
+        // The collections a finding on a collection is about, so that a narrative may say which kind it is and that swapping
+        // one for the other does not answer a compound operation (ADR 0010).
+        "Dictionary",
+        "List",
+        // The protection verdicts a narrative may quote. The two hyphenated ones, different-identity and incompatible-mode,
+        // are no identifiers at all, so they never reach this check.
+        "unprotected",
+        "partial",
+        "sufficient"
     };
 
     public static NarrativeVerdict Validate(string? text, NarrativeScope scope)
@@ -216,11 +225,15 @@ public static class NarrativeValidator
         }
     }
 
+    /// <summary>What a narrative may name of the resource: its region's type, and that type with each field of the access
+    /// path. A cell's path ends with the selector, which names no member, so the field before it is what a reader writes
+    /// (TD-043, ADR 0010).</summary>
     private static IEnumerable<string> ResourceTargets(Finding finding)
     {
         var regionType = NormalizeVerbatimIdentifiers(RegionType(finding.Resource.Region));
         yield return regionType;
-        yield return $"{regionType}.{NormalizeVerbatimIdentifiers(finding.Resource.AccessPath[^1])}";
+        foreach (var segment in finding.Resource.AccessPath.Where(segment => IDENTIFIER_PATTERN.IsMatch(segment)))
+            yield return $"{regionType}.{NormalizeVerbatimIdentifiers(segment)}";
     }
 
     // A held protection name is a region or member, optionally "<region> as <service type>" and a trailing

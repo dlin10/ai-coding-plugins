@@ -1,3 +1,4 @@
+﻿using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Heap;
@@ -152,11 +153,63 @@ public enum SummaryAccessKind
     Store
 }
 
+/// <summary>A predicate of the path an access runs on, as one body states it (TD-090). <see cref="SubjectLoad"/> is the field
+/// load it constrains, whose canonical identity the caller's context decides; <see cref="SubjectValue"/> names a value of this
+/// body instead, which no other execution shares. A predicate with neither names nothing and only carries its
+/// <see cref="Text"/> into the uncertainties (TD-095).</summary>
+public sealed record SummaryPredicate(int? SubjectLoad, int? SubjectValue, PathRelation Relation, string? Value, string Text)
+{
+    /// <summary>The width in bits of the subject's own type, and whether that type is signed, carried so that the solver decides
+    /// the guard in the width the language runs it in (TD-094).</summary>
+    public int Width { get; init; } = 32;
+
+    public bool Signed { get; init; } = true;
+}
+
 /// <summary>A field or auto-property load or store. <see cref="Bases"/> are the objects it touches, empty for a static field;
 /// <see cref="Values"/> are the loaded or stored values, and a store's <see cref="Dependencies"/> are what its value depends on.</summary>
 public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases,
                                    IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks, int? ReadModifyWriteOf,
-                                   IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies);
+                                   IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
+{
+    /// <summary>What the atomic mark of this load or store says it does to the cell, null when it carries none (TD-082).</summary>
+    public IrAtomicEffect? Atomic { get; init; }
+
+    /// <summary>
+    /// The load whose value a compare-and-swap checks the cell against — the operation whose result the comparand <em>is</em>,
+    /// not one it was computed from. Null for every other access, and for a comparand that is anything but a load's own value:
+    /// <c>old + 2</c> depends on the read of <c>old</c> and is not that read's value, so a swap checking it verifies nothing
+    /// about what the sequence observed and writes over whatever happened in between (R1).
+    /// </summary>
+    public int? ComparandLoad { get; init; }
+
+    /// <summary>Which cell of the collection the access touches, null when it touches the field itself (TD-043).</summary>
+    public ElementSelector? Selector { get; init; }
+
+    /// <summary>Whether this access is the change of a check-then-act sequence over one collection, which is one compound
+    /// operation however atomic each of its steps is (ADR 0010). Its <see cref="Dependencies"/> name the checks.</summary>
+    public bool IsCompound { get; init; }
+
+    /// <summary>The predicates that must hold for this access to run (TD-090).</summary>
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+
+    /// <summary>The ordinal of the parameter this access's cell is named by, when it is named by one: a parallel loop binds
+    /// that parameter to the iteration number, which two iterations of one run never share (TD-068).</summary>
+    public int? SelectorParameter { get; init; }
+
+    /// <summary>The narrowest width in bits the cell's index passes through on its way from <see cref="SelectorParameter"/>,
+    /// null where it passes through no conversion at all. An index converted narrower than the iteration numbers it carries
+    /// repeats, and two iterations of one loop then name one cell (TD-068).</summary>
+    public int? SelectorWidth { get; init; }
+
+    /// <summary>The expression naming this access's cell, in the width of its own type, for the solver (TD-092).</summary>
+    public ValueTerm? SelectorTerm { get; init; }
+
+    /// <summary>Whether this access works on the collection a field holds, or on one of its cells, rather than on the field
+    /// itself (ADR 0010). Such a resource is the collection object and not the field that reached it: two fields holding one
+    /// dictionary hold one dictionary, and naming the resource after the field leaves their accesses unable to ever meet.</summary>
+    public bool IsOnCollection { get; init; }
+}
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
 public sealed record StoreTransfer(int OperationId, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, IReadOnlySet<AbstractValue> Values);
@@ -198,7 +251,12 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
 
 /// <summary>A monitor acquisition or release: the values of its lock object, and the IR value the object comes from through
 /// assigns and conversions, which matches a lock statement's release to its acquisition when the values are unknown.</summary>
-public sealed record LockTransfer(int OperationId, bool IsAcquire, IReadOnlySet<AbstractValue> Values, int Origin, IrProvenance Provenance);
+public sealed record LockTransfer(int OperationId, bool IsAcquire, IrSynchronizationPrimitive Primitive, IrLockMode Mode,
+                                  IReadOnlySet<AbstractValue> Values, int Origin, IrProvenance Provenance)
+{
+    /// <summary>How many permits an exit gives back, as <see cref="IrReleaseOperation.Permits"/> reads it; an entry takes one.</summary>
+    public int? Permits { get; init; } = 1;
+}
 
 /// <summary>A call into a body the scope may have: <see cref="Target"/> is the method id, or the nested body id of a local function.
 /// The target type keys are as the call names them, in the calling body's own type parameters.</summary>
@@ -212,6 +270,10 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
     /// over the regions alone cannot tell a receiver the heap named from one it could not.</summary>
     public IReadOnlySet<UnknownSource> ReceiverUnknownSources { get; init; } = new HashSet<UnknownSource>();
     public IReadOnlySet<int> ReceiverSourceCalls { get; init; } = new HashSet<int>();
+
+    /// <summary>The predicates that must hold for the call to run, in the calling body's own values. Everything the callee does
+    /// runs under them too, so the guards of a call site are part of the condition of every access it reaches (R8, TD-090).</summary>
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
 }
 
 /// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked. The

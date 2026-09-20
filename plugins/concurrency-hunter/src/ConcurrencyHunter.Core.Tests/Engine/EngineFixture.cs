@@ -206,12 +206,15 @@ public static class EngineFixture
         {
             counted++;
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
+                : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? InterproceduralPairing.SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
                   first.ExecutionId == second.ExecutionId && heap.Regions[first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
                   region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
                 : executions.Ordered(first, second) ? InterproceduralPairing.SKIP_ORDERED
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
+                : PathConditions.Contradict(first.Conditions, second.Conditions) ? InterproceduralPairing.SKIP_UNSATISFIABLE_PATH
+                : InterproceduralPairing.IsDisjointIteration(first, second) ? InterproceduralPairing.SKIP_DISJOINT_ITERATION
                 : null;
             if (skip is not null)
             {
@@ -219,18 +222,13 @@ public static class EngineFixture
                 return;
             }
 
-            if (first.HeldProtectionIds.Intersect(second.HeldProtectionIds, StringComparer.Ordinal).Any())
+            var protection = PairProtection.Of(first, second);
+            if (protection == PairProtection.SUFFICIENT)
             {
                 suppressed++;
                 return;
             }
 
-            var protection = (first.HeldProtection.Count != 0, second.HeldProtection.Count != 0) switch
-            {
-                (false, false) => PairProtection.UNPROTECTED,
-                (true, true) => PairProtection.DIFFERENT_IDENTITY,
-                _ => PairProtection.PARTIAL
-            };
             pairs.Add(new AccessPair(first, second, protection) { Resource = reported, Uncertainties = uncertainties });
         }
 
@@ -248,7 +246,16 @@ public static class EngineFixture
         if (one.Resource.RegionId == other.Resource.RegionId)
         {
             if (!wildcard)
-                return one.Resource.Identity == other.Resource.Identity ? (one, other, one.Resource, []) : null;
+            {
+                if (one.Resource.Identity == other.Resource.Identity)
+                    return (one, other, one.Resource, []);
+                // Two cells of one collection meet where their selectors may name one cell, and are reported on the proven one (TD-075).
+                return one.Resource.StructuralIdentity == other.Resource.StructuralIdentity &&
+                       one.Resource.Selector is { } selector && other.Resource.Selector is { } otherSelector &&
+                       selector.MayOverlap(otherSelector)
+                    ? (one, other, CandidateIndex.ReportedCell(one.Resource, other.Resource), [])
+                    : null;
+            }
             var (first, second) = one.Resource.IsWildcard ? (one, other) : (other, one);
             return (first, second, first.Resource, []);
         }

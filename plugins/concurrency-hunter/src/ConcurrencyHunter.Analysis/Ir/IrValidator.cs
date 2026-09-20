@@ -73,11 +73,15 @@ public static class IrValidator
     {
         var sawNonPhi = false;
         var calls = new HashSet<int>();
+        var fieldAccesses = new HashSet<int>();
         foreach (var operation in block.Operations)
         {
             if (operation is IrCallOperation call)
                 calls.Add(call.Id);
-            ValidateBclOperation(operation, calls, problems);
+            // An atomic mark names the load or store it makes atomic, of a field or of a cell of a collection alike (R1).
+            if (operation is IrLoadFieldOperation or IrStoreFieldOperation or IrLoadElementOperation or IrStoreElementOperation)
+                fieldAccesses.Add(operation.Id);
+            ValidateBclOperation(operation, calls, fieldAccesses, problems);
 
             if (operation is IrPhiOperation phi)
             {
@@ -104,7 +108,8 @@ public static class IrValidator
         }
     }
 
-    private static void ValidateBclOperation(IrOperation operation, IReadOnlySet<int> calls, List<string> problems)
+    private static void ValidateBclOperation(IrOperation operation, IReadOnlySet<int> calls, IReadOnlySet<int> fieldAccesses,
+                                             List<string> problems)
     {
         switch (operation)
         {
@@ -148,6 +153,9 @@ public static class IrValidator
                 if (shape != expected || (timer.StateValue is not null) != (timer.Action == IrTimerAction.Create) ||
                     (timer.DueTime is null) != (timer.Period is null))
                     problems.Add($"Timer operation {timer.Id} does not carry the values of {timer.Action}.");
+                break;
+            case IrAtomicOperation atomic when atomic.TargetOperationId is not int target || !fieldAccesses.Contains(target):
+                problems.Add($"Atomic operation {atomic.Id} does not name an earlier field or element load or store in its block.");
                 break;
         }
     }

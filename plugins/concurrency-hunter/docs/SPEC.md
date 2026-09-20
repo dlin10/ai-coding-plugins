@@ -1,4 +1,4 @@
-# Implementation Specification: Concurrency Hunter
+﻿# Implementation Specification: Concurrency Hunter
 
 | Поле | Значение |
 |---|---|
@@ -6,7 +6,7 @@
 | Дата | 2026-09-12 |
 | Продуктовые требования | [PRD](PRD.md) |
 | Словарь | [CONTEXT.md](../CONTEXT.md) |
-| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), [ADR 0005](adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md), [ADR 0006](adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md), [ADR 0007](adr/0007-a-finding-is-a-pair-of-access-sites.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
+| Решения | [ADR 0001](adr/0001-the-skill-drives-the-run.md), [ADR 0002](adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md), [ADR 0003](adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md), [ADR 0004](adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md), [ADR 0005](adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md), [ADR 0006](adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md), [ADR 0007](adr/0007-a-finding-is-a-pair-of-access-sites.md), [ADR 0008](adr/0008-ordering-is-a-happens-before-graph-trusted-inside-one-instance-tree.md), [ADR 0009](adr/0009-a-synchronization-wrapper-is-transparent-never-a-lock-type.md), [ADR 0010](adr/0010-a-collections-structure-is-a-resource-of-its-own.md), корневой [ADR 0001](../../../docs/adr/0001-shared-code-lives-in-plugins-common.md) |
 
 ## 1. Назначение и статус
 
@@ -260,9 +260,9 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-071.** Access kinds: `Read`, `Write`, `ReadModifyWrite`, `AtomicRead`, `AtomicWrite`, `AtomicReadModifyWrite`, `CompoundOperation`, `UnknownEffect`.
 
-**TD-072.** Два accesses конфликтуют, если may refer to overlapping resource, могут overlap, минимум один non-atomic write/RMW, не упорядочены happens-before и не имеют общей достаточной защиты.
+**TD-072.** Два accesses конфликтуют, если may refer to overlapping resource, могут overlap, минимум один non-atomic write, non-atomic RMW или compound operation, не упорядочены happens-before и не имеют общей достаточной защиты.
 
-**TD-073.** Lost-update требует data dependency от предшествующего read к последующему non-atomic write и конкурирующего write/RMW.
+**TD-073.** Lost-update требует dependency от предшествующего read к последующему non-atomic write и конкурирующего write/RMW. Зависимость через проверку составной операции — проверка решает, выполнится ли изменение, — считается такой же зависимостью, как зависимость по значению (ADR 0010).
 
 **TD-074.** Read/read пары не conflicts.
 
@@ -278,11 +278,21 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-082.** `Interlocked.*`, `Volatile.*` и `volatile` fields помечают операцию `Atomic*` на одной location; RMW из volatile read и write не атомарен.
 
-**TD-083.** `SemaphoreSlim` это mutex только при capacity, доказанной константой `1` в конструкторе того же региона, и паре `Wait`/`WaitAsync` и `Release` на всех путях, включая `finally`; иначе `partial`. `Mutex` моделируется как `lock` без межпроцессной семантики. `ReaderWriterLockSlim`: read совместим с read, write и upgradeable несовместимы со всем кроме себя по правилам класса.
+**TD-083.** Моделируются `Monitor`, `System.Threading.Lock`, `Mutex`, `SemaphoreSlim` и `ReaderWriterLockSlim`; `SpinLock` и нераспознанный тип защитой не считаются (TD-086).
 
-**TD-085.** Thread-safe collection моделируется по операциям из таблицы: `GetOrAdd`/`AddOrUpdate`/`TryUpdate` атомарны по slot, `ContainsKey` + indexer, `Count` + `Add`, enumerate + mutate это compound candidates при overlap.
+*Вид механизма.* Захват, освобождение и вердикт пары сравниваются по объекту **и** по виду примитива: на одном объекте механизмы независимы, поэтому освобождение парно только захвату своего вида, а пара, где стороны вошли разными механизмами, получает `incompatible-mode`.
 
-**TD-086.** Новая synchronization semantics добавляется built-in реализацией provider interface и проходит contract validation. Неизвестный тип с методами `Lock/Unlock`, `AsyncLock` и подобные не считаются защитой. `Channel<T>` переводит переданный объект в `Escaped`; event-based ожидания не создают happens-before.
+*Точка захвата.* Безусловные входы захватывают, когда управление нормально пошло дальше: `Monitor.Enter(object)`, `Monitor.Enter(object, ref bool)`, `SemaphoreSlim.Wait()`, `Wait(CancellationToken)`, `Mutex.WaitOne()`, `SemaphoreSlim.WaitAsync()` и `WaitAsync(CancellationToken)` — два последних в точке ожидания результата. У `Monitor.Enter(object, ref bool)` после нормального возврата признак всегда истинен: он существует ради освобождения в `finally`, поэтому ветви по нему не требуется. Условные входы, то есть все перегрузки с тайм-аутом, захватывают только там, где доказан успех: `Monitor.TryEnter` и `TryEnter*` `ReaderWriterLockSlim` — на ветви истинного возвращённого значения, а формы с `ref bool` — на ветви истинного значения `ref`-параметра; `Wait(TimeSpan)`, `Wait(int)`, `WaitOne(TimeSpan)`, `WaitOne(int)` — на ветви истинного результата; `WaitAsync(TimeSpan)` и `WaitAsync(int)` — на ветви, где истинно выжданное значение, потому что `await` может нормально завершиться значением `false`. Проигнорированный признак успеха не доказывает захвата, и невыжданный `WaitAsync` не доказывает ничего.
+
+*Исключительные пути.* Выход по отмене или исключению оставляет примитив незахваченным, и освобождение на таком пути непарное. Исключение одно: `Mutex.WaitOne`, завершившийся `AbandonedMutexException`, захватывает, потому что владение переходит к вызывающему потоку, поэтому `ReleaseMutex` в таком обработчике парный и защиту сохраняет.
+
+*Потоковая привязка.* `Monitor`, `System.Threading.Lock`, `Mutex` и `ReaderWriterLockSlim` принадлежат захватившему их потоку, а продолжение после точки приостановки может выполниться на другом: `Monitor` и `Mutex` рекурсивны, так что один поток войдёт повторно, а у `ReaderWriterLockSlim` с политикой по умолчанию ломается само освобождение. Поэтому защищённая область такого примитива, содержащая `await` или иную точку приостановки между захватом и освобождением, даёт `partial`, а не `sufficient`, и `ReleaseMutex` в `finally` этого не меняет. `SemaphoreSlim` из правила исключён: он к потоку не привязан.
+
+*`SemaphoreSlim`* это mutex только при capacity, доказанной константой `1` в конструкторе того же региона, и парных захвате и освобождении на всех путях, включая `finally`; иначе `partial`. *`Mutex`* моделируется как `lock` без межпроцессной семантики. *`ReaderWriterLockSlim`* исключает по матрице: read и read не исключают, read и upgradeable не исключают, любая пара с write исключает, upgradeable с upgradeable исключает.
+
+**TD-085.** Thread-safe collection моделируется по операциям из таблицы ADR 0010: `GetOrAdd`/`AddOrUpdate`/`TryUpdate` атомарны по slot, а каждый член, меняющий структуру, атомарен и по ней. `ContainsKey` + indexer и `Count` + `Add` это compound operations при overlap. Enumerate + mutate compound-кандидатом не является: на thread-safe коллекции обе операции атомарны и пары нет, на обычной это обычный конфликт по структуре.
+
+**TD-086.** Новая synchronization semantics добавляется built-in реализацией provider interface и проходит contract validation. Тип с методами `Lock/Unlock`, `AsyncLock` и подобными не распознаётся как замок: защита не выводится из формы типа ни при каких условиях. Обёртка при этом прозрачна ([ADR 0009](adr/0009-a-synchronization-wrapper-is-transparent-never-a-lock-type.md)): вызов, внутри которого захвачен моделируемый примитив, это захват в точке вызова, а уничтожение объекта, чьё уничтожение освобождает моделируемый примитив, это освобождение в точке уничтожения, и защиту доказывает тот же must-hold анализ, что и для `lock`. Обёртка доказывает защиту только когда выполнены все три условия: захват сводится к моделируемому примитиву — `Monitor`, `System.Threading.Lock`, `Mutex`, `ReaderWriterLockSlim` или `SemaphoreSlim` с ёмкостью, доказанной константой `1`, — на регионе с доказанной identity; освобождение сводится к тому же примитиву на том же регионе; и освобождение происходит на всех путях из области, включая исключительные. Identity защиты это регион примитива, а не обёртки, поэтому две разные обёртки над одним доказанным семафором защищают друг друга, а обёртки над разными семафорами дают `different-identity`. Обёртка над не моделируемым типом или над семафором с недоказанной ёмкостью не даёт защиты вовсе. Ограничения R3 обёртка не отменяет: потоковая привязка нижележащего примитива и условность перегрузки с тайм-аутом действуют так же, как без обёртки. `Channel<T>` переводит переданный объект в `Escaped`; event-based ожидания не создают happens-before.
 
 ### 4.10. Path conditions и solver
 
@@ -537,7 +547,7 @@ Conflict(A, B) =
 
 LostUpdate(A, B) =
     Conflict(A, B)
-    && (A.Operation == NonAtomicRMW || B.Operation == NonAtomicRMW)
+    && (A.Operation ∈ {NonAtomicRMW, CompoundOperation} || B.Operation ∈ {NonAtomicRMW, CompoundOperation})
     && StaleReadCanInfluenceLaterWrite(A, B)
 ```
 
@@ -547,7 +557,7 @@ LostUpdate(A, B) =
 
 | Условие | Rule ID |
 |---|---|
-| `LostUpdate` и обе операции `Atomic*` или `CompoundOperation` над modeled cell коллекции, последовательность зависит от результата первой | DCA1004 |
+| `LostUpdate` и обе операции `Atomic*` или `CompoundOperation` над моделируемым ресурсом коллекции, последовательность зависит от результата первой | DCA1004 |
 | `LostUpdate` | DCA1002 |
 | `Conflict` и `protectionAnalysis.result` ∈ {`partial`, `different-identity`, `incompatible-mode`} | DCA1003 |
 | `Conflict` | DCA1001 |
@@ -584,7 +594,9 @@ LostUpdate(A, B) =
   "resource": {
     "domain": "managed-heap",
     "region": "allocation:SharedState.cs:18@Singleton",
-    "accessPath": ["Counter"]
+    "accessPath": ["Counter"],
+    "kind": "storage",
+    "selector": null
   },
   "accesses": [
     { "role": "A", "operation": "read-modify-write", "root": "HTTP PUT /counter",
@@ -607,6 +619,7 @@ LostUpdate(A, B) =
   "aliasEvidence": ["both receivers point to the same DI singleton region"],
   "protectionAnalysis": { "result": "unprotected", "commonProtection": [] },
   "pathFeasibility": { "result": "sat", "solver": "z3/4.x" },
+  "remediation": "make every access to this resource hold one synchronization primitive for the whole of its update; verify manually.",
   "scenario": [
     "A reads Counter = v0",
     "B reads Counter = v0",
@@ -631,7 +644,14 @@ LostUpdate(A, B) =
 }
 ```
 
-`findings.json` содержит также `groups[]` с полями `FindingGroup` и `narrative[]` с принятыми фрагментами; remediation живёт в narrative группы, не в finding. `findingId` и `groupId` это run-local citation ids (`F1`, `G1`), которые цитирует narrative; `fingerprint` и `groupFingerprint` это стабильные имена finding и группы (TD-106); `occurrences` это пути, которыми пара access sites достигается, не больше трёх в файле, `occurrenceCount` считает все.
+`findings.json` содержит также `groups[]` с полями `FindingGroup` и `narrative[]` с принятыми фрагментами; narrative группы разворачивает remediation, а `finding.remediation` это рекомендация скелета, выбранная по виду операций пары: для пары составных операций одна критическая секция на проверку и изменение, для пары чтения и записи общий примитив на обе стороны, для пары обычных операций над ячейкой атомарный член (ADR 0010). `findingId` и `groupId` это run-local citation ids (`F1`, `G1`), которые цитирует narrative; `fingerprint` и `groupFingerprint` это стабильные имена finding и группы (TD-106); `occurrences` это пути, которыми пара access sites достигается, не больше трёх в файле, `occurrenceCount` считает все.
+
+Поля вердиктов и ресурса:
+
+- `protectionAnalysis.result` принимает ровно пять значений: `unprotected`, `partial`, `different-identity`, `incompatible-mode`, `sufficient`; последнее снимает кандидата и в файл не попадает, три средних означают, что защита есть и её недостаточно (TD-083).
+- `resource` у коллекции говорит, о чём находка: `kind` это `storage` для структуры и `element` для ячейки, `selector` это текст ячейки (`[0]`, `["a"]`, `[0..8]`, `[?]`) или `null`; последний сегмент `accessPath` повторяет его (TD-043, ADR 0010).
+- `pathFeasibility.result` это ответ решателя: `sat`, `unsat`, `unknown` или `not-analyzed`, когда кандидат не нёс ничего для решателя; `solver` называет решателя, когда он отвечал (TD-093).
+- `uncertainty[]` пополняется записями фаз 4 и 5: неизвестный компаратор коллекции, неподдержанный предикат пути, снятый консервативно, и решатель, который не ответил — недоступный, исчерпавший лимит или ответивший «неизвестно» (TD-095, ADR 0004).
 
 ### 8.2. Narrative группы
 
@@ -647,7 +667,7 @@ Skill требует от composer следующий порядок в narrativ
 
 Валидатор фрагмента проверяет: все cited evidence ids существуют и принадлежат группе; нет source locations, symbols, runtime values или events вне evidence; есть пометка `verify manually` и непустые проверки у каждой рекомендации; размер в пределах константы сервера. Skeleton уже содержит пути, evidence и сценарий; narrative их не пересказывает.
 
-Соглашения фрагмента: ссылки на evidence записываются как `[E:<id>]`; narrative группы ссылается хотя бы на одно evidence каждого finding, который `get_groups` показал для этой группы; раздел `Remediation` задаётся Markdown-заголовком уровня 1–6, а каждая рекомендация содержит `verify manually` и вложенный пункт `Check:` с непустой проверкой. Source location вида `File.cs:line`, включая путь с пробелами, всегда заключается в backticks, совпадает по целым конечным сегментам с evidence path и указывает строку внутри evidence span; любое упоминание `.cs` вне backticks запрещено. Другие токены в backticks, если они имеют форму идентификатора, должны совпадать с evidence symbol или символом root entry, их допустимым suffix, типом region без префикса `static:`/`di:` и суффикса `@<Lifetime>`, field, именем held protection без того же префикса, суффикса и пояснения в скобках, evidence id или `DCA1001`–`DCA1004`; сам lifetime, например `Singleton`, не принимается; также разрешён словарь синхронизации `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`, `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`, `readonly`, `static`, `const`, `async`, `await`, `Task`. Unicode и verbatim-идентификаторы проверяются по тем же правилам; лимит фрагмента — 8192 байта UTF-8.
+Соглашения фрагмента: ссылки на evidence записываются как `[E:<id>]`; narrative группы ссылается хотя бы на одно evidence каждого finding, который `get_groups` показал для этой группы; раздел `Remediation` задаётся Markdown-заголовком уровня 1–6, а каждая рекомендация содержит `verify manually` и вложенный пункт `Check:` с непустой проверкой. Source location вида `File.cs:line`, включая путь с пробелами, всегда заключается в backticks, совпадает по целым конечным сегментам с evidence path и указывает строку внутри evidence span; любое упоминание `.cs` вне backticks запрещено. Другие токены в backticks, если они имеют форму идентификатора, должны совпадать с evidence symbol или символом root entry, их допустимым suffix, типом region без префикса `static:`/`di:` и суффикса `@<Lifetime>`, field, именем held protection без того же префикса, суффикса и пояснения в скобках, evidence id или `DCA1001`–`DCA1004`; сам lifetime, например `Singleton`, не принимается; также разрешён словарь синхронизации `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`, `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`, `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`, `readonly`, `static`, `const`, `async`, `await`, `Task`, `Dictionary`, `List` и вердикты защиты `unprotected`, `partial`, `sufficient`. Unicode и verbatim-идентификаторы проверяются по тем же правилам; лимит фрагмента — 8192 байта UTF-8.
 
 ## 9. Plugin integration и artifacts
 
@@ -855,6 +875,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 - `findings[]` и `notDefects[]`; у каждой записи уникальный `id` вида `<case>` или `<case>/<suffix>`, где `<case>` это kebab-имя файла case-а.
 - Идентичность находки: `rule`, `resource` и неупорядоченная пара `accesses`. Roots и `id` в неё не входят. `resource.region` пишется символьно: `static:<Type>`, `di:<ImplementationType>@<Lifetime>`, `alloc:<ContainingMethod>#<CreatedType>[#n]`, где `#n` это порядок `new` этого типа в методе, а инициализаторы полей принадлежат `..ctor(…)` или `..cctor()`. Регион без контекста совпадает с регионом анализатора из этого сайта в любом `ContextKey`. `resource.accessPath` называет поля и auto-properties по имени. `access.symbol` это ближайший обычный член, в теле которого стоит access, включая лямбды и локальные функции; `access.operation` из TD-071. Self-pair repeated root записывается двумя одинаковыми accesses.
 - `resource.accessPath` `["*"]` это wildcard resource на регионе, с которого начинается свёрнутый путь (TD-042). Read-modify-write записывается в месте своей записи. Factory- и instance-регистрации это `di:<ImplementationType>@<Lifetime>`, где тип это последний generic-аргумент регистрации.
+- Ячейка массива, среза или коллекции пишется отдельным сегментом `resource.accessPath` сразу после поля коллекции: `[0]` для доказанной константы, `["a"]` для доказанного ключа, как его сравнивает компаратор коллекции, `[0..8]` для консервативного диапазона и `[?]` для всего остального (TD-043, ADR 0010). Сегмент входит в идентичность ресурса, поэтому `["_cells", "[0]"]` и `["_cells", "[1]"]` это два ресурса, а `["_cells", "[?]"]` пересекается с любой ячейкой того же поля (TD-075). Доступ к самой коллекции пишется без сегмента.
 - Запись `notDefects` без `accesses` запрещает любую находку на resource, с `accesses` только на этой паре.
 - `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе. Порядок фаз: `0`, `1a`, `1b`, `2`, `2b`, `3`, `4`, `5`, `6`, `7`, `8`.
 - `confidence` (метка, без score) проверяется отдельно от идентичности, с фазы `max(phase, 2)`. Case-ы фаз 1–2 не содержат guards, spawn sites и вызовов, способных стать semantic gap, поэтому поздние фазы их метку не меняют.
