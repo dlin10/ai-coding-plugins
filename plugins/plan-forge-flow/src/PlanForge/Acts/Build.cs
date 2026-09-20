@@ -43,7 +43,10 @@ internal sealed class Build
                              resumeToken is null ? state.BuilderInstructions : null);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
         await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder),
-                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
+                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools),
+                                                                        new WorkerTelemetryContext(run.TelemetryPath, run.Log, "build",
+                                                                                                   TaskNumber: task.Number,
+                                                                                                   TaskCount: tasks.Count)),
                                                            selection,
                                                            resumeToken,
                                                            ct);

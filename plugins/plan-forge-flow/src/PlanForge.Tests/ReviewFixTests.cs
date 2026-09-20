@@ -30,12 +30,14 @@ public sealed class ReviewFixTests : IDisposable
         var builder = new RecordingVendor("codex");
         builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
 
-        var result = await NewFix(builder).FixAsync(NewRun(), new Selection("builder-model", "low"),
+        var result = await NewFix(builder).FixAsync(NewRun(codeReviewRounds: 2), new Selection("builder-model", "low"),
                                                     "- **major** tracked.txt — fix it", null, ct);
 
         Assert.Equal("done", result.Status);
         var session = Assert.Single(builder.Sessions);
         Assert.Equal(VendorRole.Builder, session.Role.Role);
+        Assert.Equal("review_fix", session.Role.Telemetry?.Act);
+        Assert.Equal(2, session.Role.Telemetry?.Round);
         Assert.Contains("# Fix these review findings", session.PromptText, StringComparison.Ordinal);
         Assert.Contains("fix it", session.PromptText, StringComparison.Ordinal);
     }

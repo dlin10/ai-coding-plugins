@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.31.0
+# Plan Forge Flow 0.32.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -165,11 +165,13 @@ instead.
     review-log.md
     flow_log.md           # the user-facing timeline
     forge.log
+    telemetry.json        # per-Worker timing and provider-reported token counters
     baseline.patch
 ```
 
-`PLAN.md` and `flow_log.md` are the two files written to be read by a person, and the tools hand
-their paths back so the orchestrator can put them in front of you while the run is still moving.
+`PLAN.md`, `flow_log.md` and the indented `telemetry.json` are written to be read by a person. The
+tools hand back the first two paths so the orchestrator can put the plan and timeline in front of
+you while the run is still moving; telemetry stays at the stable Run path and adds no MCP result.
 Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
 after an approval takes that flag back.
 

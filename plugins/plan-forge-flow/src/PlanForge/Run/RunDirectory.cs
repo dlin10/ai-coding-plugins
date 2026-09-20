@@ -16,6 +16,7 @@ internal sealed class RunDirectory
     private const string ReviewLogFileName = "review-log.md";
     private const string FlowLogFileName = "flow_log.md";
     private const string DiagnosticLogFileName = "forge.log";
+    private const string TelemetryFileName = "telemetry.json";
     private const string JobsFolder = "jobs";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
@@ -74,6 +75,8 @@ internal sealed class RunDirectory
     public string DiagnosticLogPath => System.IO.Path.Combine(Path, DiagnosticLogFileName);
 
     public RunLog Log => new(DiagnosticLogPath);
+
+    internal string TelemetryPath => System.IO.Path.Combine(Path, TelemetryFileName);
 
     /// <summary>
     /// The run's plan as it currently stands, approved or not. Public because the path travels out

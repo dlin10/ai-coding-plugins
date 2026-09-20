@@ -465,7 +465,10 @@ public sealed class PlanReviewTests : IDisposable
         await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
             .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), null, null, false, CancellationToken.None);
 
-        Assert.Equal(["roslyn-*", "sql-server"], Assert.Single(critic.Sessions).Role.WorkerTools);
+        var role = Assert.Single(critic.Sessions).Role;
+        Assert.Equal(["roslyn-*", "sql-server"], role.WorkerTools);
+        Assert.Equal("plan_review", role.Telemetry?.Act);
+        Assert.Equal(1, role.Telemetry?.Round);
     }
 
     /// <summary>
