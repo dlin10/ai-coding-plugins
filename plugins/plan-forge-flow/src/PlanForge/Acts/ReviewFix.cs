@@ -44,7 +44,9 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         }
 
         await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder),
-                                                                       state.BuilderRoots, WorkerTools.Effective(state.WorkerTools)),
+                                                                       state.BuilderRoots, WorkerTools.Effective(state.WorkerTools),
+                                                                       new WorkerTelemetryContext(run.TelemetryPath, run.Log, "review_fix",
+                                                                                                  Round: state.CodeReviewRounds)),
                                                            selection, resumeToken, ct);
 
         BuildResult reported;

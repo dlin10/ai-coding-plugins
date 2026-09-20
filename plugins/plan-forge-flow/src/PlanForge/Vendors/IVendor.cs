@@ -42,7 +42,8 @@ internal enum VendorRole
 internal sealed record RoleSpec(VendorRole Role,
                                 string SystemPrompt,
                                 IReadOnlyList<string>? WritableRoots = null,
-                                IReadOnlyList<string>? WorkerTools = null);
+                                IReadOnlyList<string>? WorkerTools = null,
+                                WorkerTelemetryContext? Telemetry = null);
 
 /// <summary>
 /// Model and effort are kept apart because vendors express effort differently — a flag for Claude,

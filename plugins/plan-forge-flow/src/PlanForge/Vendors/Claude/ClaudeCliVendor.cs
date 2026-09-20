@@ -11,15 +11,15 @@ namespace PlanForge.Vendors.Claude;
 /// </summary>
 internal sealed class ClaudeCliVendor : IVendor
 {
-    private const string Command = "claude";
-    private const string StructuredOutputTool = "StructuredOutput";
+    private const string COMMAND = "claude";
+    private const string STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
     /// <summary>Never reaches a model: `--print` will not start without a prompt, and that is all this is for.</summary>
-    private const string ResolvePrompt = "model check";
+    private const string RESOLVE_PROMPT = "model check";
 
     // Five levels, verified against the CLI. The old code carried six, including a "none" that
     // does not exist.
-    private static readonly string[] Efforts = ["low", "medium", "high", "xhigh", "max"];
+    private static readonly string[] EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
     /// <summary>
     /// The families this repo remembers. Discovery adds to this list; it never replaces it, so a
@@ -29,12 +29,12 @@ internal sealed class ClaudeCliVendor : IVendor
 
     // One alias resolves in ~4s; the bound is generous but has to stay well inside the cache's 60s
     // for the whole probe, because an alias the CLI does not know only fails after ~40s.
-    private static readonly TimeSpan ResolveTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan DiscoverTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan RESOLVE_TIMEOUT = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan DISCOVER_TIMEOUT = TimeSpan.FromSeconds(45);
 
     // About 4 s measured with five servers refusing the connection; one that hangs costs its own
     // startup timeout, so the bound is wide rather than tight.
-    private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan LIST_TIMEOUT = TimeSpan.FromSeconds(60);
 
     private readonly string? _workingDirectory;
 
@@ -54,7 +54,7 @@ internal sealed class ClaudeCliVendor : IVendor
     /// cmd.exe, which corrupts the inline JSON schema argument.
     /// </summary>
     internal static string Executable =>
-        ExecutableResolver.Resolve(Command) ?? throw new VendorException($"{Command} was not found on PATH");
+        ExecutableResolver.Resolve(COMMAND) ?? throw new VendorException($"{COMMAND} was not found on PATH");
 
     /// <summary>
     /// Two waves. The billed one runs a real session without `--model`: it proves sign-in, its own
@@ -86,7 +86,7 @@ internal sealed class ClaudeCliVendor : IVendor
             : [.. remembered, .. await ResolveAllAsync(executable, extra, ct).ConfigureAwait(false)];
 
         if (resolved.Count == 0)
-            return new VendorReadiness(false, $"{Command} resolved none of its model aliases");
+            return new VendorReadiness(false, $"{COMMAND} resolved none of its model aliases");
 
         Catalog = new VendorCatalog(BuildModels(resolved, discovery.DefaultModel), CatalogSource.Resolved);
 
@@ -117,7 +117,7 @@ internal sealed class ClaudeCliVendor : IVendor
             [Cursor.CursorAgentSession.SelfExclusionEnvironment] = "1"
         };
         var spec = new ProcessSpec(Executable, ["mcp", "list"], _workingDirectory, string.Empty, environment);
-        return ParseServerList(await StreamingProcess.CollectAsync(spec, ListTimeout, ct).ConfigureAwait(false));
+        return ParseServerList(await StreamingProcess.CollectAsync(spec, LIST_TIMEOUT, ct).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -178,7 +178,7 @@ internal sealed class ClaudeCliVendor : IVendor
             foreach (var block in content.EnumerateArray())
             {
                 if (block.ValueKind is not JsonValueKind.Object) continue;
-                if (!block.TryGetProperty("name", out var name) || name.GetString() != StructuredOutputTool) continue;
+                if (!block.TryGetProperty("name", out var name) || name.GetString() != STRUCTURED_OUTPUT_TOOL) continue;
                 if (!block.TryGetProperty("input", out var input)
                     || !input.TryGetProperty("families", out var families)
                     || families.ValueKind is not JsonValueKind.Array)
@@ -227,9 +227,8 @@ internal sealed class ClaudeCliVendor : IVendor
     internal static List<VendorModel> BuildModels(IReadOnlyList<(string Alias, string Id)> resolved, string? defaultModel)
     {
         var defaultId = NormalizeId(defaultModel);
-        var models = resolved.Select(entry => new VendorModel(entry.Alias, Efforts, entry.Id,
-                                                              IsDefault: defaultId is not null
-                                                                         && NormalizeId(entry.Id) == defaultId))
+        var models = resolved.Select(entry => new VendorModel(entry.Alias, EFFORTS, entry.Id,
+                                                              IsDefault: defaultId is not null && NormalizeId(entry.Id) == defaultId))
                              .ToList();
 
         return
@@ -278,17 +277,17 @@ internal sealed class ClaudeCliVendor : IVendor
                                        "--model", alias
                                    ],
                                    _workingDirectory,
-                                   ResolvePrompt);
+                                   RESOLVE_PROMPT);
 
         try
         {
-            await foreach (var line in StreamingProcess.RunAsync(spec, ResolveTimeout, ct).ConfigureAwait(false))
+            await foreach (var line in StreamingProcess.RunAsync(spec, RESOLVE_TIMEOUT, ct).ConfigureAwait(false))
             {
                 if (ReadInitModel(line) is not { } model) continue;
 
                 // The kill that follows is logged as an abandoned process; this line says it was
                 // the point, so the warning beside it does not read as a failure.
-                RunLog.Current?.Write("info", Command, "vendor.alias-resolved",
+                RunLog.Current?.Write("info", COMMAND, "vendor.alias-resolved",
                     ("alias", alias), ("model", model), ("stopping", "init seen"));
 
                 return (alias, ResolvedId(alias, model));
@@ -296,7 +295,7 @@ internal sealed class ClaudeCliVendor : IVendor
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)
         {
-            RunLog.Current?.Write("warn", Command, "vendor.alias-unresolved",
+            RunLog.Current?.Write("warn", COMMAND, "vendor.alias-unresolved",
                 ("alias", alias), ("reason", error.Message));
         }
 
@@ -337,7 +336,7 @@ internal sealed class ClaudeCliVendor : IVendor
 
         try
         {
-            await foreach (var line in StreamingProcess.RunAsync(spec, DiscoverTimeout, ct).ConfigureAwait(false))
+            await foreach (var line in StreamingProcess.RunAsync(spec, DISCOVER_TIMEOUT, ct).ConfigureAwait(false))
             {
                 defaultModel ??= ReadInitModel(line);
                 families ??= ReadFamilies(line);
@@ -345,7 +344,7 @@ internal sealed class ClaudeCliVendor : IVendor
                 // Sign-in is reported in the result line rather than an exit code: measured on
                 // 2026-09-02, a signed-out CLI exits 0 with `"result":"Not logged in"`.
                 if (line.Contains("Not logged in", StringComparison.OrdinalIgnoreCase))
-                    return new Discovery(null, null, SignedOut: true, $"{Command} is not signed in — run 'claude /login'");
+                    return new Discovery(null, null, SignedOut: true, $"{COMMAND} is not signed in — run 'claude /login'");
             }
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)

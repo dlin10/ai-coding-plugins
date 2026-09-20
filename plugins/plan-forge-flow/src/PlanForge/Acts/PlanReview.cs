@@ -76,7 +76,9 @@ internal sealed class PlanReview
         // The worker tools come from forge.begin because this critic runs before anything is
         // confirmed — see docs/adr/0017.
         await using var session = await _vendor.StartAsync(
-            new RoleSpec(VendorRole.Critic, systemPrompt, WorkerTools: WorkerTools.Effective(state.WorkerTools)),
+            new RoleSpec(VendorRole.Critic, systemPrompt,
+                         WorkerTools: WorkerTools.Effective(state.WorkerTools),
+                         Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log, "plan_review", Round: round)),
             selection, resumeToken: null, ct);
 
         var prompt = Compose(draft, run.ReadReviewLog(), state.CriticInstructions);
