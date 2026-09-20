@@ -12,8 +12,7 @@ namespace PlanForge.Vendors.Codex;
 /// </summary>
 internal sealed class CodexCliSession : IVendorSession
 {
-    private const string SELF_PLUGIN_DISABLE =
-        "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false";
+    private const string SELF_PLUGIN_DISABLE = "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false";
 
     private readonly RoleSpec _role;
     private readonly Selection _selection;

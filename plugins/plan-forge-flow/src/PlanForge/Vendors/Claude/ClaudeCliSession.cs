@@ -8,15 +8,14 @@ namespace PlanForge.Vendors.Claude;
 
 internal sealed class ClaudeCliSession : IVendorSession
 {
-    private const string StructuredOutputTool = "StructuredOutput";
-    private const string SelfPluginSettings =
-        """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
+    private const string STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
+    private const string SELF_PLUGIN_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
 
     // The Bash tool's own ceiling on a foreground command, ten minutes unless raised. Thirty covers
     // any gate the host would run (twenty) and leaves the rest of the host's hour for the gate that
     // follows the turn. The server's idle reaper does not interfere: a foreground call emits a
     // heartbeat every 30 s. See docs/adr/0018.
-    private const string ForegroundCommandLimit = "1800000";
+    private const string FOREGROUND_COMMAND_LIMIT = "1800000";
 
     private readonly RoleSpec _role;
     private readonly Selection _selection;
@@ -112,7 +111,7 @@ internal sealed class ClaudeCliSession : IVendorSession
             {
                 attempt.InvalidOutput();
                 await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Failed, "no structured output"), ct);
-                throw new VendorException($"{executable} returned no {StructuredOutputTool} result");
+                throw new VendorException($"{executable} returned no {STRUCTURED_OUTPUT_TOOL} result");
             }
 
             T? result;
@@ -129,7 +128,7 @@ internal sealed class ClaudeCliSession : IVendorSession
             if (result is null)
             {
                 attempt.InvalidOutput();
-                throw new VendorException($"{executable} returned a {StructuredOutputTool} result that did not match the schema");
+                throw new VendorException($"{executable} returned a {STRUCTURED_OUTPUT_TOOL} result that did not match the schema");
             }
 
             attempt.Succeeded();
@@ -242,7 +241,7 @@ internal sealed class ClaudeCliSession : IVendorSession
                 // --json-schema is served by a tool: the object arrives as this call's input.
                 case "tool_use" when block.TryGetProperty("name", out var name):
                     var toolName = name.GetString();
-                    if (toolName is StructuredOutputTool && block.TryGetProperty("input", out var input))
+                    if (toolName is STRUCTURED_OUTPUT_TOOL && block.TryGetProperty("input", out var input))
                     {
                         structured = input.Clone();
                     }
@@ -434,7 +433,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         // A worker may inherit every other host capability, but never this plugin: disabling the
         // whole plugin keeps its skill, hooks and MCP server out of both worker roles.
         arguments.Add("--settings");
-        arguments.Add(SelfPluginSettings);
+        arguments.Add(SELF_PLUGIN_SETTINGS);
 
         // A headless worker asks nobody, so anything its rules do not cover is refused (issue #90).
         // Only a builder gets the shell: a blanket rule is what lifts claude's safety checks as well,
@@ -472,7 +471,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     internal static IReadOnlyDictionary<string, string> BuildEnvironment() =>
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["BASH_MAX_TIMEOUT_MS"] = ForegroundCommandLimit
+            ["BASH_MAX_TIMEOUT_MS"] = FOREGROUND_COMMAND_LIMIT
         };
 
     /// <summary>
