@@ -336,7 +336,11 @@ public sealed class BuildTests : IDisposable
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
                                                                                   CancellationToken.None);
 
-        Assert.Equal(["sql-server"], Assert.Single(vendor.Sessions).Role.WorkerTools);
+        var role = Assert.Single(vendor.Sessions).Role;
+        Assert.Equal(["sql-server"], role.WorkerTools);
+        Assert.Equal("build", role.Telemetry?.Act);
+        Assert.Equal(1, role.Telemetry?.TaskNumber);
+        Assert.Equal(2, role.Telemetry?.TaskCount);
     }
 
     /// <summary>A run begun before worker tools existed gets the default, which is Roslyn.</summary>

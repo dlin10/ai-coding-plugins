@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.32.0
+
+Every Critic and Builder process launch now leaves a human-readable usage record in the Run's
+`telemetry.json` (issue #99). The indented JSON array identifies the Act, task or review round,
+requested Vendor selection, session and turn, outcome, duration and Plan Forge-authored prompt
+bytes, followed by whatever terminal token counters the Vendor actually reported.
+
+- Claude, Codex and Cursor terminal events are normalized into non-overlapping uncached input,
+  cache read, cache creation and output counters, with reasoning retained as an optional subset of
+  output. Missing values stay absent; malformed values are omitted by safe source path while valid
+  independent counters survive.
+- A Plan Forge `turnId` groups process attempts, including Cursor's structured-output retry, while
+  the Vendor's optional `sessionId` continues to name its resumable conversation. Outcomes keep
+  successful, failed, invalid-output and cancelled attempts distinct.
+- Duration is monotonic `hh:mm:ss`; the terminal timestamp uses local time and its UTC offset.
+  Telemetry stays best effort, contains no prompts or output, and never changes the Worker result.
+- The file is updated under a process-local gate and atomically replaced. An existing malformed
+  file is preserved, with a safe `telemetry.write.failed` entry in `forge.log` instead of data loss.
+
 ## 0.31.0
 
 The user can now tell this run's workers something of their own. Until now there was no channel but

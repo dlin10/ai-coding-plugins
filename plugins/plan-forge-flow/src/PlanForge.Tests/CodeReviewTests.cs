@@ -394,7 +394,10 @@ public sealed class CodeReviewTests : IDisposable
         var critique = await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
         Assert.Equal("approve", critique.Verdict);
-        Assert.Equal(["roslyn-*"], Assert.Single(critic.Sessions).Role.WorkerTools);
+        var role = Assert.Single(critic.Sessions).Role;
+        Assert.Equal(["roslyn-*"], role.WorkerTools);
+        Assert.Equal("code_review", role.Telemetry?.Act);
+        Assert.Equal(1, role.Telemetry?.Round);
         Assert.Contains("`dotnet test`", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
 

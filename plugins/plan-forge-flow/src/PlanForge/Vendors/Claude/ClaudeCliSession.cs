@@ -38,6 +38,9 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     // Set by the result line. After it nothing the model started can still be collected.
     private bool _turnEnded;
+    private bool _turnFailed;
+    private JsonElement? _terminalUsage;
+    private string? _attemptSessionId;
 
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
@@ -63,6 +66,8 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
+    internal WorkerUsage ObservedUsage => ProviderUsage.Claude(_terminalUsage);
+
     /// <summary>
     /// `-p` kills a background task about five seconds after the result line, so a task still open
     /// once the turn has ended was lost — unless claude then reports it completed, which is what
@@ -73,29 +78,73 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
+        _turnEnded = false;
+        _turnFailed = false;
+        _terminalUsage = null;
+        _attemptSessionId = null;
+        var resumeToken = _sessionId;
         var executable = ClaudeCliVendor.Executable;
         var spec = new ProcessSpec(executable, BuildArguments(schema.Json), _workingDirectory, prompt, BuildEnvironment());
         await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
+        var turn = new VendorTurn(_role, _selection, "claude");
+        var attempt = turn.Start(VendorTurn.PromptBytes(_role.SystemPrompt, prompt, schema.Json), resumeToken);
 
-        JsonElement? structured = null;
-        await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+        try
         {
-            if (!TryParse(line, out var message)) continue;
-            using (message)
+            JsonElement? structured = null;
+            await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
             {
-                structured = Observe(message.RootElement) ?? structured;
+                if (!TryParse(line, out var message)) continue;
+                using (message)
+                {
+                    structured = Observe(message.RootElement) ?? structured;
+                }
             }
-        }
 
-        if (structured is null)
+            if (_turnFailed)
+            {
+                attempt.Failed();
+                await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Failed, "failed result"), ct);
+                throw new VendorException($"{executable} reported a failed result");
+            }
+
+            if (structured is null)
+            {
+                attempt.InvalidOutput();
+                await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Failed, "no structured output"), ct);
+                throw new VendorException($"{executable} returned no {StructuredOutputTool} result");
+            }
+
+            T? result;
+            try
+            {
+                result = structured.Value.Deserialize(schema.TypeInfo);
+            }
+            catch (JsonException)
+            {
+                attempt.InvalidOutput();
+                throw;
+            }
+
+            if (result is null)
+            {
+                attempt.InvalidOutput();
+                throw new VendorException($"{executable} returned a {StructuredOutputTool} result that did not match the schema");
+            }
+
+            attempt.Succeeded();
+            await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+            return result;
+        }
+        catch (OperationCanceledException)
         {
-            await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Failed, "no structured output"), ct);
-            throw new VendorException($"{executable} returned no {StructuredOutputTool} result");
+            attempt.Cancelled();
+            throw;
         }
-
-        await _events.Writer.EmitAsync("claude", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
-        return structured.Value.Deserialize(schema.TypeInfo)
-            ?? throw new VendorException($"{executable} returned a {StructuredOutputTool} result that did not match the schema");
+        finally
+        {
+            attempt.Finish(ObservedUsage, _attemptSessionId);
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -119,7 +168,11 @@ internal sealed class ClaudeCliSession : IVendorSession
             return null;
         }
 
-        if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _sessionId = id;
+        if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id)
+        {
+            _attemptSessionId = id;
+            _sessionId = id;
+        }
         if (!root.TryGetProperty("type", out var type)) return null;
 
         // Neither carries a `message`, so both used to end at the check below, unlogged — which is
@@ -127,6 +180,8 @@ internal sealed class ClaudeCliSession : IVendorSession
         if (type.GetString() is "result")
         {
             _turnEnded = true;
+            if (root.TryGetProperty("usage", out var usage)) _terminalUsage = usage.Clone();
+            _turnFailed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind is JsonValueKind.True;
             return null;
         }
 

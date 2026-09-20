@@ -26,6 +26,9 @@ internal sealed class CodexCliSession : IVendorSession
 
     // Names an API refusal when the run ends with no result to show for it.
     private string? _lastFailure;
+    private bool _turnFailed;
+    private JsonElement? _terminalUsage;
+    private string? _attemptSessionId;
 
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
@@ -51,8 +54,15 @@ internal sealed class CodexCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
+    internal WorkerUsage ObservedUsage => ProviderUsage.Codex(_terminalUsage);
+
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
+        _lastFailure = null;
+        _turnFailed = false;
+        _terminalUsage = null;
+        _attemptSessionId = null;
+        var resumeToken = _sessionId;
         var executable = CodexLaunch.Executable;
         var directory = Path.Combine(Path.GetTempPath(), "planforge-codex", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -72,21 +82,59 @@ internal sealed class CodexCliSession : IVendorSession
             var spec = new ProcessSpec(executable, arguments, _workingDirectory, prompt, environment);
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
+            var turn = new VendorTurn(_role, _selection, "codex");
+            var attempt = turn.Start(VendorTurn.PromptBytes(_role.SystemPrompt, prompt, schema.Json), resumeToken);
 
-            await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+            try
             {
-                if (!TryParse(line, out var document)) continue;
-                using (document) Observe(document.RootElement);
+                await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+                {
+                    if (!TryParse(line, out var document)) continue;
+                    using (document) Observe(document.RootElement);
+                }
+
+                if (_turnFailed)
+                {
+                    attempt.Failed();
+                    throw new VendorException(NoResultMessage);
+                }
+
+                if (!File.Exists(resultPath))
+                {
+                    attempt.InvalidOutput();
+                    throw new VendorException(NoResultMessage);
+                }
+
+                T? result;
+                try
+                {
+                    result = JsonSerializer.Deserialize(await File.ReadAllTextAsync(resultPath, ct), schema.TypeInfo);
+                }
+                catch (JsonException)
+                {
+                    attempt.InvalidOutput();
+                    throw;
+                }
+
+                if (result is null)
+                {
+                    attempt.InvalidOutput();
+                    throw new VendorException(NoResultMessage);
+                }
+
+                attempt.Succeeded();
+                await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+                return result;
             }
-
-            var result = File.Exists(resultPath)
-                ? JsonSerializer.Deserialize(await File.ReadAllTextAsync(resultPath, ct), schema.TypeInfo)
-                : default;
-
-            if (result is null) throw new VendorException(NoResultMessage);
-
-            await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
-            return result;
+            catch (OperationCanceledException)
+            {
+                attempt.Cancelled();
+                throw;
+            }
+            finally
+            {
+                attempt.Finish(ObservedUsage, _attemptSessionId);
+            }
         }
         finally
         {
@@ -212,7 +260,14 @@ internal sealed class CodexCliSession : IVendorSession
         {
             case "thread.started":
                 if (TryRead(root, "thread_id", out var threadId) && threadId.GetString() is { } id)
+                {
+                    _attemptSessionId = id;
                     _sessionId = id;
+                }
+                break;
+
+            case "turn.completed":
+                if (root.TryGetProperty("usage", out var completedUsage)) _terminalUsage = completedUsage.Clone();
                 break;
 
             case "item.started":
@@ -260,6 +315,8 @@ internal sealed class CodexCliSession : IVendorSession
                 break;
 
             case "turn.failed":
+                _turnFailed = true;
+                if (root.TryGetProperty("usage", out var failedUsage)) _terminalUsage = failedUsage.Clone();
                 if (TryRead(root, "error", out var turnError) && TryRead(turnError, "message", out var turnMessage)
                     && turnMessage.GetString() is { } turnReason)
                 {

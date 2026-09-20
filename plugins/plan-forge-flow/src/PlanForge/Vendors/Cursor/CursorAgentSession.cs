@@ -20,6 +20,8 @@ internal sealed class CursorAgentSession : IVendorSession
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     private string? _chatId;
+    private JsonElement? _terminalUsage;
+    private string? _attemptSessionId;
 
     public CursorAgentSession(RoleSpec role, Selection selection, string? workingDirectory, string? resumeToken = null)
     {
@@ -35,34 +37,52 @@ internal sealed class CursorAgentSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _chatId : null;
 
+    internal WorkerUsage ObservedUsage => ProviderUsage.Cursor(_terminalUsage);
+
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
         string? lastFailure = null;
+        var turn = new VendorTurn(_role, _selection, "cursor");
         for (var attempt = 1; attempt <= SchemaInPrompt.MaxAttempts; attempt++)
         {
+            _terminalUsage = null;
+            _attemptSessionId = null;
+            var resumeToken = _chatId;
+            var composedPrompt = SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure);
             var spec = new ProcessSpec(CursorAgentVendor.Executable, BuildArguments(), _workingDirectory,
-                SchemaInPrompt.Compose(WithRoleInstructions(prompt), schema.Json, lastFailure),
-                BuildEnvironment());
+                                       composedPrompt, BuildEnvironment());
 
             await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Started, $"attempt {attempt}"), ct);
+            var measured = turn.Start(VendorTurn.PromptBytes(composedPrompt), resumeToken);
 
-            string text;
             try
             {
-                text = await ReadResultAsync(spec, ct);
+                var text = await ReadResultAsync(spec, ct);
+                if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
+                {
+                    measured.Succeeded();
+                    await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
+                    return value;
+                }
+
+                measured.InvalidOutput();
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                measured.Cancelled();
+                throw;
             }
             catch (VendorException error)
             {
-                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, error.Message), ct);
+                measured.Failed();
+                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, error.Message), CancellationToken.None);
                 throw new VendorException($"cursor-agent failed for {DescribeSelection()}: {error.Message}");
             }
-            if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
+            finally
             {
-                await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Finished, _role.Role.ToString()), ct);
-                return value;
+                measured.Finish(ObservedUsage, _attemptSessionId);
             }
-
-            await _events.Writer.EmitAsync("cursor", new VendorEvent(VendorEventKind.Failed, lastFailure ?? "invalid reply"), ct);
         }
 
         throw new VendorException($"cursor-agent did not return a valid object in {SchemaInPrompt.MaxAttempts} attempts: {lastFailure}");
@@ -103,8 +123,14 @@ internal sealed class CursorAgentSession : IVendorSession
             return null;
         }
 
-        if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id) _chatId = id;
+        if (root.TryGetProperty("session_id", out var session) && session.GetString() is { } id)
+        {
+            _attemptSessionId = id;
+            _chatId = id;
+        }
         if (!root.TryGetProperty("type", out var type)) return null;
+        if (type.GetString() is "result" && root.TryGetProperty("usage", out var usage))
+            _terminalUsage = usage.Clone();
 
         switch (type.GetString())
         {
