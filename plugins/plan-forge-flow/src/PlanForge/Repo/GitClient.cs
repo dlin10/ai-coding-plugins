@@ -1,3 +1,4 @@
+using System.Text;
 using PlanForge.Infrastructure;
 using PlanForge.Vendors;
 
@@ -163,11 +164,77 @@ internal sealed record Baseline(string Head, string Diff)
     }
 
     /// <summary>Files touched since this baseline was taken, empty when the tree is unchanged.</summary>
+    /// <remarks>
+    /// Per file rather than per tree. The name list git can produce answers a different question -
+    /// what differs from <c>HEAD</c> - and where a baseline is taken mid-run that is most of the
+    /// work of every earlier turn: run 20260919-160244-77fd30 reported a failed builder turn as
+    /// having written 92 files, which was the whole run's drift and not that turn's, in the one
+    /// message anybody had left to read. So the two diffs are compared block by block, and a file
+    /// changed back to the state the baseline found it in is not drift.
+    /// </remarks>
     public async Task<IReadOnlyList<string>> DriftedFilesAsync(GitClient git, CancellationToken ct)
     {
         var current = await git.DiffAsync(ct);
         if (string.Equals(current, Diff, StringComparison.Ordinal)) return [];
 
-        return await git.ChangedPathsAsync(ct);
+        var before = Blocks(Diff);
+        var after = Blocks(current);
+        var drifted = after.Where(file => !before.TryGetValue(file.Key, out var was)
+                                          || !string.Equals(was, file.Value, StringComparison.Ordinal))
+                           .Select(file => file.Key)
+                           .Concat(before.Keys.Where(path => !after.ContainsKey(path)))
+                           .Distinct(StringComparer.Ordinal)
+                           .OrderBy(path => path, StringComparer.Ordinal)
+                           .ToList();
+
+        // The two diffs differ and no file block accounts for it: a diff shape this parse does not
+        // know, and a wide answer is worth more here than an empty one.
+        return drifted.Count > 0 ? drifted : await git.ChangedPathsAsync(ct);
+    }
+
+    /// <summary>
+    /// A composed diff split into one block per file, keyed by the post-image path. Untracked files
+    /// key the same way as tracked ones: git rewrites the <c>/dev/null</c> side of a
+    /// <c>--no-index</c> comparison to the real name, so both sides of the header carry it.
+    /// </summary>
+    /// <param name="diff">The diff as <see cref="GitClient.DiffAsync(CancellationToken)"/> composes it.</param>
+    private static Dictionary<string, string> Blocks(string diff)
+    {
+        var blocks = new Dictionary<string, string>(StringComparer.Ordinal);
+        string? path = null;
+        var body = new StringBuilder();
+
+        foreach (var line in diff.Split('\n'))
+        {
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+            {
+                Close(blocks, path, body);
+                path = HeaderPath(line);
+                continue;
+            }
+
+            if (path is not null) body.Append(line).Append('\n');
+        }
+
+        Close(blocks, path, body);
+        return blocks;
+    }
+
+    /// <summary>
+    /// The post-image path of a <c>diff --git a/x b/x</c> header. Read from the <c>b/</c> side, and
+    /// from its last occurrence, because a path may contain the separator itself; a path containing
+    /// a space is ambiguous in this header and is left to the comparison to treat as one file.
+    /// </summary>
+    /// <param name="header">The header line.</param>
+    private static string HeaderPath(string header)
+    {
+        var marker = header.LastIndexOf(" b/", StringComparison.Ordinal);
+        return marker < 0 ? header : header[(marker + 3)..];
+    }
+
+    private static void Close(Dictionary<string, string> blocks, string? path, StringBuilder body)
+    {
+        if (path is not null) blocks[path] = body.ToString();
+        body.Clear();
     }
 }

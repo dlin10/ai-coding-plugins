@@ -573,8 +573,8 @@ duration of a call:
 
 - the tool surface — every call with its arguments, and its result, exception or cancellation;
 - `StreamingProcess` — the executable, the full argument list, the working directory, the pid, the
-  exit code, a killed process's reason (cancelled, idle, timeout, output cap) and a bounded stderr
-  tail;
+  exit code, a killed process's reason (cancelled, idle, timeout, output cap), a stream trimmed to
+  its head and tail, and a bounded stderr tail;
 - `Microsoft.Extensions.Logging`, bridged by `RunFileLoggerProvider`, which is how the MCP SDK's
   own dispatch and transport entries survive a call that dies before any act writes anything.
   `ClearProviders()` used to discard them; stdout carries the protocol, so the run folder is the
