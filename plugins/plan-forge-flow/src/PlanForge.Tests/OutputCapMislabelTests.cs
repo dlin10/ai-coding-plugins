@@ -93,17 +93,24 @@ public sealed class OutputCapMislabelTests : IDisposable
         Assert.Equal("abandoned", Field(Single(Read(run), "process.kill"), "reason"));
     }
 
+    /// <summary>
+    /// Only the hard cap kills now — a stream merely past the elision bound is trimmed and
+    /// delivered, which <see cref="OutputElisionTests"/> covers. What is pinned here is unchanged:
+    /// the process that really does run away is killed for that reason rather than by elimination.
+    /// </summary>
     [Fact]
     public async Task A_genuine_cap_breach_is_still_logged_as_output_cap()
     {
         var run = RunDirectory.Create(_repo, "20260101-000000-capped");
         var spec = Replaying(await FloodAsync());
+        var bounds = new OutputBounds(ElideAfterBytes: 1024 * 1024, TailChars: 1024, HardCapBytes: 4 * 1024 * 1024);
 
         VendorException error;
         using (RunLog.Use(run.Log))
         {
             error = await Assert.ThrowsAsync<VendorException>(
-                () => StreamingProcess.CollectAsync(spec, TimeSpan.FromMinutes(1), CancellationToken.None));
+                () => StreamingProcess.CollectAsync(spec, TimeSpan.FromMinutes(1), CancellationToken.None,
+                                                    bounds: bounds));
         }
 
         Assert.Contains("exceeded", error.Message, StringComparison.Ordinal);

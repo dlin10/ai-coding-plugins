@@ -201,6 +201,44 @@ public sealed class BaselineTests : IDisposable
         Assert.Empty(await baseline.DriftedFilesAsync(_git, ct));
     }
 
+    /// <summary>
+    /// The shape a builder turn takes: earlier turns have already changed the tree, and this
+    /// baseline is taken in the middle of the run. Drift is what changed after it, not everything
+    /// that differs from <c>HEAD</c> — run 20260919-160244-77fd30 told the orchestrator a failed
+    /// turn had written 92 files, which was the whole run and not the turn, in the one message that
+    /// turn left behind.
+    /// </summary>
+    [Fact]
+    public async Task Drift_after_a_mid_run_baseline_excludes_what_earlier_turns_changed()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "earlier.txt");
+        await WriteFileAsync("earlier.txt", "written by an earlier turn\n", ct);
+        await WriteFileAsync("untracked-earlier.txt", "created by an earlier turn\n", ct);
+
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("tracked.txt", "written by this turn\n", ct);
+
+        Assert.Equal(["tracked.txt"], await baseline.DriftedFilesAsync(_git, ct));
+    }
+
+    /// <summary>
+    /// The other half of the same comparison: a file the baseline already found dirty is drift
+    /// again once this turn changes it further.
+    /// </summary>
+    [Fact]
+    public async Task A_file_already_dirty_at_the_baseline_drifts_when_it_is_changed_again()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "written by an earlier turn\n", ct);
+
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("tracked.txt", "written by an earlier turn, then by this one\n", ct);
+
+        Assert.Equal(["tracked.txt"], await baseline.DriftedFilesAsync(_git, ct));
+    }
+
     [Fact]
     public async Task A_review_window_keeps_work_committed_after_the_baseline()
     {

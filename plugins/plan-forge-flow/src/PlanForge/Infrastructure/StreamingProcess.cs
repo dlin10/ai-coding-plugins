@@ -13,12 +13,37 @@ internal sealed record ProcessSpec(string FileName,
                                    IReadOnlyDictionary<string, string>? Environment = null);
 
 /// <summary>
-/// Bounded runner for vendor processes: output cap, timeout, kill-tree. Unlike the old
+/// How much of a process's stdout reaches the consumer, and what happens to the rest. A vendor turn
+/// that outgrows the first bound is trimmed rather than killed: the head is streamed as it arrives,
+/// the tail is held back and delivered at the end behind an elision marker, and only a runaway far
+/// past either is still fatal.
+/// </summary>
+/// <remarks>
+/// The killing cap is what run 20260919-160244-77fd30 paid twice, both times on `forge.review.fix`
+/// with claude: the builder had written 92 files and the turn died on the way to reporting them, so
+/// the work was on disk and the summary, verification, file list and gate run were not. The output
+/// was ordinary — `dotnet test -v n` prints the whole csc command line once per run, and a fix pass
+/// is a long row of mutation checks — which is the point: 8 MB is a size a working turn reaches, so
+/// it cannot be the size at which a turn is destroyed. What the tail buffer protects is exactly the
+/// part that was lost: the structured result is the last thing a vendor writes.
+/// </remarks>
+/// <param name="ElideAfterBytes">Where the head ends and the stream starts being held back.</param>
+/// <param name="TailChars">How much of the end is kept and delivered after the marker. Whole lines
+/// only, and never fewer than one: a cut line is not JSON, and the line this exists to save is the
+/// vendor's own result.</param>
+/// <param name="HardCapBytes">The size at which the process is still killed. Far past the other
+/// two, because this is no longer a large turn but a process that will not stop.</param>
+internal sealed record OutputBounds(long ElideAfterBytes, int TailChars, long HardCapBytes)
+{
+    public static readonly OutputBounds Default = new(8 * 1024 * 1024, 512 * 1024, 512L * 1024 * 1024);
+}
+
+/// <summary>
+/// Bounded runner for vendor processes: output bounds, timeout, kill-tree. Unlike the old
 /// ProcessExecution it hands back stdout line by line, because vendors emit JSONL as they work.
 /// </summary>
 internal static class StreamingProcess
 {
-    private const int MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
     private const string SOURCE = "process";
     private static readonly TimeSpan _workerIdleTimeout = TimeSpan.FromMinutes(30);
 
@@ -64,26 +89,33 @@ internal static class StreamingProcess
     /// <param name="exitDrain">Overrides <see cref="_exitDrain"/> for this call, which is how the
     /// drain is tested: a per-call argument rather than a settable static, because this suite runs
     /// processes in parallel and a narrowed window is exactly what drops another test's output.</param>
+    /// <param name="bounds">Overrides <see cref="OutputBounds.Default"/> for this call, which is how
+    /// the bounds are tested: a call that had to write half a gigabyte to reach the hard cap would
+    /// be a test of this machine's disk rather than of the bound.</param>
     public static IAsyncEnumerable<string> RunAsync(ProcessSpec spec,
                                                     TimeSpan timeout,
                                                     CancellationToken ct,
-                                                    TimeSpan? exitDrain = null) =>
-        RunCoreAsync(spec, timeout, null, ct, exitDrain);
+                                                    TimeSpan? exitDrain = null,
+                                                    OutputBounds? bounds = null) =>
+        RunCoreAsync(spec, timeout, null, ct, exitDrain, bounds);
 
     public static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec, CancellationToken ct) =>
         RunWorkerAsync(spec, _workerIdleTimeout, ct);
 
     internal static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec,
                                                             TimeSpan idleTimeout,
-                                                            CancellationToken ct) =>
-        RunCoreAsync(spec, null, idleTimeout, ct, null);
+                                                            CancellationToken ct,
+                                                            OutputBounds? bounds = null) =>
+        RunCoreAsync(spec, null, idleTimeout, ct, null, bounds);
 
     private static async IAsyncEnumerable<string> RunCoreAsync(ProcessSpec spec,
                                                                TimeSpan? timeout,
                                                                TimeSpan? idleTimeout,
                                                                [EnumeratorCancellation] CancellationToken ct,
-                                                               TimeSpan? exitDrain)
+                                                               TimeSpan? exitDrain,
+                                                               OutputBounds? bounds)
     {
+        var limits = bounds ?? OutputBounds.Default;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (timeout is { } wallClockTimeout) deadline.CancelAfter(wallClockTimeout);
         var token = deadline.Token;
@@ -116,6 +148,7 @@ internal static class StreamingProcess
         var seen = 0L;
         var capped = false;
         var stdout = new OutputTail();
+        var elision = new Elision(limits.TailChars);
         try
         {
             // Inside the try because a vendor that never drains its stdin blocks this write, and
@@ -133,10 +166,24 @@ internal static class StreamingProcess
                 seen += line.Length;
                 stdout.Add(line);
 
-                if (seen > MAX_OUTPUT_BYTES)
+                if (seen > limits.HardCapBytes)
                 {
                     capped = true;
-                    throw new VendorException($"{spec.FileName} exceeded {MAX_OUTPUT_BYTES} bytes of output");
+                    throw new VendorException($"{spec.FileName} exceeded {limits.HardCapBytes} bytes of output");
+                }
+
+                if (seen > limits.ElideAfterBytes)
+                {
+                    if (elision.Begin())
+                    {
+                        log?.Write("warn", SOURCE, "process.output.eliding",
+                            ("exec", spec.FileName),
+                            ("after", limits.ElideAfterBytes.ToString()),
+                            ("tail", limits.TailChars.ToString()));
+                    }
+
+                    elision.Add(line);
+                    continue;
                 }
 
                 yield return line;
@@ -176,6 +223,14 @@ internal static class StreamingProcess
             }
         }
 
+        // After the finally, so nothing is delivered for a stream that ended in a kill, and before
+        // the exit code is judged, because the held-back end of stdout is the part the caller came
+        // for. A stream that stayed inside its head yields nothing here.
+        foreach (var held in elision.Drain())
+        {
+            yield return held;
+        }
+
         await exited.ConfigureAwait(false);
 
         var error = await DrainAsync(stderr).ConfigureAwait(false);
@@ -193,10 +248,11 @@ internal static class StreamingProcess
     public static async Task<IReadOnlyList<string>> CollectAsync(ProcessSpec spec,
                                                                  TimeSpan timeout,
                                                                  CancellationToken ct,
-                                                                 TimeSpan? exitDrain = null)
+                                                                 TimeSpan? exitDrain = null,
+                                                                 OutputBounds? bounds = null)
     {
         var lines = new List<string>();
-        await foreach (var line in RunAsync(spec, timeout, ct, exitDrain).ConfigureAwait(false))
+        await foreach (var line in RunAsync(spec, timeout, ct, exitDrain, bounds).ConfigureAwait(false))
         {
             lines.Add(line);
         }
@@ -439,6 +495,57 @@ internal static class StreamingProcess
         {
             var text = string.Join('\n', _lines).TrimEnd();
             return text.Length == 0 ? null : RunLog.Tail(text);
+        }
+    }
+
+    /// <summary>
+    /// The end of an over-long stream, held back while the middle is dropped. Whole lines only: the
+    /// consumer parses each one as JSON and half a line is not a message. The queue never empties
+    /// below one entry, so a single line larger than the whole budget still arrives — that line is
+    /// usually the vendor's result, which is the reason any of this is kept.
+    /// </summary>
+    /// <param name="tailChars">How much of the end to hold.</param>
+    private sealed class Elision(int tailChars)
+    {
+        private readonly Queue<string> _tail = new();
+        private bool _started;
+        private long _dropped;
+        private int _held;
+
+        /// <summary>Marks elision as under way; true the first time, so the log says it once.</summary>
+        public bool Begin()
+        {
+            var first = !_started;
+            _started = true;
+            return first;
+        }
+
+        public void Add(string line)
+        {
+            _tail.Enqueue(line);
+            _held += line.Length;
+
+            while (_held > tailChars && _tail.Count > 1)
+            {
+                var gone = _tail.Dequeue();
+                _held -= gone.Length;
+                _dropped += gone.Length;
+            }
+        }
+
+        /// <summary>The marker and the tail, in order, or nothing when the stream stayed inside its head.</summary>
+        public IEnumerable<string> Drain()
+        {
+            if (!_started) yield break;
+
+            // A marker the consumer cannot mistake for a message: it does not parse as JSON, and
+            // every vendor session already logs and skips a line that does not.
+            yield return $"[... {_dropped} bytes elided ...]";
+
+            while (_tail.Count > 0)
+            {
+                yield return _tail.Dequeue();
+            }
         }
     }
 
