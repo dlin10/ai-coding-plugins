@@ -62,7 +62,7 @@ internal sealed class CodexCliSession : IVendorSession
         _terminalUsage = null;
         _attemptSessionId = null;
         var resumeToken = _sessionId;
-        var executable = CodexLaunch.Executable;
+        var command = CodexLaunch.Command;
         var directory = Path.Combine(Path.GetTempPath(), "planforge-codex", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         var schemaPath = Path.Combine(directory, "schema.json");
@@ -78,7 +78,7 @@ internal sealed class CodexCliSession : IVendorSession
                 : null;
 
             var arguments = BuildArguments(_role, _selection, _sessionId, schemaPath, resultPath, _grantedServers);
-            var spec = new ProcessSpec(executable, arguments, _workingDirectory, prompt, environment);
+            var spec = command.CreateProcess(arguments, _workingDirectory, prompt, environment);
 
             await _events.Writer.EmitAsync("codex", new VendorEvent(VendorEventKind.Started, _selection.Model), ct);
             var turn = new VendorTurn(_role, _selection, "codex");

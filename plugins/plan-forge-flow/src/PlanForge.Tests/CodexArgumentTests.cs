@@ -5,8 +5,8 @@ using Xunit;
 namespace PlanForge.Tests;
 
 /// <summary>
-/// The prompt travels on standard input, never as an argument, so everything codex needs to run a
-/// turn has to be pinned here rather than proved by starting a process.
+/// The task prompt travels on standard input. Role instructions and the rest of the turn contract
+/// travel as arguments, so everything codex needs to run a turn is pinned here.
 /// </summary>
 public sealed class CodexArgumentTests
 {
