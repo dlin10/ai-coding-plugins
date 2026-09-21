@@ -1,5 +1,23 @@
 # Plan Forge Flow releases
 
+## 0.33.0
+
+Plan Forge can now delegate broad repository reconnaissance to a lazily selected, read-only Scout
+without moving requirements or planning out of the Orchestrator (issue #102).
+
+- New `forge.scout.select` and `forge.scout.run` tools keep Scout's Vendor, model and effort
+  independent of the Critic and Builder, or record an explicit decision to continue without Scout.
+  A failed call never silently changes Vendor or model.
+- Every Scout question is bounded and must explicitly choose a fresh session or continue the
+  existing investigation. The Orchestrator makes that choice; the Scout may use the internet and
+  the Run's granted read-only Worker tools, but cannot edit, plan, judge, or settle requirements.
+- Successful calls return a compact sourced digest and atomically replace `SCOUT.md` with the full
+  report. Repository evidence cites paths and lines or symbols, external evidence cites URLs, and
+  the existing sensitive-input checks cover both questions and reports.
+- Claude, Codex, and Cursor all support the role through their existing read-only launch boundary.
+  Scout also participates in background jobs, status, flow logging, and Worker usage telemetry;
+  the MCP surface now contains eighteen tools.
+
 ## 0.32.0
 
 Every Critic and Builder process launch now leaves a human-readable usage record in the Run's
