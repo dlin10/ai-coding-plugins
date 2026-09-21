@@ -177,6 +177,28 @@ public sealed class WorkActTests : IDisposable
         Assert.Contains("unknown work act", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Legacy_blank_optional_arguments_keep_their_existing_per_act_behavior()
+    {
+        var selection = new Selection("model", null);
+
+        WorkAct.ValidateArguments("plan.review", "", selection, "", "", "", false);
+        WorkAct.ValidateArguments("build.next", "", selection, "", "", "", false);
+        WorkAct.ValidateArguments("review.code", "", selection, "", "", "", false);
+        WorkAct.ValidateArguments("review.fix", "", selection, "", "", "", false);
+    }
+
+    [Fact]
+    public void Legacy_scout_only_arguments_reject_even_empty_presence()
+    {
+        var selection = new Selection("model", null);
+
+        Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, "", null));
+        Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, null, ""));
+    }
+
     private RunDirectory NewRun(string runId)
     {
         var run = RunDirectory.Create(_workspace, runId);

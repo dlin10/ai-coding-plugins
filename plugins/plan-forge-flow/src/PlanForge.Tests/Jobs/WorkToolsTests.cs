@@ -321,6 +321,7 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal("failed", fetch["state"]!.GetValue<string>());
         Assert.Null(fetch["result"]);
         Assert.Contains("scripted response", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("forge.work.fetch.error", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -84,6 +84,9 @@ internal sealed class RecordingVendorSession : IVendorSession
         if (ReferenceEquals(schema, Schemas.BuildResult) && _response is BuildResult buildResult)
             return Task.FromResult((T)(object)buildResult);
 
+        if (ReferenceEquals(schema, Schemas.ScoutReport) && _response is ScoutReport scoutReport)
+            return Task.FromResult((T)(object)scoutReport);
+
         throw new InvalidOperationException($"scripted response does not match {typeof(T).Name}");
     }
 

@@ -20,6 +20,7 @@ internal sealed class RunDirectory
     private const string JobsFolder = "jobs";
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
+    private const string ScoutReportFileName = "SCOUT.md";
 
     // The folder ignores itself, so no managed block in info/exclude and nothing to clean up.
     private const string SelfIgnore = "*\n";
@@ -84,6 +85,9 @@ internal sealed class RunDirectory
     /// watch it change rather than meeting it once at approval.
     /// </summary>
     public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
+
+    /// <summary>The complete structured answer to the most recent Scout question.</summary>
+    public string ScoutReportPath => System.IO.Path.Combine(Path, ScoutReportFileName);
 
     /// <summary>
     /// Starts a run in the directory the host calls its own, falling back to
@@ -187,6 +191,9 @@ internal sealed class RunDirectory
     public void WritePlan(string plan) => AtomicFile.Write(PlanPath, plan);
 
     public string ReadPlan() => AtomicFile.Read(PlanPath);
+
+    /// <summary>Atomically replaces the latest Scout snapshot.</summary>
+    public void WriteScoutReport(string report) => AtomicFile.Write(ScoutReportPath, report);
 
     /// <summary>
     /// The log the next round's critic reads. A fresh critic without it oscillates; with it, it
@@ -307,6 +314,40 @@ internal sealed class RunDirectory
                  .AppendLine(text.Length == 0 ? "(cleared)" : text.TrimEnd())
                  .AppendLine();
         }
+    }
+
+    public void AppendFlowScoutSelection(string action, ScoutState scout)
+    {
+        var entry = new StringBuilder().Append("## Scout ").AppendLine(action)
+                                       .AppendLine();
+
+        if (scout.Enabled)
+        {
+            entry.Append("Vendor: ").AppendLine(scout.Vendor)
+                 .Append("Model: ").AppendLine(scout.Model);
+
+            if (scout.Effort is not null)
+                entry.Append("Effort: ").AppendLine(scout.Effort);
+        }
+        else
+        {
+            entry.AppendLine("The run will continue without Scout.");
+        }
+
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
+
+    public void AppendFlowScoutOutcome(string outcome, string question, ScoutFailure? failure = null)
+    {
+        var entry = new StringBuilder().Append("## Scout ").AppendLine(outcome)
+                                       .AppendLine()
+                                       .Append("Question: ").AppendLine(question.ReplaceLineEndings(" "));
+        if (failure is null)
+            entry.AppendLine("The latest Scout report was replaced.");
+        else
+            entry.Append("Failure: ").Append(failure.Code).Append(" — ").AppendLine(failure.Summary);
+
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
 
     /// <summary>
@@ -526,6 +567,7 @@ internal sealed class RunDirectory
 /// Patterns naming the MCP servers every worker of the run may call unasked, from
 /// <c>forge.begin</c>. Null for a run begun before the setting existed, which gets the default.
 /// </param>
+/// <param name="Scout">The lazy Scout choice and its current continuation state, or null before the choice is made.</param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -546,7 +588,15 @@ internal sealed record RunState(string RunId,
                                 string? PendingGateFailure = null,
                                 IReadOnlyList<string>? WorkerTools = null,
                                 string? CriticInstructions = null,
-                                string? BuilderInstructions = null);
+                                string? BuilderInstructions = null,
+                                ScoutState? Scout = null);
+
+internal sealed record ScoutState(bool Enabled,
+                                  string? Vendor = null,
+                                  string? Model = null,
+                                  string? Effort = null,
+                                  string? SessionId = null,
+                                  ScoutFailure? LastFailure = null);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

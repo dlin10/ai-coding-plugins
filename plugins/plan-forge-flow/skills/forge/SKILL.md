@@ -7,8 +7,10 @@ disable-model-invocation: true
 # Plan Forge Flow
 
 You are the **orchestrator**. You run the interview, you revise the plan between review rounds, and
-you call the tools. The workers behind the tools — a critic and a builder, each a separate model
-process — never revise the plan, because they do not have the interview context you have.
+you call the tools. The workers behind the tools — a critic, a builder, and a scout, each a separate
+model process — never revise the plan, because they do not have the interview context you have. Scout
+is a read-only evidence gatherer for one bounded reconnaissance question; it does not plan, judge, or
+edit.
 
 Windows x64 only. The tools come from the `plan-forge-flow` MCP server; if they are not listed,
 the plugin is installed but the server did not start, and nothing here will work.
@@ -22,8 +24,10 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic and builder may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — critics get the same grant. |
-| `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
+| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
+| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
+| `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
+| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the bounded `scout` digest and documents, never the full report. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
@@ -32,38 +36,44 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. The server then runs the plan's executable `## Gates` entries. |
-| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift and any active job's liveness. |
-| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
+| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift, any active job's liveness, and `run.scout` with enabled/selection, current session, and last failure. |
+| `forge.work.start` | On Cursor, starts one worker act, including `scout`. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. For Scout, pass only `question` and the required explicit `sessionMode`; do not pass per-call selection arguments. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
-act goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`; do not call a
-one-call worker tool there. On every other host, the one-call worker tools — `forge.plan.review`,
-`forge.build.next`, `forge.review.code`, `forge.review.fix` — remain the instruction and take `model`,
-an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to
-`claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
-and `forge.review.fix`. For Cursor's `review.fix`, blank `findings` means all findings are
-deferred, so the act completes without starting a builder session. If `forge.work.start` returns
-`started: false`, rejoin its active job with poll → fetch.
+act — including Scout — goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`;
+do not call a one-call worker tool there. On non-Cursor hosts, call `forge.scout.run` directly
+for Scout, and use the one-call worker tools — `forge.plan.review`, `forge.build.next`,
+`forge.review.code`, `forge.review.fix` — for the other acts. Those legacy tools take `model`, an
+optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to `claude`.
+The critic's selection goes to the two review tools, the builder's to `forge.build.next` and
+`forge.review.fix`, and Scout always reuses its persisted selection. For Cursor's `review.fix`, blank
+`findings` means all findings are deferred, so the act completes without starting a builder session.
+If `forge.work.start` returns `started: false`, rejoin its active job with poll → fetch.
 
 Every worker act answers with its own result beside a `documents` object — the critique under
-`critique`, the build under `build`, the fix under `fix`, and on Cursor the act's own payload as
-the `result` string of `forge.work.fetch`. `forge.plan.write` answers with `documents` and nothing
-else, and on Cursor `forge.work.start` and every `forge.work.poll` carry it too. `documents` holds
-`flowLog` and `plan`, each with a `path` and what to do with it, and each `null` until its file
-exists. What to do with them is below.
+`critique`, the build under `build`, the fix under `fix`, and the bounded Scout digest under `scout`.
+On Cursor the act's own payload is the `result` string of `forge.work.fetch`; Scout's result string
+is digest JSON only. `forge.plan.write` answers with `documents` and nothing else, and on Cursor
+`forge.work.start` and every `forge.work.poll` carry it too. `documents` always holds `flowLog` and
+`plan`, each with a `path` and what to do with it, and each `null` until its file exists. Only a
+successful direct Scout call or a successful completed Scout fetch also carries `documents.scout`,
+whose instruction is exactly: “show the latest Scout report to the user now, and show it again only
+after a later successful Scout call replaces it.” Non-Scout results omit it even after a report
+exists. What to do with the documents is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
-use start → poll → fetch so the surviving server can rejoin a detached worker; on every other
-host, use the one-call worker tools. One `forge.work.poll` waits 45 seconds, so an act that takes
-minutes needs many of them in a row: keep calling it, in the same turn, until the state is no longer
-`running`, and only then fetch. Each poll result says which call it wants next. A `running` poll is
-not a result, not narration-worthy, and never a reason to end your turn — never stop on one to ask
-the user to continue, because there is nothing for them to answer. If the originating server process
-exits, an in-flight job id is unknown to a new server and cannot be rejoined; after restart, start a
-new act. Persisted terminal results remain under `.forge/<runId>/`.
+use start → poll → fetch for every act, including Scout, so the surviving server can rejoin a detached
+worker; on every other host, call Scout directly and use the one-call tools for the other acts. One
+`forge.work.poll` waits 45 seconds, so an act that takes minutes needs many of them in a row: keep
+calling it, in the same turn, until the state is no longer `running`, and only then fetch. Each poll
+result says which call it wants next. A `running` poll is not a result, not narration-worthy, and never
+a reason to end your turn — never stop on one to ask the user to continue, because there is nothing
+for them to answer. If the originating server process exits, an in-flight job id is unknown to a new
+server and cannot be rejoined; after restart, start a new act. Persisted terminal results remain under
+`.forge/<runId>/`.
 
 `lastActivityAt` is the last stdout line, including output the parser did not recognise;
 `lastEvent` is a short description of the last recognised vendor event. Use them to explain what a
@@ -71,6 +81,38 @@ running job is doing, never to invent an automatic cancellation policy: every ve
 stops after 30 minutes with no stdout. Call `forge.work.cancel` only on the user's explicit request,
 or show both fields and obtain confirmation first. Cancellation is nonblocking, so continue with
 poll → fetch until the failed terminal result is persisted.
+
+## Scout reconnaissance
+
+Use Scout for broad repository reconnaissance before the Orchestrator can settle requirements or
+write a plan: multi-module exploration, caller/writer discovery, dependency tracing, or greenfield
+orientation. These are the broad triggers. Keep one or two targeted semantic lookups in the
+Orchestrator: they remain cheaper and clearer there. Use the local Roslyn or repository tools when
+the question has a narrow file, symbol, or caller boundary. Do not turn every local lookup into a
+Scout call.
+
+Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
+make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
+Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
+the choice **continue without Scout**. Do not silently select a Vendor or silently continue a session.
+A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
+an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
+after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
+is still just-in-time and separate from the final refresh below.
+When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
+the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
+question as well and offer the resolved Cursor choices directly.
+
+For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
+direct follow-up in the same investigation. Use `fresh` for an independent question, a new
+subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
+reselect explicitly to clear the old session and failure; or explicitly choose continue without
+Scout. Never silently choose session continuity and never fall back to another Vendor. Scout may
+use already available internet without per-call authorization or a widened grant. Require typed
+repository citations (path plus positive line or non-empty symbol) and external citations (an
+absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
+Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
+the Orchestrator deliberately puts into a plan or task may reach those Workers.
 
 ## Act 1: the interview
 
@@ -269,10 +311,10 @@ to be rebuilt before you write the new draft.
 
 Every tool result lands in your context and nowhere else — the user sees none of it unless you
 surface it. The server keeps the user-facing timeline for you: every worker call appends its
-outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, your own revision and
-deferrals between plan-review rounds, build results with status and files changed, and each fix
-round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to a
-worker; it exists to be shown.
+outcome to `<runPath>/flow_log.md` — Scout outcomes, critiques with verdict and findings, your own
+revision and deferrals between plan-review rounds, build results with status and files changed, and
+each fix round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to
+a worker; it exists to be shown.
 
 The plan is the second such file. `forge.plan.write` puts the draft at `<runPath>/PLAN.md` before
 the round that judges it starts, and every later round rewrites it, so the user reads the current
@@ -280,12 +322,13 @@ plan while the round runs rather than meeting it once at approval.
 
 Both travel as `documents.flowLog` and `documents.plan`, each with its `path` and what to do with
 it, on every result that has something to show — `forge.plan.write`, every worker act, and on
-Cursor the start and every poll as well. Either can be `null` while its file does not exist yet.
-**Surface the plan in the same turn as the write that created it, and the flow log in the turn its
-first critique arrives** — the flow log does not exist before that first critique, so a path to it
-handed over earlier is a dead link. Neither waits for the end of the run: a link handed over once
-the work is finished is a link to something the user could no longer watch. Then refresh both after
-every later worker act — no host watches the disk for you:
+Cursor the start and every poll as well. The Scout-only `documents.scout` report metadata appears
+only after a successful direct Scout call or a successfully completed Scout job fetch. Either
+ordinary document can be `null` while its file does not exist yet. **Surface the plan in the same
+turn as the write that created it, and the flow log after the first Scout outcome or first critique,
+whichever happens first** — surface its live path in that turn and refresh both after every later
+Worker act; no host watches the disk for you. Neither waits for the end of the run: a link handed
+over once the work is finished is a link to something the user could no longer watch:
 
 - A host that renders local files (the Claude Code desktop app) — show the files, and re-send them
   after each call.
@@ -418,7 +461,9 @@ failed.
 
 Then the loop is yours to run, exactly as with plan review: on non-Cursor hosts, `forge.review.code`
 runs one critic round against the approved plan and `forge.review.fix` hands kept findings to the
-builder; on Cursor, run both acts through start → poll → fetch. Repeat until
+builder; on Cursor, run both acts through start → poll → fetch. The same routing applies to Scout:
+non-Cursor hosts call `forge.scout.run` directly with an explicit `sessionMode`, while Cursor runs
+the `scout` act only through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`. Repeat until
 the verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.
@@ -444,11 +489,13 @@ only reason they were not fixed here, and they are candidates for the next run.
 This happens at the end of Act 1, after the last interview question and before the first plan
 draft — the depth rule above reads the builder's selection.
 
-Choose vendors and models in two steps, asking at most four questions total, and then ask the two
-instruction questions of step 3 as one round — six questions at the outside. The combinations come
-from the server, not from your own knowledge: `forge.begin` already started every vendor's probe in
-the background, so call `forge.models` (no `vendor` argument) once before the vendor question and
-work from its answer.
+Critic/Builder selection remains at most four questions total: two Vendor questions and two
+model/effort questions. Then ask the two instruction questions of step 3 as one round. A single
+just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
+The combinations come from the server, not from your own knowledge. Call `forge.models` (no
+`vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
+return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
+CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once.
 
 1. Ask for the critic vendor and the builder vendor, offering only vendors the catalogue reports
    `available: true`. Never offer a vendor with `available: false`; its `detail` names the cause —
