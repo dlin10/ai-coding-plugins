@@ -20,7 +20,7 @@ internal sealed class CodexCliSession : IVendorSession
     private readonly IReadOnlyList<string> _grantedServers;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
-    // Set on the first run so a Builder's later tasks resume the same thread.
+    // Set on the first run so a resumable role's later calls resume the same thread.
     private string? _sessionId;
 
     // Names an API refusal when the run ends with no result to show for it.
@@ -32,7 +32,7 @@ internal sealed class CodexCliSession : IVendorSession
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
     /// <param name="workingDirectory">The workspace the worker runs in.</param>
-    /// <param name="resumeToken">The builder thread to resume, when one exists.</param>
+    /// <param name="resumeToken">The builder or Scout thread to resume, when one exists.</param>
     /// <param name="grantedServers">The MCP servers this worker may call unasked, as codex lists them.</param>
     public CodexCliSession(RoleSpec role,
                            Selection selection,
@@ -49,7 +49,7 @@ internal sealed class CodexCliSession : IVendorSession
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
 
-    public bool CanResume => _role.Role is VendorRole.Builder;
+    public bool CanResume => _role.Role is VendorRole.Builder or VendorRole.Scout;
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
@@ -161,7 +161,7 @@ internal sealed class CodexCliSession : IVendorSession
     /// </summary>
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
-    /// <param name="sessionId">The builder session to resume, when one exists.</param>
+    /// <param name="sessionId">The builder or Scout session to resume, when one exists.</param>
     /// <param name="schemaPath">The output-schema file path.</param>
     /// <param name="resultPath">The file where Codex writes the final result.</param>
     /// <param name="grantedServers">The MCP servers to approve, each one codex listed.</param>
@@ -174,14 +174,15 @@ internal sealed class CodexCliSession : IVendorSession
     {
         var arguments = new List<string> { "exec" };
 
-        if (role.Role is VendorRole.Builder && !string.IsNullOrEmpty(sessionId))
+        if (role.Role is (VendorRole.Builder or VendorRole.Scout) && !string.IsNullOrEmpty(sessionId))
         {
             arguments.Add("resume");
             arguments.Add(sessionId);
         }
 
         // A critic is deliberately fresh every round. Keeping its rollout would only add a
-        // resumable session to the host's history; a builder must keep its rollout for later tasks.
+        // resumable session to the host's history; a builder and Scout must keep their rollouts for
+        // later calls.
         if (role.Role is VendorRole.Critic) arguments.Add("--ephemeral");
 
         arguments.Add("-");

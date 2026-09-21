@@ -17,10 +17,10 @@ namespace PlanForge.Vendors;
 /// </remarks>
 internal static class VendorFactory
 {
-    private const string DEFAULT = "claude";
+    internal const string DefaultId = "claude";
 
     public static IVendor Create(string? id, string workspaceRoot) =>
-        (id is { Length: > 0 } ? id.Trim() : DEFAULT).ToLowerInvariant() switch
+        (id is { Length: > 0 } ? id.Trim() : DefaultId).ToLowerInvariant() switch
         {
             "claude" => new ClaudeCliVendor(workspaceRoot),
             "codex" => new CodexCliVendor(workspaceRoot),

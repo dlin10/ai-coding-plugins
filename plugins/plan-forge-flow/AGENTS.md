@@ -26,7 +26,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all sixteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all eighteen `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -51,7 +51,7 @@ version, so a manifest naming a version with no release behind it breaks every f
 ```text
 src/PlanForge/            the MCP server
   Mcp/                    tool surface
-  Acts/                   PlanReview, Build, CodeReview, ReviewFix; the gate parser, runner and keeper
+  Acts/                   PlanReview, Build, CodeReview, ReviewFix, Scout; the gate parser, runner and keeper
   Vendors/                IVendor and the shared contracts
     Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
   Orchestration/          capability profile
@@ -62,7 +62,7 @@ prompts/                  role contracts and shared contracts, editable without 
 skills/forge/SKILL.md     how the orchestrator drives the tools
 ```
 
-## The three participants
+## The four participants
 
 This is the design constraint that explains most of the code, and it is easy to violate by accident:
 
@@ -73,6 +73,9 @@ This is the design constraint that explains most of the code, and it is easy to 
   data so it converges without inheriting its own anchoring. Stateless; never resumed.
 - **Builder** — implements against an already-hardened plan and fixes review findings. Never
   revises the plan. Persistent session, cheap model.
+- **Scout** — answers one bounded reconnaissance question with sourced evidence. Read-only and
+  non-writable; never settles requirements, plans, judges, or edits. Its session is resumable, but
+  continuation is chosen explicitly by the Orchestrator.
 
 The direct consequence for the MCP surface in [ForgeTools.cs](src/PlanForge/Mcp/ForgeTools.cs):
 every review tool is **one round per call**, because a turn by the orchestrator is mandatory in
@@ -114,10 +117,10 @@ Adding a vendor means a folder under `Vendors/`, an arm in `VendorFactory`, and 
 vendor needs to be told something the role contracts do not already say — a folder under `prompts/`
 and the matching bundle assertion in `build/package.ps1`.
 
-**Each vendor keeps the critic read-only by a different mechanism**, and none of it is enforced by
+**Each vendor keeps Critic and Scout read-only by a different mechanism**, and none of it is enforced by
 this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits` and the
-builder's shell grant, Cursor relies on `--mode plan` alone. Both roles do get the run's worker
-tools, so a critic stays read-only only while the servers those name are — see
+builder's shell grant, Cursor relies on `--mode plan` alone. All Worker roles receive the run's
+Worker tools, so Critic and Scout stay read-only only while the servers named there are — see
 [docs/adr/0017](docs/adr/0017-grant-worker-tools-by-exact-server-name.md). `CONTEXT.md` documents
 what was measured for each.
 
@@ -128,8 +131,9 @@ Role prompts live under `prompts/` and are copied beside the binary, so they can
 an installed `prompts/` sits under the plugin root, where an edit reaches every project that uses
 the plugin and is overwritten by the next upgrade. What a user wants said for one run goes through
 `forge.instructions.set` instead, which carries it in the act prompt — see
-[docs/adr/0019](docs/adr/0019-instruct-the-workers-through-the-act-prompt.md). `builder-contract.md` and `critic-contract.md` carry the whole of
-what a worker is told; `prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
+[docs/adr/0019](docs/adr/0019-instruct-the-workers-through-the-act-prompt.md). `builder-contract.md`,
+`critic-contract.md`, and `scout-contract.md` carry their respective role contracts;
+`prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
 must hand its answer back — and is optional, which is why codex, whose `--output-schema` settles the
 question, has no file at all. The role text lived in three copies until they drifted: the codex and
 cursor critics lost "do not reopen a finding the log shows as resolved" and their builders lost "a
@@ -141,7 +145,7 @@ under `%LOCALAPPDATA%`, and the prompts never travel with the release asset. So
 names the folder in `PLANFORGE_PROMPTS`, and `PromptLibrary` takes a value there as the root
 without probing it. Change the variable's spelling on one side and the assertion in
 `build/package.ps1` or `PromptRootTests` turns red; nothing else ties the two halves together. The shared
-`prompts/roslyn-contract.md` is appended to every critic prompt at load time — it lives once
+`prompts/roslyn-contract.md` is appended to Critic and Scout prompts at load time — it lives once
 precisely because the 1.x copies drifted apart. `prompts/scope-contract.md` is appended the same
 way, but only for code review, where "judge the diff against the approved plan" has something to
 attach to.
@@ -153,7 +157,7 @@ beside the binary. Do not move it in with the prompts.
 
 ## Run state, and the absence of locks
 
-Everything a run knows lives under `.forge/<runId>/`: `state.json`, `PLAN.md`, `review-log.md`,
+Everything a run knows lives under `.forge/<runId>/`: `state.json`, `PLAN.md`, `SCOUT.md`, `review-log.md`,
 `flow_log.md`, `forge.log`, `baseline.patch`. **Not under `workspaceRoot`** — that argument is the
 git window and the workers' working directory, and the run's own files follow the *session* instead,
 the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
@@ -163,7 +167,7 @@ carries the measurement and the deprecation that hangs over it, and
 collapse the two roots back together in either direction: pinning `workspaceRoot` to the session
 shrinks the review to the session's subtree, and pinning the run folder to `workspaceRoot` puts
 `PLAN.md` where the host cannot linkify it. The flow log is the
-user-facing timeline — every critique, build result and fix round, plus the orchestrator's own
+user-facing timeline — every Scout outcome, critique, build result and fix round, plus the orchestrator's own
 revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
 lets builder entries live there without shifting what the next critic judges; `review-log.md` is
 critic input and stays free of them, carrying only the deferrals the next critic must treat as

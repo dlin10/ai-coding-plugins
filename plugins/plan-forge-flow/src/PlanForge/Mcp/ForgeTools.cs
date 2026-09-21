@@ -11,6 +11,7 @@ using PlanForge.Jobs;
 using PlanForge.Orchestration;
 using PlanForge.Prompts;
 using PlanForge.Repo;
+using PlanForge.Review;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
@@ -25,13 +26,13 @@ internal sealed class ForgeTools
     private const int WORK_POLL_TIMEOUT_SECONDS = 45;
     private const string SOURCE = "server";
 
-    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic and builder of the run may call without being asked; omit it for the Roslyn servers alone.")]
+    [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic, builder, and Scout of the run may call without being asked; omit it for the Roslyn servers alone.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
                                            SessionRoots roots,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct,
-                                           [Description("MCP server names, `*` matching any run of characters, that the run's workers may call without being asked — a headless worker is refused every call nothing granted. Omit for [\"roslyn-*\"]; pass [] for none. Name only servers that do not change files: critics get the same grant.")] string[]? workerTools = null)
+                                           [Description("MCP server names, `*` matching any run of characters, that the run's workers may call without being asked — a headless worker is refused every call nothing granted. Omit for [\"roslyn-*\"]; pass [] for none. Name only servers that do not change files: Critic, Builder, and Scout get the same grant.")] string[]? workerTools = null)
     {
         var granted = WorkerTools.Effective(WorkerTools.Validate(workerTools));
         var profile = CapabilityProfileDetector.Detect(server.ClientCapabilities);
@@ -111,6 +112,74 @@ internal sealed class ForgeTools
                 .. report.Catalog.Models.Select(model => new CatalogModel(model.Id, model.DisplayName,
                     model.Description, model.Efforts, model.DefaultEffort, model.IsDefault))
             ]);
+
+    [McpServerTool(Name = "forge.scout.select"), Description("Records the lazy Scout decision for this run. Pass enabled:false with no vendor, model or effort to continue without Scout; pass enabled:true with a vendor and model to select it. The vendor id is checked now, while model and effort are stored exactly for the Vendor CLI to interpret. Repeating a healthy choice keeps its session anchor; changing it or selecting after a failure starts the next Scout call fresh.")]
+    public static async Task<string> SelectScout(SessionRoots roots,
+                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                 [Description("Run id from forge.begin.")] string runId,
+                                                 [Description("Whether this run should use Scout. This decision is required; there is no silent default.")] bool enabled,
+                                                 CancellationToken ct,
+                                                 [Description("Vendor id, required when enabled is true and forbidden otherwise.")] string? vendor = null,
+                                                 [Description("Model string, required when enabled is true and forbidden otherwise. Stored exactly; the Vendor CLI is authoritative.")] string? model = null,
+                                                 [Description("Optional effort string, forbidden when enabled is false. Stored exactly; the Vendor CLI is authoritative.")] string? effort = null)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, "forge.scout.select",
+            [("enabled", enabled ? "true" : "false"), ("vendor", vendor), ("model", model), ("effort", effort)],
+            () =>
+            {
+                var state = run.ReadState();
+                var outcome = SelectScoutState(state.Scout, enabled, vendor, model, effort, workspaceRoot);
+
+                run.WriteState(state with { Scout = outcome.State });
+                run.AppendFlowScoutSelection(outcome.Action, outcome.State);
+                run.Log.Write("info", SOURCE, $"scout.{outcome.Action}",
+                    ("enabled", outcome.State.Enabled ? "true" : "false"),
+                    ("vendor", outcome.State.Vendor), ("model", outcome.State.Model),
+                    ("effort", outcome.State.Effort), ("sessionState", outcome.SessionState));
+
+                return Task.FromResult(JsonSerializer.Serialize(
+                    new ScoutSelectionResult(outcome.State, outcome.SessionState),
+                    ForgeToolJson.Default.ScoutSelectionResult));
+            });
+    }
+
+    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question with a small sourced digest and atomically replaces the run's latest `SCOUT.md` report. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure preserves the prior report and leaves a fixed safe failure in status.")]
+    public static Task<string> ScoutRun(SessionRoots roots,
+                                        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                        [Description("Run id from forge.begin.")] string runId,
+                                        [Description("One bounded reconnaissance question, from 1 to 4,000 characters.")] string question,
+                                        [Description("Session mode: exactly `continue` or `fresh`. `continue` supplies the persisted anchor; `fresh` clears it first.")] string sessionMode,
+                                        CancellationToken ct) =>
+        ScoutRun(roots, workspaceRoot, runId, question, sessionMode, ct,
+                 vendor => VendorFactory.Create(vendor, workspaceRoot));
+
+    internal static async Task<string> ScoutRun(SessionRoots roots,
+                                                string workspaceRoot,
+                                                string runId,
+                                                string question,
+                                                string sessionMode,
+                                                CancellationToken ct,
+                                                Func<string, IVendor> vendorFactory,
+                                                PromptLibrary? prompts = null)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, "forge.scout.run", [("sessionMode", sessionMode)],
+            async () =>
+            {
+                Scout.ValidateQuestion(question);
+                Scout.ValidateSessionMode(sessionMode);
+                SensitiveInput.Guard(question, "the Scout question");
+
+                var selected = Scout.RequireSelection(run.ReadState());
+                var act = new Scout(vendorFactory(selected.Vendor!), prompts ?? new PromptLibrary());
+                var outcome = await act.RunAsync(run, question, sessionMode, ct).ConfigureAwait(false);
+
+                return JsonSerializer.Serialize(
+                    new ScoutRunResult(outcome, Documents(run, includeScout: true)),
+                    ForgeToolJson.Default.ScoutRunResult);
+            });
+    }
 
     /// <summary>
     /// The user's own instructions to this run's workers, recorded once instead of carried. A
@@ -395,33 +464,55 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id, act, state, `started`, and `documents` — the route for a host whose clock on a tool call is shorter than a worker act, which today means Cursor. The act's own result is not here: follow this with forge.work.poll until the state is no longer `running`, then forge.work.fetch. `started: false` means this run already has an active job — rejoin the returned `jobId` rather than starting a second worker. A `plan.review` act refuses a second round without `revision`, as the one-call tool does. A job id does not outlive the server process that created it; after a restart, start a new act and read the persisted result under `.forge/<runId>/`.")]
+    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background and returns its job id, act, state, `started`, and `documents` — the route for a host whose clock on a tool call is shorter than a worker act, which today means Cursor. The act's own result is not here: follow this with forge.work.poll until the state is no longer `running`, then forge.work.fetch. `started: false` means this run already has an active job — rejoin the returned `jobId` rather than starting a second worker. A `plan.review` act refuses a second round without `revision`, as the one-call tool does. The `scout` act takes its persisted selection and requires only `question` plus explicit `sessionMode`; it rejects per-call Vendor, model and effort. A job id does not outlive the server process that created it; after a restart, start a new act and read the persisted result under `.forge/<runId>/`.")]
     public static Task<string> StartWork(JobRegistry registry,
                                          SessionRoots roots,
                                          [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                          [Description("Run id from forge.begin.")] string runId,
-                                         [Description("Worker act: plan.review, build.next, review.code or review.fix.")] string act,
-                                         [Description("Model for the worker.")] string model,
+                                         [Description("Worker act: plan.review, build.next, review.code, review.fix or scout.")] string act,
                                          CancellationToken ct,
+                                         [Description("Model for the worker. Omit for scout, which uses the persisted Scout selection.")] string? model = null,
                                          [Description("Optional effort level.")] string? effort = null,
                                          [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                          [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write has written this round's draft, which is the flow to use.")] string? planDraft = null,
                                          [Description("Findings for review.fix; present but may be blank.")] string? findings = null,
                                          [Description("Deferred findings, with reasons: for review.fix, and optionally for plan.review.")] string? deferred = null,
                                          [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
-                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
+                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
+                                         [Description("For scout only: the one bounded reconnaissance question.")] string? question = null,
+                                         [Description("For scout only: exactly `continue` or `fresh`.")] string? sessionMode = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, findings,
-                         deferred, revision, userGrantedRound, ct, () => VendorFactory.Create(vendor, workspaceRoot));
+                         deferred, revision, userGrantedRound, question, sessionMode, ct,
+                         id => VendorFactory.Create(id, workspaceRoot));
     }
+
+    internal static Task<string> StartWork(JobRegistry registry,
+                                           SessionRoots roots,
+                                           string workspaceRoot,
+                                           string runId,
+                                           string act,
+                                           string model,
+                                           string? effort,
+                                           string? vendor,
+                                           string? planDraft,
+                                           string? findings,
+                                           string? deferred,
+                                           string? revision,
+                                           bool userGrantedRound,
+                                           CancellationToken ct,
+                                           Func<IVendor> vendorFactory) =>
+        StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft,
+                  findings, deferred, revision, userGrantedRound, null, null, ct,
+                  _ => vendorFactory());
 
     internal static async Task<string> StartWork(JobRegistry registry,
                                                  SessionRoots roots,
                                                  string workspaceRoot,
                                                  string runId,
                                                  string act,
-                                                 string model,
+                                                 string? model,
                                                  string? effort,
                                                  string? vendor,
                                                  string? planDraft,
@@ -429,18 +520,29 @@ internal sealed class ForgeTools
                                                  string? deferred,
                                                  string? revision,
                                                  bool userGrantedRound,
+                                                 string? question,
+                                                 string? sessionMode,
                                                  CancellationToken ct,
-                                                 Func<IVendor> vendorFactory)
+                                                 Func<string, IVendor> vendorFactory,
+                                                 PromptLibrary? prompts = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
              ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
-             ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false")],
+             ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false"),
+             ("sessionMode", sessionMode)],
             async () =>
             {
-                WorkAct.ValidateArguments(act, planDraft, new Selection(model, effort), findings, deferred, revision,
-                                          userGrantedRound);
+                var selection = model is null ? null : new Selection(model, effort);
+                WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
+                                          userGrantedRound, question, sessionMode);
+                if (act == "scout")
+                {
+                    if (vendor is not null || effort is not null)
+                        throw new ArgumentRejectedException("scout takes Vendor and effort only from the persisted selection");
+                    SensitiveInput.Guard(question!, "the Scout question");
+                }
 
                 // The act would refuse these itself a moment later, inside the job. Refusing here
                 // instead keeps a missing revision — or a round with no draft anywhere — an argument
@@ -452,10 +554,13 @@ internal sealed class ForgeTools
                     PlanReview.RequireDraft(run, planDraft);
                 }
 
-                var workAct = new WorkAct(vendorFactory(), new PromptLibrary());
-                var selection = new Selection(model, effort);
+                var vendorForAct = vendorFactory(act == "scout"
+                    ? Scout.RequireSelection(run.ReadState()).Vendor!
+                    : vendor ?? VendorFactory.DefaultId);
+                var workAct = new WorkAct(vendorForAct, prompts ?? new PromptLibrary());
                 var started = registry.Start(run.Path, act,
-                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision, userGrantedRound, jobCt));
+                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
+                                               userGrantedRound, jobCt, question, sessionMode));
 
                 var record = started.Record;
                 return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, Documents(run)),
@@ -533,15 +638,20 @@ internal sealed class ForgeTools
                 if (record!.State == JobState.Running)
                     throw new InvalidOperationException($"job {jobId} is still running");
 
+                if (record.State == JobState.Failed && record.Act == "scout")
+                    run.Log.Write("error", SOURCE, "forge.work.fetch.error",
+                        ("jobId", record.Id), ("act", record.Act), ("error", record.Error));
+
                 var result = record.State == JobState.Completed ? record.ResultPayload : null;
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
-                                        record.State == JobState.Failed ? record.Error : null, Documents(run)),
+                                        record.State == JobState.Failed ? record.Error : null,
+                                        Documents(run, record.Act == "scout" && record.State == JobState.Completed)),
                     ForgeToolJson.Default.WorkFetchResult));
             });
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing: under `run`, the plan-review and code-review rounds against their caps, whether the plan is approved, the tasks completed, and the capability profile; under `driftedFiles`, the working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`; under `activeJob`, any background worker act still running, with its id, elapsed seconds, last stdout activity and last recognised event. Call it before you show the user the plan to approve, and before you ask them to grant a round past a cap, so the question carries its numbers.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing: under `run`, the plan-review and code-review rounds against their caps, whether the plan is approved, the tasks completed, the capability profile, and `run.scout` with Scout enabled/selection, current session, and last failure; under `driftedFiles`, the working-tree drift since the baseline, excluding `CONTEXT.md` and `docs/adr/**`; under `activeJob`, any background worker act still running, with its id, elapsed seconds, last stdout activity and last recognised event. Call it before you show the user the plan to approve, and before you ask them to grant a round past a cap, so the question carries its numbers.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -613,17 +723,22 @@ internal sealed class ForgeTools
     /// the second is for the orchestrator, and neither is written to be read by a person here.
     /// </remarks>
     /// <param name="run">The run whose user-facing files are described.</param>
-    private static RunDocuments Documents(RunDirectory run) => new(File.Exists(run.FlowLogPath)
-                                                                       ? new RunDocument(run.FlowLogPath,
-                                                                                         "show this file to the user now — it is the run's user-facing timeline — "
-                                                                                         + "and show it again after every later worker act.")
-                                                                       : null,
-                                                                   File.Exists(run.PlanPath)
-                                                                       ? new RunDocument(run.PlanPath,
-                                                                                         "the plan as it now stands, rewritten before every review round: show this "
-                                                                                         + "file to the user now and again after each later round, so they can "
-                                                                                         + "watch it change. Link it; do not paste the draft into the chat.")
-                                                                       : null);
+    private static RunDocuments Documents(RunDirectory run, bool includeScout = false) =>
+        new(File.Exists(run.FlowLogPath)
+                ? new RunDocument(run.FlowLogPath,
+                                  "show this file to the user now — it is the run's user-facing timeline — "
+                                  + "and show it again after every later worker act.")
+                : null,
+            File.Exists(run.PlanPath)
+                ? new RunDocument(run.PlanPath,
+                                  "the plan as it now stands, rewritten before every review round: show this "
+                                  + "file to the user now and again after each later round, so they can "
+                                  + "watch it change. Link it; do not paste the draft into the chat.")
+                : null,
+            includeScout && File.Exists(run.ScoutReportPath)
+                ? new RunDocument(run.ScoutReportPath,
+                                  "show the latest Scout report to the user now, and show it again only after a later successful Scout call replaces it.")
+                : null);
 
     private static string StateName(JobState state) => state switch
                                                        {
@@ -669,6 +784,36 @@ internal sealed class ForgeTools
                                                       "error" => "error",
                                                       _ => "info"
                                                   };
+
+    private static (ScoutState State, string Action, string SessionState) SelectScoutState(ScoutState? current,
+                                                                                           bool enabled,
+                                                                                           string? vendor,
+                                                                                           string? model,
+                                                                                           string? effort,
+                                                                                           string workspaceRoot)
+    {
+        if (!enabled)
+        {
+            if (vendor is not null || model is not null || effort is not null)
+                throw new ArgumentRejectedException("forge.scout.select rejects vendor, model and effort when enabled is false");
+
+            return (new ScoutState(false), "declined", "disabled");
+        }
+
+        if (string.IsNullOrWhiteSpace(vendor))
+            throw new ArgumentRejectedException("forge.scout.select requires vendor when enabled is true");
+        if (string.IsNullOrWhiteSpace(model))
+            throw new ArgumentRejectedException("forge.scout.select requires model when enabled is true");
+
+        var resolved = VendorFactory.Create(vendor, workspaceRoot);
+        if (current is { Enabled: true, LastFailure: null }
+            && string.Equals(current.Vendor, resolved.Id, StringComparison.Ordinal)
+            && string.Equals(current.Model, model, StringComparison.Ordinal)
+            && string.Equals(current.Effort, effort, StringComparison.Ordinal))
+            return (current, "selected", current.SessionId is { Length: > 0 } ? "resumed" : "fresh");
+
+        return (new ScoutState(true, resolved.Id, model, effort), current is null ? "selected" : "reselected", "fresh");
+    }
 
     /// <summary>
     /// Wraps one tool call in its run's log: the arguments on the way in, and the result, the
@@ -755,6 +900,10 @@ internal sealed record PlanViewResult(string RunId,
 /// </summary>
 internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob);
 
+internal sealed record ScoutSelectionResult(ScoutState Scout, string SessionState);
+
+internal sealed record ScoutRunResult(ScoutDigest Scout, RunDocuments Documents);
+
 internal sealed record ActiveJob(string JobId,
                                  string Act,
                                  string State,
@@ -773,11 +922,14 @@ internal sealed record WorkStartResult(string JobId, string Act, string State, b
 internal sealed record RunDocument(string Path, string Next);
 
 /// <summary>
-/// The files of a run that exist to be shown to a person. Both entries are optional and start out
+/// The files of a run that exist to be shown to a person. All entries are optional and start out
 /// absent: the timeline appears with the first act that records one, the plan with the write that
-/// precedes the first round.
+/// precedes the first round, and Scout only after a successful Scout call.
 /// </summary>
-internal sealed record RunDocuments(RunDocument? FlowLog, RunDocument? Plan);
+internal sealed record RunDocuments(RunDocument? FlowLog,
+                                    RunDocument? Plan,
+                                    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                    RunDocument? Scout = null);
 
 /// <summary>Both review tools answer with this: one critique, plus where the user can watch the run.</summary>
 internal sealed record CritiqueResult(Critique Critique, RunDocuments Documents);
@@ -847,6 +999,9 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
+[JsonSerializable(typeof(ScoutSelectionResult))]
+[JsonSerializable(typeof(ScoutRunResult))]
+[JsonSerializable(typeof(ScoutDigest))]
 [JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]
 [JsonSerializable(typeof(RunDocument))]

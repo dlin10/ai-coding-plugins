@@ -30,42 +30,51 @@ internal sealed class WorkAct
         string act,
         RunDirectory run,
         string? planDraft,
-        Selection selection,
+        Selection? selection,
         string? findings,
         string? deferred,
         string? revision,
         bool userGrantedRound,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? question = null,
+        string? sessionMode = null)
     {
-        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound);
+        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
+                          question, sessionMode);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft, selection, revision, deferred, userGrantedRound, ct)
+                    .ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
             case "build.next":
                 var build = await new Build(_vendor, _prompts)
-                    .NextAsync(run, selection, ct)
+                    .NextAsync(run, selection!, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(build, ForgeToolJson.Default.BuildOutcome);
 
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
                 var codeReview = await new CodeReview(_vendor, _prompts, git)
-                    .ReviewAsync(run, selection, userGrantedRound, ct)
+                    .ReviewAsync(run, selection!, userGrantedRound, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique);
 
             case "review.fix":
                 var fix = await new ReviewFix(_vendor, _prompts)
-                    .FixAsync(run, selection, findings!, deferred, ct)
+                    .FixAsync(run, selection!, findings!, deferred, ct)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
+
+            case "scout":
+                var scout = await new Scout(_vendor, _prompts)
+                    .RunAsync(run, question!, sessionMode!, ct)
+                    .ConfigureAwait(false);
+                return JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutDigest);
 
             default:
                 throw new ArgumentRejectedException($"unknown work act '{act}'");
@@ -79,15 +88,35 @@ internal sealed class WorkAct
         string? findings,
         string? deferred,
         string? revision,
-        bool userGrantedRound)
+        bool userGrantedRound,
+        string? question = null,
+        string? sessionMode = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
-        if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix")
+        if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix" and not "scout")
             throw new ArgumentRejectedException($"unknown work act '{act}'");
 
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentException.ThrowIfNullOrWhiteSpace(selection.Model);
+        if (act == "scout")
+        {
+            RejectPresent(planDraft, nameof(planDraft), act);
+            RejectPresent(selection?.Model, nameof(selection), act);
+            RejectPresent(selection?.Effort, nameof(selection), act);
+            RejectPresent(findings, nameof(findings), act);
+            RejectPresent(deferred, nameof(deferred), act);
+            RejectPresent(revision, nameof(revision), act);
+            RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
+            if (question is null)
+                throw new ArgumentRejectedException("scout requires question");
+            Scout.ValidateQuestion(question);
+            if (sessionMode is null)
+                throw new ArgumentRejectedException("scout requires sessionMode");
+            Scout.ValidateSessionMode(sessionMode);
+            return;
+        }
+
+        if (selection is null || string.IsNullOrWhiteSpace(selection.Model))
+            throw new ArgumentRejectedException($"{act} requires model");
 
         switch (act)
         {
@@ -119,11 +148,20 @@ internal sealed class WorkAct
                     throw new ArgumentRejectedException($"{act} requires findings");
                 break;
         }
+
+        RejectPresent(question, nameof(question), act);
+        RejectPresent(sessionMode, nameof(sessionMode), act);
     }
 
     private static void RejectProvided(string? value, string argumentName, string act)
     {
         if (!string.IsNullOrWhiteSpace(value))
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
+    }
+
+    private static void RejectPresent(string? value, string argumentName, string act)
+    {
+        if (value is not null)
             throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
 
