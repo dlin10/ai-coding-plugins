@@ -2,9 +2,11 @@
 
 Until now a user had no channel to a worker but the plan. A **Critic** sees the plan or the diff,
 the review log and its role contract, and there was nowhere to say "answer in Russian" or "in this
-repo, do not flag X". A **Builder** receives `# Task N of M` and the task's own text and nothing
-else, so telling it to use a particular skill meant copying the same sentence into every task and
-never forgetting one. The third candidate, editing `prompts/`, is a knob only in a checkout: an
+repo, do not flag X". A **Builder** receives one task or set of kept findings per turn; the first
+turn of a session also receives the approved plan's `# Builder Brief`, but neither is a channel for
+the user's per-run instruction. Telling it to use a particular skill therefore meant copying the
+same sentence into every task and never forgetting one. The third candidate, editing `prompts/`, is
+a knob only in a checkout: an
 installed plugin keeps `prompts/` under its plugin root, where an edit applies to every project and
 is lost on the next upgrade.
 
@@ -20,10 +22,12 @@ there leaves `PromptLibrary` and all three vendor implementations untouched.
 
 **A Critic is fresh every round, so it is handed its text every round.** A Builder holds a session,
 so it is handed its text exactly on a call that starts one — `Build` or `ReviewFix` with no resume
-token, which is also what a vendor switch and a reopened plan produce. A resumed session already has
-the text in its history. The consequence is accepted rather than fixed: instructions changed after a
-builder session started do not reach that session, and the tool's answer says so instead of refusing
-the call.
+token, which is also what a vendor switch, a reopened plan, or re-approval after the Builder Brief
+changes produces. On that turn the Builder Brief
+comes first, the task or findings follow, and the user's instructions remain the final directly
+addressed block. A resumed session already has both the Brief and the instructions in its history.
+The consequence is accepted rather than fixed: instructions changed after a builder session started
+do not reach that session, and the tool's answer says so instead of refusing the call.
 
 **The code-review Critic is shown the Builder's text as data**, in a separately framed section
 saying it is context for judging the diff and not an instruction to the critic: do not raise a
@@ -57,9 +61,9 @@ makes it auditable is that both texts go verbatim into `flow_log.md`, which the 
 orchestrator is held to — pass what the user typed, nothing of your own — in the same words it
 states it for `approved`.
 
-**Consequences.** A run with no instructions composes exactly the prompts it composed before, so the
-feature is invisible when unused. The critic's independence now has a documented way to be
-weakened, by a user who asks for it, in a file they can read afterwards. And the guarantee that
+**Consequences.** A run with no instructions omits the instruction block; the independently defined
+Builder Brief still appears on a fresh Builder session. The critic's independence now has a
+documented way to be weakened, by a user who asks for it, in a file they can read afterwards. And the guarantee that
 travels with the code-review section is weaker than it looks: it shows whatever is set at the time
 of the round, so a user who changes the builder's text mid-run can have a critic told about
 instructions the builder never received. The flow log records both the change and the round, which

@@ -1,3 +1,7 @@
+The Critic evaluates task completeness with the Builder Brief available as stable context. It still
+demands depth appropriate to the selected Builder model and effort: the Brief does not replace the
+task-specific detail, gates, or requirement references each task must carry.
+
 In plan review the plan states its own intent: numbered requirements under `## Requirements`, the
 tasks under `## Approach`, each task ending in a `Gate` — the check that would show it done — and,
 where a check belongs to no single task, a `## Gates` section of its own. All of that is under

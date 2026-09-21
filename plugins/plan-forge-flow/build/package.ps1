@@ -387,8 +387,13 @@ function Test-PluginArchive([string]$Archive) {
                 'sessionMode',
                 'first Scout outcome',
                 'documents.scout',
-                'forge.scout.run')) {
+                'forge.scout.run',
+                'Builder Brief',
+                'fresh session starts with the Brief before task 1')) {
             if ($skillScript -notmatch [regex]::Escape($marker)) { throw "the bundled Scout skill is missing semantic marker: $marker" }
+        }
+        if ($skillScript -match 'task 1 starts from nothing') {
+            throw 'the bundled forge skill still claims that task 1 starts without the Builder Brief'
         }
         $scoutContractEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/prompts/scout-contract.md')
         $reader = [IO.StreamReader]::new($scoutContractEntry.Open())

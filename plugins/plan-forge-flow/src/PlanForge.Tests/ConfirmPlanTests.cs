@@ -138,6 +138,38 @@ public sealed class ConfirmPlanTests : IDisposable
         Assert.False(File.Exists(run.PlanPath));
     }
 
+    [Fact]
+    public async Task Builder_brief_plan_changed_brief_reapproval_clears_session_and_preserves_progress()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        await ConfirmAsync(run.RunId, approved: true, ct);
+        run.WriteState(run.ReadState() with { BuilderSessionId = "builder-session", TasksCompleted = 1 });
+
+        var changedBrief = Plan.Replace("# Title", "# Changed title", StringComparison.Ordinal);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, changedBrief, true, ct);
+
+        var state = run.ReadState();
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Equal(1, state.TasksCompleted);
+    }
+
+    [Fact]
+    public async Task Builder_brief_plan_task_only_reapproval_preserves_session_and_progress()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        await ConfirmAsync(run.RunId, approved: true, ct);
+        run.WriteState(run.ReadState() with { BuilderSessionId = "builder-session", TasksCompleted = 1 });
+
+        var changedTask = Plan.Replace("First task.", "Updated first task.", StringComparison.Ordinal);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, changedTask, true, ct);
+
+        var state = run.ReadState();
+        Assert.Equal("builder-session", state.BuilderSessionId);
+        Assert.Equal(1, state.TasksCompleted);
+    }
+
     private async Task<RunDirectory> StartRunAsync(CancellationToken ct)
     {
         await _git.OutputAsync(["init", "-q"], ct);

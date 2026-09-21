@@ -173,8 +173,13 @@ Write the plan as markdown, in three parts: the requirements, the gates, and the
 The tasks live under a heading spelled exactly `## Approach`. That heading is not a suggestion:
 `PlanTasks` refuses a plan without exactly one of it, and `forge.plan.confirm` parses before it
 writes anything, so the wrong heading fails at approval rather than later. Anything above
-`## Approach` is context for the reader and is not walked; the section ends at the next `##`
-heading, so put the tasks last or expect everything after that heading to be dropped.
+`## Approach` is not walked as tasks; on a fresh builder session it is sent verbatim as the
+Vendor-bound Builder Brief. Keep transient interview notes, rejected alternatives, secrets, and
+host values out of it. The section ends at the next `##` heading, so put the tasks last or expect
+everything after that heading to be dropped.
+
+If a Builder Brief is rejected as sensitive, remove the sensitive content from the plan and directly
+re-approve the changed plan before retrying the Builder act.
 
 Inside it, number the tasks `1.` to `N.` in order, one task per numbered item — a gap or a repeat is
 refused outright. That numbering is what `forge.build.next` walks, so a task that is really three
@@ -241,11 +246,10 @@ Builder: cursor / gpt-5.3-codex / high
 2. **Second task.** … **Gate:** `if ($env:CD_TEST_SQL_CONN) { dotnet test … } else { exit 1 }` (R2)
 ```
 
-Write every task to be read alone. The builder receives `# Task N of M` and the task's own text —
-not the preamble, not the requirements, not the run-wide gates, not the other tasks, not the
-interview. Context a task needs must be inlined into the task, and that includes whatever a
-requirement it cites actually demands; the builder's session accretes across tasks, but task 1
-starts from nothing.
+Write every task as its change-specific delta. The Brief supplies stable context once on a fresh
+builder session, while every task must still stand alone with its own task gate and requirement
+references. The builder receives `# Task N of M` and the task's own text after that context; the
+builder's session accretes across tasks; a fresh session starts with the Brief before task 1.
 
 Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
 goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
@@ -540,10 +544,10 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
    every round and is handed its text every round. A builder holds a session and is handed its text
    only when a session starts, so instructions given after the first task reach it only once a
-   vendor switch or a reopened plan starts a new one — the tool's answer says so when that is the
-   case, and you should pass that on rather than assume it landed. The builder's text is also shown
-   to the code-review critic as context, so that critic does not raise findings for a choice the
-   user asked for.
+   vendor switch, a reopened plan, or direct re-approval after a changed Builder Brief starts a new
+   one — the tool's answer says so when that is the case, and you should pass that on rather than
+   assume it landed. The builder's text is also shown to the code-review critic as context, so that
+   critic does not raise findings for a choice the user asked for.
 
 The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
 refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The

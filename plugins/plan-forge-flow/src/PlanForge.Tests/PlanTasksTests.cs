@@ -45,4 +45,21 @@ public sealed class PlanTasksTests
     [Fact]
     public void Rejects_an_approach_section_with_no_tasks() =>
         Assert.Throws<PlanShapeException>(() => PlanTasks.Parse("## Approach\n\nProse only.\n"));
+
+    [Fact]
+    public void Builder_brief_plan_LF_extraction_excludes_heading_and_tasks()
+    {
+        const string plan = "# Title\n\n## Approach\n\n1. First task.\n";
+
+        Assert.Equal("# Title\n\n", PlanTasks.Brief(plan));
+        Assert.Equal(string.Empty, PlanTasks.Brief("## Approach\n\n1. First task.\n"));
+    }
+
+    [Fact]
+    public void Builder_brief_plan_CRLF_extraction_preserves_line_endings()
+    {
+        const string plan = "# Title\r\n\r\n## Approach\r\n\r\n1. First task.\r\n";
+
+        Assert.Equal("# Title\r\n\r\n", PlanTasks.Brief(plan));
+    }
 }

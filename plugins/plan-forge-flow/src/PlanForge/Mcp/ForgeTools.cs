@@ -366,10 +366,17 @@ internal sealed class ForgeTools
 
                 if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
 
+                var builderSessionId = state.Approved &&
+                                       !string.Equals(PlanTasks.Brief(run.ReadPlan()), PlanTasks.Brief(plan),
+                                                      StringComparison.Ordinal)
+                    ? string.Empty
+                    : state.BuilderSessionId;
+
                 run.WritePlan(plan);
                 run.WriteState(state with
                 {
                     Approved = true,
+                    BuilderSessionId = builderSessionId,
                     GateEnvironment = gates.Environment,
                     BuilderRoots = gates.BuilderRoots,
                     PendingGateFailure = null
