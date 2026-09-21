@@ -43,6 +43,9 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             return skipped;
         }
 
+        if (resumeToken is null)
+            prompt = BuilderBrief.Prepend(prompt, run.ReadPlan());
+
         await using var builder = await vendor.StartAsync(new RoleSpec(VendorRole.Builder, prompts.Load(vendor.Id, VendorRole.Builder),
                                                                        state.BuilderRoots, WorkerTools.Effective(state.WorkerTools),
                                                                        new WorkerTelemetryContext(run.TelemetryPath, run.Log, "review_fix",

@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.34.0
+
+Builders now receive the approved plan context above `## Approach` as a Builder Brief once per
+session, before the task or review findings. A fresh session receives the Brief and the user's
+instructions again after a Vendor switch, a reopened plan, or direct re-approval after a changed
+Builder Brief; resumed sessions continue from their existing context.
+
+- The Brief is guarded separately for sensitive input, while task and findings guards keep their
+  existing source labels and line locations. Transient interview notes, rejected alternatives,
+  secrets, and host values stay out of the Vendor-bound context.
+- Tasks remain standalone, change-specific deltas with their own gates and requirement references;
+  they no longer need to restate stable plan context, and the Brief is context rather than work or
+  authority to revise the approved plan.
+
 ## 0.33.1
 
 Codex workers installed through npm on Windows now launch `node.exe` with the package's `codex.js`

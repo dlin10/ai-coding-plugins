@@ -13,6 +13,10 @@ namespace PlanForge.Tests;
 /// </summary>
 public sealed class ReviewFixTests : IDisposable
 {
+    private const string BriefPlan = "# Toy plan\n\n## Approach\n\n1. Task.\n";
+    private const string SensitiveBriefPlan =
+        "# Toy plan\n\napi_key: Abcdefghijklmnop1234+\n\n## Approach\n\n1. Task.\n";
+
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
 
     public ReviewFixTests() => Directory.CreateDirectory(_workspace);
@@ -332,6 +336,88 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal("cut-short-token", builder.Sessions[1].StartedWithResumeToken);
         Assert.Contains("cut short", builder.Sessions[1].PromptText, StringComparison.Ordinal);
         Assert.Contains("exit 3", run.ReadState().PendingGateFailure!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_resumed_review_fix_omits_brief_and_instructions()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("fake");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun(builderVendor: "fake", builderSessionId: "old-token", plan: BriefPlan);
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        var session = Assert.Single(builder.Sessions);
+        Assert.Equal("old-token", session.StartedWithResumeToken);
+        Assert.Contains("fix it", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Instructions", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_fresh_review_fix_cannot_resume_the_build_session()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("new-vendor");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun(builderVendor: "old-vendor", builderSessionId: "old-token", plan: BriefPlan);
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
+
+        var session = Assert.Single(builder.Sessions);
+        Assert.Null(session.StartedWithResumeToken);
+        Assert.Contains("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Toy plan", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_sensitive_brief_is_refused_before_review_fix_vendor_start()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("fake");
+        var run = NewRun(plan: SensitiveBriefPlan);
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct));
+
+        Assert.Contains("the Builder Brief", error.Message, StringComparison.Ordinal);
+        Assert.Contains("line 3", error.Message, StringComparison.Ordinal);
+        Assert.Empty(builder.Sessions);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_sensitive_findings_keep_findings_localization_with_brief()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("fake");
+        var run = NewRun(plan: BriefPlan);
+        var sensitiveFindings = string.Concat("api", "_key", ": ", "Abcdefghijklmnop", "1234", "+");
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewFix(builder).FixAsync(run, new Selection("builder-model", null),
+                                     sensitiveFindings, null, ct));
+
+        Assert.Contains("the code-review fixes", error.Message, StringComparison.Ordinal);
+        Assert.Contains("line 3", error.Message, StringComparison.Ordinal);
+        Assert.Empty(builder.Sessions);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_deferred_only_review_fix_skips_sensitive_brief_without_vendor_start()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("fake");
+        var run = NewRun(plan: SensitiveBriefPlan);
+
+        var result = await NewFix(builder).FixAsync(run, new Selection("builder-model", null), " \n",
+                                                    "- deferred finding", ct);
+
+        Assert.Equal("done", result.Status);
+        Assert.Empty(builder.Sessions);
     }
 
     private ReviewFix NewFix(RecordingVendor builder) =>

@@ -78,12 +78,13 @@ public sealed class InstructionsTests : IDisposable
     }
 
     [Fact]
-    public void Instructions_set_while_a_builder_session_runs_answer_with_a_note()
+    public void Builder_brief_plan_instruction_note_names_changed_brief_reapproval()
     {
         var run = NewRun(builderSessionId: "running-token");
 
-        Assert.Contains("will not see them", RunInstructions.Set(run, null, "use the ponytail-net skill").Note!,
-                        StringComparison.Ordinal);
+        var note = RunInstructions.Set(run, null, "use the ponytail-net skill").Note!;
+        Assert.Contains("will not see them", note, StringComparison.Ordinal);
+        Assert.Contains("direct re-approval after a changed Builder Brief", note, StringComparison.Ordinal);
         Assert.Null(RunInstructions.Set(run, "answer in Russian", null).Note);
         Assert.Null(RunInstructions.Set(NewRun(), null, "use the ponytail-net skill").Note);
     }

@@ -277,6 +277,10 @@ public sealed class PlanReviewTests : IDisposable
 
         Assert.Contains("Coverage runs both ways", critic.Sessions[0].Role.SystemPrompt,
             StringComparison.Ordinal);
+        Assert.Contains("Builder Brief", critic.Sessions[0].Role.SystemPrompt,
+            StringComparison.Ordinal);
+        Assert.Contains("selected Builder model and effort", critic.Sessions[0].Role.SystemPrompt,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
