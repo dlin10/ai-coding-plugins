@@ -43,7 +43,7 @@ internal sealed class CodexCliVendor : IVendor
     {
         try
         {
-            var executable = CodexLaunch.Executable;
+            var command = CodexLaunch.Command;
 
             var path = Environment.GetEnvironmentVariable("PATH");
             if (ShellReadiness(path) is { } shellReadiness) return shellReadiness;
@@ -53,7 +53,7 @@ internal sealed class CodexCliVendor : IVendor
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["PATH"] = inspected.Path! }
                 : null;
 
-            var spec = new ProcessSpec(executable, ["doctor", "--json"], _workingDirectory, string.Empty, environment);
+            var spec = command.CreateProcess(["doctor", "--json"], _workingDirectory, string.Empty, environment);
             var lines = new List<string>();
             VendorException? exitFailure = null;
             try
@@ -85,7 +85,7 @@ internal sealed class CodexCliVendor : IVendor
                 if (refusal is not null) return refusal;
             }
 
-            var modelsSpec = new ProcessSpec(executable, ["debug", "models"], _workingDirectory, string.Empty, environment);
+            var modelsSpec = command.CreateProcess(["debug", "models"], _workingDirectory, string.Empty, environment);
             var modelLines = await StreamingProcess.CollectAsync(modelsSpec, PROBE_TIMEOUT, ct).ConfigureAwait(false);
 
             using var modelsDocument = JsonDocument.Parse(string.Join('\n', modelLines));
@@ -117,7 +117,7 @@ internal sealed class CodexCliVendor : IVendor
     /// </summary>
     private async Task<IReadOnlyList<string>> ListServersAsync(CancellationToken ct)
     {
-        var spec = new ProcessSpec(CodexLaunch.Executable, ["mcp", "list", "--json"], _workingDirectory, string.Empty);
+        var spec = CodexLaunch.Command.CreateProcess(["mcp", "list", "--json"], _workingDirectory, string.Empty);
         var lines = await StreamingProcess.CollectAsync(spec, PROBE_TIMEOUT, ct).ConfigureAwait(false);
 
         using var document = JsonDocument.Parse(string.Join('\n', lines));

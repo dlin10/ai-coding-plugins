@@ -2,8 +2,9 @@ namespace PlanForge.Infrastructure;
 
 /// <summary>
 /// Finds a vendor CLI on PATH. Generalised from the Codex-only resolver because every vendor here
-/// ships the same way on Windows: claude, codex and cursor-agent are all npm-style shims, and
-/// UseShellExecute=false does not apply PATHEXT.
+/// ships through a Windows shim, and UseShellExecute=false does not apply PATHEXT. A shim that
+/// names its native executable can be unwrapped here; a Node entry point also needs its script
+/// argument, so its vendor resolves the raw shim and owns that launch contract.
 /// </summary>
 internal static class ExecutableResolver
 {
@@ -26,6 +27,12 @@ internal static class ExecutableResolver
     }
 
     internal static string? Resolve(string command, string? pathValue, bool windows)
+        => Resolve(command, pathValue, windows, unwrapShims: true);
+
+    internal static string? ResolveRaw(string command, string? pathValue, bool windows)
+        => Resolve(command, pathValue, windows, unwrapShims: false);
+
+    private static string? Resolve(string command, string? pathValue, bool windows, bool unwrapShims)
     {
         foreach (var raw in (pathValue ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
@@ -48,9 +55,8 @@ internal static class ExecutableResolver
                 if (!File.Exists(candidate)) 
                     continue;
 
-                return extension is ".exe"
-                    ? Path.GetFullPath(candidate)
-                    : UnwrapShim(candidate) ?? Path.GetFullPath(candidate);
+                var full = Path.GetFullPath(candidate);
+                return extension is ".exe" || !unwrapShims ? full : UnwrapShim(full) ?? full;
             }
         }
 
@@ -59,8 +65,7 @@ internal static class ExecutableResolver
 
     /// <summary>
     /// Follows a .cmd shim to the executable it launches. Running the shim itself would go through
-    /// cmd.exe, which re-parses the command line and corrupts quoted JSON arguments — and every
-    /// vendor here is invoked with an inline JSON schema.
+    /// cmd.exe, which re-parses the command line and can corrupt structured or prompt arguments.
     /// </summary>
     private static string? UnwrapShim(string shimPath)
     {

@@ -10,6 +10,60 @@ namespace PlanForge.Tests;
 /// </summary>
 public sealed class CodexLaunchTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void An_npm_shim_launches_codex_js_through_node_without_cmd(bool nodeBesideShim)
+    {
+        var root = FixtureRoot();
+        try
+        {
+            var npm = Path.Combine(root, "npm");
+            var nodeDirectory = nodeBesideShim ? npm : Path.Combine(root, "node");
+            var package = Path.Combine(npm, "node_modules", "@openai", "codex", "bin");
+            Directory.CreateDirectory(package);
+            Directory.CreateDirectory(nodeDirectory);
+
+            var node = WriteNonEmpty(Path.Combine(nodeDirectory, "node.exe"));
+            var script = WriteNonEmpty(Path.Combine(package, "codex.js"));
+            File.WriteAllText(Path.Combine(npm, "codex.cmd"),
+                "@\"%~dp0\\node.exe\" \"%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js\" %*");
+
+            var path = string.Join(Path.PathSeparator, npm, nodeDirectory);
+            var command = CodexLaunch.Resolve(path, windows: true);
+            const string instructions = "developer_instructions=\"cite <path>:<line>\"";
+            var process = command.CreateProcess(["exec", "-c", instructions], root, "prompt");
+
+            Assert.Equal(Path.GetFullPath(node), process.FileName);
+            Assert.Equal([Path.GetFullPath(script), "exec", "-c", instructions], process.Arguments);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public void A_native_codex_executable_is_launched_directly()
+    {
+        var root = FixtureRoot();
+        try
+        {
+            Directory.CreateDirectory(root);
+            var codex = WriteNonEmpty(Path.Combine(root, "codex.exe"));
+
+            var command = CodexLaunch.Resolve(root, windows: true);
+            var process = command.CreateProcess(["doctor", "--json"], root, string.Empty);
+
+            Assert.Equal(Path.GetFullPath(codex), process.FileName);
+            Assert.Equal(["doctor", "--json"], process.Arguments);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
     [Fact]
     public void Repairs_a_path_whose_only_pwsh_is_the_store_alias()
     {

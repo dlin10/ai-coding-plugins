@@ -1,5 +1,12 @@
 # Plan Forge Flow releases
 
+## 0.33.1
+
+Codex workers installed through npm on Windows now launch `node.exe` with the package's `codex.js`
+entry point instead of forwarding prompt-bearing arguments through `codex.cmd`. This prevents
+`cmd.exe` from interpreting prompt characters such as `<` before Codex starts. Native `codex.exe`
+installations continue to launch directly.
+
 ## 0.33.0
 
 Plan Forge can now delegate broad repository reconnaissance to a lazily selected, read-only Scout
