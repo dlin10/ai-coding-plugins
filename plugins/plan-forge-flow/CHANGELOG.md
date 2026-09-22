@@ -1,5 +1,16 @@
 # Plan Forge Flow releases
 
+## 0.35.1
+
+Worker telemetry now gives `inputTokens` the same total-input meaning for Claude, Codex and Cursor
+(issue #108).
+
+- Claude and Cursor add cache reads and cache creation to their uncached input counters, while Codex
+  preserves its provider-reported total instead of subtracting cache counters.
+- Cache counters remain optional subsets of `inputTokens`. Missing, malformed, overflowing and
+  inconsistent source values retain independently valid counters without producing a negative or
+  wrapped total.
+
 ## 0.35.0
 
 Critic convergence now uses a canonical Run-local decision ledger instead of replaying a growing

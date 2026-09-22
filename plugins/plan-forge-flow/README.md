@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.35.0
+# Plan Forge Flow 0.35.1
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -192,6 +192,12 @@ human-readable. The tools hand back the plan and timeline paths on worker result
 metadata only after a successful Scout call, so the orchestrator can put the current documents in
 front of you while the run is still moving; telemetry stays at the stable Run path and adds no MCP
 result.
+
+In telemetry, `inputTokens` is the complete input processed by the Worker attempt, including cache
+reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that
+total and must not be added to it. Likewise, `outputTokens` is the complete output count and
+`reasoningTokens` is an optional subset of it.
+
 Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
 after an approval takes that flag back.
 

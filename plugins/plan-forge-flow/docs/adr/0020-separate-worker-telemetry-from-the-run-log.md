@@ -12,3 +12,10 @@ write-failure event in `forge.log` makes the problem visible without discarding 
 The per-file gate coordinates writers within one Plan Forge process only; the file follows the
 existing Run-state contract and does not add cross-process coordination for concurrent mutation of
 the same Run.
+
+Normalized `inputTokens` is the complete input processed by a Worker attempt, including cache reads
+and cache creation. The optional `cacheReadTokens` and `cacheCreationTokens` fields are subsets of
+that total, not values to add to it. Claude and Cursor totals are emitted only when every required
+component is present, valid and sums within `Int64`; Codex's reported total remains authoritative
+even when an optional cache breakdown is missing or malformed. `outputTokens` is likewise the full
+output count, with `reasoningTokens` as an optional subset.

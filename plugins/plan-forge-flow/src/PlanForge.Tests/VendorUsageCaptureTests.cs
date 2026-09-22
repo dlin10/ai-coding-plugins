@@ -26,7 +26,7 @@ public sealed class VendorUsageCaptureTests
 
         session.Observe(terminal.RootElement);
 
-        Assert.Equal(3, session.ObservedUsage.InputTokens);
+        Assert.Null(session.ObservedUsage.InputTokens);
         Assert.Equal(4, session.ObservedUsage.OutputTokens);
     }
 
@@ -51,7 +51,7 @@ public sealed class VendorUsageCaptureTests
 
         session.Observe(terminal.RootElement);
 
-        Assert.Equal(5, session.ObservedUsage.InputTokens);
+        Assert.Equal(10, session.ObservedUsage.InputTokens);
         Assert.Equal(4, session.ObservedUsage.CacheReadTokens);
         Assert.Equal(1, session.ObservedUsage.CacheCreationTokens);
         Assert.Equal(2, session.ObservedUsage.OutputTokens);
@@ -77,7 +77,7 @@ public sealed class VendorUsageCaptureTests
             """);
 
         Assert.Equal("not the requested object", session.Observe(terminal.RootElement));
-        Assert.Equal(6, session.ObservedUsage.InputTokens);
+        Assert.Equal(21, session.ObservedUsage.InputTokens);
         Assert.Equal(7, session.ObservedUsage.CacheReadTokens);
         Assert.Equal(8, session.ObservedUsage.CacheCreationTokens);
         Assert.Equal(9, session.ObservedUsage.OutputTokens);
@@ -92,7 +92,7 @@ public sealed class VendorUsageCaptureTests
             """{"type":"result","usage":{"inputTokens":6,"outputTokens":9}}""");
 
         Assert.Null(session.Observe(terminal.RootElement));
-        Assert.Equal(6, session.ObservedUsage.InputTokens);
+        Assert.Null(session.ObservedUsage.InputTokens);
         Assert.Equal(9, session.ObservedUsage.OutputTokens);
     }
 }
