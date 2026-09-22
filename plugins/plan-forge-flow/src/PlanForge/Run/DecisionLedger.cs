@@ -17,8 +17,8 @@ internal enum LedgerPhase
 
 internal static class LedgerPhaseNames
 {
-    public const string PlanReview = "plan_review";
-    public const string CodeReview = "code_review";
+    public const string PLAN_REVIEW = "plan_review";
+    public const string CODE_REVIEW = "code_review";
 }
 
 [JsonConverter(typeof(StrictSnakeCaseEnumConverter<LedgerDisposition>))]
@@ -48,13 +48,13 @@ internal enum LedgerClosureKind
 internal sealed class StrictSnakeCaseEnumConverter<TEnum> : JsonConverter<TEnum>
     where TEnum : struct, Enum
 {
-    private static readonly IReadOnlyDictionary<string, TEnum> Values = Enum.GetValues<TEnum>()
+    private static readonly IReadOnlyDictionary<string, TEnum> VALUES = Enum.GetValues<TEnum>()
         .ToDictionary(Name, StringComparer.Ordinal);
 
     public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType == JsonTokenType.String
-            && Values.TryGetValue(reader.GetString() ?? string.Empty, out var value))
+            && VALUES.TryGetValue(reader.GetString() ?? string.Empty, out var value))
             return value;
 
         throw new JsonException($"unsupported {typeof(TEnum).Name} value");
@@ -201,8 +201,8 @@ internal sealed record OrchestratorDecisionPayload(
 /// </summary>
 internal sealed class DecisionLedger
 {
-    internal const int CurrentSchemaVersion = 1;
-    private static readonly ConcurrentDictionary<string, object> Gates = new(StringComparer.OrdinalIgnoreCase);
+    private const int CURRENT_SCHEMA_VERSION = 1;
+    private static readonly ConcurrentDictionary<string, object> GATES = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path;
 
     private DecisionLedger(string path) => _path = System.IO.Path.GetFullPath(path);
@@ -234,7 +234,7 @@ internal sealed class DecisionLedger
         var entries = phase == LedgerPhase.PlanReview
             ? snapshot.Entries.Where(entry => entry.ActivePhase == phaseName)
             : snapshot.Entries.Where(entry => entry.ActivePhase == phaseName
-                                              || (entry.Origin == LedgerPhaseNames.PlanReview
+                                              || (entry.Origin == LedgerPhaseNames.PLAN_REVIEW
                                                   && entry.Disposition != LedgerDisposition.Unresolved));
         return entries.ToArray();
     }
@@ -284,9 +284,9 @@ internal sealed class DecisionLedger
                        .Select(entry => entry.FindingId).ToArray(),
                 entries.Where(entry => entry.Disposition == LedgerDisposition.Rejected)
                        .Select(entry => entry.FindingId).ToArray(),
-                entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PlanReview)
+                entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW)
                        .Select(entry => entry.FindingId).ToArray(),
-                entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CodeReview)
+                entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW)
                        .Select(entry => entry.FindingId).ToArray());
         }
     }
@@ -302,7 +302,7 @@ internal sealed class DecisionLedger
         {
             if (!entries.TryGetValue(id, out var entry))
                 throw new DecisionLedgerRequestException($"finding '{id}' does not exist");
-            if (entry.ActivePhase != LedgerPhaseNames.CodeReview
+            if (entry.ActivePhase != LedgerPhaseNames.CODE_REVIEW
                 || entry.Disposition != LedgerDisposition.Unresolved)
                 throw new DecisionLedgerRequestException($"finding '{id}' is not an unresolved active code-review entry");
             SensitiveInput.Guard(entry.Finding.Severity, $"finding severity for {id}");
@@ -341,7 +341,7 @@ internal sealed class DecisionLedger
         {
             if (!entries.TryGetValue(id, out var entry))
                 throw new DecisionLedgerRequestException($"finding '{id}' does not exist");
-            if (entry.ActivePhase != LedgerPhaseNames.CodeReview
+            if (entry.ActivePhase != LedgerPhaseNames.CODE_REVIEW
                 || entry.Disposition != LedgerDisposition.Unresolved)
                 throw new DecisionLedgerRequestException($"finding '{id}' is not an unresolved active code-review entry");
         }
@@ -521,9 +521,9 @@ internal sealed class DecisionLedger
         {
             var snapshot = ReadSnapshot();
             var projection = phase == LedgerPhase.PlanReview
-                ? snapshot.Entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PlanReview).ToArray()
-                : snapshot.Entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CodeReview
-                                                  || (entry.Origin == LedgerPhaseNames.PlanReview
+                ? snapshot.Entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW).ToArray()
+                : snapshot.Entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW
+                                                  || (entry.Origin == LedgerPhaseNames.PLAN_REVIEW
                                                       && entry.Disposition != LedgerDisposition.Unresolved)).ToArray();
             var unresolved = projection.Where(entry => entry.Disposition == LedgerDisposition.Unresolved)
                                       .Select(entry => entry.FindingId).ToHashSet(StringComparer.Ordinal);
@@ -721,7 +721,7 @@ internal sealed class DecisionLedger
             entries.Remove(closure.FindingId);
     }
 
-    private object Gate() => Gates.GetOrAdd(_path, static _ => new object());
+    private object Gate() => GATES.GetOrAdd(_path, static _ => new object());
 
     private DecisionLedgerSnapshot ReadSnapshot()
     {
@@ -755,7 +755,7 @@ internal sealed class DecisionLedger
         AtomicFile.Write(path, json);
     }
 
-    private static DecisionLedgerSnapshot EmptySnapshot() => new(CurrentSchemaVersion, 1, [], [], []);
+    private static DecisionLedgerSnapshot EmptySnapshot() => new(CURRENT_SCHEMA_VERSION, 1, [], [], []);
 
     private DecisionBatchRequest NormalizeOrchestratorBatch(OrchestratorDecisionBatch batch,
                                                             LedgerPhase phase,
@@ -890,9 +890,9 @@ internal sealed class DecisionLedger
     private static void RequireSettledProjectionEntry(DecisionLedgerEntry entry, LedgerPhase phase, string findingId)
     {
         var visible = phase == LedgerPhase.PlanReview
-            ? entry.ActivePhase == LedgerPhaseNames.PlanReview
-            : entry.ActivePhase == LedgerPhaseNames.CodeReview
-              || (entry.Origin == LedgerPhaseNames.PlanReview && entry.Disposition != LedgerDisposition.Unresolved);
+            ? entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW
+            : entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW
+              || (entry.Origin == LedgerPhaseNames.PLAN_REVIEW && entry.Disposition != LedgerDisposition.Unresolved);
         if (!visible || entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected)
             throw new DecisionLedgerRequestException($"finding '{findingId}' is not a settled {PhaseName(phase)} projection entry");
     }
@@ -985,7 +985,7 @@ internal sealed class DecisionLedger
                 throw new DecisionLedgerRequestException($"finding '{reopening.FindingId}' does not exist");
             if (entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected)
                 throw new DecisionLedgerRequestException($"finding '{reopening.FindingId}' is not settled");
-            if (entry.Origin == LedgerPhaseNames.CodeReview && reopening.ActivePhase != LedgerPhaseNames.CodeReview)
+            if (entry.Origin == LedgerPhaseNames.CODE_REVIEW && reopening.ActivePhase != LedgerPhaseNames.CODE_REVIEW)
                 throw new DecisionLedgerRequestException("a code-review finding cannot reopen into plan review");
         }
 
@@ -998,7 +998,7 @@ internal sealed class DecisionLedger
 
     private static void ValidateSnapshot(DecisionLedgerSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion != CurrentSchemaVersion)
+        if (snapshot.SchemaVersion != CURRENT_SCHEMA_VERSION)
             throw new DecisionLedgerStateException($"unsupported decision ledger schema version {snapshot.SchemaVersion}");
         if (snapshot.NextFindingNumber < 1)
             throw new DecisionLedgerStateException("nextFindingNumber must be positive");
@@ -1044,8 +1044,8 @@ internal sealed class DecisionLedger
                 if (entry.ActivePhase != entry.Reopening.ActivePhase)
                     throw new DecisionLedgerStateException("entry phase does not match reopening phase");
                 ValidateReopeningData(entry.Reopening);
-                if (entry.Origin == LedgerPhaseNames.CodeReview
-                    && entry.Reopening.ActivePhase != LedgerPhaseNames.CodeReview)
+                if (entry.Origin == LedgerPhaseNames.CODE_REVIEW
+                    && entry.Reopening.ActivePhase != LedgerPhaseNames.CODE_REVIEW)
                     throw new DecisionLedgerStateException("code-review origin cannot reopen into plan review");
             }
         }
@@ -1315,13 +1315,13 @@ internal sealed class DecisionLedger
     {
         ValidatePhase(origin, "origin");
         ValidatePhase(activePhase, "activePhase");
-        if (origin == LedgerPhaseNames.CodeReview && activePhase != LedgerPhaseNames.CodeReview)
+        if (origin == LedgerPhaseNames.CODE_REVIEW && activePhase != LedgerPhaseNames.CODE_REVIEW)
             throw new DecisionLedgerStateException("code-review origin cannot be active in plan review");
     }
 
     private static void ValidatePhase(string phase, string label)
     {
-        if (phase is not LedgerPhaseNames.PlanReview and not LedgerPhaseNames.CodeReview)
+        if (phase is not LedgerPhaseNames.PLAN_REVIEW and not LedgerPhaseNames.CODE_REVIEW)
             throw new DecisionLedgerRequestException($"unsupported {label} '{phase}'");
     }
 
@@ -1407,8 +1407,8 @@ internal sealed class DecisionLedger
 
     private static string PhaseName(LedgerPhase phase) => phase switch
     {
-        LedgerPhase.PlanReview => LedgerPhaseNames.PlanReview,
-        LedgerPhase.CodeReview => LedgerPhaseNames.CodeReview,
+        LedgerPhase.PlanReview => LedgerPhaseNames.PLAN_REVIEW,
+        LedgerPhase.CodeReview => LedgerPhaseNames.CODE_REVIEW,
         _ => throw new DecisionLedgerRequestException($"unsupported phase '{phase}'")
     };
 

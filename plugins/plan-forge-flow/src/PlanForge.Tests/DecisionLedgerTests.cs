@@ -55,10 +55,10 @@ public sealed class DecisionLedgerTests : IDisposable
         var plan = ledger.AddFinding(Finding("plan"), LedgerPhase.PlanReview);
         var code = ledger.AddFinding(Finding("code"), LedgerPhase.CodeReview);
 
-        Assert.Equal(LedgerPhaseNames.PlanReview, plan.Origin);
-        Assert.Equal(LedgerPhaseNames.PlanReview, plan.ActivePhase);
-        Assert.Equal(LedgerPhaseNames.CodeReview, code.Origin);
-        Assert.Equal(LedgerPhaseNames.CodeReview, code.ActivePhase);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, plan.Origin);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, plan.ActivePhase);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, code.Origin);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, code.ActivePhase);
     }
 
     [Fact]
@@ -104,12 +104,12 @@ public sealed class DecisionLedgerTests : IDisposable
                                             LedgerDecisionMaker.User, "later")], [], []));
 
         ledger.Apply(new DecisionBatchRequest("reopen-1", [],
-            [new LedgerReopeningDecision(entry.FindingId, LedgerPhaseNames.CodeReview,
+            [new LedgerReopeningDecision(entry.FindingId, LedgerPhaseNames.CODE_REVIEW,
                                           LedgerDecisionMaker.Orchestrator, "code changed", "new diff")], []));
 
         var reopened = Assert.Single(ledger.Snapshot.Entries);
-        Assert.Equal(LedgerPhaseNames.PlanReview, reopened.Origin);
-        Assert.Equal(LedgerPhaseNames.CodeReview, reopened.ActivePhase);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, reopened.Origin);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, reopened.ActivePhase);
         Assert.Equal(LedgerDisposition.Unresolved, reopened.Disposition);
         Assert.Equal("new diff", reopened.Reopening!.Evidence);
     }

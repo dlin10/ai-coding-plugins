@@ -25,11 +25,11 @@ namespace PlanForge.Diagnostics;
 internal sealed class RunLog
 {
     /// <summary>Long fields are cut rather than dropped; the head is what identifies the call.</summary>
-    private const int MaxFieldLength = 2000;
+    private const int MAX_FIELD_LENGTH = 2000;
 
-    private const string Elision = "… [truncated]";
+    private const string ELISION = "… [truncated]";
 
-    private static readonly AsyncLocal<RunLog?> Ambient = new();
+    private static readonly AsyncLocal<RunLog?> AMBIENT = new();
     private static RunLog? _last;
 
     private readonly string _path;
@@ -46,7 +46,7 @@ internal sealed class RunLog
     /// the one thing they cannot carry; without the fallback those are exactly the entries a
     /// timeout would drop.
     /// </remarks>
-    public static RunLog? Current => Ambient.Value ?? Volatile.Read(ref _last);
+    public static RunLog? Current => AMBIENT.Value ?? Volatile.Read(ref _last);
 
     /// <summary>Makes <paramref name="log"/> ambient for the current async flow, and nothing more.</summary>
     /// <remarks>
@@ -58,8 +58,8 @@ internal sealed class RunLog
     /// </remarks>
     public static IDisposable Use(RunLog log)
     {
-        var previous = Ambient.Value;
-        Ambient.Value = log;
+        var previous = AMBIENT.Value;
+        AMBIENT.Value = log;
         return new Scope(previous);
     }
 
@@ -97,15 +97,15 @@ internal sealed class RunLog
     }
 
     public static string Truncate(string value) =>
-        value.Length <= MaxFieldLength ? value : value[..MaxFieldLength] + Elision;
+        value.Length <= MAX_FIELD_LENGTH ? value : value[..MAX_FIELD_LENGTH] + ELISION;
 
     /// <summary>The tail, not the head: a process that dies says why in its last lines.</summary>
     public static string Tail(string value) =>
-        value.Length <= MaxFieldLength ? value : Elision + value[^MaxFieldLength..];
+        value.Length <= MAX_FIELD_LENGTH ? value : ELISION + value[^MAX_FIELD_LENGTH..];
 
     private sealed class Scope(RunLog? previous) : IDisposable
     {
-        public void Dispose() => Ambient.Value = previous;
+        public void Dispose() => AMBIENT.Value = previous;
     }
 }
 

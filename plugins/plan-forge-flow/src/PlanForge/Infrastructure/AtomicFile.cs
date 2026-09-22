@@ -22,14 +22,14 @@ internal static class AtomicFile
     /// clock once no two of them are the same length. Half a second is the twenty probes a
     /// twenty-five millisecond cadence used to buy, and the suite around it is timed against that.
     /// </summary>
-    private static readonly TimeSpan RetryBudget = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan RETRY_BUDGET = TimeSpan.FromMilliseconds(500);
 
     /// <summary>The wait between attempts, on average — see <see cref="NextWait"/>.</summary>
-    private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
-    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+    private static readonly TimeSpan RETRY_DELAY = TimeSpan.FromMilliseconds(25);
+    private static readonly UTF8Encoding UTF8 = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>The process-local mutation gate, keyed the way Windows names files.</summary>
-    private static readonly ConcurrentDictionary<string, object> Mutations = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, object> MUTATIONS = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads a file that <see cref="Write"/> may replace underneath. The delete share is the whole
@@ -45,7 +45,7 @@ internal static class AtomicFile
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                                               FileShare.ReadWrite | FileShare.Delete);
-            using var reader = new StreamReader(stream, Utf8);
+            using var reader = new StreamReader(stream, UTF8);
             text = reader.ReadToEnd();
         });
 
@@ -65,14 +65,14 @@ internal static class AtomicFile
         {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                                                bufferSize: 4096, FileOptions.WriteThrough))
-            using (var writer = new StreamWriter(stream, Utf8))
+            using (var writer = new StreamWriter(stream, UTF8))
             {
                 writer.Write(content);
                 writer.Flush();
                 stream.Flush(flushToDisk: true);
             }
 
-            lock (Mutations.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+            lock (MUTATIONS.GetOrAdd(Path.GetFullPath(path), _ => new object()))
                 Retry(() => Swap(temp, path));
         }
         catch
@@ -97,13 +97,13 @@ internal static class AtomicFile
     /// </remarks>
     public static void Append(string path, string content)
     {
-        lock (Mutations.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+        lock (MUTATIONS.GetOrAdd(Path.GetFullPath(path), _ => new object()))
         {
             Retry(() =>
             {
                 using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read,
                                                   bufferSize: 4096, FileOptions.WriteThrough);
-                using var writer = new StreamWriter(stream, Utf8);
+                using var writer = new StreamWriter(stream, UTF8);
                 writer.Write(content);
             });
         }
@@ -144,9 +144,8 @@ internal static class AtomicFile
                 action();
                 return;
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException
-                                          && error is not DirectoryNotFoundException
-                                          && waited.Elapsed < RetryBudget)
+            catch (Exception error) when (error is (IOException or UnauthorizedAccessException) and not DirectoryNotFoundException
+                                          && waited.Elapsed < RETRY_BUDGET)
             {
                 Thread.Sleep(NextWait());
             }
@@ -170,5 +169,5 @@ internal static class AtomicFile
     /// </para>
     /// </remarks>
     private static TimeSpan NextWait() =>
-        RetryDelay * (0.5 + Random.Shared.NextDouble());
+        RETRY_DELAY * (0.5 + Random.Shared.NextDouble());
 }

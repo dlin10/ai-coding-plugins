@@ -99,8 +99,8 @@ public sealed class DecisionLedgerPromptTests : IDisposable
         Reopen(ledger, entry, "code changed");
 
         var saved = Assert.Single(ledger.Snapshot.Entries);
-        Assert.Equal(LedgerPhaseNames.PlanReview, saved.Origin);
-        Assert.Equal(LedgerPhaseNames.CodeReview, saved.ActivePhase);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, saved.Origin);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, saved.ActivePhase);
         Assert.Equal(LedgerDisposition.Unresolved, saved.Disposition);
     }
 
@@ -372,7 +372,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
 
     private static void Reopen(DecisionLedger ledger, DecisionLedgerEntry entry, string evidence) =>
         ledger.Apply(new DecisionBatchRequest($"reopen-{entry.FindingId}", [],
-            [new LedgerReopeningDecision(entry.FindingId, LedgerPhaseNames.CodeReview,
+            [new LedgerReopeningDecision(entry.FindingId, LedgerPhaseNames.CODE_REVIEW,
                                          LedgerDecisionMaker.Orchestrator, "accept", evidence)], []));
 
     private static int Count(string text, string value) =>

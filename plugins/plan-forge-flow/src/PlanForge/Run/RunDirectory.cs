@@ -11,19 +11,19 @@ namespace PlanForge.Run;
 /// <summary>One run's state, isolated under <c>.forge/&lt;runId&gt;/</c>.</summary>
 internal sealed class RunDirectory
 {
-    private const string ForgeFolder = ".forge";
-    private const string StateFileName = "state.json";
-    private const string FlowLogFileName = "flow_log.md";
-    private const string DiagnosticLogFileName = "forge.log";
-    private const string TelemetryFileName = "telemetry.json";
-    private const string JobsFolder = "jobs";
-    private const string BaselineFileName = "baseline.patch";
-    private const string PlanFileName = "PLAN.md";
-    private const string ScoutReportFileName = "SCOUT.md";
-    private const string DecisionLedgerFileName = "decision-ledger.json";
+    private const string FORGE_FOLDER = ".forge";
+    private const string STATE_FILE_NAME = "state.json";
+    private const string FLOW_LOG_FILE_NAME = "flow_log.md";
+    private const string DIAGNOSTIC_LOG_FILE_NAME = "forge.log";
+    private const string TELEMETRY_FILE_NAME = "telemetry.json";
+    private const string JOBS_FOLDER = "jobs";
+    private const string BASELINE_FILE_NAME = "baseline.patch";
+    private const string PLAN_FILE_NAME = "PLAN.md";
+    private const string SCOUT_REPORT_FILE_NAME = "SCOUT.md";
+    private const string DECISION_LEDGER_FILE_NAME = "decision-ledger.json";
 
     // The folder ignores itself, so no managed block in info/exclude and nothing to clean up.
-    private const string SelfIgnore = "*\n";
+    private const string SELF_IGNORE = "*\n";
 
     private RunDirectory(string runId, string path)
     {
@@ -50,7 +50,7 @@ internal sealed class RunDirectory
         if (!string.Equals(jobId, System.IO.Path.GetFileName(jobId), StringComparison.Ordinal))
             throw new ArgumentRejectedException("job id must be a file name");
 
-        var jobsPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, JobsFolder));
+        var jobsPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, JOBS_FOLDER));
         var jobPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(jobsPath, jobId + ".json"));
         var prefix = jobsPath.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
         if (!jobPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -61,33 +61,33 @@ internal sealed class RunDirectory
 
     internal IEnumerable<string> EnumerateJobFiles()
     {
-        var jobsPath = System.IO.Path.Combine(Path, JobsFolder);
+        var jobsPath = System.IO.Path.Combine(Path, JOBS_FOLDER);
         return Directory.Exists(jobsPath) ? Directory.EnumerateFiles(jobsPath, "*.json") : [];
     }
 
-    public string FlowLogPath => System.IO.Path.Combine(Path, FlowLogFileName);
+    public string FlowLogPath => System.IO.Path.Combine(Path, FLOW_LOG_FILE_NAME);
 
     /// <summary>
     /// The run's operational log. Append-only and the one file under <c>.forge/</c> that agents may
     /// add to, through <c>forge.log.append</c> rather than by hand.
     /// </summary>
-    public string DiagnosticLogPath => System.IO.Path.Combine(Path, DiagnosticLogFileName);
+    public string DiagnosticLogPath => System.IO.Path.Combine(Path, DIAGNOSTIC_LOG_FILE_NAME);
 
     public RunLog Log => new(DiagnosticLogPath);
 
-    internal string TelemetryPath => System.IO.Path.Combine(Path, TelemetryFileName);
+    internal string TelemetryPath => System.IO.Path.Combine(Path, TELEMETRY_FILE_NAME);
 
     /// <summary>
     /// The run's plan as it currently stands, approved or not. Public because the path travels out
     /// with every act result: the plan is written from the first review round on, so the user can
     /// watch it change rather than meeting it once at approval.
     /// </summary>
-    public string PlanPath => System.IO.Path.Combine(Path, PlanFileName);
+    public string PlanPath => System.IO.Path.Combine(Path, PLAN_FILE_NAME);
 
     /// <summary>The complete structured answer to the most recent Scout question.</summary>
-    public string ScoutReportPath => System.IO.Path.Combine(Path, ScoutReportFileName);
+    public string ScoutReportPath => System.IO.Path.Combine(Path, SCOUT_REPORT_FILE_NAME);
 
-    internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DecisionLedgerFileName);
+    internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DECISION_LEDGER_FILE_NAME);
 
     public DecisionLedger ReadDecisionLedger() => DecisionLedger.Open(this);
 
@@ -120,7 +120,7 @@ internal sealed class RunDirectory
     {
         var runPath = Confine(runRoot, runId);
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(runPath)!);
-        AtomicFile.Write(System.IO.Path.Combine(runRoot, ForgeFolder, ".gitignore"), SelfIgnore);
+        AtomicFile.Write(System.IO.Path.Combine(runRoot, FORGE_FOLDER, ".gitignore"), SELF_IGNORE);
         Directory.CreateDirectory(runPath);
 
         var run = new RunDirectory(runId, runPath);
@@ -155,7 +155,7 @@ internal sealed class RunDirectory
     {
         if (!System.IO.Path.IsPathRooted(runRoot)) throw new WorkspaceNotRootedException(runRoot);
 
-        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(runRoot, ForgeFolder));
+        var forgeRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(runRoot, FORGE_FOLDER));
         var runPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(forgeRoot, runId));
 
         var prefix = forgeRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
@@ -167,7 +167,7 @@ internal sealed class RunDirectory
 
     public RunState ReadState()
     {
-        var json = AtomicFile.Read(System.IO.Path.Combine(Path, StateFileName));
+        var json = AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME));
         return JsonSerializer.Deserialize(json, ForgeJson.Default.RunState)
             ?? throw new RunNotFoundException(RunId);
     }
@@ -175,15 +175,15 @@ internal sealed class RunDirectory
     public void WriteState(RunState state)
     {
         var json = JsonSerializer.Serialize(state, ForgeJson.Default.RunState);
-        AtomicFile.Write(System.IO.Path.Combine(Path, StateFileName), json);
+        AtomicFile.Write(System.IO.Path.Combine(Path, STATE_FILE_NAME), json);
     }
 
     public void WriteBaseline(Baseline baseline) =>
-        AtomicFile.Write(System.IO.Path.Combine(Path, BaselineFileName), baseline.Diff);
+        AtomicFile.Write(System.IO.Path.Combine(Path, BASELINE_FILE_NAME), baseline.Diff);
 
     public Baseline ReadBaseline(string head)
     {
-        var path = System.IO.Path.Combine(Path, BaselineFileName);
+        var path = System.IO.Path.Combine(Path, BASELINE_FILE_NAME);
         return new Baseline(head, File.Exists(path) ? AtomicFile.Read(path) : string.Empty);
     }
 
@@ -479,6 +479,8 @@ internal sealed class RunDirectory
     /// </remarks>
     /// <param name="heading">What the act calls this turn, without the cut-short suffix.</param>
     /// <param name="filesWritten">What the builder had written, as git saw it after the kill.</param>
+    /// <param name="fixAttemptId"></param>
+    /// <param name="fixFindingIds"></param>
     public void AppendFlowCutShort(string heading, IReadOnlyList<string> filesWritten,
                                    string? fixAttemptId = null,
                                    IReadOnlyList<string>? fixFindingIds = null)

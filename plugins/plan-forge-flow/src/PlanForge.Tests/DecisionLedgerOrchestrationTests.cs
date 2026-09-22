@@ -99,8 +99,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("accept", entry.FindingId, evidence: "new code")), LedgerPhase.CodeReview);
         var reopened = Assert.Single(ledger.Snapshot.Entries);
-        Assert.Equal(LedgerPhaseNames.PlanReview, reopened.Origin);
-        Assert.Equal(LedgerPhaseNames.CodeReview, reopened.ActivePhase);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, reopened.Origin);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, reopened.ActivePhase);
         Assert.Equal(LedgerDisposition.Unresolved, reopened.Disposition);
     }
 
@@ -703,7 +703,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("phase"), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.PlanReview);
-        Assert.Equal(LedgerPhaseNames.PlanReview, Assert.Single(ledger.Snapshot.Entries).ActivePhase);
+        Assert.Equal(LedgerPhaseNames.PLAN_REVIEW, Assert.Single(ledger.Snapshot.Entries).ActivePhase);
     }
 
     [Fact]
@@ -713,7 +713,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var entry = ledger.AddFinding(Finding("phase"), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("accept", entry.FindingId, evidence: "changed")), LedgerPhase.CodeReview);
-        Assert.Equal(LedgerPhaseNames.CodeReview, Assert.Single(ledger.Snapshot.Entries).ActivePhase);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, Assert.Single(ledger.Snapshot.Entries).ActivePhase);
     }
 
     [Fact]
@@ -756,7 +756,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.CodeReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
             new DecisionBatchRequest("reopen", [], [new LedgerReopeningDecision(entry.FindingId,
-                LedgerPhaseNames.PlanReview, LedgerDecisionMaker.Orchestrator, "back", "evidence")], [])));
+                LedgerPhaseNames.PLAN_REVIEW, LedgerDecisionMaker.Orchestrator, "back", "evidence")], [])));
     }
 
     [Fact]
