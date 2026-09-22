@@ -188,7 +188,6 @@ public sealed class ScoutTests : IDisposable
         Assert.Contains("Which entry points exist?", session.PromptText, StringComparison.Ordinal);
         Assert.Contains(_workspace, session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("PLAN.md", session.PromptText, StringComparison.Ordinal);
-        Assert.DoesNotContain("review-log", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("SCOUT.md", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("old selection", session.PromptText, StringComparison.Ordinal);
         Assert.Contains("Question: Which entry points exist?", File.ReadAllText(run.FlowLogPath),

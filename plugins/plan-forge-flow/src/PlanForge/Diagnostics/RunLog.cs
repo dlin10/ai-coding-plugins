@@ -8,7 +8,7 @@ namespace PlanForge.Diagnostics;
 /// The run's operational log: one JSON object per line in <c>.forge/&lt;runId&gt;/forge.log</c>.
 /// </summary>
 /// <remarks>
-/// Distinct from <c>review-log.md</c> and <c>flow_log.md</c>, which record the results of acts that
+/// Distinct from <c>flow_log.md</c>, which records the results of acts that
 /// succeeded. This one records what happened, especially when nothing succeeded — a failed act used
 /// to leave the run folder holding <c>state.json</c> and nothing else.
 /// <para>

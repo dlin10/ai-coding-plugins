@@ -4,13 +4,63 @@ using System.Text.Json.Serialization;
 
 namespace PlanForge.Vendors;
 
-/// <summary>
-/// What a Critic must return. Replaces the VERDICT:/COVERAGE:/ROSLYN: marker parsers, the
-/// "exactly one VERDICT line and it is last" checks, and the critique sidecar files.
-/// </summary>
-internal sealed record Critique(string Verdict, IReadOnlyList<Finding> Findings, string Summary);
+/// <summary>The identified critique exposed by the MCP tools and written to the Flow log.</summary>
+internal sealed record Critique(string Verdict,
+                                IReadOnlyList<Finding> Findings,
+                                string Summary,
+                                IReadOnlyList<UnresolvedAssessment>? UnresolvedAssessments = null,
+                                IReadOnlyList<ReopeningProposal>? Reopenings = null);
 
-internal sealed record Finding(string Severity, string Where, string What);
+internal sealed record Finding(string Severity,
+                               string Where,
+                               string What,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               string? FindingId = null);
+
+/// <summary>
+/// The Vendor-only wire answer. Findings do not carry IDs: the Run-local ledger allocates those
+/// after the complete answer passes semantic coverage validation.
+/// </summary>
+internal sealed class VendorCritique : IJsonOnDeserialized
+{
+    [JsonRequired]
+    public required string Verdict { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<VendorFinding> Findings { get; init; } = null!;
+
+    [JsonRequired]
+    public required string Summary { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<UnresolvedAssessment> UnresolvedAssessments { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ReopeningProposal> Reopenings { get; init; } = null!;
+
+    public void OnDeserialized()
+    {
+        if (Verdict is null || Summary is null)
+            throw new JsonException("Critiques require verdict and summary.");
+        if (Findings is null || Findings.Any(finding => finding is null))
+            throw new JsonException("Critiques require a non-null findings array.");
+        if (UnresolvedAssessments is null || UnresolvedAssessments.Any(assessment => assessment is null))
+            throw new JsonException("Critiques require a non-null unresolvedAssessments array.");
+        if (Reopenings is null || Reopenings.Any(reopening => reopening is null))
+            throw new JsonException("Critiques require a non-null reopenings array.");
+    }
+}
+
+internal sealed record VendorFinding([property: JsonRequired] string Severity,
+                                     [property: JsonRequired] string Where,
+                                     [property: JsonRequired] string What);
+
+internal sealed record UnresolvedAssessment([property: JsonRequired] string FindingId,
+                                            [property: JsonRequired] bool StillPresent,
+                                            [property: JsonRequired] string Evidence);
+
+internal sealed record ReopeningProposal([property: JsonRequired] string FindingId,
+                                         [property: JsonRequired] string Evidence);
 
 /// <summary>
 /// One sourced piece of evidence in a Scout report. The Vendor schema deliberately has no size
@@ -178,7 +228,12 @@ internal sealed record GateRun(string Outcome,
                                string? Detail);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(VendorCritique))]
+[JsonSerializable(typeof(VendorFinding))]
+[JsonSerializable(typeof(UnresolvedAssessment))]
+[JsonSerializable(typeof(ReopeningProposal))]
 [JsonSerializable(typeof(Critique))]
+[JsonSerializable(typeof(Finding))]
 [JsonSerializable(typeof(BuildResult))]
 [JsonSerializable(typeof(ScoutReport))]
 [JsonSerializable(typeof(ScoutItem))]
@@ -186,9 +241,17 @@ internal sealed record GateRun(string Outcome,
 [JsonSerializable(typeof(ScoutFailure))]
 internal sealed partial class ContractJson : JsonSerializerContext;
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(VendorCritique))]
+[JsonSerializable(typeof(VendorFinding))]
+[JsonSerializable(typeof(UnresolvedAssessment))]
+[JsonSerializable(typeof(ReopeningProposal))]
+internal sealed partial class CritiqueJson : JsonSerializerContext;
+
 internal static class Schemas
 {
-    public static VendorSchema<Critique> Critique { get; } = new(
+    public static VendorSchema<VendorCritique> Critique { get; } = new(
         """
         {
           "type": "object",
@@ -207,13 +270,38 @@ internal static class Schemas
                 "additionalProperties": false
               }
             },
-            "summary": { "type": "string" }
+            "summary": { "type": "string" },
+            "unresolvedAssessments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "findingId": { "type": "string", "pattern": "^F-[0-9]{4}$" },
+                  "stillPresent": { "type": "boolean" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                },
+                "required": ["findingId", "stillPresent", "evidence"],
+                "additionalProperties": false
+              }
+            },
+            "reopenings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "findingId": { "type": "string", "pattern": "^F-[0-9]{4}$" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                },
+                "required": ["findingId", "evidence"],
+                "additionalProperties": false
+              }
+            }
           },
-          "required": ["verdict", "findings", "summary"],
+          "required": ["verdict", "findings", "summary", "unresolvedAssessments", "reopenings"],
           "additionalProperties": false
         }
         """,
-        ContractJson.Default.Critique);
+        CritiqueJson.Default.VendorCritique);
 
     public static VendorSchema<BuildResult> BuildResult { get; } = new(
         """

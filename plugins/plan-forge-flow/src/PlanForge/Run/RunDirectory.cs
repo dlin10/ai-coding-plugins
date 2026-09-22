@@ -13,7 +13,6 @@ internal sealed class RunDirectory
 {
     private const string ForgeFolder = ".forge";
     private const string StateFileName = "state.json";
-    private const string ReviewLogFileName = "review-log.md";
     private const string FlowLogFileName = "flow_log.md";
     private const string DiagnosticLogFileName = "forge.log";
     private const string TelemetryFileName = "telemetry.json";
@@ -21,6 +20,7 @@ internal sealed class RunDirectory
     private const string BaselineFileName = "baseline.patch";
     private const string PlanFileName = "PLAN.md";
     private const string ScoutReportFileName = "SCOUT.md";
+    private const string DecisionLedgerFileName = "decision-ledger.json";
 
     // The folder ignores itself, so no managed block in info/exclude and nothing to clean up.
     private const string SelfIgnore = "*\n";
@@ -65,8 +65,6 @@ internal sealed class RunDirectory
         return Directory.Exists(jobsPath) ? Directory.EnumerateFiles(jobsPath, "*.json") : [];
     }
 
-    public string ReviewLogPath => System.IO.Path.Combine(Path, ReviewLogFileName);
-
     public string FlowLogPath => System.IO.Path.Combine(Path, FlowLogFileName);
 
     /// <summary>
@@ -88,6 +86,10 @@ internal sealed class RunDirectory
 
     /// <summary>The complete structured answer to the most recent Scout question.</summary>
     public string ScoutReportPath => System.IO.Path.Combine(Path, ScoutReportFileName);
+
+    internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DecisionLedgerFileName);
+
+    public DecisionLedger ReadDecisionLedger() => DecisionLedger.Open(this);
 
     /// <summary>
     /// Starts a run in the directory the host calls its own, falling back to
@@ -121,7 +123,9 @@ internal sealed class RunDirectory
         AtomicFile.Write(System.IO.Path.Combine(runRoot, ForgeFolder, ".gitignore"), SelfIgnore);
         Directory.CreateDirectory(runPath);
 
-        return new RunDirectory(runId, runPath);
+        var run = new RunDirectory(runId, runPath);
+        DecisionLedger.Create(run.DecisionLedgerPath);
+        return run;
     }
 
     public static RunDirectory Open(string runRoot, string runId)
@@ -196,74 +200,90 @@ internal sealed class RunDirectory
     public void WriteScoutReport(string report) => AtomicFile.Write(ScoutReportPath, report);
 
     /// <summary>
-    /// The log the next round's critic reads. A fresh critic without it oscillates; with it, it
-    /// converges without inheriting the previous round's anchoring.
-    /// </summary>
-    public string ReadReviewLog() =>
-        File.Exists(ReviewLogPath) ? AtomicFile.Read(ReviewLogPath) : string.Empty;
-
-    public void AppendReviewRound(int round, Critique critique) =>
-        AtomicFile.Append(ReviewLogPath, CritiqueEntry($"## Round {round}", critique));
-
-    /// <summary>
-    /// Records what the orchestrator did with a round's findings: what went to the builder, and
-    /// what was deferred and why. The deferral is the part that matters — the next round's critic
-    /// reads it as a decision rather than an omission, which is what stops it re-raising the same
-    /// out-of-scope finding as a blocker every round.
-    /// </summary>
-    /// <param name="round">The review round these fixes answer.</param>
-    /// <param name="findings">What the orchestrator sent to the builder.</param>
-    /// <param name="deferred">What it withheld, with reasons.</param>
-    /// <param name="cutShort">
-    /// Whether the host took the call away before the builder answered. The deferrals survive that
-    /// untouched — they are the orchestrator's decision, not the builder's — but the fixes have to
-    /// carry the warning, because an entry that reads like a closed round is exactly what would
-    /// stop the next critic looking.
-    /// </param>
-    public void AppendReviewFix(int round, string findings, string? deferred, bool cutShort = false)
-    {
-        var entry = new StringBuilder().Append("## Round ").Append(round).Append(" fixes")
-                                       .AppendLine(cutShort ? " — cut short" : string.Empty)
-                                       .AppendLine();
-
-        if (cutShort)
-            entry.AppendLine("The host killed the builder before it answered, so these findings may be wholly or "
-                             + "partly unaddressed. Judge them against the tree, not against this entry.")
-                 .AppendLine();
-
-        entry.AppendLine(findings.TrimEnd());
-
-        if (deferred is { Length: > 0 })
-            entry.AppendLine()
-                 .AppendLine("### Deferred by the orchestrator")
-                 .AppendLine()
-                 .AppendLine(deferred.TrimEnd());
-
-        entry.AppendLine();
-        AtomicFile.Append(ReviewLogPath, entry.ToString());
-    }
-
-    /// <summary>
-    /// What the orchestrator refused to change after a plan-review round, and why. Only the
-    /// refusals travel to the next round's critic: the revisions themselves are already in the
-    /// draft it is handed, while a deferral is invisible there and comes back as the same finding
-    /// every round unless it is recorded as a decision.
-    /// </summary>
-    public void AppendReviewDeferral(int round, string deferred) =>
-        AtomicFile.Append(ReviewLogPath,
-            new StringBuilder().Append("## Round ").Append(round).AppendLine(" — deferred by the orchestrator")
-                               .AppendLine()
-                               .AppendLine(deferred.TrimEnd())
-                               .AppendLine()
-                               .ToString());
-
-    /// <summary>
     /// The user-facing timeline of the delegated acts, one file for the orchestrator to surface in
-    /// whatever panel the host has. Unlike the review log it is never fed back to a worker, which
+    /// whatever panel the host has. It is never fed back to a worker, which
     /// is why builder entries can live here without shifting what the next round's critic judges.
     /// </summary>
     public void AppendFlowCritique(string act, int round, Critique critique) =>
         AtomicFile.Append(FlowLogPath, CritiqueEntry($"## {act} — round {round}", critique));
+
+    public void AppendFlowCritiqueRejected(string act, int round, VendorCritique? critique, string error)
+    {
+        var entry = new StringBuilder().Append("## ").Append(act).Append(" — round ").Append(round)
+                                       .AppendLine(" rejected")
+                                       .AppendLine()
+                                       .Append("Error: ").AppendLine(error)
+                                       .AppendLine();
+
+        if (critique is not null)
+        {
+            entry.AppendLine("Rejected critique:")
+                 .Append("Verdict: ").AppendLine(critique.Verdict)
+                 .Append("Summary: ").AppendLine(critique.Summary)
+                 .Append("Finding count: ").AppendLine((critique.Findings?.Count ?? 0).ToString())
+                 .Append("Assessment IDs: ").AppendLine(string.Join(", ",
+                     critique.UnresolvedAssessments?.Where(assessment => assessment is not null)
+                         .Select(assessment => assessment.FindingId) ?? []))
+                 .Append("Reopening IDs: ").AppendLine(string.Join(", ",
+                     critique.Reopenings?.Where(reopening => reopening is not null)
+                         .Select(reopening => reopening.FindingId) ?? []))
+                 .AppendLine();
+
+            if (critique.Findings is not null)
+                foreach (var finding in critique.Findings)
+                    if (finding is not null)
+                        entry.Append("- ").Append(finding.Severity).Append(" ")
+                             .Append(finding.Where).Append(" — ").AppendLine(finding.What);
+
+            if (critique.UnresolvedAssessments is not null)
+                foreach (var assessment in critique.UnresolvedAssessments)
+                    if (assessment is not null)
+                        entry.Append("assessment ").Append(assessment.FindingId).Append(" (")
+                             .Append(assessment.StillPresent ? "still present" : "not present")
+                             .Append("): ").AppendLine(assessment.Evidence);
+
+            if (critique.Reopenings is not null)
+                foreach (var reopening in critique.Reopenings)
+                    if (reopening is not null)
+                        entry.Append("reopening ").Append(reopening.FindingId).Append(": ")
+                             .AppendLine(reopening.Evidence);
+        }
+
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
+    public void AppendFlowDecisionBatch(string act, DecisionBatchResponse response)
+    {
+        if (response.Outcome == "no_op") return;
+
+        var result = response.Result;
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).Append(" — decisions ")
+                               .AppendLine(response.Outcome)
+                               .AppendLine()
+                               .Append("decisionBatchId: ").AppendLine(result.DecisionBatchId)
+                               .Append("decisions: ").AppendLine(string.Join(", ", result.DecisionFindingIds))
+                               .Append("reopenings: ").AppendLine(string.Join(", ", result.ReopenedFindingIds))
+                               .Append("closures: ").AppendLine(string.Join(", ", result.ClosedFindingIds))
+                               .Append("canonical: ").AppendLine(response.ExistingBatch is { } existing
+                                   ? Encoding.UTF8.GetString(existing.CanonicalBytes)
+                                   : response.CanonicalBytes is { } bytes
+                                       ? Encoding.UTF8.GetString(bytes)
+                                       : "(not persisted)")
+                               .AppendLine()
+                               .ToString());
+    }
+
+    public void AppendFlowDecisionRejected(string act, string decisionBatchId, string error)
+    {
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).AppendLine(" — decisions rejected")
+                               .AppendLine()
+                               .Append("decisionBatchId: ").AppendLine(decisionBatchId)
+                               .Append("Error: ").AppendLine(error)
+                               .AppendLine()
+                               .ToString());
+    }
 
     /// <summary>
     /// The orchestrator's own turn in the plan-review loop, which the timeline used to skip: the
@@ -435,6 +455,18 @@ internal sealed class RunDirectory
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
+    public void AppendFlowFixAttemptNoOp(string fixAttemptId, IReadOnlyList<string> findingIds, BuildResult result)
+    {
+        var entry = new StringBuilder().AppendLine("## Fix attempt — no-op")
+                                       .AppendLine()
+                                       .Append("fixAttemptId: ").AppendLine(fixAttemptId)
+                                       .Append("fixFindingIds: ").AppendLine(string.Join(", ", findingIds))
+                                       .AppendLine("The saved terminal result was returned without starting the Builder or running a gate.")
+                                       .AppendLine();
+        AppendBuildResult(entry, result);
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
     /// <summary>
     /// A turn the host took away before the builder answered. There is no status, no verification
     /// and no gate to record — the builder never reported — so the files on disk are the entry,
@@ -447,7 +479,9 @@ internal sealed class RunDirectory
     /// </remarks>
     /// <param name="heading">What the act calls this turn, without the cut-short suffix.</param>
     /// <param name="filesWritten">What the builder had written, as git saw it after the kill.</param>
-    public void AppendFlowCutShort(string heading, IReadOnlyList<string> filesWritten)
+    public void AppendFlowCutShort(string heading, IReadOnlyList<string> filesWritten,
+                                   string? fixAttemptId = null,
+                                   IReadOnlyList<string>? fixFindingIds = null)
     {
         var entry = new StringBuilder().Append("## ").Append(heading).AppendLine(": cut short")
                                        .AppendLine()
@@ -467,6 +501,10 @@ internal sealed class RunDirectory
             foreach (var file in filesWritten) entry.Append("- `").Append(file).AppendLine("`");
         }
 
+        if (fixAttemptId is { Length: > 0 })
+            entry.AppendLine().Append("fixAttemptId: ").AppendLine(fixAttemptId)
+                 .Append("fixFindingIds: ").AppendLine(string.Join(", ", fixFindingIds ?? []));
+
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
 
@@ -481,8 +519,27 @@ internal sealed class RunDirectory
 
         foreach (var finding in critique.Findings)
         {
-            entry.Append("- **").Append(finding.Severity).Append("** ")
+            entry.Append("- ");
+            if (finding.FindingId is { Length: > 0 }) entry.Append(finding.FindingId).Append(" ");
+            entry.Append("**").Append(finding.Severity).Append("** ")
                  .Append(finding.Where).Append(" — ").AppendLine(finding.What);
+        }
+
+        if (critique.UnresolvedAssessments is { Count: > 0 })
+        {
+            entry.AppendLine().AppendLine("### Unresolved assessments");
+            foreach (var assessment in critique.UnresolvedAssessments)
+                entry.Append("- ").Append(assessment.FindingId).Append(": ")
+                     .Append(assessment.StillPresent ? "still present" : "not present")
+                     .Append(" — ").AppendLine(assessment.Evidence);
+        }
+
+        if (critique.Reopenings is { Count: > 0 })
+        {
+            entry.AppendLine().AppendLine("### Reopening proposals");
+            foreach (var reopening in critique.Reopenings)
+                entry.Append("- ").Append(reopening.FindingId).Append(" — ")
+                     .AppendLine(reopening.Evidence);
         }
 
         entry.AppendLine();

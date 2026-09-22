@@ -28,8 +28,8 @@ internal static class AtomicFile
     private static readonly TimeSpan RetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
-    /// <summary>The per-file gate <see cref="Append"/> queues on, keyed the way Windows names files.</summary>
-    private static readonly ConcurrentDictionary<string, object> Appenders = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The process-local mutation gate, keyed the way Windows names files.</summary>
+    private static readonly ConcurrentDictionary<string, object> Mutations = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads a file that <see cref="Write"/> may replace underneath. The delete share is the whole
@@ -72,7 +72,8 @@ internal static class AtomicFile
                 stream.Flush(flushToDisk: true);
             }
 
-            Retry(() => Swap(temp, path));
+            lock (Mutations.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+                Retry(() => Swap(temp, path));
         }
         catch
         {
@@ -83,21 +84,20 @@ internal static class AtomicFile
 
     /// <summary>
     /// Appends under an exclusive handle. Two processes appending at once would otherwise be free
-    /// to interleave inside one entry, and the review log is read back as a critic's input.
+    /// to interleave inside one entry, and the flow log is written as the user-facing audit trail.
     /// </summary>
     /// <remarks>
-    /// One appender at a time per file within this process, because the exclusive handle is granted
-    /// without a queue: a loser is told the file is busy and has to come back, so where several
-    /// threads append to one file the same thread can lose every attempt it is given while the
-    /// others make progress. That is not hypothetical — a run's <c>forge.log</c> is written by every
-    /// flow that finds it through <c>RunLog.Current</c>, and an append that gives up there is an
-    /// entry lost in silence, since a failed write may not take the tool call down with it. Ordering
-    /// them here leaves <see cref="Retry"/> only the contention it cannot order: the other server
-    /// process, which is a second writer rather than every thread of this one.
+    /// One mutation at a time per file within this process, because neither the append handle nor
+    /// the replacing swap is granted with a fair queue: a loser is told the file is busy and has to
+    /// come back, so one thread can lose every attempt while the others make progress. That is not
+    /// hypothetical — a run's <c>forge.log</c> is written by every flow that finds it through
+    /// <c>RunLog.Current</c>, and an append that gives up there is an entry lost in silence, since a
+    /// failed write may not take the tool call down with it. Ordering mutations here leaves
+    /// <see cref="Retry"/> only the contention it cannot order: another server process.
     /// </remarks>
     public static void Append(string path, string content)
     {
-        lock (Appenders.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+        lock (Mutations.GetOrAdd(Path.GetFullPath(path), _ => new object()))
         {
             Retry(() =>
             {

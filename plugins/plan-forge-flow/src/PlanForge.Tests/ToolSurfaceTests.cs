@@ -137,7 +137,7 @@ public sealed class ToolSurfaceTests
 
         var schema = tool.ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots"],
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots", "decisions"],
                      properties.EnumerateObject().Select(property => property.Name));
         Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));

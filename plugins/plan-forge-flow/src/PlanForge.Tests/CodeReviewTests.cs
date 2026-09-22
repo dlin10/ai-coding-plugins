@@ -132,9 +132,8 @@ public sealed class CodeReviewTests : IDisposable
 
         await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
-        // Plan review used rounds 1-5, so the first code-review round is 6: the log the next critic
-        // reads never carries two rounds under the same number.
-        Assert.Contains("## Round 6", run.ReadReviewLog());
+        // Flow keeps the phase-local round label; ledger IDs carry identity across both phases.
+        Assert.Contains("## Code review — round 1", File.ReadAllText(run.FlowLogPath));
     }
 
     [Fact]
@@ -372,9 +371,7 @@ public sealed class CodeReviewTests : IDisposable
 
         await NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct);
 
-        // The review log numbers rounds in one sequence across both loops; the flow log is
-        // act-labelled, so its code-review rounds start at 1.
-        Assert.Contains("## Round 4", run.ReadReviewLog(), StringComparison.Ordinal);
+        // Flow is act-labelled; its code-review rounds start at 1 while the ledger owns finding IDs.
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Code review — round 1", flow, StringComparison.Ordinal);
         Assert.Contains("sloppy change", flow, StringComparison.Ordinal);

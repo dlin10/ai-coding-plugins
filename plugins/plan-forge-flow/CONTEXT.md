@@ -12,16 +12,23 @@ these terms replace it.
 | **Self-plugin exclusion** | A Worker cannot reach Plan Forge Flow itself, so it cannot enter another Run. Every other capability inherited from the host remains available. Codex disables the plugin by config, Claude by one-process settings, and Cursor marks the child environment so the self MCP launcher exits before starting. The explicitly invoked `forge` skill is manual-only and absent from automatic model context. |
 | **Job** | One delegated act running in the background, keyed by `jobId` and started, watched, optionally cancelled and collected through `forge.work.start` / `poll` / `cancel` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
 | **Worker liveness** | The most recent sign that a Job's Worker is still progressing: the time of its last output line and a bounded description of its last recognised Vendor event; silence is absence of output, not elapsed runtime. |
-| **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the review log as input. |
+| **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the Canonical decision ledger's bounded Worker-input projection. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings. Never revises the plan. Persistent session. Cheap model. |
 | **Builder Brief** | The approved plan's stable, session-scoped implementation context: the exact non-whitespace Markdown prefix before `## Approach`, including the Builder selection, requirements, exclusions, run-wide gates, and any other preamble sections, while excluding every numbered task. Everything in that prefix is Vendor-bound context, not a place for transient interview notes or host values. On a fresh session the act prompt labels a non-empty prefix `# Builder Brief` before that turn's task or kept findings; resumed turns rely on the copy already in session history, and the user's Builder instructions remain the final directly addressed block. Reconfirming a changed Brief invalidates the prior Builder session so it cannot retain stale context, while a change confined to numbered tasks preserves that session because each task is delivered as a turn-specific delta. The Brief is evidence and constraints for implementation, never authority to revise the plan. |
 | **Scout** | The read-only Worker role that answers one bounded reconnaissance question with sourced evidence. It never settles requirements, plans, judges, or edits; the Orchestrator decides what evidence belongs in the requirements and plan. Its lazily selected Vendor, model, and effort are retained for the Run, and later calls resume its persistent session when the Vendor supports it. Scout may always use internet access its Vendor or granted read-only Worker tools already provide; no separate per-call authorization exists. |
 | **Scout report** | The full structured answer to the most recent Scout question, atomically replacing the Run's previous Scout report. Repository facts cite a path plus line or symbol, and external facts cite a URL. The tool result carries only a bounded digest and document metadata; earlier repository orientation remains in the persistent Scout session and the calls remain observable in the Run log rather than accumulating in this document. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
 | **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. |
-| **Flow log** | The user-facing timeline of a run, `flow_log.md`: every Scout outcome, critique, build result and fix round, plus the orchestrator's revision between plan-review rounds, appended by the server and never fed back to a worker. Distinct from the review log, which is critic input. |
+| **Flow log** | The complete user-facing timeline of a run, `flow_log.md`: every Scout outcome, identified Critic finding, Builder result, fix round, Orchestrator revision, disposition decision, reopening proposal and closure. It is appended by the server and never fed back to a Worker; the Canonical decision ledger is the Critic's bounded input. |
+| **Canonical decision ledger** | The Run-local source of truth for findings that still matter to a future Critic. Each entry preserves an immutable `origin` (`plan_review` or `code_review`) and has a mutable `activePhase`, so a plan-origin decision accepted for reopening during code review keeps its identity while moving into the code projection. Plan review receives active plan entries; code review receives settled plan decisions and active code entries. Closed entries leave the ledger, while the Flow log remains the complete user-facing audit. |
+| **Decision ledger file** | The Run's `decision-ledger.json`: an indented, versioned JSON snapshot containing the next monotonic finding number, current entries in ID order, applied decision batches, and fix-attempt records. Every replacement goes through `AtomicFile`; malformed content, an unsupported schema version, a violated invariant, or exhausted write retries fail the tool call rather than recreating empty state or continuing a Worker without its decisions. Unlike Telemetry, this state is not best effort. |
+| **Finding identity** | A monotonic Run-local identifier assigned when a Critic first raises a finding, from one sequence spanning plan review and code review. Later dispositions and any reopening reference that identifier. Closing a finding never releases its number, and a defect that reappears after closure is a new finding with a new identity. |
+| **Disposition** | The current state of an entry in the Canonical decision ledger: `unresolved` when newly raised, `deferred` when accepted as valid but deliberately left undone in this Run, or `rejected` when judged incorrect or inapplicable. Only the Orchestrator authorizes a disposition change; the server validates and persists that transition, while a Critic or Builder never changes it. Deferred and rejected entries preserve the original finding verbatim, the asserted decision-maker (`user` or `orchestrator`), and the reason. `Addressed` is a Flow-log closure event, not a persisted disposition: a successful plan revision or code fix removes the entry under the Orchestrator's prior instruction. |
+| **Finding reopening** | A Critic's proposal to return to a displayed deferred or rejected finding by identity because current material or evidence changed the decision. The Critic cannot change state. Declining records the audit and leaves the ledger untouched. Accepting makes the same entry unresolved; during code review, a plan-origin entry keeps `origin=plan_review` and changes `activePhase` to `code_review`. A defect that reappears after closure is a new finding instead. A rejected disposition otherwise remains effective through the end of the Run. |
+| **Decision batch** | One non-empty logical set of Orchestrator disposition, closure and reopening decisions, named by `decisionBatchId`. Its validated decision DTOs are canonically serialized in finding-ID order. Repeating the same key and exact bytes is a no-op with the saved result; reusing the key for different bytes is a conflict that returns the saved batch/result. A new key is only for a new legal delta. |
+| **Fix attempt** | One logical Builder execution named by `fixAttemptId` and bound to one exact sorted non-empty `fixFindingIds` set outside the decision payload. Retained or cut-short work retries the same attempt and set; another set under the key is invalid. A terminal successful attempt returns its saved result without another Builder or gate. |
 | **Plan file** | The run's plan as it currently stands, `PLAN.md`: written by `forge.plan.write` before each round, rewritten by a round handed a draft of its own, and again by `forge.plan.confirm` with the text the user approved. Not evidence of approval — that is `approved` in the run state, and a write or a round after it takes the flag back. |
-| **Revision** | The orchestrator's answer to a plan-review round: what it changed in the draft, and optionally what it deferred and why. The change goes to the flow log alone; the deferral also goes to the review log, where the next round's critic reads it as settled. |
+| **Revision** | The Orchestrator's answer to a plan-review round: what changed in the draft plus any typed identity-keyed decisions now justified. Review calls may carry a partial decision subset; final approved confirmation enforces that no unresolved active plan entries remain. Narrative goes only to the Flow log. |
 | **Granted round** | The user's answer to a reached cap: `userGrantedRound` on the next round call raises that cap by exactly one and runs the round past it. Spent by the call that carries it, so the round after needs a fresh answer, and counted in the run state beside the cap it moved — `grantedReviewRounds` next to `reviewRoundCap`, `grantedCodeReviewRounds` next to `codeReviewRoundCap`. |
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Worker usage** | Per-attempt Worker telemetry whose normalized token breakdown is limited to non-overlapping input, cache read and cache creation plus output and its optional reasoning subset; provider totals, prices, durations, context windows and per-model breakdowns remain outside it. |
@@ -77,18 +84,22 @@ because a turn by the host LLM is mandatory between rounds. For plan review the 
 the draft; for code review it filters the critique against the approved plan before the builder sees
 it, because only it knows what the plan deliberately left out. The code-review loop used to be
 sealed inside one call on the belief that the orchestrator was not needed there; running the flow on
-this repository disproved it — see `docs/adr/0005`. A finding the orchestrator defers is recorded in
-the review log with its reason, so the next round's fresh critic reads it as settled.
+this repository disproved it — see `docs/adr/0005`. A finding the orchestrator defers or rejects is
+recorded in the Canonical decision ledger with its reason, so the next round's fresh critic reads it
+as settled.
 
-## The critic is fresh each round, but reads the review log
+## The critic is fresh each round, but reads the canonical decision ledger
 
 A persistent critic defends its own earlier assessment and normalises what it has already read,
 degrading the exact capability it was hired for. A naively fresh critic oscillates: round 3 reopens
 what round 1 accepted. But that oscillation comes from missing **information**, not missing memory —
-so the fresh process receives the review log as input data ("here is what was raised, here is how it
-was closed") and converges without inheriting the anchoring. Judging someone else's prior findings
-and defending your own are different acts. The cost is nil: the plan is a few kilobytes and the
-system prompt is identical, so caching applies.
+so the fresh process receives one phase projection of the Canonical decision ledger. Plan review
+gets entries currently active in `plan_review`. Code review gets settled plan decisions plus entries
+active in `code_review`, including accepted cross-phase reopenings. Closed entries, plan findings
+still unresolved in their original phase, and the repeated history of critiques, revisions and fixes
+remain outside that projection. A Critic assesses each displayed unresolved ID once and may propose
+reopening a displayed settled ID with evidence, but only the Orchestrator changes state. Prompt
+growth follows current phase-relevant findings, not the number of rounds.
 
 Interface consequence: `CanResume` is needed only by the Builder; the Critic is always stateless.
 
@@ -579,8 +590,8 @@ is what would mangle a gate naming a non-ASCII path or test. See `docs/adr/0015`
 
 ## A failed act used to leave no trace, so the run log is the server's own record
 
-Both older run files record the **results of acts that succeeded** — `review-log.md` the critiques,
-`flow_log.md` the timeline — so an act that threw wrote nothing at all. The run behind #19 left a
+The Flow log and Canonical decision ledger record the **results of acts that reached their commit
+point**, so an act that threw before it could commit may write neither. The run behind #19 left a
 folder holding `state.json` and no record of whether `cursor-agent` was spawned, with what
 arguments, or how it died. Vendor sessions did emit `Started`/`Finished`/`Failed`, but only into an
 unbounded channel that production never reads.
@@ -771,7 +782,7 @@ worker returns, which is right for a worker that fails — the act is retried wi
 and records once — but wrong for a worker the host takes away. Round 5 of run
 `20260917-111319-20e672` lost an hour that way: the builder had finished its edits, rewritten the
 baseline and run the plan's gates green, and `forge.review.fix` left behind no timeline entry, no
-review-log entry, no state, and no gate of the server's own. Only the edits survived, because they
+decision-memory update, no state, and no gate of the server's own. Only the edits survived, because they
 were already on disk. The orchestrator read the tree by hand and wrote the round up through
 `forge.log.append`.
 
@@ -781,9 +792,9 @@ cancelled turn now leaves as a `TurnCutShortException` carrying the files git sa
 wrote, and `forge.review.fix` and `forge.build.next` record the turn on its way out:
 
 - the flow log gets a `cut short` entry naming those files, so the timeline stops skipping the hour;
-- the review log gets the round's fixes under a `— cut short` heading that tells the next critic to
-  judge the findings against the tree rather than against the entry, while the deferrals travel
-  unmarked because they are the orchestrator's decision and the kill does not touch them;
+- findings sent to the Builder remain unresolved in the Canonical decision ledger, while deferred
+  and rejected dispositions remain settled because they are the Orchestrator's decisions and the
+  kill does not touch them;
 - `state.json` keeps the builder's resume token — the vendor reports the session id on its first
   stream line, long before the answer that never came — so the retry continues the conversation
   instead of starting cold;

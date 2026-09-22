@@ -223,8 +223,12 @@ public sealed class InstructionsTests : IDisposable
         RunInstructions.Set(run, null, "use the ponytail-net skill");
 
         var act = new ReviewFix(vendor, Prompts());
-        await act.FixAsync(run, NewSelection(), "R1 is unverified", null, CancellationToken.None);
-        await act.FixAsync(run, NewSelection(), "R2 is unverified", null, CancellationToken.None);
+        var first = run.ReadDecisionLedger().AddFinding(
+            new Finding("major", "R1", "is unverified"), LedgerPhase.CodeReview);
+        await act.FixAsync(run, NewSelection(), null, "fix-1", [first.FindingId], CancellationToken.None);
+        var second = run.ReadDecisionLedger().AddFinding(
+            new Finding("major", "R2", "is unverified"), LedgerPhase.CodeReview);
+        await act.FixAsync(run, NewSelection(), null, "fix-2", [second.FindingId], CancellationToken.None);
 
         Assert.Contains("use the ponytail-net skill", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
         Assert.Equal("fix-token", vendor.Sessions[1].StartedWithResumeToken);

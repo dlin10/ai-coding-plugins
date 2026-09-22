@@ -166,9 +166,9 @@ public sealed class PlanReviewTests : IDisposable
 
         Assert.Equal(2, run.ReadState().ReviewRounds);
 
-        var log = File.ReadAllText(run.ReviewLogPath);
-        Assert.Contains("## Round 1", log, StringComparison.Ordinal);
-        Assert.Contains("## Round 2", log, StringComparison.Ordinal);
+        var log = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan review — round 1", log, StringComparison.Ordinal);
+        Assert.Contains("## Plan review — round 2", log, StringComparison.Ordinal);
 
         Assert.True(second.Verdict is "approve" || second.Findings.Count < first.Findings.Count,
             $"hardened plan fared no better: verdict={second.Verdict}, " +
@@ -236,10 +236,10 @@ public sealed class PlanReviewTests : IDisposable
                          "rewrote the verification of step 2",
                          "- rollback rehearsal — the user ruled it out of scope", false, CancellationToken.None);
 
-        var reviewLog = run.ReadReviewLog();
-        Assert.Contains("## Round 1 — deferred by the orchestrator", reviewLog, StringComparison.Ordinal);
-        Assert.Contains("rollback rehearsal", reviewLog, StringComparison.Ordinal);
-        Assert.DoesNotContain("rewrote the verification", reviewLog, StringComparison.Ordinal);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan revision after round 1", flow, StringComparison.Ordinal);
+        Assert.Contains("rollback rehearsal", flow, StringComparison.Ordinal);
+        Assert.Contains("rewrote the verification", flow, StringComparison.Ordinal);
     }
 
     [Fact]
