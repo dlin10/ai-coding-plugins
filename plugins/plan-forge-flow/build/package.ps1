@@ -222,7 +222,7 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($parameter in @('act', 'model', 'question', 'sessionMode', 'planDraft', 'userGrantedRound')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('model', 'effort', 'vendor', 'planDraft', 'findings', 'deferred', 'userGrantedRound', 'question', 'sessionMode')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'planDraft', 'findings', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'userGrantedRound', 'question', 'sessionMode')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
         }
         if ($workStart.inputSchema.properties.act.description -notmatch '(?i)plan\.review.*build\.next.*review\.code.*review\.fix.*scout') {
@@ -243,7 +243,7 @@ function Test-PublishedServer([string]$Executable) {
         # the resolver chain lost it and the server refused to start describing them.
         $confirm = $tools | Where-Object { $_.name -eq 'forge.plan.confirm' } | Select-Object -First 1
         $confirmProperties = @($confirm.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('plan', 'approved', 'gateEnvironment', 'builderRoots')) {
+        foreach ($parameter in @('plan', 'approved', 'decisions', 'gateEnvironment', 'builderRoots')) {
             if ($confirmProperties -notcontains $parameter) { throw "forge.plan.confirm schema is missing $parameter" }
         }
         if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots') {
@@ -255,6 +255,11 @@ function Test-PublishedServer([string]$Executable) {
         if (($confirm.inputSchema.properties.builderRoots | ConvertTo-Json -Compress) -notmatch 'array') {
             throw 'forge.plan.confirm publishes builderRoots as something other than an array'
         }
+        $planReview = $tools | Where-Object { $_.name -eq 'forge.plan.review' } | Select-Object -First 1
+        $planReviewProperties = @($planReview.inputSchema.properties.PSObject.Properties.Name)
+        if ($planReviewProperties -notcontains 'decisions') {
+            throw 'forge.plan.review schema is missing decisions'
+        }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('model', 'effort', 'vendor', 'userGrantedRound')) {
@@ -265,8 +270,19 @@ function Test-PublishedServer([string]$Executable) {
         }
         $reviewFix = $tools | Where-Object { $_.name -eq 'forge.review.fix' } | Select-Object -First 1
         $reviewFixProperties = @($reviewFix.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('findings', 'deferred', 'model', 'effort', 'vendor')) {
+        foreach ($parameter in @('decisions', 'fixAttemptId', 'fixFindingIds', 'model', 'effort', 'vendor')) {
             if ($reviewFixProperties -notcontains $parameter) { throw "forge.review.fix schema is missing $parameter" }
+        }
+        foreach ($legacyParameter in @('findings', 'deferred')) {
+            if ($reviewFixProperties -contains $legacyParameter) { throw "forge.review.fix still exposes $legacyParameter" }
+        }
+        if (($reviewFix.inputSchema.properties.fixFindingIds | ConvertTo-Json -Compress) -notmatch 'array') {
+            throw 'forge.review.fix publishes fixFindingIds as something other than an array'
+        }
+        foreach ($tool in @($planReview, $confirm, $reviewFix, $workStart)) {
+            if (@($tool.inputSchema.properties.PSObject.Properties.Name) -notcontains 'decisions') {
+                throw "$($tool.name) schema is missing typed decisions"
+            }
         }
         $scoutSelect = $tools | Where-Object { $_.name -eq 'forge.scout.select' } | Select-Object -First 1
         $scoutSelectProperties = @($scoutSelect.inputSchema.properties.PSObject.Properties.Name)
@@ -291,12 +307,12 @@ function Test-PublishedServer([string]$Executable) {
         $optional = @{
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
-            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'findings', 'deferred', 'revision', 'userGrantedRound', 'question', 'sessionMode')
-            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'revision', 'userGrantedRound', 'question', 'sessionMode')
+            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
-            'forge.review.fix'  = @('effort', 'vendor', 'deferred')
-            'forge.plan.confirm' = @('gateEnvironment', 'builderRoots')
+            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds')
+            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots')
             'forge.log.append'  = @('level', 'detail')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.

@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlanForge.Vendors;
 
 namespace PlanForge.Tests;
@@ -78,8 +79,27 @@ internal sealed class RecordingVendorSession : IVendorSession
         // A scripted failure: what a vendor session does when the turn dies partway through.
         if (_response is Exception failure) throw failure;
 
-        if (ReferenceEquals(schema, Schemas.Critique) && _response is Critique critique)
-            return Task.FromResult((T)(object)critique);
+        if (ReferenceEquals(schema, Schemas.Critique))
+        {
+            if (_response is VendorCritique wireCritique)
+                return Task.FromResult((T)(object)wireCritique);
+
+            if (_response is Critique critique)
+            {
+                var wire = new VendorCritique
+                {
+                    Verdict = critique.Verdict,
+                    Findings = [.. critique.Findings.Select(finding =>
+                        new VendorFinding(finding.Severity, finding.Where, finding.What))],
+                    Summary = critique.Summary,
+                    UnresolvedAssessments = critique.UnresolvedAssessments
+                        ?? [.. ProjectionIds(prompt).Select(id =>
+                            new UnresolvedAssessment(id, true, "scripted assessment"))],
+                    Reopenings = critique.Reopenings ?? []
+                };
+                return Task.FromResult((T)(object)wire);
+            }
+        }
 
         if (ReferenceEquals(schema, Schemas.BuildResult) && _response is BuildResult buildResult)
             return Task.FromResult((T)(object)buildResult);
@@ -91,6 +111,22 @@ internal sealed class RecordingVendorSession : IVendorSession
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    private static IReadOnlyList<string> ProjectionIds(string prompt)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = 0; index + 6 <= prompt.Length; index++)
+        {
+            if (prompt[index] != 'F' || prompt[index + 1] != '-') continue;
+            var candidate = prompt.Substring(index, 6);
+            if (candidate.Length == 6 && int.TryParse(candidate.AsSpan(2), NumberStyles.None,
+                                                       CultureInfo.InvariantCulture, out var number)
+                && number > 0)
+                ids.Add(candidate);
+        }
+
+        return ids.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+    }
 
     private static async IAsyncEnumerable<VendorEvent> EmptyEvents()
     {

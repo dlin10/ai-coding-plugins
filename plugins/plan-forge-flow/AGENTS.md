@@ -69,8 +69,9 @@ This is the design constraint that explains most of the code, and it is easy to 
 - **Orchestrator** — the host LLM. Runs the interview and **revises the plan** between review
   rounds. Never a C# class. It is the only participant holding the interview context, which is why
   revision cannot be delegated to a worker process.
-- **Critic** — judges plans and diffs. A **fresh process every round**, fed the review log as input
-  data so it converges without inheriting its own anchoring. Stateless; never resumed.
+- **Critic** — judges plans and diffs. A **fresh process every round**, fed only the current phase
+  projection of the Run-local decision ledger so it converges without inheriting its own anchoring
+  or the historical transcript. Stateless; never resumed.
 - **Builder** — implements against an already-hardened plan and fixes review findings. Never
   revises the plan. Persistent session, cheap model.
 - **Scout** — answers one bounded reconnaissance question with sourced evidence. Read-only and
@@ -81,7 +82,8 @@ The direct consequence for the MCP surface in [ForgeTools.cs](src/PlanForge/Mcp/
 every review tool is **one round per call**, because a turn by the orchestrator is mandatory in
 between. For plan review the orchestrator revises the draft; for code review it filters the
 findings against the approved plan before `forge.review.fix` hands the kept ones to the builder,
-and the deferred ones are logged with reasons so the next critic treats them as settled. The loop
+and sends typed dispositions, closures and reopening decisions so the ledger tells the next critic
+what is settled. The loop
 used to live inside `forge.review.code` on the premise that nothing in it needed the interview
 context; a critic demanding work the plan excluded disproved that — see
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md). Do not put the loop back
@@ -136,7 +138,7 @@ the plugin and is overwritten by the next upgrade. What a user wants said for on
 `prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
 must hand its answer back — and is optional, which is why codex, whose `--output-schema` settles the
 question, has no file at all. The role text lived in three copies until they drifted: the codex and
-cursor critics lost "do not reopen a finding the log shows as resolved" and their builders lost "a
+cursor critics lost "do not reopen a settled finding without a proposal" and their builders lost "a
 half-finished task reported as done is worse than a blocked one", asymmetric since the first commit. `PromptLibrary` walks up from the binary
 because the shipped layouts differ (publish output vs. installed plugin), but **a third layout
 cannot be walked to at all**: the launcher downloads the bare executable into a per-version cache
@@ -157,8 +159,9 @@ beside the binary. Do not move it in with the prompts.
 
 ## Run state, and the absence of locks
 
-Everything a run knows lives under `.forge/<runId>/`: `state.json`, `PLAN.md`, `SCOUT.md`, `review-log.md`,
-`flow_log.md`, `forge.log`, `baseline.patch`. **Not under `workspaceRoot`** — that argument is the
+Everything a run knows lives under `.forge/<runId>/`: `state.json`, `decision-ledger.json`, `PLAN.md`,
+`SCOUT.md`, `flow_log.md`, `forge.log`, `telemetry.json`, `baseline.patch`. **Not under
+`workspaceRoot`** — that argument is the
 git window and the workers' working directory, and the run's own files follow the *session* instead,
 the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
 `workspaceRoot` for a host that declares none. Only Claude Code declares one today; `CONTEXT.md`
@@ -166,12 +169,14 @@ carries the measurement and the deprecation that hangs over it, and
 [docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md) the decision. Do not
 collapse the two roots back together in either direction: pinning `workspaceRoot` to the session
 shrinks the review to the session's subtree, and pinning the run folder to `workspaceRoot` puts
-`PLAN.md` where the host cannot linkify it. The flow log is the
-user-facing timeline — every Scout outcome, critique, build result and fix round, plus the orchestrator's own
-revision between plan-review rounds — and nothing ever feeds it back to a worker, which is what
-lets builder entries live there without shifting what the next critic judges; `review-log.md` is
-critic input and stays free of them, carrying only the deferrals the next critic must treat as
-settled. `PLAN.md` is the run's plan *as it currently stands*, not the approved one: `forge.plan.write`
+`PLAN.md` where the host cannot linkify it. The Flow log is the user-facing audit — every Scout
+outcome, critique, assessment, reopening proposal, decision, build result, fix attempt and closure,
+plus the Orchestrator's own revision — and nothing ever feeds it back to a Worker.
+`decision-ledger.json` is the sole authoritative finding state and the only source for bounded
+Critic projections. It keeps immutable finding `origin`, mutable `activePhase`, dispositions,
+applied decision batches and fix attempts; malformed or unknown state stops the call rather than
+recovering to an empty ledger. `PLAN.md` is the run's plan *as it currently stands*, not the approved
+one: `forge.plan.write`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed
 into the review call is not on disk until that call arrives, which made the link late by the whole
 of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
@@ -189,12 +194,13 @@ has open, whatever share mode it was given, and a blocked replacement surfaces a
 `UnauthorizedAccessException` rather than `IOException`. Both facts are load-bearing; the retry loop
 catches both exception types. All run-folder writes must go through `AtomicFile`.
 
-The one exception to "no coordination" is inside `Append`, and it is between threads rather than
-between runs: an appender queues on a per-file gate before it competes for the exclusive handle,
-because Windows grants that handle without a queue and a thread that keeps losing eventually gives
-up. Every flow that finds a run through `RunLog.Current` appends to the same `forge.log`, so the
-losing thread was real, and a dropped log entry is silent by design — `RunLog.Write` may not let a
-failed write take the tool call down with it.
+The one exception to "no coordination" is inside `AtomicFile`, and it is between threads rather
+than between runs: mutations queue on a per-file gate before a write swaps its completed temporary
+file or an append competes for the exclusive handle. Windows grants neither operation with a fair
+queue, so one thread can otherwise lose every retry while its peers keep making progress. Every
+flow that finds a run through `RunLog.Current` appends to the same `forge.log`, so the losing thread
+was real, and a dropped log entry is silent by design — `RunLog.Write` may not let a failed write
+take the tool call down with it.
 
 The gate changes what a wasted wait costs, and that is the part to hold on to. Before it, appenders
 that could not get in wasted the same half second *concurrently*; behind a queue each one spends it

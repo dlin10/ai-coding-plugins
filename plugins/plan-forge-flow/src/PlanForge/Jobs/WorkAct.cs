@@ -37,17 +37,21 @@ internal sealed class WorkAct
         bool userGrantedRound,
         CancellationToken ct,
         string? question = null,
-        string? sessionMode = null)
+        string? sessionMode = null,
+        OrchestratorDecisionBatch? decisions = null,
+        string? fixAttemptId = null,
+        IReadOnlyList<string>? fixFindingIds = null)
     {
         ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
-                          question, sessionMode);
+                          question, sessionMode, decisions, fixAttemptId, fixFindingIds);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
         {
             case "plan.review":
                 var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct)
+                    .ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
+                                 orchestratorDecisions: decisions)
                     .ConfigureAwait(false);
                 return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
 
@@ -65,9 +69,9 @@ internal sealed class WorkAct
                 return JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique);
 
             case "review.fix":
-                var fix = await new ReviewFix(_vendor, _prompts)
-                    .FixAsync(run, selection!, findings!, deferred, ct)
-                    .ConfigureAwait(false);
+                var fixAct = new ReviewFix(_vendor, _prompts);
+                var fix = await fixAct.FixAsync(run, selection!, decisions, fixAttemptId,
+                                                fixFindingIds, ct).ConfigureAwait(false);
                 return JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
 
             case "scout":
@@ -90,7 +94,10 @@ internal sealed class WorkAct
         string? revision,
         bool userGrantedRound,
         string? question = null,
-        string? sessionMode = null)
+        string? sessionMode = null,
+        OrchestratorDecisionBatch? decisions = null,
+        string? fixAttemptId = null,
+        IReadOnlyList<string>? fixFindingIds = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
@@ -105,6 +112,9 @@ internal sealed class WorkAct
             RejectPresent(findings, nameof(findings), act);
             RejectPresent(deferred, nameof(deferred), act);
             RejectPresent(revision, nameof(revision), act);
+            RejectPresent(decisions, nameof(decisions), act);
+            RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
+            RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
             RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
             if (question is null)
                 throw new ArgumentRejectedException("scout requires question");
@@ -126,6 +136,8 @@ internal sealed class WorkAct
             // PlanReview.RequireDraft rather than here.
             case "plan.review":
                 RejectProvided(findings, nameof(findings), act);
+                RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
+                RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
                 break;
             case "build.next":
                 RejectProvided(planDraft, nameof(planDraft), act);
@@ -133,19 +145,31 @@ internal sealed class WorkAct
                 RejectProvided(deferred, nameof(deferred), act);
                 RejectProvided(revision, nameof(revision), act);
                 RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
+                RejectPresent(decisions, nameof(decisions), act);
+                RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
+                RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
                 break;
             case "review.code":
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
                 RejectProvided(deferred, nameof(deferred), act);
                 RejectProvided(revision, nameof(revision), act);
+                RejectPresent(decisions, nameof(decisions), act);
+                RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
+                RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
                 break;
             case "review.fix":
                 RejectProvided(planDraft, nameof(planDraft), act);
+                RejectProvided(findings, nameof(findings), act);
+                RejectProvided(deferred, nameof(deferred), act);
                 RejectProvided(revision, nameof(revision), act);
                 RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
-                if (findings is null)
-                    throw new ArgumentRejectedException($"{act} requires findings");
+                if (fixFindingIds is null && decisions is null)
+                    throw new ArgumentRejectedException($"{act} requires decisions or fixFindingIds");
+                if (!string.IsNullOrWhiteSpace(fixAttemptId) && (fixFindingIds is null || fixFindingIds.Count == 0))
+                    throw new ArgumentRejectedException("fixAttemptId requires non-empty fixFindingIds");
+                if (fixFindingIds is { Count: > 0 } && string.IsNullOrWhiteSpace(fixAttemptId))
+                    throw new ArgumentRejectedException("fixFindingIds requires fixAttemptId");
                 break;
         }
 
@@ -165,9 +189,56 @@ internal sealed class WorkAct
             throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
 
+    private static void RejectPresent(object? value, string argumentName, string act)
+    {
+        if (value is not null)
+            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
+    }
+
     private static void RejectProvided(bool value, string argumentName, string act)
     {
         if (value)
             throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
+    }
+}
+
+internal static class OrchestrationPreflight
+{
+    internal static void Validate(RunDirectory run, string act, OrchestratorDecisionBatch? decisions,
+                                  string? fixAttemptId, IReadOnlyList<string>? fixFindingIds)
+    {
+        var ledger = run.ReadDecisionLedger();
+        switch (act)
+        {
+            case "plan.review":
+                if (decisions is not null)
+                    ledger.ValidateOrchestratorBatch(decisions, LedgerPhase.PlanReview);
+                return;
+
+            case "review.fix":
+                if (!run.ReadState().Approved)
+                    throw new NotApprovedException(run.RunId);
+                var ids = fixFindingIds is null ? [] : ledger.NormalizeFixFindingIds(fixFindingIds);
+                if (decisions is not null && ids.Count > 0
+                    && decisions.Decisions.Any(decision => ids.Contains(decision.FindingId)))
+                    throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
+                if (decisions is not null)
+                    ledger.ValidateOrchestratorBatch(decisions, LedgerPhase.CodeReview);
+
+                if (ids.Count == 0) return;
+                var attempt = ledger.FindFixAttempt(fixAttemptId!);
+                if (attempt is not null && !attempt.FixFindingIds.SequenceEqual(ids, StringComparer.Ordinal))
+                    throw new DecisionLedgerRequestException($"fixAttemptId '{fixAttemptId}' was used with a different fixFindingIds set");
+                if (attempt is null || !attempt.Terminal)
+                    ledger.ValidateFixFindingIds(ids);
+                return;
+
+            default:
+                if (decisions is not null)
+                    throw new ArgumentRejectedException($"decisions are not used by {act}");
+                if (fixAttemptId is not null || fixFindingIds is not null)
+                    throw new ArgumentRejectedException($"fix attempt arguments are not used by {act}");
+                return;
+        }
     }
 }

@@ -30,30 +30,54 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         if (state.CodeReviewRounds >= state.CodeReviewRoundCap && !userGrantedRound)
             throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap);
         var granted = state.CodeReviewRounds >= state.CodeReviewRoundCap;
+        var ledger = run.ReadDecisionLedger();
 
         var window = await git.ReadReviewWindowAsync(state.BaselineHead, ct);
         GuardChangedPaths(window);
         if (window.Diff.Length == 0)
             return WithReviewWindow(new Critique("approve", [], "nothing to review"), window);
 
-        var review = ComposeReview(run.ReadPlan(), window, run.ReadReviewLog(), state);
+        var review = ComposeReview(run.ReadPlan(), window, ledger.RenderProjection(LedgerPhase.CodeReview), state);
         SensitiveInput.Guard(review, "the diff under review");
         var round = state.CodeReviewRounds + 1;
 
         Critique critique;
         IReadOnlyList<string> killed;
-        // Fresh critic each round, but handed the log so it converges instead of oscillating.
+        // Fresh critic each round, but handed the current ledger projection so it converges without
+        // inheriting old critique or Flow history.
         await using (var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id),
                                                                        WorkerTools: WorkerTools.Effective(state.WorkerTools),
                                                                        Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log,
                                                                                                              "code_review", Round: round)),
                                                           selection, resumeToken: null, ct))
         {
-            critique = WithReviewWindow(await critic.RunAsync(review, Schemas.Critique, ct), window);
+            VendorCritique wireCritique;
+            try
+            {
+                wireCritique = await critic.RunAsync(review, Schemas.Critique, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception error)
+            {
+                run.AppendFlowCritiqueRejected("Code review", round, null, error.Message);
+                throw;
+            }
+
+            try
+            {
+                critique = WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window);
+            }
+            catch (DecisionLedgerCritiqueException error)
+            {
+                run.AppendFlowCritiqueRejected("Code review", round, wireCritique, error.Message);
+                throw;
+            }
             killed = critic.KilledBackgroundTasks;
         }
 
-        run.AppendReviewRound(state.ReviewRounds + round, critique);
         if (granted) run.AppendFlowGrantedRound("Code review", round);
         run.AppendFlowCritique("Code review", round, critique);
         run.AppendFlowKilledTasks("Code review", round, killed);
@@ -86,7 +110,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// told about instructions the running builder never received, which the flow log records and
     /// docs/adr/0019 accepts.
     /// </summary>
-    private static string ComposeReview(string plan, ReviewWindow window, string reviewLog, RunState state)
+    private static string ComposeReview(string plan, ReviewWindow window, string ledgerProjection, RunState state)
     {
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
@@ -111,11 +135,11 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
               .AppendLine(window.Diff)
               .AppendLine("```");
 
-        if (reviewLog.Length > 0)
+        if (ledgerProjection.Length > 0)
             prompt.AppendLine()
-                  .AppendLine("# Review log from earlier rounds")
+                  .AppendLine(ledgerProjection.TrimEnd())
                   .AppendLine()
-                  .AppendLine(reviewLog);
+                  .AppendLine();
 
         RunInstructions.AppendBuilderContext(prompt, state.BuilderInstructions);
         RunInstructions.Append(prompt, state.CriticInstructions);

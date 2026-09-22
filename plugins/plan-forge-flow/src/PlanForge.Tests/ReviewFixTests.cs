@@ -58,9 +58,9 @@ public sealed class ReviewFixTests : IDisposable
                                        "- **major** tracked.txt — fix it",
                                        "- staged coverage — the approved plan excludes it", ct);
 
-        var log = run.ReadReviewLog();
-        Assert.Contains("## Round 6 fixes", log, StringComparison.Ordinal);
-        Assert.Contains("Deferred by the orchestrator", log, StringComparison.Ordinal);
+        var log = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Fixes — round 1", log, StringComparison.Ordinal);
+        Assert.Contains("decisions applied", log, StringComparison.Ordinal);
         Assert.Contains("the approved plan excludes it", log, StringComparison.Ordinal);
     }
 
@@ -78,8 +78,8 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal("done", result.Status);
         Assert.Equal("passed", result.Verification.Outcome);
         Assert.Empty(builder.Sessions);
-        var log = run.ReadReviewLog();
-        Assert.Contains("## Round 6 fixes", log, StringComparison.Ordinal);
+        var log = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Fixes — round 1", log, StringComparison.Ordinal);
         Assert.Contains("the approved plan excludes it", log, StringComparison.Ordinal);
     }
 
@@ -186,7 +186,7 @@ public sealed class ReviewFixTests : IDisposable
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Fixes — round 1", flow, StringComparison.Ordinal);
         Assert.Contains("fix it", flow, StringComparison.Ordinal);
-        Assert.Contains("Deferred by the orchestrator", flow, StringComparison.Ordinal);
+        Assert.Contains("decisions applied", flow, StringComparison.Ordinal);
         Assert.Contains("Status: done", flow, StringComparison.Ordinal);
         Assert.Contains("fixed the guard", flow, StringComparison.Ordinal);
     }
@@ -280,7 +280,7 @@ public sealed class ReviewFixTests : IDisposable
 
     /// <summary>
     /// Run 20260917-111319-20e672: the host took the call away an hour in, after the builder had
-    /// finished its edits, and the round left no trace at all — no timeline entry, no review-log
+    /// finished its edits, and the round left no trace at all — no timeline entry, no Flow entry
     /// entry, nothing. The edits stayed on disk, so the orchestrator had to read the tree by hand
     /// and write the round up through <c>forge.log.append</c>.
     /// </summary>
@@ -301,9 +301,9 @@ public sealed class ReviewFixTests : IDisposable
 
         // The deferrals are the orchestrator's decision and survive the kill untouched; the fixes
         // are marked, because the builder never said which of them it reached.
-        var review = run.ReadReviewLog();
-        Assert.Contains("## Round 6 fixes — cut short", review, StringComparison.Ordinal);
-        Assert.Contains("the approved plan excludes it", review, StringComparison.Ordinal);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Fixes — round 1: cut short", flow, StringComparison.Ordinal);
+        Assert.Contains("the approved plan excludes it", flow, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -401,8 +401,8 @@ public sealed class ReviewFixTests : IDisposable
             NewFix(builder).FixAsync(run, new Selection("builder-model", null),
                                      sensitiveFindings, null, ct));
 
-        Assert.Contains("the code-review fixes", error.Message, StringComparison.Ordinal);
-        Assert.Contains("line 3", error.Message, StringComparison.Ordinal);
+        Assert.Contains("finding text", error.Message, StringComparison.Ordinal);
+        Assert.Contains("F-0001", error.Message, StringComparison.Ordinal);
         Assert.Empty(builder.Sessions);
     }
 
@@ -420,8 +420,36 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Empty(builder.Sessions);
     }
 
-    private ReviewFix NewFix(RecordingVendor builder) =>
-        new(builder, new PromptLibrary(RepositoryPrompts()));
+    private LedgerReviewFix NewFix(RecordingVendor builder) =>
+        new(new ReviewFix(builder, new PromptLibrary(RepositoryPrompts())));
+
+    private sealed class LedgerReviewFix(ReviewFix inner)
+    {
+        private int _attempt;
+
+        internal Task<BuildResult> FixAsync(RunDirectory run, Selection selection, string findings,
+                                            string? deferred, CancellationToken ct)
+        {
+            var ledger = run.ReadDecisionLedger();
+            OrchestratorDecisionBatch? decisions = null;
+            if (!string.IsNullOrWhiteSpace(deferred))
+            {
+                var deferredEntry = ledger.AddFinding(new Finding("minor", "test", "deferred finding"),
+                                                      LedgerPhase.CodeReview);
+                decisions = new OrchestratorDecisionBatch($"defer-{++_attempt}", [
+                    new OrchestratorDecision(deferredEntry.FindingId, "defer",
+                                             "orchestrator", deferred)
+                ]);
+            }
+
+            if (string.IsNullOrWhiteSpace(findings))
+                return inner.FixAsync(run, selection, decisions, null, [], ct);
+
+            var entry = ledger.AddFinding(new Finding("major", "test", findings), LedgerPhase.CodeReview);
+            var attemptId = $"fix-{++_attempt}";
+            return inner.FixAsync(run, selection, decisions, attemptId, [entry.FindingId], ct);
+        }
+    }
 
     private RunDirectory NewRun(bool approved = true,
                                 int reviewRounds = 0,

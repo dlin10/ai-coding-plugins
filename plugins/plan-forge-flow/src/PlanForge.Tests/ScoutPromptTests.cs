@@ -72,9 +72,11 @@ public sealed class ScoutPromptTests : IDisposable
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.cs"], new Verification("passed", "checked"), "fixed"));
         var run = NewRun(approved: true);
+        var finding = run.ReadDecisionLedger().AddFinding(
+            new Finding("major", "tracked.cs", "fix it"), LedgerPhase.CodeReview);
 
         await new ReviewFix(vendor, _prompts).FixAsync(
-            run, new Selection("model", null), "- **major** tracked.cs — fix it", null,
+            run, new Selection("model", null), null, "fix", [finding.FindingId],
             CancellationToken.None);
 
         AssertNoScoutContent(vendor);
