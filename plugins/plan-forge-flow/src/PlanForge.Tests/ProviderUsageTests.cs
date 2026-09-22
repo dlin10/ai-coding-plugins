@@ -7,7 +7,7 @@ namespace PlanForge.Tests;
 public sealed class ProviderUsageTests
 {
     [Fact]
-    public void Claude_maps_terminal_usage_without_overlapping_reasoning()
+    public void Claude_includes_both_cache_classes_in_total_input()
     {
         var usage = ProviderUsage.Claude(Usage(
             """
@@ -20,7 +20,7 @@ public sealed class ProviderUsageTests
             }
             """));
 
-        Assert.Equal(11, usage.InputTokens);
+        Assert.Equal(66, usage.InputTokens);
         Assert.Equal(22, usage.CacheReadTokens);
         Assert.Equal(33, usage.CacheCreationTokens);
         Assert.Equal(44, usage.OutputTokens);
@@ -29,7 +29,7 @@ public sealed class ProviderUsageTests
     }
 
     [Fact]
-    public void Codex_subtracts_both_cache_classes_from_total_input()
+    public void Codex_preserves_provider_total_input()
     {
         var usage = ProviderUsage.Codex(Usage(
             """
@@ -42,7 +42,7 @@ public sealed class ProviderUsageTests
             }
             """));
 
-        Assert.Equal(30, usage.InputTokens);
+        Assert.Equal(100, usage.InputTokens);
         Assert.Equal(60, usage.CacheReadTokens);
         Assert.Equal(10, usage.CacheCreationTokens);
         Assert.Equal(20, usage.OutputTokens);
@@ -51,7 +51,7 @@ public sealed class ProviderUsageTests
     }
 
     [Fact]
-    public void Cursor_maps_its_already_uncached_input_and_cache_write()
+    public void Cursor_includes_both_cache_classes_in_total_input()
     {
         var usage = ProviderUsage.Cursor(Usage(
             """
@@ -63,7 +63,7 @@ public sealed class ProviderUsageTests
             }
             """));
 
-        Assert.Equal(7, usage.InputTokens);
+        Assert.Equal(24, usage.InputTokens);
         Assert.Equal(8, usage.CacheReadTokens);
         Assert.Equal(9, usage.CacheCreationTokens);
         Assert.Equal(10, usage.OutputTokens);
@@ -138,34 +138,104 @@ public sealed class ProviderUsageTests
             }
             """));
 
-        Assert.Null(usage.InputTokens);
+        Assert.Equal(5, usage.InputTokens);
         Assert.Equal(4, usage.CacheReadTokens);
         Assert.Equal(3, usage.CacheCreationTokens);
         Assert.Equal(6, usage.OutputTokens);
         Assert.Null(usage.ReasoningTokens);
-        Assert.Equal(["usage.input_tokens", "usage.reasoning_output_tokens"], usage.MalformedFields);
+        Assert.Equal(["usage.cache_write_input_tokens", "usage.cached_input_tokens", "usage.reasoning_output_tokens"],
+                     usage.MalformedFields);
     }
 
     [Fact]
-    public void Missing_codex_cache_component_omits_derived_input_without_calling_it_malformed()
+    public void Missing_codex_cache_component_preserves_total_input_without_calling_it_malformed()
     {
         var usage = ProviderUsage.Codex(Usage("""{"input_tokens":5,"cached_input_tokens":2}"""));
 
-        Assert.Null(usage.InputTokens);
+        Assert.Equal(5, usage.InputTokens);
         Assert.Equal(2, usage.CacheReadTokens);
         Assert.Null(usage.MalformedFields);
     }
 
     [Fact]
-    public void Codex_cache_sum_cannot_overflow_into_a_valid_input()
+    public void Codex_inconsistent_cache_breakdown_preserves_total_and_names_both_cache_fields()
     {
         var usage = ProviderUsage.Codex(Usage(
             """{"input_tokens":9223372036854775807,"cached_input_tokens":9223372036854775807,"cache_write_input_tokens":1}"""));
 
-        Assert.Null(usage.InputTokens);
+        Assert.Equal(long.MaxValue, usage.InputTokens);
         Assert.Equal(long.MaxValue, usage.CacheReadTokens);
         Assert.Equal(1, usage.CacheCreationTokens);
-        Assert.Equal(["usage.input_tokens"], usage.MalformedFields);
+        Assert.Equal(["usage.cache_write_input_tokens", "usage.cached_input_tokens"], usage.MalformedFields);
+    }
+
+    [Fact]
+    public void Malformed_codex_cache_component_preserves_total_and_independent_counters()
+    {
+        var usage = ProviderUsage.Codex(Usage(
+            """{"input_tokens":10,"cached_input_tokens":"bad","cache_write_input_tokens":3,"output_tokens":4}"""));
+
+        Assert.Equal(10, usage.InputTokens);
+        Assert.Null(usage.CacheReadTokens);
+        Assert.Equal(3, usage.CacheCreationTokens);
+        Assert.Equal(4, usage.OutputTokens);
+        Assert.Equal(["usage.cached_input_tokens"], usage.MalformedFields);
+    }
+
+    [Theory]
+    [InlineData("claude",
+                """{"input_tokens":1,"cache_read_input_tokens":2,"output_tokens":4}""")]
+    [InlineData("cursor",
+                """{"inputTokens":1,"cacheReadTokens":2,"outputTokens":4}""")]
+    public void Missing_cache_component_omits_derived_total_without_calling_it_malformed(string vendor,
+                                                                                         string json)
+    {
+        var usage = Parse(vendor, Usage(json));
+
+        Assert.Null(usage.InputTokens);
+        Assert.Equal(2, usage.CacheReadTokens);
+        Assert.Null(usage.CacheCreationTokens);
+        Assert.Equal(4, usage.OutputTokens);
+        Assert.Null(usage.MalformedFields);
+    }
+
+    [Theory]
+    [InlineData("claude",
+                """{"input_tokens":1,"cache_read_input_tokens":"bad","cache_creation_input_tokens":3,"output_tokens":4}""",
+                "usage.cache_read_input_tokens")]
+    [InlineData("cursor",
+                """{"inputTokens":1,"cacheReadTokens":"bad","cacheWriteTokens":3,"outputTokens":4}""",
+                "usage.cacheReadTokens")]
+    public void Malformed_cache_component_omits_derived_total_but_preserves_independent_counters(string vendor,
+                                                                                                 string json,
+                                                                                                 string path)
+    {
+        var usage = Parse(vendor, Usage(json));
+
+        Assert.Null(usage.InputTokens);
+        Assert.Null(usage.CacheReadTokens);
+        Assert.Equal(3, usage.CacheCreationTokens);
+        Assert.Equal(4, usage.OutputTokens);
+        Assert.Equal([path], usage.MalformedFields);
+    }
+
+    [Theory]
+    [InlineData("claude",
+                """{"input_tokens":9223372036854775807,"cache_read_input_tokens":1,"cache_creation_input_tokens":0}""",
+                "usage.input_tokens")]
+    [InlineData("cursor",
+                """{"inputTokens":9223372036854775807,"cacheReadTokens":1,"cacheWriteTokens":0}""",
+                "usage.inputTokens")]
+    public void Derived_total_overflow_is_omitted_and_names_the_input_field(string vendor,
+                                                                            string json,
+                                                                            string path)
+    {
+        var usage = Parse(vendor, Usage(json));
+
+        Assert.Null(usage.InputTokens);
+        Assert.Equal(1, usage.CacheReadTokens);
+        Assert.Equal(0, usage.CacheCreationTokens);
+        Assert.Equal([path], usage.MalformedFields);
     }
 
     [Fact]

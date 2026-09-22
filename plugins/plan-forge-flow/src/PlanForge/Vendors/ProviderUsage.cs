@@ -12,8 +12,12 @@ internal static class ProviderUsage
         var cacheCreation = reader.Counter("cache_creation_input_tokens");
         var output = reader.Counter("output_tokens");
         var reasoning = reader.NestedCounter("output_tokens_details", "thinking_tokens");
-        return reader.Build(input, cacheRead, cacheCreation, output, ValidateReasoning(reader, output, reasoning,
-                                                                                       "usage.output_tokens_details.thinking_tokens"));
+        return reader.Build(TotalInput(reader, input, cacheRead, cacheCreation, "usage.input_tokens"),
+                            cacheRead,
+                            cacheCreation,
+                            output,
+                            ValidateReasoning(reader, output, reasoning,
+                                              "usage.output_tokens_details.thinking_tokens"));
     }
 
     public static WorkerUsage Codex(JsonElement? usage)
@@ -25,27 +29,45 @@ internal static class ProviderUsage
         var output = reader.Counter("output_tokens");
         var reasoning = reader.Counter("reasoning_output_tokens");
 
-        long? input = null;
         if (totalInput is not null && cacheRead is not null && cacheCreation is not null)
         {
-            if (cacheRead <= totalInput && cacheCreation <= totalInput - cacheRead)
-                input = totalInput - cacheRead - cacheCreation;
-            else
-                reader.Malformed("usage.input_tokens");
+            if (cacheRead > totalInput || cacheCreation > totalInput - cacheRead)
+            {
+                reader.Malformed("usage.cached_input_tokens");
+                reader.Malformed("usage.cache_write_input_tokens");
+            }
         }
 
-        return reader.Build(input, cacheRead, cacheCreation, output,
+        return reader.Build(totalInput, cacheRead, cacheCreation, output,
                             ValidateReasoning(reader, output, reasoning, "usage.reasoning_output_tokens"));
     }
 
     public static WorkerUsage Cursor(JsonElement? usage)
     {
         var reader = new UsageReader(usage);
-        return reader.Build(reader.Counter("inputTokens"),
-                            reader.Counter("cacheReadTokens"),
-                            reader.Counter("cacheWriteTokens"),
+        var input = reader.Counter("inputTokens");
+        var cacheRead = reader.Counter("cacheReadTokens");
+        var cacheCreation = reader.Counter("cacheWriteTokens");
+        return reader.Build(TotalInput(reader, input, cacheRead, cacheCreation, "usage.inputTokens"),
+                            cacheRead,
+                            cacheCreation,
                             reader.Counter("outputTokens"),
                             reasoning: null);
+    }
+
+    private static long? TotalInput(UsageReader reader, long? input, long? cacheRead, long? cacheCreation, string path)
+    {
+        if (input is null || cacheRead is null || cacheCreation is null) return null;
+
+        try
+        {
+            return checked(input.Value + cacheRead.Value + cacheCreation.Value);
+        }
+        catch (OverflowException)
+        {
+            reader.Malformed(path);
+            return null;
+        }
     }
 
     private static long? ValidateReasoning(UsageReader reader, long? output, long? reasoning, string path)
