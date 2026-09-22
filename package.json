@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate:plugins": "node scripts/validate-plugins.mjs",
+    "validate:plugins": "node --test scripts/validate-plugins.test.mjs && node scripts/validate-plugins.mjs",
+    "test:validate-plugins": "node --test scripts/validate-plugins.test.mjs",
     "test:roslyn-hooks": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/roslyn-mcp/scripts/test-roslyn-hooks.ps1"
   },
   "devDependencies": {

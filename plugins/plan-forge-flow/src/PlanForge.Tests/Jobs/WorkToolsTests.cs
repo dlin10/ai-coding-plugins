@@ -47,7 +47,8 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
-        Assert.Equal(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+        var identified = critique with { UnresolvedAssessments = [], Reopenings = [] };
+        Assert.Equal(JsonSerializer.Serialize(identified, ContractJson.Default.Critique),
             fetch["result"]!.GetValue<string>());
     }
 
@@ -321,6 +322,7 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal("failed", fetch["state"]!.GetValue<string>());
         Assert.Null(fetch["result"]);
         Assert.Contains("scripted response", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("forge.work.fetch.error", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -424,7 +426,11 @@ public sealed class WorkToolsTests : IDisposable
                 [("command", "dotnet test")]));
             recorded.TrySetResult();
             await release.Task.WaitAsync(ct);
-            return (T)(object)new Critique("approve", [], "released");
+            return (T)(object)new VendorCritique
+            {
+                Verdict = "approve", Findings = [], Summary = "released",
+                UnresolvedAssessments = [], Reopenings = []
+            };
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

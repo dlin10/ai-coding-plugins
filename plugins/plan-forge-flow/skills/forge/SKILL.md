@@ -7,8 +7,10 @@ disable-model-invocation: true
 # Plan Forge Flow
 
 You are the **orchestrator**. You run the interview, you revise the plan between review rounds, and
-you call the tools. The workers behind the tools — a critic and a builder, each a separate model
-process — never revise the plan, because they do not have the interview context you have.
+you call the tools. The workers behind the tools — a critic, a builder, and a scout, each a separate
+model process — never revise the plan, because they do not have the interview context you have. Scout
+is a read-only evidence gatherer for one bounded reconnaissance question; it does not plan, judge, or
+edit.
 
 Windows x64 only. The tools come from the `plan-forge-flow` MCP server; if they are not listed,
 the plugin is installed but the server did not start, and nothing here will work.
@@ -22,48 +24,57 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic and builder may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — critics get the same grant. |
-| `forge.models` | Once, before the vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not. |
+| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
+| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
+| `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
+| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the bounded `scout` digest and documents, never the full report. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
-| `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Returns one critique. **You** then revise the plan, write it again, and call this again, saying in `revision` what you changed — required from the second round on. |
+| `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
-| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Records their answer, and with a yes the `gateEnvironment` and `builderRoots` the plan's gates and builder need on this host. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, after each `revise` verdict, with the findings you kept and the ones you deferred. The server then runs the plan's executable `## Gates` entries. |
-| `forge.status` | Before asking for approval, and any time the user asks where things stand. Carries the drift and any active job's liveness. |
-| `forge.work.start` | On Cursor, starts one worker act. If `started` is false, rejoin the returned active `jobId`; do not create another worker. `plan.review` takes the same `revision` and `deferred` as the one-call tool, omits `planDraft` after `forge.plan.write` the same way, and refuses a second round without a `revision`. Blank `findings` for `review.fix` is valid and takes the all-deferred path without starting a builder session. |
+| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate. The Builder receives the ledger's verbatim findings for those IDs only. |
+| `forge.status` | Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
+| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
-act goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`; do not call a
-one-call worker tool there. On every other host, the one-call worker tools — `forge.plan.review`,
-`forge.build.next`, `forge.review.code`, `forge.review.fix` — remain the instruction and take `model`,
-an optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to
-`claude`. The critic's selection goes to the two review tools, the builder's to `forge.build.next`
-and `forge.review.fix`. For Cursor's `review.fix`, blank `findings` means all findings are
-deferred, so the act completes without starting a builder session. If `forge.work.start` returns
-`started: false`, rejoin its active job with poll → fetch.
+act — including Scout — goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`;
+do not call a one-call worker tool there. On non-Cursor hosts, call `forge.scout.run` directly
+for Scout, and use the one-call worker tools — `forge.plan.review`, `forge.build.next`,
+`forge.review.code`, `forge.review.fix` — for the other acts. Those legacy tools take `model`, an
+optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to `claude`.
+The critic's selection goes to the two review tools, the builder's to `forge.build.next` and
+`forge.review.fix`, and Scout always reuses its persisted selection. Direct and Cursor-background
+forms have the same decision contract; a decisions-only `review.fix` has no `fixFindingIds` or
+`fixAttemptId` and starts no Builder.
+If `forge.work.start` returns `started: false`, rejoin its active job with poll → fetch.
 
 Every worker act answers with its own result beside a `documents` object — the critique under
-`critique`, the build under `build`, the fix under `fix`, and on Cursor the act's own payload as
-the `result` string of `forge.work.fetch`. `forge.plan.write` answers with `documents` and nothing
-else, and on Cursor `forge.work.start` and every `forge.work.poll` carry it too. `documents` holds
-`flowLog` and `plan`, each with a `path` and what to do with it, and each `null` until its file
-exists. What to do with them is below.
+`critique`, the build under `build`, the fix under `fix`, and the bounded Scout digest under `scout`.
+On Cursor the act's own payload is the `result` string of `forge.work.fetch`; Scout's result string
+is digest JSON only. `forge.plan.write` answers with `documents` and nothing else, and on Cursor
+`forge.work.start` and every `forge.work.poll` carry it too. `documents` always holds `flowLog` and
+`plan`, each with a `path` and what to do with it, and each `null` until its file exists. Only a
+successful direct Scout call or a successful completed Scout fetch also carries `documents.scout`,
+whose instruction is exactly: “show the latest Scout report to the user now, and show it again only
+after a later successful Scout call replaces it.” Non-Scout results omit it even after a report
+exists. What to do with the documents is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
-use start → poll → fetch so the surviving server can rejoin a detached worker; on every other
-host, use the one-call worker tools. One `forge.work.poll` waits 45 seconds, so an act that takes
-minutes needs many of them in a row: keep calling it, in the same turn, until the state is no longer
-`running`, and only then fetch. Each poll result says which call it wants next. A `running` poll is
-not a result, not narration-worthy, and never a reason to end your turn — never stop on one to ask
-the user to continue, because there is nothing for them to answer. If the originating server process
-exits, an in-flight job id is unknown to a new server and cannot be rejoined; after restart, start a
-new act. Persisted terminal results remain under `.forge/<runId>/`.
+use start → poll → fetch for every act, including Scout, so the surviving server can rejoin a detached
+worker; on every other host, call Scout directly and use the one-call tools for the other acts. One
+`forge.work.poll` waits 45 seconds, so an act that takes minutes needs many of them in a row: keep
+calling it, in the same turn, until the state is no longer `running`, and only then fetch. Each poll
+result says which call it wants next. A `running` poll is not a result, not narration-worthy, and never
+a reason to end your turn — never stop on one to ask the user to continue, because there is nothing
+for them to answer. If the originating server process exits, an in-flight job id is unknown to a new
+server and cannot be rejoined; after restart, start a new act. Persisted terminal results remain under
+`.forge/<runId>/`.
 
 `lastActivityAt` is the last stdout line, including output the parser did not recognise;
 `lastEvent` is a short description of the last recognised vendor event. Use them to explain what a
@@ -71,6 +82,91 @@ running job is doing, never to invent an automatic cancellation policy: every ve
 stops after 30 minutes with no stdout. Call `forge.work.cancel` only on the user's explicit request,
 or show both fields and obtain confirmation first. Cancellation is nonblocking, so continue with
 poll → fetch until the failed terminal result is persisted.
+
+## Decision ledger protocol
+
+`decision-ledger.json` is the Run-local source of truth for Critic findings. IDs are monotonic across
+plan and code review and are never reused. Each entry keeps an immutable `origin`, a mutable
+`activePhase`, its verbatim finding, and one of `unresolved`, `deferred`, or `rejected`. Closing an
+entry removes it; the Flow log keeps the finding, decision, reopening proposal, fix and closure as
+the human-readable audit. Flow is never Worker input, and there is no `review-log.md`.
+
+The phase projection is deliberate. Plan review receives entries whose `activePhase` is
+`plan_review`. Code review receives settled plan decisions plus entries whose `activePhase` is
+`code_review`. The Critic must assess each displayed unresolved ID exactly once, creates no copy of
+an existing ID, and may only propose reopening a displayed deferred or rejected ID. You accept or
+decline that proposal. Accepting a plan-origin proposal during code review preserves
+`origin=plan_review`, changes `activePhase` to `code_review`, and makes the same ID unresolved;
+declining changes no ledger state and remains visible in the Flow audit.
+
+Every non-empty logical decision set gets one new `decisionBatchId` and a `decisions` array. Keep
+that key and the exact byte-for-byte decisions for every retry of the same logical set. Each item is
+identity-keyed and has `findingId`, `action`, asserted `by`, and non-empty `reason`:
+
+- `defer` or `reject` settles an active unresolved ID;
+- `addressedByRevision` closes an active plan ID after the revised plan is ready;
+- `hostVerified` closes an active code ID and also requires non-empty `evidence`;
+- `duplicateOf` closes the redundant active ID and also requires the canonical existing ID;
+- `accept` or `decline` answers a displayed reopening proposal; `accept` also carries the proposal's
+  concrete evidence.
+
+Apply plan decisions through the next `forge.plan.review` or, for the final revised plan, through
+`forge.plan.confirm(approved: true)`. Both accept the same complete decision shape, including
+duplicate closures and reopening answers. Confirmation checks that no unresolved
+`activePhase=plan_review` IDs remain; code-review IDs do not block it. A refusal uses
+`approved: false` with no batch or decisions and leaves the ledger unchanged. Apply code decisions,
+including duplicate and host-verified closures, through `forge.review.fix`; `forge.review.code`
+never accepts decisions.
+
+An identical `decisionBatchId` retry is a no-op and returns the saved result. A conflicting payload
+under that key also returns the saved batch/result: honour it, then use a new key only for a legal
+delta that has not already been decided. If the Critic response is structurally or semantically
+invalid, the round does not count and no findings are ingested, but decisions applied before the
+call stay applied; retry the round with the same batch and exact decisions.
+
+Fix execution is separate from decisions. Give each logical execution one `fixAttemptId` and the
+exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
+A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID and exact ID
+set. A different set under that attempt is refused. A completed attempt returns its saved terminal
+result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields.
+
+Before deciding, compare every new Critic finding semantically with current IDs from the critique
+and `forge.status`. Close a redundant new ID with `duplicateOf` and a reason; do not silently merge
+IDs or ask the Critic to do it. Surface each critique, decision, reopening proposal, fix/gate result,
+cut-short retry, retained finding and closure through the returned documents and concise chat
+narration so the user can follow the Flow audit.
+
+## Scout reconnaissance
+
+Use Scout for broad repository reconnaissance before the Orchestrator can settle requirements or
+write a plan: multi-module exploration, caller/writer discovery, dependency tracing, or greenfield
+orientation. These are the broad triggers. Keep one or two targeted semantic lookups in the
+Orchestrator: they remain cheaper and clearer there. Use the local Roslyn or repository tools when
+the question has a narrow file, symbol, or caller boundary. Do not turn every local lookup into a
+Scout call.
+
+Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
+make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
+Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
+the choice **continue without Scout**. Do not silently select a Vendor or silently continue a session.
+A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
+an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
+after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
+is still just-in-time and separate from the final refresh below.
+When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
+the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
+question as well and offer the resolved Cursor choices directly.
+
+For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
+direct follow-up in the same investigation. Use `fresh` for an independent question, a new
+subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
+reselect explicitly to clear the old session and failure; or explicitly choose continue without
+Scout. Never silently choose session continuity and never fall back to another Vendor. Scout may
+use already available internet without per-call authorization or a widened grant. Require typed
+repository citations (path plus positive line or non-empty symbol) and external citations (an
+absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
+Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
+the Orchestrator deliberately puts into a plan or task may reach those Workers.
 
 ## Act 1: the interview
 
@@ -131,8 +227,13 @@ Write the plan as markdown, in three parts: the requirements, the gates, and the
 The tasks live under a heading spelled exactly `## Approach`. That heading is not a suggestion:
 `PlanTasks` refuses a plan without exactly one of it, and `forge.plan.confirm` parses before it
 writes anything, so the wrong heading fails at approval rather than later. Anything above
-`## Approach` is context for the reader and is not walked; the section ends at the next `##`
-heading, so put the tasks last or expect everything after that heading to be dropped.
+`## Approach` is not walked as tasks; on a fresh builder session it is sent verbatim as the
+Vendor-bound Builder Brief. Keep transient interview notes, rejected alternatives, secrets, and
+host values out of it. The section ends at the next `##` heading, so put the tasks last or expect
+everything after that heading to be dropped.
+
+If a Builder Brief is rejected as sensitive, remove the sensitive content from the plan and directly
+re-approve the changed plan before retrying the Builder act.
 
 Inside it, number the tasks `1.` to `N.` in order, one task per numbered item — a gap or a repeat is
 refused outright. That numbering is what `forge.build.next` walks, so a task that is really three
@@ -199,11 +300,10 @@ Builder: cursor / gpt-5.3-codex / high
 2. **Second task.** … **Gate:** `if ($env:CD_TEST_SQL_CONN) { dotnet test … } else { exit 1 }` (R2)
 ```
 
-Write every task to be read alone. The builder receives `# Task N of M` and the task's own text —
-not the preamble, not the requirements, not the run-wide gates, not the other tasks, not the
-interview. Context a task needs must be inlined into the task, and that includes whatever a
-requirement it cites actually demands; the builder's session accretes across tasks, but task 1
-starts from nothing.
+Write every task as its change-specific delta. The Brief supplies stable context once on a fresh
+builder session, while every task must still stand alone with its own task gate and requirement
+references. The builder receives `# Task N of M` and the task's own text after that context; the
+builder's session accretes across tasks; a fresh session starts with the Brief before task 1.
 
 Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
 goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
@@ -220,20 +320,25 @@ model, effort. The critic judges the plan's depth against the builder named ther
 
 Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetch round, runs exactly
 one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, address the
-findings in the plan yourself and run the next round. The critic is a fresh process each round but
-is given the log of earlier rounds, so it converges rather than reopening settled points.
+findings in the plan yourself and run the next round. The Critic is a fresh process each round and
+receives only the current plan-phase ledger projection, so it converges on current findings without
+being anchored by the transcript.
 
-Every round after the first carries your answer to the one before it, in two arguments, and the
-tool refuses the call without the first of them:
+Every round after the first carries your answer to the one before it. The tool refuses the call
+without `revision`:
 
 - `revision` — what you changed in the plan, in a sentence or a short list, in the findings' own
   terms. It goes to the flow log and nowhere else, so the user can see your turn between the
   critic's; no worker ever reads it. Say so plainly when a round changed nothing and you are
   re-running for another reason.
-- `deferred` — findings you decided not to act on, each with its reason. It goes to the flow log
-  **and** to the review log, so the next round's critic reads it as a decision instead of raising
-  the same point again. Defer what the user has settled or the scope excludes, never what is merely
-  inconvenient — the bias is the same one the code-review loop runs on.
+- `decisions` — the typed identity-keyed changes for this logical decision set. Use `defer` or
+  `reject` only with a reason and asserted decision-maker; use `addressedByRevision` only after the
+  revised plan actually addresses that ID. Partial subsets are valid during review. The final
+  `forge.plan.confirm(approved: true)` is the postcondition that requires every active plan ID to
+  be settled or closed.
+
+The optional `deferred` narrative remains Flow-only compatibility text. It never settles an ID and
+never reaches the Critic; authoritative deferrals and rejections are typed `decisions`.
 
 The critic judges the requirements too, and those findings are not all yours to fix. One the
 interview already settles — two requirements you wrote that contradict each other, a condition
@@ -269,10 +374,10 @@ to be rebuilt before you write the new draft.
 
 Every tool result lands in your context and nowhere else — the user sees none of it unless you
 surface it. The server keeps the user-facing timeline for you: every worker call appends its
-outcome to `<runPath>/flow_log.md` — critiques with verdict and findings, your own revision and
-deferrals between plan-review rounds, build results with status and files changed, and each fix
-round's kept and deferred findings. Unlike `review-log.md`, nothing feeds this file back to a
-worker; it exists to be shown.
+outcome to `<runPath>/flow_log.md` — Scout outcomes, critiques with verdict and findings, your own
+revision and typed decisions between plan-review rounds, build results with status and files changed,
+reopening proposals, fix attempts, gate results and closures. Nothing feeds this file back to a
+Worker; it is the audit to show, while the bounded ledger projection is Critic input.
 
 The plan is the second such file. `forge.plan.write` puts the draft at `<runPath>/PLAN.md` before
 the round that judges it starts, and every later round rewrites it, so the user reads the current
@@ -280,12 +385,13 @@ plan while the round runs rather than meeting it once at approval.
 
 Both travel as `documents.flowLog` and `documents.plan`, each with its `path` and what to do with
 it, on every result that has something to show — `forge.plan.write`, every worker act, and on
-Cursor the start and every poll as well. Either can be `null` while its file does not exist yet.
-**Surface the plan in the same turn as the write that created it, and the flow log in the turn its
-first critique arrives** — the flow log does not exist before that first critique, so a path to it
-handed over earlier is a dead link. Neither waits for the end of the run: a link handed over once
-the work is finished is a link to something the user could no longer watch. Then refresh both after
-every later worker act — no host watches the disk for you:
+Cursor the start and every poll as well. The Scout-only `documents.scout` report metadata appears
+only after a successful direct Scout call or a successfully completed Scout job fetch. Either
+ordinary document can be `null` while its file does not exist yet. **Surface the plan in the same
+turn as the write that created it, and the flow log after the first Scout outcome or first critique,
+whichever happens first** — surface its live path in that turn and refresh both after every later
+Worker act; no host watches the disk for you. Neither waits for the end of the run: a link handed
+over once the work is finished is a link to something the user could no longer watch:
 
 - A host that renders local files (the Claude Code desktop app) — show the files, and re-send them
   after each call.
@@ -303,14 +409,15 @@ your host did not declare its roots and the absolute path is all there is.
 However the files are surfaced, keep one line of narration in chat per worker call: the verdict and
 finding count, or the task built and its status, so the user sees the run move without opening
 anything. When chat is all the host has, expand that line to the findings themselves — severity,
-where, what — and for code review say which findings you kept versus deferred, with the reasons.
+where, what and ID — and for code review say which IDs you fixed, deferred, rejected, reopened or
+closed, with the reasons and gate outcome.
 Never paste raw JSON, and never let narration grow into pasting the plan itself — that is what the
 `documents.plan` link is for.
 
 ## Approval
 
 Nothing in the server asks the user anything. Showing them the plan and getting an answer is your
-job, in four steps:
+job, in five steps:
 
 1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
 2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
@@ -331,9 +438,11 @@ job, in four steps:
 4. With a yes, ask once for what the gates need on this host: the value of every `$env:NAME` the
    plan's gates reference, and any path outside the workspace the builder has to write to. Collect
    them in the chat — never write a value into the plan, and never guess one.
-5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and the
-   paths as `builderRoots`. Both are kept for the run and replaced by any later approval; only the
-   variable names reach the log.
+5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment`, the
+   paths as `builderRoots`, and any final plan decisions under one `decisionBatchId`. Use
+   `addressedByRevision` for IDs the final revision fixed and `duplicateOf` for redundant IDs. The
+   call refuses approval and lists every still-unresolved active plan ID. With a no answer, pass
+   `approved: false` and no decisions; leave them for a later review or approved confirmation.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
@@ -395,16 +504,18 @@ before it could report, so before you do anything else read the run's own accoun
 
 - the flow log has a `cut short` entry naming the files the builder had written, which are still on
   disk;
-- the review log has that round's fixes under a `— cut short` heading, meaning the findings may be
-  wholly or partly done;
+- the attempted `fixFindingIds` remain unresolved in the decision ledger, and the Flow audit keeps
+  the cut-short attempt;
 - the task was not counted and no gate ran, so nothing is verified.
 
-Do **not** re-send the same findings as a fresh round, and do not tell the user the work was lost
-before you have looked. Call the same act again: it resumes the same builder session, and the
-builder is told what it had written and that its previous turn was cut short. If you need to know
-where the tree actually stands first, `forge.status` gives you the drift and `git diff` gives you
-the content. Should the retry time out the same way, the work is too big for one call — split it,
-or run the remaining checks yourself and record them with `forge.log.append`.
+Do **not** invent a fresh attempt or tell the user the work was lost before you have looked. Call the
+same act again with the same `fixAttemptId` and exact `fixFindingIds`: it resumes the same Builder
+session and links the retry to the eventual automatic gate closure. If the attempt already reached
+terminal success, the retry returns its saved result without another Builder or gate. If you need to
+know where the tree stands first, `forge.status` gives the ledger summary and drift, and `git diff`
+gives the content. Should the retry time out the same way, the work is too big for one call — split
+the remaining work into a new legal attempt, or run the checks yourself and record them with
+`forge.log.append`.
 
 ## The code-review loop
 
@@ -418,22 +529,31 @@ failed.
 
 Then the loop is yours to run, exactly as with plan review: on non-Cursor hosts, `forge.review.code`
 runs one critic round against the approved plan and `forge.review.fix` hands kept findings to the
-builder; on Cursor, run both acts through start → poll → fetch. Repeat until
+builder; on Cursor, run both acts through start → poll → fetch. The same routing applies to Scout:
+non-Cursor hosts call `forge.scout.run` directly with an explicit `sessionMode`, while Cursor runs
+the `scout` act only through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`. Repeat until
 the verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.
 
-Between the two calls, sort every finding into exactly two piles:
+Between the two calls, classify every identified finding by ID:
 
-- **Pass through** whatever the diff gets wrong: correctness, security, a plan task done badly or
-  not at all. Pass these verbatim — do not soften them, and do not add work the critic never asked
-  for.
-- **Defer** what the approved plan excludes or the user already decided differently. A deferral is
-  a decision, not a deletion: give every one a reason in `deferred`. It lands in the review log, so
-  the next round's critic treats it as settled instead of re-raising it each round.
+- **Fix** unresolved defects the diff gets wrong. Put exactly those IDs in `fixFindingIds`, allocate
+  one `fixAttemptId` for that logical execution, and let the server render their verbatim ledger
+  findings for the Builder.
+- **Defer or reject** what the approved plan excludes or the user already decided differently, with
+  asserted `by` and a reason in one decision batch. This is a decision, not a deletion.
+- **Close a duplicate** when a new ID is semantically the same as a current ID: keep the canonical
+  ID and close the redundant ID with `duplicateOf` plus the reason.
+- **Answer reopening proposals** with `accept` or `decline`. Only acceptance changes the existing
+  settled ID; the Critic cannot reopen it itself. A plan-origin ID accepted here keeps its origin and
+  becomes active in code review.
+- **Host-close** an active code ID only after your own verification, using `hostVerified` with
+  evidence in a decisions-only `review.fix` call.
 
-The bias to hold: when unsure which pile a finding belongs in, pass it through. Deferral is for
-findings the plan settles, never for findings that are inconvenient.
+The bias to hold: when unsure whether to settle a finding, fix it. Deferral and rejection are for
+decisions the plan or user settles, never for findings that are inconvenient. `review.fix` may carry
+decisions and an independent fix attempt together, but the same ID cannot be both decided and fixed.
 
 When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
 findings go to the user with the outcome. They are real findings about real gaps; the plan is the
@@ -444,11 +564,13 @@ only reason they were not fixed here, and they are candidates for the next run.
 This happens at the end of Act 1, after the last interview question and before the first plan
 draft — the depth rule above reads the builder's selection.
 
-Choose vendors and models in two steps, asking at most four questions total, and then ask the two
-instruction questions of step 3 as one round — six questions at the outside. The combinations come
-from the server, not from your own knowledge: `forge.begin` already started every vendor's probe in
-the background, so call `forge.models` (no `vendor` argument) once before the vendor question and
-work from its answer.
+Critic/Builder selection remains at most four questions total: two Vendor questions and two
+model/effort questions. Then ask the two instruction questions of step 3 as one round. A single
+just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
+The combinations come from the server, not from your own knowledge. Call `forge.models` (no
+`vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
+return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
+CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once.
 
 1. Ask for the critic vendor and the builder vendor, offering only vendors the catalogue reports
    `available: true`. Never offer a vendor with `available: false`; its `detail` names the cause —
@@ -493,10 +615,10 @@ work from its answer.
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
    every round and is handed its text every round. A builder holds a session and is handed its text
    only when a session starts, so instructions given after the first task reach it only once a
-   vendor switch or a reopened plan starts a new one — the tool's answer says so when that is the
-   case, and you should pass that on rather than assume it landed. The builder's text is also shown
-   to the code-review critic as context, so that critic does not raise findings for a choice the
-   user asked for.
+   vendor switch, a reopened plan, or direct re-approval after a changed Builder Brief starts a new
+   one — the tool's answer says so when that is the case, and you should pass that on rather than
+   assume it landed. The builder's text is also shown to the code-review critic as context, so that
+   critic does not raise findings for a choice the user asked for.
 
 The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
 refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The

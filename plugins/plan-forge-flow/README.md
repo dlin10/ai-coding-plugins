@@ -1,13 +1,14 @@
-# Plan Forge Flow 0.32.0
+# Plan Forge Flow 0.35.1
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes sixteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes eighteen tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
-rounds, because it is the only participant holding the interview context. The critic and the builder
-are separate model processes, and neither ever revises the plan.
+rounds, because it is the only participant holding the interview context. The Critic, Builder, and
+Scout are separate model processes. Critic reviews and Builder implements against the plan; Scout is
+a read-only bounded-reconnaissance process, and none of the three revises the plan.
 
 ## Workflow
 
@@ -17,16 +18,18 @@ are separate model processes, and neither ever revises the plan.
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
+| `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort selection or an explicit decision to continue without Scout |
+| `forge.scout.run` | Runs one bounded Scout question and returns its bounded digest plus document metadata; the full report is written only to `SCOUT.md` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
-| `forge.plan.review` | One review round: a fresh critic judges the written draft, beside the orchestrator's account of what the previous round changed |
+| `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
-| `forge.plan.confirm` | Records the user's decision on the plan, and the approved tasks when it is yes, with the environment and extra writable roots the gates and the builder need |
+| `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
 | `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
-| `forge.review.fix` | Hands the findings the orchestrator kept to the builder, logs the deferred ones with reasons, then runs the plan's executable `## Gates` on the host |
-| `forge.status` | Reports where the run stands, with filtered working-tree drift since the baseline and any active job's latest stdout activity and recognised event |
-| `forge.work.start` | On Cursor hosts, starts one worker act as a background job |
+| `forge.review.fix` | Applies typed code decisions and optionally fixes exact ledger IDs under a retryable fix-attempt ID, then runs the plan's executable `## Gates` on the host |
+| `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
+| `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job |
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the terminal result of a background worker act |
@@ -43,11 +46,24 @@ revises the plan after `forge.plan.review` and writes the new draft before the n
 `forge.review.code` it filters the findings against the approved plan before `forge.review.fix`
 relays them. That turn is recorded rather than assumed — a plan-review round after the first is
 refused without an account of what the previous one changed, and it lands in the flow log where the
-user reads the two loops as a conversation. The critic and the builder never talk directly — what
-the orchestrator defers is recorded in the review log with its reason, so the next round's critic
-treats it as settled and the user sees it when the review ends. See
+user reads the two loops as a conversation. The critic and the builder never talk directly.
+`decision-ledger.json` is the source of truth for monotonic finding IDs, current dispositions and
+active phases; the Flow log is the complete human-readable audit and is never Worker input. See
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md) for why the sealed loop was
 opened.
+
+Plan review receives entries active in `plan_review`; code review receives settled plan decisions
+plus entries active in `code_review`. A Critic assesses displayed unresolved IDs and may only
+propose reopening a displayed deferred or rejected ID. The Orchestrator accepts or declines,
+filters semantic duplicates with `duplicateOf`, and owns every disposition or closure. Plan
+decisions travel through the next review or final approved confirmation. Code decisions and
+host-verified closures travel through `forge.review.fix`; its Builder sees the verbatim findings for
+the requested fix IDs only.
+
+One `decisionBatchId` names one logical decision set. An exact retry is a no-op; a conflicting reuse
+returns the saved result, and a new key is only for a new legal delta. Fix execution is separate:
+one `fixAttemptId` names one exact sorted ID set. Cut-short, retained and gate-failed executions
+retry that same attempt and set, while a completed retry returns its saved terminal result.
 
 The plan itself is readable from the first round rather than at the end of them: each round starts
 with `forge.plan.write`, which puts the draft at `PLAN.md` and hands back its path in seconds, and
@@ -75,9 +91,10 @@ not be used for, and nothing in this codebase can tell the difference.
 
 ## Vendors
 
-Three vendors can fill either role, chosen per call with the `vendor` argument: the critic's choice
-goes to the two review tools, the builder's to `forge.build.next` and `forge.review.fix`, so the
-roles stay independent:
+Three vendors can fill the Critic, Builder, or Scout role. Critic and Builder are chosen per call
+with the `vendor` argument, while Scout persists its own selection: the critic's choice goes to the
+two review tools, the builder's to `forge.build.next` and `forge.review.fix`, so the roles stay
+independent:
 
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
@@ -95,8 +112,8 @@ Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited w
 the binary — in a checkout. An installed plugin keeps them under its plugin root, where an edit
 reaches every project and is lost on upgrade, so what a user wants said for one run goes through
 `forge.instructions.set` instead. The shared [Roslyn contract](prompts/roslyn-contract.md) is
-appended to every critic prompt; the [scope contract](prompts/scope-contract.md) is appended for
-code review, where the critic judges against the approved plan.
+appended to Critic and Scout prompts; the [scope contract](prompts/scope-contract.md) is appended for
+code review, where the Critic judges against the approved plan.
 
 ## Requirements
 
@@ -161,17 +178,26 @@ instead.
   .gitignore            # contains "*" — the folder ignores itself
   <runId>/
     state.json
+    decision-ledger.json    # authoritative current finding state and idempotency records
     PLAN.md               # the plan as it currently stands, rewritten before every review round
-    review-log.md
-    flow_log.md           # the user-facing timeline
+    SCOUT.md              # the latest successful Scout report, replaced atomically
+    flow_log.md           # the user-facing audit; never Worker input
     forge.log
     telemetry.json        # per-Worker timing and provider-reported token counters
     baseline.patch
 ```
 
-`PLAN.md`, `flow_log.md` and the indented `telemetry.json` are written to be read by a person. The
-tools hand back the first two paths so the orchestrator can put the plan and timeline in front of
-you while the run is still moving; telemetry stays at the stable Run path and adds no MCP result.
+`PLAN.md`, `flow_log.md`, `SCOUT.md`, `decision-ledger.json` and the indented `telemetry.json` are
+human-readable. The tools hand back the plan and timeline paths on worker results, and hand back Scout
+metadata only after a successful Scout call, so the orchestrator can put the current documents in
+front of you while the run is still moving; telemetry stays at the stable Run path and adds no MCP
+result.
+
+In telemetry, `inputTokens` is the complete input processed by the Worker attempt, including cache
+reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that
+total and must not be added to it. Likewise, `outputTokens` is the complete output count and
+`reasoningTokens` is an optional subset of it.
+
 Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
 after an approval takes that flag back.
 

@@ -15,7 +15,7 @@ internal interface IVendor
     /// <param name="selection"></param>
     /// <param name="resumeToken">
     /// A token from an earlier session of the same role. The MCP surface is stateless, so a
-    /// Builder's continuity across separate tool calls has to be carried in the run state.
+    /// Builder's or Scout's continuity across separate tool calls has to be carried in run state.
     /// </param>
     /// <param name="role"></param>
     /// <param name="ct"></param>
@@ -25,7 +25,8 @@ internal interface IVendor
 internal enum VendorRole
 {
     Critic,
-    Builder
+    Builder,
+    Scout
 }
 
 /// <param name="SystemPrompt">Role instructions, loaded from prompts/&lt;vendor&gt;/&lt;role&gt;.md.</param>

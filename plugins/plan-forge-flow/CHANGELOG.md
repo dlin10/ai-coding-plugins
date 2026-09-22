@@ -1,5 +1,72 @@
 # Plan Forge Flow releases
 
+## 0.35.1
+
+Worker telemetry now gives `inputTokens` the same total-input meaning for Claude, Codex and Cursor
+(issue #108).
+
+- Claude and Cursor add cache reads and cache creation to their uncached input counters, while Codex
+  preserves its provider-reported total instead of subtracting cache counters.
+- Cache counters remain optional subsets of `inputTokens`. Missing, malformed, overflowing and
+  inconsistent source values retain independently valid counters without producing a negative or
+  wrapped total.
+
+## 0.35.0
+
+Critic convergence now uses a canonical Run-local decision ledger instead of replaying a growing
+review transcript (issue #101).
+
+- `decision-ledger.json` assigns monotonic finding IDs, persists only unresolved, deferred and
+  rejected dispositions, and records typed decisions, reopenings, closures and retryable fix
+  attempts with atomic replacement and strict validation.
+- Each fresh Critic receives only the bounded projection for its current phase. The Orchestrator is
+  the sole authority for dispositions and reopening decisions, while the Builder receives exactly
+  the ledger findings selected for one fix attempt.
+- Direct and background review paths share idempotent `decisionBatchId`, `fixAttemptId` and
+  `fixFindingIds` contracts. Exact retries are safe, conflicting retries are refused, and successful
+  host gates close only the findings belonging to that attempt.
+- `review-log.md` is removed. Flow remains the user-facing audit, while status, prompts, tool
+  schemas, documentation and package validation reflect the ledger model.
+
+## 0.34.0
+
+Builders now receive the approved plan context above `## Approach` as a Builder Brief once per
+session, before the task or review findings. A fresh session receives the Brief and the user's
+instructions again after a Vendor switch, a reopened plan, or direct re-approval after a changed
+Builder Brief; resumed sessions continue from their existing context.
+
+- The Brief is guarded separately for sensitive input, while task and findings guards keep their
+  existing source labels and line locations. Transient interview notes, rejected alternatives,
+  secrets, and host values stay out of the Vendor-bound context.
+- Tasks remain standalone, change-specific deltas with their own gates and requirement references;
+  they no longer need to restate stable plan context, and the Brief is context rather than work or
+  authority to revise the approved plan.
+
+## 0.33.1
+
+Codex workers installed through npm on Windows now launch `node.exe` with the package's `codex.js`
+entry point instead of forwarding prompt-bearing arguments through `codex.cmd`. This prevents
+`cmd.exe` from interpreting prompt characters such as `<` before Codex starts. Native `codex.exe`
+installations continue to launch directly.
+
+## 0.33.0
+
+Plan Forge can now delegate broad repository reconnaissance to a lazily selected, read-only Scout
+without moving requirements or planning out of the Orchestrator (issue #102).
+
+- New `forge.scout.select` and `forge.scout.run` tools keep Scout's Vendor, model and effort
+  independent of the Critic and Builder, or record an explicit decision to continue without Scout.
+  A failed call never silently changes Vendor or model.
+- Every Scout question is bounded and must explicitly choose a fresh session or continue the
+  existing investigation. The Orchestrator makes that choice; the Scout may use the internet and
+  the Run's granted read-only Worker tools, but cannot edit, plan, judge, or settle requirements.
+- Successful calls return a compact sourced digest and atomically replace `SCOUT.md` with the full
+  report. Repository evidence cites paths and lines or symbols, external evidence cites URLs, and
+  the existing sensitive-input checks cover both questions and reports.
+- Claude, Codex, and Cursor all support the role through their existing read-only launch boundary.
+  Scout also participates in background jobs, status, flow logging, and Worker usage telemetry;
+  the MCP surface now contains eighteen tools.
+
 ## 0.32.0
 
 Every Critic and Builder process launch now leaves a human-readable usage record in the Run's

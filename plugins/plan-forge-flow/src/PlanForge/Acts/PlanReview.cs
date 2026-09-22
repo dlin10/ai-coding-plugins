@@ -37,7 +37,7 @@ internal sealed class PlanReview
     /// What the orchestrator changed in the draft in answer to the previous round's findings.
     /// Required from the second round on — see <see cref="RequireRevision"/>.
     /// </param>
-    /// <param name="deferred">What it decided not to change, and why. Optional in every round.</param>
+    /// <param name="deferred">Optional Flow-only compatibility narrative; it never changes ledger state.</param>
     /// <param name="userGrantedRound">
     /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
     /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
@@ -49,13 +49,29 @@ internal sealed class PlanReview
                                             string? revision,
                                             string? deferred,
                                             bool userGrantedRound,
-                                            CancellationToken ct)
+                                            CancellationToken ct,
+                                            OrchestratorDecisionBatch? orchestratorDecisions = null)
     {
+        if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
+        if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
         var state = run.ReadState();
         if (state.ReviewRounds >= state.ReviewRoundCap && !userGrantedRound)
             throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap);
         var granted = state.ReviewRounds >= state.ReviewRoundCap;
         RequireRevision(state.ReviewRounds, revision);
+        var ledger = run.ReadDecisionLedger();
+        if (orchestratorDecisions is not null)
+        {
+            try
+            {
+                ledger.ValidateOrchestratorBatch(orchestratorDecisions, LedgerPhase.PlanReview);
+            }
+            catch (DecisionLedgerRequestException error)
+            {
+                run.AppendFlowDecisionRejected("Plan review", orchestratorDecisions.DecisionBatchId, error.Message);
+                throw;
+            }
+        }
 
         // The draft is on disk before the critic starts rather than after it finishes: a round runs
         // for minutes, and those minutes are exactly when having the plan to read is worth
@@ -67,12 +83,22 @@ internal sealed class PlanReview
         var round = state.ReviewRounds + 1;
         var systemPrompt = _prompts.LoadPlanReviewCritic(_vendor.Id);
 
-        // Both reach a vendor: the deferral through the next round's review log, the revision only
-        // through the flow log, which no worker reads — but a secret pasted into either is one the
-        // orchestrator is about to hand over, so both are guarded the same way.
-        if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
-        if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
-
+        if (orchestratorDecisions is not null)
+        {
+            try
+            {
+                var decisionResult = ledger.Apply(orchestratorDecisions, LedgerPhase.PlanReview);
+                run.AppendFlowDecisionBatch("Plan review", decisionResult);
+                decisionResult.ThrowIfConflict();
+            }
+            catch (DecisionLedgerRequestException error)
+            {
+                run.AppendFlowDecisionRejected("Plan review", orchestratorDecisions.DecisionBatchId, error.Message);
+                throw;
+            }
+        }
+        // Both reach a vendor through the plan and ledger projection. A secret pasted into either
+        // is one the orchestrator is about to hand over, so both are guarded the same way.
         // The worker tools come from forge.begin because this critic runs before anything is
         // confirmed — see docs/adr/0017.
         await using var session = await _vendor.StartAsync(
@@ -81,10 +107,34 @@ internal sealed class PlanReview
                          Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log, "plan_review", Round: round)),
             selection, resumeToken: null, ct);
 
-        var prompt = Compose(draft, run.ReadReviewLog(), state.CriticInstructions);
+        var prompt = Compose(draft, ledger.RenderProjection(LedgerPhase.PlanReview), state.CriticInstructions);
         SensitiveInput.Guard(prompt, "the plan under review");
 
-        var critique = await session.RunAsync(prompt, Schemas.Critique, ct);
+        VendorCritique wireCritique;
+        try
+        {
+            wireCritique = await session.RunAsync(prompt, Schemas.Critique, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception error)
+        {
+            run.AppendFlowCritiqueRejected("Plan review", round, null, error.Message);
+            throw;
+        }
+
+        Critique critique;
+        try
+        {
+            critique = ledger.IngestCritique(wireCritique, LedgerPhase.PlanReview);
+        }
+        catch (DecisionLedgerCritiqueException error)
+        {
+            run.AppendFlowCritiqueRejected("Plan review", round, wireCritique, error.Message);
+            throw;
+        }
 
         // Written after the critique rather than before it, so an act that died — a vendor timeout,
         // a restarted server — and was retried with the same arguments records the revision once.
@@ -92,10 +142,6 @@ internal sealed class PlanReview
         // retried call with the same arguments spends no grant.
         if (revision is { Length: > 0 })
             run.AppendFlowRevision(state.ReviewRounds, revision, deferred);
-        if (deferred is { Length: > 0 })
-            run.AppendReviewDeferral(state.ReviewRounds, deferred);
-
-        run.AppendReviewRound(round, critique);
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
         run.AppendFlowCritique("Plan review", round, critique);
         run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
@@ -197,18 +243,18 @@ internal sealed class PlanReview
     /// The critic's own instructions come last, after everything it is judging. The builder's never
     /// appear here: they explain code, and at plan review there is none.
     /// </summary>
-    private static string Compose(string planDraft, string reviewLog, string? criticInstructions)
+    private static string Compose(string planDraft, string ledgerProjection, string? criticInstructions)
     {
         var prompt = new StringBuilder()
             .AppendLine("# Plan under review")
             .AppendLine()
             .AppendLine(planDraft);
 
-        if (reviewLog.Length > 0)
+        if (ledgerProjection.Length > 0)
             prompt.AppendLine()
-                  .AppendLine("# Review log from earlier rounds")
+                  .AppendLine(ledgerProjection.TrimEnd())
                   .AppendLine()
-                  .AppendLine(reviewLog);
+                  .AppendLine();
 
         RunInstructions.Append(prompt, criticInstructions);
 
@@ -222,4 +268,4 @@ internal sealed class ReviewCapReachedException(int rounds, int cap)
 
 internal sealed class RevisionMissingException(int round)
     : Exception($"round {round} has already run: pass `revision` saying what you changed in the plan "
-                + "in answer to its findings, and `deferred` for what you decided not to change, with reasons");
+                + "in answer to its findings, and pass any authoritative finding decisions through `decisions`");

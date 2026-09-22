@@ -40,7 +40,13 @@ internal static partial class PlanTasks
         return tasks;
     }
 
-    [GeneratedRegex("^## Approach$", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
+    public static string Brief(string plan)
+    {
+        var heading = ApproachHeading().Match(plan);
+        return plan[..heading.Index];
+    }
+
+    [GeneratedRegex("^## Approach\\r?$", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
     private static partial Regex ApproachHeading();
 
     [GeneratedRegex("\\n##\\s+", RegexOptions.CultureInvariant)]

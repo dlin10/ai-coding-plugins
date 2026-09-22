@@ -1,5 +1,6 @@
 using PlanForge.Acts;
 using PlanForge.Prompts;
+using PlanForge.Review;
 using PlanForge.Run;
 using PlanForge.Vendors;
 using Xunit;
@@ -17,6 +18,9 @@ public sealed class BuildTests : IDisposable
         1. First task.
         2. Second task.
         """;
+
+    private const string SensitiveBriefPlan =
+        "# Toy plan\n\napi_key: Abcdefghijklmnop1234+\n\n## Approach\n\n1. First task.\n";
 
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
 
@@ -486,6 +490,247 @@ public sealed class BuildTests : IDisposable
         // The brief is about the turn that follows it and nothing later, so the retry clears it.
         Assert.Equal(1, outcome.TasksCompleted);
         Assert.Null(run.ReadState().PendingGateFailure);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_initial_build_has_brief_before_task_and_excludes_other_tasks()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("", "");
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var prompt = Assert.Single(vendor.Sessions).PromptText;
+        var brief = prompt.IndexOf("# Builder Brief", StringComparison.Ordinal);
+        var task = prompt.IndexOf("# Task 1 of 2", StringComparison.Ordinal);
+        var instructions = prompt.IndexOf("# Instructions from the user for this run", StringComparison.Ordinal);
+        Assert.True(brief >= 0 && brief < task && task < instructions);
+        Assert.Contains("# Toy plan", prompt, StringComparison.Ordinal);
+        Assert.Contains("First task.", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Second task.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_resumed_later_task_omits_brief_and_instructions()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "first-token");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "second-token");
+        var run = NewRun("fake", "");
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = vendor.Sessions[1];
+        Assert.Equal("first-token", session.StartedWithResumeToken);
+        Assert.Contains("# Task 2 of 2", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Instructions", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_resumed_gate_retry_omits_brief_and_instructions()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "first-token");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "retried"), "second-token");
+        var plan = "# Toy plan\n\n" + GatedPlan("cmd /c exit 3", "Write-Output second");
+        var run = NewRun("fake", "", plan);
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = vendor.Sessions[1];
+        Assert.Equal("first-token", session.StartedWithResumeToken);
+        Assert.Contains("did not pass its gate", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Instructions", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_next_build_after_no_resume_token_starts_fresh_again()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "first"));
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "second"));
+        var run = NewRun("fake", "");
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = vendor.Sessions[1];
+        Assert.Null(session.StartedWithResumeToken);
+        Assert.Contains("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Task 2 of 2", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_vendor_switch_with_pending_failure_has_full_fresh_ordering()
+    {
+        var vendor = new RecordingVendor("new-vendor");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("old-vendor", "old-token");
+        run.WriteState(run.ReadState() with
+        {
+            PendingGateFailure = "cmd /c exit 3 exited 3",
+            BuilderInstructions = "use the ponytail-net skill"
+        });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = Assert.Single(vendor.Sessions);
+        Assert.Null(session.StartedWithResumeToken);
+        var brief = session.PromptText.IndexOf("# Builder Brief", StringComparison.Ordinal);
+        var task = session.PromptText.IndexOf("# Task 1 of 2", StringComparison.Ordinal);
+        var pending = session.PromptText.IndexOf("# The previous attempt did not pass its gate", StringComparison.Ordinal);
+        var instructions = session.PromptText.IndexOf("# Instructions from the user for this run", StringComparison.Ordinal);
+        Assert.True(brief >= 0 && brief < task && task < pending && pending < instructions);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_reopened_and_reapproved_plan_starts_fresh()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("fake", "old-token");
+        run.WriteState(run.ReadState() with { Approved = false, BuilderSessionId = string.Empty });
+        run.WriteState(run.ReadState() with
+        {
+            Approved = true,
+            BuilderInstructions = "use the ponytail-net skill"
+        });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = Assert.Single(vendor.Sessions);
+        Assert.Null(session.StartedWithResumeToken);
+        Assert.Contains("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_direct_reapproval_with_changed_brief_delivers_brief_and_instructions_again()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("fake", "old-token", Plan.Replace("# Toy plan", "# New toy plan", StringComparison.Ordinal));
+        run.WriteState(run.ReadState() with
+        {
+            BuilderSessionId = string.Empty,
+            BuilderInstructions = "use the ponytail-net skill"
+        });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = Assert.Single(vendor.Sessions);
+        Assert.Null(session.StartedWithResumeToken);
+        Assert.Contains("# New toy plan", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Toy plan", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_task_only_direct_reapproval_preserves_resumed_session()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "next-token");
+        var plan = Plan.Replace("First task.", "Updated first task.", StringComparison.Ordinal);
+        var run = NewRun("fake", "old-token", plan);
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = Assert.Single(vendor.Sessions);
+        Assert.Equal("old-token", session.StartedWithResumeToken);
+        Assert.Contains("Updated first task.", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Instructions", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_sensitive_brief_is_refused_before_build_vendor_start()
+    {
+        var vendor = new RecordingVendor("fake");
+        var run = NewRun("", "", SensitiveBriefPlan);
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+                .NextAsync(run, new Selection("builder-model", null), CancellationToken.None));
+
+        Assert.Contains("the Builder Brief", error.Message, StringComparison.Ordinal);
+        Assert.Contains("line 3", error.Message, StringComparison.Ordinal);
+        Assert.Empty(vendor.Sessions);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_sensitive_brief_recovers_after_clean_direct_reapproval()
+    {
+        var vendor = new RecordingVendor("fake");
+        var run = NewRun("", "", SensitiveBriefPlan);
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None));
+
+        run.WritePlan("# Clean toy plan\n\n## Approach\n\n1. First task.\n");
+        run.WriteState(run.ReadState() with { BuilderSessionId = string.Empty });
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var session = Assert.Single(vendor.Sessions);
+        Assert.Null(session.StartedWithResumeToken);
+        Assert.Contains("# Clean toy plan", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Builder Brief", session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", session.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_sensitive_task_keeps_task_localization_with_brief()
+    {
+        var vendor = new RecordingVendor("fake");
+        var plan = "# Toy plan\n\n## Approach\n\n1. api_key: Abcdefghijklmnop1234+\n";
+        var run = NewRun("", "", plan);
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+                .NextAsync(run, new Selection("builder-model", null), CancellationToken.None));
+
+        Assert.Contains("task 1", error.Message, StringComparison.Ordinal);
+        Assert.Contains("line 3", error.Message, StringComparison.Ordinal);
+        Assert.Empty(vendor.Sessions);
+    }
+
+    [Fact]
+    public async Task Builder_brief_delivery_whitespace_only_preamble_has_no_empty_brief_heading()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
+        var run = NewRun("", "", "\n\n## Approach\n\n1. First task.\n");
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
+            .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        var prompt = Assert.Single(vendor.Sessions).PromptText;
+        Assert.DoesNotContain("# Builder Brief", prompt, StringComparison.Ordinal);
+        Assert.Contains("# Task 1 of 1", prompt, StringComparison.Ordinal);
+        Assert.Contains("# Instructions from the user for this run", prompt, StringComparison.Ordinal);
     }
 
     private static string GatedPlan(string firstGate, string secondGate) =>

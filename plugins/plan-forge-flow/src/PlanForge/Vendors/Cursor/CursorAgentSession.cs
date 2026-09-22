@@ -33,7 +33,7 @@ internal sealed class CursorAgentSession : IVendorSession
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
 
-    public bool CanResume => _role.Role is VendorRole.Builder;
+    public bool CanResume => _role.Role is VendorRole.Builder or VendorRole.Scout;
 
     public string? ResumeToken => CanResume ? _chatId : null;
 
@@ -228,7 +228,7 @@ internal sealed class CursorAgentSession : IVendorSession
     {
         // Headless runs load global and plugin MCP servers but drop the workspace .cursor/mcp.json
         // ones unless they are approved at launch; "cursor-agent mcp enable" does not reach print
-        // mode (measured against 2026.08.11-e8db854). Without this flag both roles lose
+        // mode (measured against 2026.08.11-e8db854). Without this flag worker roles lose
         // solution-local servers such as roslyn-mcp. It approves every configured server, so a
         // plan-mode critic can also reach the user's global MCP servers.
         var arguments = new List<string>
@@ -241,10 +241,11 @@ internal sealed class CursorAgentSession : IVendorSession
             "--model", ModelWithEffort()
         };
 
-        // A critic judges; it does not edit. Plan mode is this vendor's own read-only profile, and
-        // it is the only thing standing between --force and a reviewer — or a subagent it spawned —
-        // deciding to fix what it just found. Codex gets this from its sandbox instead.
-        if (_role.Role is VendorRole.Critic)
+        // A critic judges and a Scout gathers evidence; neither edits. Plan mode is this vendor's
+        // own read-only profile, and it is the only thing standing between --force and a worker —
+        // or a subagent it spawned — deciding to change what it just found. Codex gets this from
+        // its sandbox instead.
+        if (_role.Role is VendorRole.Critic or VendorRole.Scout)
         {
             arguments.Add("--mode");
             arguments.Add("plan");

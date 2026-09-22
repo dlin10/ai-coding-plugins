@@ -23,7 +23,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     private readonly IReadOnlyList<string> _grantedServers;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
-    // Set on the first run so a Builder's later tasks resume the same conversation.
+    // Set on the first run so a resumable role's later calls resume the same conversation.
     private string? _sessionId;
 
     // tool_result blocks name their call by id only; the tool_use block carried the name.
@@ -44,7 +44,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
     /// <param name="workingDirectory">The workspace the worker runs in.</param>
-    /// <param name="resumeToken">The builder session to resume, when one exists.</param>
+    /// <param name="resumeToken">The builder or Scout session to resume, when one exists.</param>
     /// <param name="grantedServers">The MCP servers this worker may call unasked, as claude lists them.</param>
     public ClaudeCliSession(RoleSpec role,
                             Selection selection,
@@ -61,7 +61,7 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
 
-    public bool CanResume => _role.Role is VendorRole.Builder;
+    public bool CanResume => _role.Role is VendorRole.Builder or VendorRole.Scout;
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
@@ -437,8 +437,10 @@ internal sealed class ClaudeCliSession : IVendorSession
 
         // A headless worker asks nobody, so anything its rules do not cover is refused (issue #90).
         // Only a builder gets the shell: a blanket rule is what lifts claude's safety checks as well,
-        // which a pattern rule does not, and a critic judges rather than runs.
-        List<string> allowed = CanResume ? ["Bash", "PowerShell"] : [];
+        // which a pattern rule does not, and a critic or Scout gathers evidence rather than edits.
+        List<string> allowed = _role.Role is VendorRole.Builder ? ["Bash", "PowerShell"]
+                                                                 : _role.Role is VendorRole.Scout
+                                                                     ? ["WebSearch", "WebFetch"] : [];
         allowed.AddRange(_grantedServers.Select(ToolRule));
         if (allowed.Count > 0)
         {
@@ -446,12 +448,20 @@ internal sealed class ClaudeCliSession : IVendorSession
             arguments.Add(string.Join(",", allowed));
         }
 
-        if (CanResume)
+        if (_role.Role is VendorRole.Builder)
         {
             // The Builder edits files, so it needs its edits to land without a prompt.
             arguments.Add("--permission-mode");
             arguments.Add("acceptEdits");
 
+            if (_sessionId is not null)
+            {
+                arguments.Add("--resume");
+                arguments.Add(_sessionId);
+            }
+        }
+        else if (CanResume)
+        {
             if (_sessionId is not null)
             {
                 arguments.Add("--resume");

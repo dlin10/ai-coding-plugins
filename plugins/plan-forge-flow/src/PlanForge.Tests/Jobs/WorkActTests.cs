@@ -131,21 +131,25 @@ public sealed class WorkActTests : IDisposable
     [Fact]
     public async Task Review_fix_dispatch_matches_the_direct_act_and_updates_resume_state()
     {
-        const string findings = "- **major** tracked.cs — fix it";
-        const string deferred = "- coverage — outside the plan";
         var directVendor = new RecordingVendor("codex");
         var response = new BuildResult("done", ["tracked.cs"], new Verification("passed", "the checks ran"), "fixed");
         directVendor.Enqueue(response, "next");
         var directRun = NewApprovedRun("fix-direct", "codex", "old");
+        var directFinding = directRun.ReadDecisionLedger().AddFinding(
+            new Finding("major", "tracked.cs", "fix it"), LedgerPhase.CodeReview);
         var direct = await new ReviewFix(directVendor, _prompts).FixAsync(
-            directRun, new Selection("builder", null), findings, deferred, CancellationToken.None);
+            directRun, new Selection("builder", null), null, "fix", [directFinding.FindingId],
+            CancellationToken.None);
 
         var dispatchedVendor = new RecordingVendor("codex");
         dispatchedVendor.Enqueue(response, "next");
         var dispatchedRun = NewApprovedRun("fix-dispatched", "codex", "old");
+        var dispatchedFinding = dispatchedRun.ReadDecisionLedger().AddFinding(
+            new Finding("major", "tracked.cs", "fix it"), LedgerPhase.CodeReview);
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "review.fix", dispatchedRun, null, new Selection("builder", null), findings, deferred, null,
-            false, CancellationToken.None);
+            "review.fix", dispatchedRun, null, new Selection("builder", null), null, null, null,
+            false, CancellationToken.None, decisions: null, fixAttemptId: "fix",
+            fixFindingIds: [dispatchedFinding.FindingId]);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.BuildResult), payload);
         Assert.Equal(directRun.ReadState().BuilderSessionId, dispatchedRun.ReadState().BuilderSessionId);
@@ -153,18 +157,17 @@ public sealed class WorkActTests : IDisposable
     }
 
     [Fact]
-    public async Task Blank_review_fix_findings_take_the_deferred_only_path()
+    public async Task Raw_review_fix_findings_and_deferred_are_rejected()
     {
         var vendor = new RecordingVendor("codex");
         var run = NewApprovedRun("fix-deferred");
 
-        var payload = await new WorkAct(vendor, _prompts).RunAsync(
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(vendor, _prompts).RunAsync(
             "review.fix", run, null, new Selection("builder", null), " \n", "- outside the plan", null,
-            false, CancellationToken.None);
+            false, CancellationToken.None));
 
         Assert.Empty(vendor.Sessions);
-        Assert.Contains("\"status\":\"done\"", payload, StringComparison.Ordinal);
-        Assert.Contains("outside the plan", run.ReadReviewLog(), StringComparison.Ordinal);
+        Assert.Empty(run.ReadDecisionLedger().Snapshot.AppliedDecisionBatches);
     }
 
     [Fact]
@@ -175,6 +178,29 @@ public sealed class WorkActTests : IDisposable
                 false, CancellationToken.None));
 
         Assert.Contains("unknown work act", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Legacy_blank_optional_arguments_keep_their_existing_per_act_behavior()
+    {
+        var selection = new Selection("model", null);
+
+        WorkAct.ValidateArguments("plan.review", "", selection, "", "", "", false);
+        WorkAct.ValidateArguments("build.next", "", selection, "", "", "", false);
+        WorkAct.ValidateArguments("review.code", "", selection, "", "", "", false);
+        Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments("review.fix", "", selection, "", "", "", false));
+    }
+
+    [Fact]
+    public void Legacy_scout_only_arguments_reject_even_empty_presence()
+    {
+        var selection = new Selection("model", null);
+
+        Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, "", null));
+        Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, null, ""));
     }
 
     private RunDirectory NewRun(string runId)

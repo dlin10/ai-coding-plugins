@@ -78,12 +78,13 @@ public sealed class InstructionsTests : IDisposable
     }
 
     [Fact]
-    public void Instructions_set_while_a_builder_session_runs_answer_with_a_note()
+    public void Builder_brief_plan_instruction_note_names_changed_brief_reapproval()
     {
         var run = NewRun(builderSessionId: "running-token");
 
-        Assert.Contains("will not see them", RunInstructions.Set(run, null, "use the ponytail-net skill").Note!,
-                        StringComparison.Ordinal);
+        var note = RunInstructions.Set(run, null, "use the ponytail-net skill").Note!;
+        Assert.Contains("will not see them", note, StringComparison.Ordinal);
+        Assert.Contains("direct re-approval after a changed Builder Brief", note, StringComparison.Ordinal);
         Assert.Null(RunInstructions.Set(run, "answer in Russian", null).Note);
         Assert.Null(RunInstructions.Set(NewRun(), null, "use the ponytail-net skill").Note);
     }
@@ -222,8 +223,12 @@ public sealed class InstructionsTests : IDisposable
         RunInstructions.Set(run, null, "use the ponytail-net skill");
 
         var act = new ReviewFix(vendor, Prompts());
-        await act.FixAsync(run, NewSelection(), "R1 is unverified", null, CancellationToken.None);
-        await act.FixAsync(run, NewSelection(), "R2 is unverified", null, CancellationToken.None);
+        var first = run.ReadDecisionLedger().AddFinding(
+            new Finding("major", "R1", "is unverified"), LedgerPhase.CodeReview);
+        await act.FixAsync(run, NewSelection(), null, "fix-1", [first.FindingId], CancellationToken.None);
+        var second = run.ReadDecisionLedger().AddFinding(
+            new Finding("major", "R2", "is unverified"), LedgerPhase.CodeReview);
+        await act.FixAsync(run, NewSelection(), null, "fix-2", [second.FindingId], CancellationToken.None);
 
         Assert.Contains("use the ponytail-net skill", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
         Assert.Equal("fix-token", vendor.Sessions[1].StartedWithResumeToken);

@@ -88,9 +88,8 @@ public sealed class EndToEndTests : IDisposable
             _output.WriteLine($"review round {rounds}: verdict={critique.Verdict} findings={critique.Findings.Count}");
             if (critique.Verdict is "approve") break;
 
-            var findings = string.Join('\n', critique.Findings
-                .Select(f => $"- **{f.Severity}** {f.Where} — {f.What}"));
-            await fix.FixAsync(run, selection, findings.Length > 0 ? findings : critique.Summary, null, ct);
+            var findingIds = critique.Findings.Select(finding => finding.FindingId!).ToArray();
+            await fix.FixAsync(run, selection, null, $"fix-{rounds}", findingIds, ct);
         }
 
         _output.WriteLine(await File.ReadAllTextAsync(mathFile, ct));

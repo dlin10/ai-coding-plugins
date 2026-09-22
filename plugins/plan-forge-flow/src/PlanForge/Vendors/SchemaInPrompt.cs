@@ -19,6 +19,7 @@ internal static class SchemaInPrompt
             .AppendLine(prompt)
             .AppendLine()
             .AppendLine("Reply with a single JSON object and nothing else — no prose, no code fence.")
+            .AppendLine("Every required array must be present even when it is empty, and no extra properties are allowed.")
             .AppendLine("It must validate against this schema:")
             .AppendLine()
             .AppendLine(schemaJson);

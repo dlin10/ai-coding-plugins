@@ -12,6 +12,7 @@ internal sealed class PromptLibrary(string? root = null)
     private const string PromptsFolder = "prompts";
     private const string BuilderContractFile = "builder-contract.md";
     private const string CriticContractFile = "critic-contract.md";
+    private const string ScoutContractFile = "scout-contract.md";
     private const string RoslynContractFile = "roslyn-contract.md";
     private const string ScopeContractFile = "scope-contract.md";
     private const string RequirementsContractFile = "requirements-contract.md";
@@ -55,14 +56,19 @@ internal sealed class PromptLibrary(string? root = null)
     }
 
     /// <summary>
-    /// The role contract carries the whole of what a builder or a critic is told; a vendor file
+    /// The role contract carries the whole of what a builder, critic, or scout is told; a vendor file
     /// adds only what differs about that vendor — how it must hand its answer back — and a vendor
     /// with nothing to add has no file at all. The role text lived in three copies until they
     /// drifted, which is the same fault the 1.x roslyn copies had.
     /// </summary>
     public string Load(string vendorId, VendorRole role)
     {
-        var contract = Path.Combine(_root, role is VendorRole.Critic ? CriticContractFile : BuilderContractFile);
+        var contract = Path.Combine(_root, role switch
+        {
+            VendorRole.Critic => CriticContractFile,
+            VendorRole.Scout => ScoutContractFile,
+            _ => BuilderContractFile
+        });
         if (!File.Exists(contract))
             throw new PromptNotFoundException(contract);
 
@@ -75,7 +81,7 @@ internal sealed class PromptLibrary(string? root = null)
         // it was called into, so both are told to leave that surface alone.
         prompt = Append(prompt, OrchestrationContractFile);
 
-        return role is VendorRole.Critic ? Append(prompt, RoslynContractFile) : prompt;
+        return role is VendorRole.Critic or VendorRole.Scout ? Append(prompt, RoslynContractFile) : prompt;
     }
 
     /// <summary>

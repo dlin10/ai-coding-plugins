@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
@@ -136,7 +137,7 @@ public sealed class ToolSurfaceTests
 
         var schema = tool.ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots"],
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots", "decisions"],
                      properties.EnumerateObject().Select(property => property.Name));
         Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
@@ -144,9 +145,130 @@ public sealed class ToolSurfaceTests
         Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_published_surface_has_eighteen_tools_including_both_scout_tools()
+    {
+        var tools = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Select(method => method.GetCustomAttribute<McpServerToolAttribute>())
+            .Where(attribute => attribute is not null)
+            .Select(attribute => attribute!.Name)
+            .ToList();
+
+        Assert.Equal(18, tools.Count);
+        Assert.Contains("forge.scout.select", tools);
+        Assert.Contains("forge.scout.run", tools);
+    }
+
+    [Fact]
+    public void Scout_run_requires_session_mode_and_has_only_its_four_arguments()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.ScoutRun));
+        var properties = schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).ToList();
+
+        Assert.Equal(["workspaceRoot", "runId", "question", "sessionMode"], properties);
+        Assert.Equal(["workspaceRoot", "runId", "question", "sessionMode"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+    }
+
+    [Fact]
+    public void Scout_selection_publishes_enabled_as_required_and_selection_fields_as_optional()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.SelectScout));
+        var properties = schema.GetProperty("properties");
+        var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        foreach (var name in new[] { "workspaceRoot", "runId", "enabled", "vendor", "model", "effort" })
+            Assert.True(properties.TryGetProperty(name, out _), $"forge.scout.select is missing {name}");
+        foreach (var name in new[] { "workspaceRoot", "runId", "enabled" })
+            Assert.Contains(name, required);
+        foreach (var name in new[] { "vendor", "model", "effort" })
+            Assert.DoesNotContain(name, required);
+    }
+
+    [Fact]
+    public void Background_start_keeps_model_optional_but_publishes_question_and_session_mode()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.StartWork));
+        var properties = schema.GetProperty("properties");
+        var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        foreach (var name in new[] { "act", "model", "question", "sessionMode" })
+            Assert.True(properties.TryGetProperty(name, out _), $"forge.work.start is missing {name}");
+        Assert.Contains("act", required);
+        Assert.DoesNotContain("model", required);
+        Assert.DoesNotContain("question", required);
+        Assert.DoesNotContain("sessionMode", required);
+    }
+
+    [Fact]
+    public void Work_start_description_names_all_five_acts_and_status_names_scout_state()
+    {
+        var start = typeof(ForgeTools).GetMethod(nameof(ForgeTools.StartWork), BindingFlags.Public | BindingFlags.Static)!;
+        var status = typeof(ForgeTools).GetMethod(nameof(ForgeTools.Status), BindingFlags.Public | BindingFlags.Static,
+                                                  binder: null, types: [typeof(JobRegistry), typeof(SessionRoots), typeof(string), typeof(string), typeof(CancellationToken)], modifiers: null)!;
+        var actDescription = start.GetParameters().Single(parameter => parameter.Name == "act")
+            .GetCustomAttribute<DescriptionAttribute>()!.Description;
+
+        Assert.Contains("plan.review", actDescription, StringComparison.Ordinal);
+        Assert.Contains("build.next", actDescription, StringComparison.Ordinal);
+        Assert.Contains("review.code", actDescription, StringComparison.Ordinal);
+        Assert.Contains("review.fix", actDescription, StringComparison.Ordinal);
+        Assert.Contains("scout", actDescription, StringComparison.Ordinal);
+        Assert.Contains("run.scout", status.GetCustomAttribute<DescriptionAttribute>()!.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scout_prompt_bundle_and_skill_markers_are_shipped()
+    {
+        var prompts = PromptLibrary.Locate(null);
+        foreach (var path in new[]
+                 {
+                     Path.Combine(prompts, "scout-contract.md"),
+                     Path.Combine(prompts, "claude", "scout.md"),
+                     Path.Combine(prompts, "cursor", "scout.md")
+                 })
+            Assert.True(File.Exists(path), $"missing Scout prompt asset: {path}");
+
+        var skill = File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "SKILL.md"));
+        Assert.Contains("multi-module", skill, StringComparison.Ordinal);
+        Assert.Contains("forge.scout.run", skill, StringComparison.Ordinal);
+        Assert.Contains("documents.scout", skill, StringComparison.Ordinal);
+    }
+
+    private static System.Text.Json.JsonElement SchemaFor(string methodName)
+    {
+        var services = new ServiceCollection()
+            .AddSingleton(SessionRoots.None)
+            .AddSingleton(new JobRegistry())
+            .BuildServiceProvider();
+        var method = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(candidate => candidate.Name == methodName
+                && candidate.GetCustomAttribute<McpServerToolAttribute>() is not null);
+        var tool = McpServerTool.Create(method,
+                                        options: new McpServerToolCreateOptions
+                                        {
+                                            Services = services,
+                                            SerializerOptions = ToolArgumentJson.ArgumentOptions
+                                        });
+        return tool.ProtocolTool.InputSchema.Clone();
+    }
+
     private static ValueTask<CallToolResult> Surfaced(Exception error) =>
         ToolErrors.Surfaced((_, _) => throw error)(null!, CancellationToken.None);
 
     private static string Text(CallToolResult result) =>
         string.Concat(result.Content.OfType<TextContentBlock>().Select(block => block.Text));
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "skills", "forge", "SKILL.md")))
+                return directory.FullName;
+            directory = directory.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate the repository root.");
+    }
 }

@@ -363,24 +363,24 @@ function validateSync() {
 }
 
 /**
- * Every plugin folder must be listed in the catalog of each host it ships a manifest for.
- * A folder merged without its catalog entry is invisible to that host, and the per-catalog
- * checks never look at folders no catalog mentions.
+ * Every folder that ships a host manifest must be listed in that host's catalog. A manifest
+ * merged without its catalog entry is invisible to that host, and the per-catalog checks never
+ * look at folders no catalog mentions. Directories without host manifests are not plugins.
  */
-function validateCatalogCoverage() {
+export function validateCatalogCoverage(root = repoRoot, report = fail) {
   const hosts = [
     { catalog: '.agents/plugins/marketplace.json', manifest: '.codex-plugin', source: (entry) => entry.source?.path },
     { catalog: '.claude-plugin/marketplace.json', manifest: '.claude-plugin', source: (entry) => entry.source },
     { catalog: '.cursor-plugin/marketplace.json', manifest: '.cursor-plugin', source: (entry) => entry.source },
   ].map((host) => {
-    const catalogPath = join(repoRoot, host.catalog);
+    const catalogPath = join(root, host.catalog);
     // A missing or invalid catalog is already reported by the per-host checks.
     const catalog = existsSync(catalogPath) ? readJson(catalogPath) : null;
     const sources = (catalog?.plugins ?? []).map(host.source).filter((source) => typeof source === 'string');
-    return { ...host, listed: catalog && new Set(sources.map((source) => resolve(repoRoot, source))) };
+    return { ...host, listed: catalog && new Set(sources.map((source) => resolve(root, source))) };
   });
 
-  const pluginsDir = join(repoRoot, 'plugins');
+  const pluginsDir = join(root, 'plugins');
   for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     // Shared code, not a plugin, nothing ships it. See docs/adr/0001.
@@ -389,12 +389,10 @@ function validateCatalogCoverage() {
     if (entry.name.startsWith('.')) continue;
     const pluginDir = join(pluginsDir, entry.name);
     const shipped = hosts.filter((host) => existsSync(join(pluginDir, host.manifest, 'plugin.json')));
-    if (shipped.length === 0) {
-      fail(`plugins/${entry.name}: no .codex-plugin, .claude-plugin, or .cursor-plugin manifest, so no host can load it`);
-    }
+    if (shipped.length === 0) continue;
     for (const host of shipped) {
       if (host.listed && !host.listed.has(pluginDir)) {
-        fail(`plugins/${entry.name}: ships ${host.manifest}/plugin.json but is not listed in ${host.catalog}`);
+        report(`plugins/${entry.name}: ships ${host.manifest}/plugin.json but is not listed in ${host.catalog}`);
       }
     }
   }
@@ -551,7 +549,9 @@ async function main() {
   console.log('Plugin validation passed.');
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

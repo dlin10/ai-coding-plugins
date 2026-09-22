@@ -27,7 +27,8 @@ internal sealed class Build
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
-        var tasks = PlanTasks.Parse(run.ReadPlan());
+        var plan = run.ReadPlan();
+        var tasks = PlanTasks.Parse(plan);
         if (state.TasksCompleted >= tasks.Count)
             return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
@@ -42,6 +43,9 @@ internal sealed class Build
         var prompt = Compose(task, tasks.Count, state.PendingGateFailure,
                              resumeToken is null ? state.BuilderInstructions : null);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
+        if (resumeToken is null)
+            prompt = BuilderBrief.Prepend(prompt, plan);
+
         await using var session = await _vendor.StartAsync(new RoleSpec(VendorRole.Builder, _prompts.Load(_vendor.Id, VendorRole.Builder),
                                                                         state.BuilderRoots, WorkerTools.Effective(state.WorkerTools),
                                                                         new WorkerTelemetryContext(run.TelemetryPath, run.Log, "build",

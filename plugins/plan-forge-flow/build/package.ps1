@@ -170,9 +170,10 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
+        if ($tools.Count -ne 18) { throw "published executable must expose exactly eighteen forge.* tools, found $($tools.Count)" }
         # The canvas is two halves that only work together: the tool has to point at the resource,
         # and the resource has to come back as an MCP App. Either half alone renders nothing.
         $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1
@@ -218,11 +219,18 @@ function Test-PublishedServer([string]$Executable) {
         if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('act', 'planDraft', 'userGrantedRound')) {
+        foreach ($parameter in @('act', 'model', 'question', 'sessionMode', 'planDraft', 'userGrantedRound')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('effort', 'vendor', 'planDraft', 'findings', 'deferred', 'userGrantedRound')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'planDraft', 'findings', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'userGrantedRound', 'question', 'sessionMode')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
+        }
+        if ($workStart.inputSchema.properties.act.description -notmatch '(?i)plan\.review.*build\.next.*review\.code.*review\.fix.*scout') {
+            throw 'forge.work.start act argument description does not list all five worker acts'
+        }
+        $status = $tools | Where-Object { $_.name -eq 'forge.status' } | Select-Object -First 1
+        if ($status.description -notmatch '(?i)run\.scout') {
+            throw 'forge.status description does not expose run.scout state'
         }
         $workCancel = $tools | Where-Object { $_.name -eq 'forge.work.cancel' } | Select-Object -First 1
         $workCancelProperties = @($workCancel.inputSchema.properties.PSObject.Properties.Name)
@@ -235,7 +243,7 @@ function Test-PublishedServer([string]$Executable) {
         # the resolver chain lost it and the server refused to start describing them.
         $confirm = $tools | Where-Object { $_.name -eq 'forge.plan.confirm' } | Select-Object -First 1
         $confirmProperties = @($confirm.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('plan', 'approved', 'gateEnvironment', 'builderRoots')) {
+        foreach ($parameter in @('plan', 'approved', 'decisions', 'gateEnvironment', 'builderRoots')) {
             if ($confirmProperties -notcontains $parameter) { throw "forge.plan.confirm schema is missing $parameter" }
         }
         if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots') {
@@ -247,6 +255,11 @@ function Test-PublishedServer([string]$Executable) {
         if (($confirm.inputSchema.properties.builderRoots | ConvertTo-Json -Compress) -notmatch 'array') {
             throw 'forge.plan.confirm publishes builderRoots as something other than an array'
         }
+        $planReview = $tools | Where-Object { $_.name -eq 'forge.plan.review' } | Select-Object -First 1
+        $planReviewProperties = @($planReview.inputSchema.properties.PSObject.Properties.Name)
+        if ($planReviewProperties -notcontains 'decisions') {
+            throw 'forge.plan.review schema is missing decisions'
+        }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('model', 'effort', 'vendor', 'userGrantedRound')) {
@@ -257,19 +270,49 @@ function Test-PublishedServer([string]$Executable) {
         }
         $reviewFix = $tools | Where-Object { $_.name -eq 'forge.review.fix' } | Select-Object -First 1
         $reviewFixProperties = @($reviewFix.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('findings', 'deferred', 'model', 'effort', 'vendor')) {
+        foreach ($parameter in @('decisions', 'fixAttemptId', 'fixFindingIds', 'model', 'effort', 'vendor')) {
             if ($reviewFixProperties -notcontains $parameter) { throw "forge.review.fix schema is missing $parameter" }
+        }
+        foreach ($legacyParameter in @('findings', 'deferred')) {
+            if ($reviewFixProperties -contains $legacyParameter) { throw "forge.review.fix still exposes $legacyParameter" }
+        }
+        if (($reviewFix.inputSchema.properties.fixFindingIds | ConvertTo-Json -Compress) -notmatch 'array') {
+            throw 'forge.review.fix publishes fixFindingIds as something other than an array'
+        }
+        foreach ($tool in @($planReview, $confirm, $reviewFix, $workStart)) {
+            if (@($tool.inputSchema.properties.PSObject.Properties.Name) -notcontains 'decisions') {
+                throw "$($tool.name) schema is missing typed decisions"
+            }
+        }
+        $scoutSelect = $tools | Where-Object { $_.name -eq 'forge.scout.select' } | Select-Object -First 1
+        $scoutSelectProperties = @($scoutSelect.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('workspaceRoot', 'runId', 'enabled', 'vendor', 'model', 'effort')) {
+            if ($scoutSelectProperties -notcontains $parameter) { throw "forge.scout.select schema is missing $parameter" }
+        }
+        foreach ($parameter in @('workspaceRoot', 'runId', 'enabled')) {
+            if (@($scoutSelect.inputSchema.required) -notcontains $parameter) { throw "forge.scout.select schema must require $parameter" }
+        }
+        foreach ($parameter in @('vendor', 'model', 'effort')) {
+            if (@($scoutSelect.inputSchema.required) -contains $parameter) { throw "forge.scout.select schema incorrectly requires $parameter" }
+        }
+        $scoutRun = $tools | Where-Object { $_.name -eq 'forge.scout.run' } | Select-Object -First 1
+        $scoutRunProperties = @($scoutRun.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('workspaceRoot', 'runId', 'question', 'sessionMode')) {
+            if ($scoutRunProperties -notcontains $parameter) { throw "forge.scout.run schema is missing $parameter" }
+            if (@($scoutRun.inputSchema.required) -notcontains $parameter) { throw "forge.scout.run schema must require $parameter" }
         }
         # Declared nullable but listed as required is a contract with no encoding that works: omitting
         # the key is refused server-side, and at least one host drops the `null` literal while
         # serializing and sends `"revision": ,` which never parses. See issue #44.
         $optional = @{
             'forge.begin'       = @('workerTools')
-            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'revision', 'deferred', 'userGrantedRound')
+            'forge.scout.select' = @('vendor', 'model', 'effort')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'revision', 'userGrantedRound', 'question', 'sessionMode')
+            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
-            'forge.review.fix'  = @('effort', 'vendor', 'deferred')
-            'forge.plan.confirm' = @('gateEnvironment', 'builderRoots')
+            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds')
+            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots')
             'forge.log.append'  = @('level', 'detail')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
@@ -320,6 +363,7 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
                 'plugins/plan-forge-flow/prompts/builder-contract.md',
                 'plugins/plan-forge-flow/prompts/critic-contract.md',
+                'plugins/plan-forge-flow/prompts/scout-contract.md',
                 'plugins/plan-forge-flow/prompts/roslyn-contract.md',
                 'plugins/plan-forge-flow/prompts/scope-contract.md',
                 'plugins/plan-forge-flow/prompts/requirements-contract.md',
@@ -352,11 +396,32 @@ function Test-PluginArchive([string]$Archive) {
         if ($skillScript -notmatch '(?m)^disable-model-invocation:\s*true\s*$') {
             throw 'the bundled forge skill is advertised to worker models instead of staying user-invoked'
         }
+        foreach ($marker in @(
+                'multi-module',
+                'continue without Scout',
+                'forge.models',
+                'sessionMode',
+                'first Scout outcome',
+                'documents.scout',
+                'forge.scout.run',
+                'Builder Brief',
+                'fresh session starts with the Brief before task 1')) {
+            if ($skillScript -notmatch [regex]::Escape($marker)) { throw "the bundled Scout skill is missing semantic marker: $marker" }
+        }
+        if ($skillScript -match 'task 1 starts from nothing') {
+            throw 'the bundled forge skill still claims that task 1 starts without the Builder Brief'
+        }
+        $scoutContractEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/prompts/scout-contract.md')
+        $reader = [IO.StreamReader]::new($scoutContractEntry.Open())
+        try { $scoutContract = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        foreach ($marker in @('You are Scout, a read-only evidence gatherer', 'repository', 'external')) {
+            if ($scoutContract -notmatch [regex]::Escape($marker)) { throw "the bundled Scout contract is missing: $marker" }
+        }
         # Both role contracts carry the whole of what a worker is told, so a missing one fails every
         # vendor at its first act rather than at install time. A per-vendor file adds only what
         # differs about that vendor and is optional — codex ships none — but where one exists it
         # must travel, or that vendor loses the half that is its own.
-        foreach ($role in @('critic', 'builder')) {
+        foreach ($role in @('critic', 'builder', 'scout')) {
             $path = "plugins/plan-forge-flow/prompts/$role-contract.md"
             if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
 
@@ -475,6 +540,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
         (Join-Path $bundlePlugin 'prompts/builder-contract.md'),
         (Join-Path $bundlePlugin 'prompts/critic-contract.md'),
+        (Join-Path $bundlePlugin 'prompts/scout-contract.md'),
         (Join-Path $bundlePlugin 'prompts/roslyn-contract.md'),
         (Join-Path $bundlePlugin 'prompts/scope-contract.md'),
         (Join-Path $bundlePlugin 'prompts/requirements-contract.md'),
@@ -483,8 +549,10 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd'),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/claude/scout.md'),
         (Join-Path $bundlePlugin 'prompts/cursor/critic.md'),
         (Join-Path $bundlePlugin 'prompts/cursor/builder.md'),
+        (Join-Path $bundlePlugin 'prompts/cursor/scout.md'),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
         (Join-Path $bundle '.claude-plugin/marketplace.json'),
         (Join-Path $bundle '.cursor-plugin/marketplace.json')

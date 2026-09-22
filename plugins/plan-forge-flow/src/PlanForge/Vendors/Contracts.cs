@@ -1,14 +1,185 @@
+using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace PlanForge.Vendors;
 
-/// <summary>
-/// What a Critic must return. Replaces the VERDICT:/COVERAGE:/ROSLYN: marker parsers, the
-/// "exactly one VERDICT line and it is last" checks, and the critique sidecar files.
-/// </summary>
-internal sealed record Critique(string Verdict, IReadOnlyList<Finding> Findings, string Summary);
+/// <summary>The identified critique exposed by the MCP tools and written to the Flow log.</summary>
+internal sealed record Critique(string Verdict,
+                                IReadOnlyList<Finding> Findings,
+                                string Summary,
+                                IReadOnlyList<UnresolvedAssessment>? UnresolvedAssessments = null,
+                                IReadOnlyList<ReopeningProposal>? Reopenings = null);
 
-internal sealed record Finding(string Severity, string Where, string What);
+internal sealed record Finding(string Severity,
+                               string Where,
+                               string What,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               string? FindingId = null);
+
+/// <summary>
+/// The Vendor-only wire answer. Findings do not carry IDs: the Run-local ledger allocates those
+/// after the complete answer passes semantic coverage validation.
+/// </summary>
+internal sealed class VendorCritique : IJsonOnDeserialized
+{
+    [JsonRequired]
+    public required string Verdict { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<VendorFinding> Findings { get; init; } = null!;
+
+    [JsonRequired]
+    public required string Summary { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<UnresolvedAssessment> UnresolvedAssessments { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ReopeningProposal> Reopenings { get; init; } = null!;
+
+    public void OnDeserialized()
+    {
+        if (Verdict is null || Summary is null)
+            throw new JsonException("Critiques require verdict and summary.");
+        if (Findings is null || Findings.Any(finding => finding is null))
+            throw new JsonException("Critiques require a non-null findings array.");
+        if (UnresolvedAssessments is null || UnresolvedAssessments.Any(assessment => assessment is null))
+            throw new JsonException("Critiques require a non-null unresolvedAssessments array.");
+        if (Reopenings is null || Reopenings.Any(reopening => reopening is null))
+            throw new JsonException("Critiques require a non-null reopenings array.");
+    }
+}
+
+internal sealed record VendorFinding([property: JsonRequired] string Severity,
+                                     [property: JsonRequired] string Where,
+                                     [property: JsonRequired] string What);
+
+internal sealed record UnresolvedAssessment([property: JsonRequired] string FindingId,
+                                            [property: JsonRequired] bool StillPresent,
+                                            [property: JsonRequired] string Evidence);
+
+internal sealed record ReopeningProposal([property: JsonRequired] string FindingId,
+                                         [property: JsonRequired] string Evidence);
+
+/// <summary>
+/// One sourced piece of evidence in a Scout report. The Vendor schema deliberately has no size
+/// limits; the host clips only the digest it returns to the orchestrator.
+/// </summary>
+internal sealed class ScoutItem : IJsonOnDeserialized
+{
+    [JsonRequired]
+    public required string Text { get; init; } = null!;
+
+    [JsonRequired]
+    public required string SourceKind { get; init; } = null!;
+
+    [JsonRequired]
+    public required string Source { get; init; } = null!;
+
+    public void OnDeserialized()
+    {
+        if (Text is null || SourceKind is null || Source is null)
+            throw new JsonException("Scout evidence items require text, sourceKind and source.");
+
+        if (SourceKind is "repository")
+        {
+            if (!IsRepositoryLocator(Source))
+                throw new JsonException("Scout repository sources must use <path>:<positive-line> or <path>#<non-empty-symbol>.");
+        }
+        else if (SourceKind is "external")
+        {
+            if (!IsExternalLocator(Source))
+                throw new JsonException("Scout external sources must be absolute http:// or https:// URLs.");
+        }
+        else
+        {
+            throw new JsonException("Scout sourceKind must be repository or external.");
+        }
+    }
+
+    internal static bool IsRepositoryLocator(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return false;
+
+        var lineSeparator = source.LastIndexOf(':');
+        if (lineSeparator > 0
+            && int.TryParse(source[(lineSeparator + 1)..], NumberStyles.None, CultureInfo.InvariantCulture,
+                            out var line)
+            && line > 0)
+            return true;
+
+        var symbolSeparator = source.LastIndexOf('#');
+        return symbolSeparator > 0
+               && symbolSeparator < source.Length - 1
+               && !string.IsNullOrWhiteSpace(source[(symbolSeparator + 1)..]);
+    }
+
+    internal static bool IsExternalLocator(string source) =>
+        !string.IsNullOrWhiteSpace(source)
+        && !source.Any(char.IsWhiteSpace)
+        && (source.StartsWith("http://", StringComparison.Ordinal)
+            || source.StartsWith("https://", StringComparison.Ordinal))
+        && Uri.TryCreate(source, UriKind.Absolute, out var uri)
+        && uri.Host.Length > 0;
+}
+
+/// <summary>
+/// The complete, deliberately flat structured answer returned by a Scout Vendor. These are the
+/// five R8 evidence categories; every member is required even when a category is empty.
+/// </summary>
+internal sealed class ScoutReport : IJsonOnDeserialized
+{
+    [JsonRequired]
+    public required string Summary { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> ConfirmedFacts { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> MaterialAssumptions { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> OpenDecisions { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> LikelyChangeSurface { get; init; } = null!;
+
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> VerificationEvidence { get; init; } = null!;
+
+    public void OnDeserialized()
+    {
+        if (Summary is null)
+            throw new JsonException("Scout reports require summary.");
+
+        ValidateCategory(ConfirmedFacts, "confirmedFacts");
+        ValidateCategory(MaterialAssumptions, "materialAssumptions");
+        ValidateCategory(OpenDecisions, "openDecisions");
+        ValidateCategory(LikelyChangeSurface, "likelyChangeSurface");
+        ValidateCategory(VerificationEvidence, "verificationEvidence");
+    }
+
+    private static void ValidateCategory(IReadOnlyList<ScoutItem>? items, string name)
+    {
+        if (items is null)
+            throw new JsonException($"Scout reports require {name}.");
+
+        if (items.Any(item => item is null))
+            throw new JsonException($"Scout {name} cannot contain null items.");
+    }
+}
+
+/// <summary>The bounded host-side view of a complete Scout report.</summary>
+internal sealed record ScoutDigest(string Summary,
+                                   IReadOnlyList<ScoutItem> ConfirmedFacts,
+                                   IReadOnlyList<ScoutItem> MaterialAssumptions,
+                                   IReadOnlyList<ScoutItem> OpenDecisions,
+                                   IReadOnlyList<ScoutItem> LikelyChangeSurface,
+                                   IReadOnlyList<ScoutItem> VerificationEvidence,
+                                   bool Truncated);
+
+internal sealed record ScoutFailure(string Code, string Summary);
 
 /// <summary>
 /// What a Builder must return after working one task, plus what the server found out for itself.
@@ -57,13 +228,30 @@ internal sealed record GateRun(string Outcome,
                                string? Detail);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(VendorCritique))]
+[JsonSerializable(typeof(VendorFinding))]
+[JsonSerializable(typeof(UnresolvedAssessment))]
+[JsonSerializable(typeof(ReopeningProposal))]
 [JsonSerializable(typeof(Critique))]
+[JsonSerializable(typeof(Finding))]
 [JsonSerializable(typeof(BuildResult))]
+[JsonSerializable(typeof(ScoutReport))]
+[JsonSerializable(typeof(ScoutItem))]
+[JsonSerializable(typeof(ScoutDigest))]
+[JsonSerializable(typeof(ScoutFailure))]
 internal sealed partial class ContractJson : JsonSerializerContext;
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+                             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+[JsonSerializable(typeof(VendorCritique))]
+[JsonSerializable(typeof(VendorFinding))]
+[JsonSerializable(typeof(UnresolvedAssessment))]
+[JsonSerializable(typeof(ReopeningProposal))]
+internal sealed partial class CritiqueJson : JsonSerializerContext;
 
 internal static class Schemas
 {
-    public static VendorSchema<Critique> Critique { get; } = new(
+    public static VendorSchema<VendorCritique> Critique { get; } = new(
         """
         {
           "type": "object",
@@ -82,13 +270,38 @@ internal static class Schemas
                 "additionalProperties": false
               }
             },
-            "summary": { "type": "string" }
+            "summary": { "type": "string" },
+            "unresolvedAssessments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "findingId": { "type": "string", "pattern": "^F-[0-9]{4}$" },
+                  "stillPresent": { "type": "boolean" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                },
+                "required": ["findingId", "stillPresent", "evidence"],
+                "additionalProperties": false
+              }
+            },
+            "reopenings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "findingId": { "type": "string", "pattern": "^F-[0-9]{4}$" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                },
+                "required": ["findingId", "evidence"],
+                "additionalProperties": false
+              }
+            }
           },
-          "required": ["verdict", "findings", "summary"],
+          "required": ["verdict", "findings", "summary", "unresolvedAssessments", "reopenings"],
           "additionalProperties": false
         }
         """,
-        ContractJson.Default.Critique);
+        CritiqueJson.Default.VendorCritique);
 
     public static VendorSchema<BuildResult> BuildResult { get; } = new(
         """
@@ -113,4 +326,37 @@ internal static class Schemas
         }
         """,
         ContractJson.Default.BuildResult);
+
+    public static VendorSchema<ScoutReport> ScoutReport { get; } = new(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "summary": { "type": "string" },
+            "confirmedFacts": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
+            "materialAssumptions": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
+            "openDecisions": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
+            "likelyChangeSurface": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
+            "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } }
+          },
+          "required": ["summary", "confirmedFacts", "materialAssumptions", "openDecisions", "likelyChangeSurface", "verificationEvidence"],
+          "additionalProperties": false,
+          "$defs": {
+            "scoutItem": {
+              "type": "object",
+              "properties": {
+                "text": { "type": "string" },
+                "sourceKind": { "type": "string", "enum": ["repository", "external"] },
+                "source": {
+                  "type": "string",
+                  "description": "repository uses <path>:<positive-line> (for example, src/PlanForge/Acts/Scout.cs:42) or <path>#<non-empty-symbol> (for example, src/PlanForge/Acts/Scout.cs#Scout.RunAsync); external uses an absolute http:// or https:// URL (for example, https://example.com/reference)."
+                }
+              },
+              "required": ["text", "sourceKind", "source"],
+              "additionalProperties": false
+            }
+          }
+        }
+        """,
+        ContractJson.Default.ScoutReport);
 }
