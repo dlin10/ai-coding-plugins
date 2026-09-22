@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForge.Diagnostics;
@@ -174,7 +175,7 @@ internal sealed class RunDirectory
 
     public void WriteState(RunState state)
     {
-        var json = JsonSerializer.Serialize(state, ForgeJson.Default.RunState);
+        var json = JsonSerializer.Serialize(state, ForgeJson.Readable.RunState);
         AtomicFile.Write(System.IO.Path.Combine(Path, STATE_FILE_NAME), json);
     }
 
@@ -252,27 +253,46 @@ internal sealed class RunDirectory
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
-    public void AppendFlowDecisionBatch(string act, DecisionBatchResponse response)
+    public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response) =>
+        AppendFlowDecisionBatch(act, response, batch.Decisions
+            .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
+            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}"));
+
+    public void AppendFlowDecisionBatch(string act, DecisionBatchRequest batch, DecisionBatchResponse response) =>
+        AppendFlowDecisionBatch(act, response, batch.Decisions
+            .Select(decision => $"- {decision.FindingId} {Name(decision.Disposition)} ({Name(decision.By)}): {decision.Reason}")
+            .Concat(batch.Reopenings.Select(reopening =>
+                $"- {reopening.FindingId} reopen ({Name(reopening.By)}): {reopening.Reason}"))
+            .Concat(batch.Closures.Select(closure =>
+                $"- {closure.FindingId} {Name(closure.Kind)} ({Name(closure.By)}): {closure.Reason}")));
+
+    /// <summary>
+    /// One line per decision, so the timeline says why a finding was settled; a conflict shows the
+    /// saved batch's IDs instead, because the decisions just sent are not the ones that stand.
+    /// </summary>
+    private void AppendFlowDecisionBatch(string act, DecisionBatchResponse response, IEnumerable<string> decisions)
     {
         if (response.Outcome == "no_op") return;
 
         var result = response.Result;
+        var entry = new StringBuilder().Append("## ").Append(act).Append(" — decisions ")
+                                       .AppendLine(response.Outcome)
+                                       .AppendLine()
+                                       .Append("decisionBatchId: ").AppendLine(result.DecisionBatchId);
+        if (response.Outcome == "conflict")
+            entry.Append("saved decisions: ").AppendLine(string.Join(", ", result.DecisionFindingIds));
+        else
+            foreach (var decision in decisions)
+                entry.AppendLine(decision);
+
         AtomicFile.Append(FlowLogPath,
-            new StringBuilder().Append("## ").Append(act).Append(" — decisions ")
-                               .AppendLine(response.Outcome)
-                               .AppendLine()
-                               .Append("decisionBatchId: ").AppendLine(result.DecisionBatchId)
-                               .Append("decisions: ").AppendLine(string.Join(", ", result.DecisionFindingIds))
-                               .Append("reopenings: ").AppendLine(string.Join(", ", result.ReopenedFindingIds))
-                               .Append("closures: ").AppendLine(string.Join(", ", result.ClosedFindingIds))
-                               .Append("canonical: ").AppendLine(response.ExistingBatch is { } existing
-                                   ? Encoding.UTF8.GetString(existing.CanonicalBytes)
-                                   : response.CanonicalBytes is { } bytes
-                                       ? Encoding.UTF8.GetString(bytes)
-                                       : "(not persisted)")
-                               .AppendLine()
-                               .ToString());
+            entry.Append("closures: ").AppendLine(string.Join(", ", result.ClosedFindingIds))
+                 .AppendLine()
+                 .ToString());
     }
+
+    private static string Name<TEnum>(TEnum value) where TEnum : struct, Enum =>
+        JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
 
     public void AppendFlowDecisionRejected(string act, string decisionBatchId, string error)
     {
@@ -674,4 +694,9 @@ internal sealed class ArgumentRejectedException(string message) : Exception(mess
 // shape needs a source-generated contract.
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(RunState))]
-internal sealed partial class ForgeJson : JsonSerializerContext;
+internal sealed partial class ForgeJson : JsonSerializerContext
+{
+    /// <summary>For the file a person opens: non-ASCII text as written, not <c>\uXXXX</c>.</summary>
+    internal static ForgeJson Readable =>
+        field ??= new(new JsonSerializerOptions(Default.Options) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+}

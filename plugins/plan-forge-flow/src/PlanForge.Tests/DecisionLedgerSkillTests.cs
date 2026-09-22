@@ -47,7 +47,7 @@ public sealed class DecisionLedgerSkillTests
     [Fact]
     public void Decision_conflict_uses_saved_result_and_new_key_only_for_delta()
     {
-        Contains("conflicting payload", "saved batch/result", "new key only for a legal delta", Skill());
+        Contains("conflicting payload", "also returns the saved result", "new key only for a legal delta", Skill());
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public sealed class DecisionLedgerSkillTests
     public void Context_uses_phase_projection_origin_active_phase_and_idempotent_batch()
     {
         var context = Read("CONTEXT.md");
-        Contains("immutable `origin`", "mutable `activePhase`", "exact bytes is a no-op", "saved batch/result", context);
+        Contains("immutable `origin`", "mutable `activePhase`", "same digest is a no-op", "returns the saved result", context);
         DoesNotContain("every unresolved finding and every deferred or rejected finding", context);
     }
 
