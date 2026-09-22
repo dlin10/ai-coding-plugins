@@ -22,7 +22,7 @@ public sealed class DecisionLedgerTests : IDisposable
 
         Assert.True(File.Exists(run.DecisionLedgerPath));
         using var json = JsonDocument.Parse(File.ReadAllText(run.DecisionLedgerPath));
-        Assert.Equal(1, json.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, json.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(1, json.RootElement.GetProperty("nextFindingNumber").GetInt32());
         Assert.Equal(JsonValueKind.Array, json.RootElement.GetProperty("entries").ValueKind);
         Assert.Equal(JsonValueKind.Array, json.RootElement.GetProperty("appliedDecisionBatches").ValueKind);
@@ -171,7 +171,7 @@ public sealed class DecisionLedgerTests : IDisposable
         File.WriteAllText(run.DecisionLedgerPath,
             """
             {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "nextFindingNumber": 3,
               "entries": [
                 { "findingId": "F-0002", "origin": "plan_review", "activePhase": "plan_review", "finding": { "severity": "major", "where": "a", "what": "a" }, "disposition": "unresolved" },

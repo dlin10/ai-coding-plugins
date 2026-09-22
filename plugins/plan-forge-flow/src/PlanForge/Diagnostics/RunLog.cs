@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForge.Infrastructure;
@@ -89,7 +90,7 @@ internal sealed class RunLog
         // worse. Nothing here may take the call down with it.
         try
         {
-            AtomicFile.Append(_path, JsonSerializer.Serialize(entry, DiagnosticJson.Default.LogEntry) + "\n");
+            AtomicFile.Append(_path, JsonSerializer.Serialize(entry, DiagnosticJson.Readable.LogEntry) + "\n");
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -119,4 +120,9 @@ internal sealed record LogEntry(DateTimeOffset At,
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
                              DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(LogEntry))]
-internal sealed partial class DiagnosticJson : JsonSerializerContext;
+internal sealed partial class DiagnosticJson : JsonSerializerContext
+{
+    /// <summary>For the file a person opens: non-ASCII text as written, not <c>\uXXXX</c>.</summary>
+    internal static DiagnosticJson Readable =>
+        field ??= new(new JsonSerializerOptions(Default.Options) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+}

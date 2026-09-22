@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForge.Infrastructure;
@@ -163,28 +164,26 @@ internal sealed record DecisionBatchResult(
     [property: JsonPropertyOrder(3)] IReadOnlyList<string> ReopenedFindingIds,
     [property: JsonPropertyOrder(4)] IReadOnlyList<string> ClosedFindingIds);
 
+/// <summary>
+/// An applied batch is kept only as the fingerprint of its canonical decisions: a retry under the
+/// same key is recognised by the digest, and the saved result is what the retry gets back.
+/// </summary>
 internal sealed record AppliedDecisionBatch(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
-    [property: JsonPropertyOrder(1)] byte[] CanonicalBytes,
-    [property: JsonPropertyOrder(2)] string Digest,
-    [property: JsonPropertyOrder(3)] DecisionBatchResult Result,
-    [property: JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CanonicalFormat = null);
+    [property: JsonPropertyOrder(1)] string Digest,
+    [property: JsonPropertyOrder(2)] DecisionBatchResult Result);
 
 internal sealed record DecisionBatchResponse(
     string Outcome,
     DecisionBatchResult Result,
-    AppliedDecisionBatch? ExistingBatch = null,
-    byte[]? CanonicalBytes = null)
+    AppliedDecisionBatch? ExistingBatch = null)
 {
     internal void ThrowIfConflict()
     {
         if (Outcome != "conflict") return;
 
-        var saved = ExistingBatch ?? throw new DecisionLedgerStateException(
-            "a conflicting decision batch has no saved batch");
         throw new DecisionLedgerRequestException(
             $"decisionBatchId '{Result.DecisionBatchId}' conflicts with the saved decisions; "
-            + $"saved canonical decisions: {Encoding.UTF8.GetString(saved.CanonicalBytes)}; "
             + $"saved result: outcome={Result.Outcome}, decisions=[{string.Join(", ", Result.DecisionFindingIds)}], "
             + $"reopenings=[{string.Join(", ", Result.ReopenedFindingIds)}], "
             + $"closures=[{string.Join(", ", Result.ClosedFindingIds)}]");
@@ -201,7 +200,7 @@ internal sealed record OrchestratorDecisionPayload(
 /// </summary>
 internal sealed class DecisionLedger
 {
-    private const int CURRENT_SCHEMA_VERSION = 1;
+    private const int CURRENT_SCHEMA_VERSION = 2;
     private static readonly ConcurrentDictionary<string, object> GATES = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path;
 
@@ -375,14 +374,14 @@ internal sealed class DecisionLedger
 
     internal DecisionBatchResponse Apply(OrchestratorDecisionBatch batch, LedgerPhase phase)
     {
-        var requestedCanonicalBytes = CanonicalBytes(batch);
+        var digest = Digest(CanonicalBytes(batch));
         lock (Gate())
         {
             var existing = ReadSnapshot().AppliedDecisionBatches.FirstOrDefault(applied =>
                 string.Equals(applied.DecisionBatchId, batch.DecisionBatchId, StringComparison.Ordinal));
             if (existing is not null)
             {
-                if (requestedCanonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                if (existing.Digest == digest)
                     return new DecisionBatchResponse("no_op", existing.Result, existing);
                 return new DecisionBatchResponse("conflict", existing.Result, existing);
             }
@@ -394,8 +393,7 @@ internal sealed class DecisionLedger
             var declined = new DecisionBatchResult(batch.DecisionBatchId, "declined",
                                                     acceptedIds.Concat(declinedIds).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
                                                     [], []);
-            var applied = new AppliedDecisionBatch(batch.DecisionBatchId, requestedCanonicalBytes,
-                                                   Digest(requestedCanonicalBytes), declined, "orchestrator");
+            var applied = new AppliedDecisionBatch(batch.DecisionBatchId, digest, declined);
             lock (Gate())
             {
                 var snapshot = ReadSnapshot();
@@ -403,7 +401,7 @@ internal sealed class DecisionLedger
                     string.Equals(saved.DecisionBatchId, batch.DecisionBatchId, StringComparison.Ordinal));
                 if (existing is not null)
                 {
-                    if (requestedCanonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                    if (existing.Digest == digest)
                         return new DecisionBatchResponse("no_op", existing.Result, existing);
                     return new DecisionBatchResponse("conflict", existing.Result, existing);
                 }
@@ -419,8 +417,6 @@ internal sealed class DecisionLedger
 
         var payload = new OrchestratorDecisionPayload(batch.DecisionBatchId,
             batch.Decisions.OrderBy(decision => decision.FindingId, StringComparer.Ordinal).ToArray());
-        var canonicalBytes = requestedCanonicalBytes;
-        var digest = Digest(canonicalBytes);
         lock (Gate())
         {
             var snapshot = ReadSnapshot();
@@ -428,7 +424,7 @@ internal sealed class DecisionLedger
                 string.Equals(applied.DecisionBatchId, payload.DecisionBatchId, StringComparison.Ordinal));
             if (existing is not null)
             {
-                if (canonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                if (existing.Digest == digest)
                     return new DecisionBatchResponse("no_op", existing.Result, existing);
                 return new DecisionBatchResponse("conflict", existing.Result, existing);
             }
@@ -446,8 +442,7 @@ internal sealed class DecisionLedger
                                  .Select(decision => decision.FindingId).ToArray(),
                 payload.Decisions.Where(decision => NormalizeAction(decision.Action) is "addressedByRevision" or "hostVerified" or "duplicateOf")
                                  .Select(decision => decision.FindingId).ToArray());
-            var applied = new AppliedDecisionBatch(payload.DecisionBatchId, canonicalBytes, digest,
-                                                   result, "orchestrator");
+            var applied = new AppliedDecisionBatch(payload.DecisionBatchId, digest, result);
             var updated = snapshot with
             {
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray(),
@@ -460,14 +455,14 @@ internal sealed class DecisionLedger
 
     internal void ValidateOrchestratorBatch(OrchestratorDecisionBatch batch, LedgerPhase phase)
     {
-        var requestedCanonicalBytes = CanonicalBytes(batch);
+        var digest = Digest(CanonicalBytes(batch));
         lock (Gate())
         {
             var existing = ReadSnapshot().AppliedDecisionBatches.FirstOrDefault(applied =>
                 string.Equals(applied.DecisionBatchId, batch.DecisionBatchId, StringComparison.Ordinal));
             if (existing is not null)
             {
-                if (!requestedCanonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                if (existing.Digest != digest)
                     new DecisionBatchResponse("conflict", existing.Result, existing).ThrowIfConflict();
                 return;
             }
@@ -488,7 +483,7 @@ internal sealed class DecisionLedger
             }
             else
             {
-                if (!requestedCanonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                if (existing.Digest != digest)
                     new DecisionBatchResponse("conflict", existing.Result, existing).ThrowIfConflict();
             }
         }
@@ -603,9 +598,8 @@ internal sealed class DecisionLedger
     internal DecisionBatchResponse Apply(DecisionBatchRequest request)
     {
         var payload = ValidateAndNormalize(request);
-        var canonicalBytes = JsonSerializer.SerializeToUtf8Bytes(
-            payload, DecisionLedgerCanonicalJson.Default.DecisionBatchPayload);
-        var digest = Digest(canonicalBytes);
+        var digest = Digest(JsonSerializer.SerializeToUtf8Bytes(
+            payload, DecisionLedgerCanonicalJson.Default.DecisionBatchPayload));
 
         lock (Gate())
         {
@@ -614,7 +608,7 @@ internal sealed class DecisionLedger
                 batch => string.Equals(batch.DecisionBatchId, payload.DecisionBatchId, StringComparison.Ordinal));
             if (existing is not null)
             {
-                if (canonicalBytes.AsSpan().SequenceEqual(existing.CanonicalBytes))
+                if (existing.Digest == digest)
                     return new DecisionBatchResponse("no_op", existing.Result, existing);
 
                 return new DecisionBatchResponse("conflict", existing.Result, existing);
@@ -654,7 +648,7 @@ internal sealed class DecisionLedger
                 payload.Decisions.Select(decision => decision.FindingId).ToArray(),
                 payload.Reopenings.Select(reopening => reopening.FindingId).ToArray(),
                 payload.Closures.Select(closure => closure.FindingId).ToArray());
-            var applied = new AppliedDecisionBatch(payload.DecisionBatchId, canonicalBytes, digest, result);
+            var applied = new AppliedDecisionBatch(payload.DecisionBatchId, digest, result);
             var updated = snapshot with
             {
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray(),
@@ -751,7 +745,7 @@ internal sealed class DecisionLedger
     private static void WriteSnapshot(string path, DecisionLedgerSnapshot snapshot)
     {
         ValidateSnapshot(snapshot);
-        var json = JsonSerializer.Serialize(snapshot, DecisionLedgerJson.Default.DecisionLedgerSnapshot);
+        var json = JsonSerializer.Serialize(snapshot, DecisionLedgerJson.Readable.DecisionLedgerSnapshot);
         AtomicFile.Write(path, json);
     }
 
@@ -1057,69 +1051,6 @@ internal sealed class DecisionLedger
             RequireText(batch.DecisionBatchId, "applied decisionBatchId");
             if (!batchIds.Add(batch.DecisionBatchId))
                 throw new DecisionLedgerStateException($"duplicate decision batch '{batch.DecisionBatchId}'");
-            if (batch.CanonicalBytes is null || batch.CanonicalBytes.Length == 0)
-                throw new DecisionLedgerStateException("canonical bytes must not be empty");
-            if (batch.CanonicalFormat is not null and not "orchestrator")
-                throw new DecisionLedgerStateException($"unsupported canonical format '{batch.CanonicalFormat}'");
-            if (!string.Equals(Digest(batch.CanonicalBytes), batch.Digest, StringComparison.Ordinal))
-                throw new DecisionLedgerStateException($"digest mismatch for decision batch '{batch.DecisionBatchId}'");
-
-            if (batch.CanonicalFormat == "orchestrator")
-            {
-                OrchestratorDecisionPayload orchestratorPayload;
-                try
-                {
-                    orchestratorPayload = JsonSerializer.Deserialize(batch.CanonicalBytes,
-                        DecisionLedgerCanonicalJson.Default.OrchestratorDecisionPayload)
-                        ?? throw new DecisionLedgerStateException("canonical payload is null");
-                }
-                catch (DecisionLedgerException)
-                {
-                    throw;
-                }
-                catch (Exception error) when (error is JsonException or NotSupportedException or FormatException)
-                {
-                    throw new DecisionLedgerStateException("canonical payload is malformed", error);
-                }
-
-                ValidateOrchestratorPayload(orchestratorPayload);
-                var normalizedOrchestratorBytes = JsonSerializer.SerializeToUtf8Bytes(
-                    orchestratorPayload, DecisionLedgerCanonicalJson.Default.OrchestratorDecisionPayload);
-                if (!batch.CanonicalBytes.AsSpan().SequenceEqual(normalizedOrchestratorBytes))
-                    throw new DecisionLedgerStateException("orchestrator canonical payload is not canonical");
-                if (orchestratorPayload.DecisionBatchId != batch.DecisionBatchId)
-                    throw new DecisionLedgerStateException("canonical payload batch id does not match its record");
-                ValidateOrchestratorResult(batch.Result, orchestratorPayload);
-                ValidateResultIdsBelowNext(batch.Result, snapshot.NextFindingNumber);
-                continue;
-            }
-
-            DecisionBatchPayload payload;
-            try
-            {
-                payload = JsonSerializer.Deserialize(batch.CanonicalBytes,
-                           DecisionLedgerCanonicalJson.Default.DecisionBatchPayload)
-                          ?? throw new DecisionLedgerStateException("canonical payload is null");
-            }
-            catch (DecisionLedgerException)
-            {
-                throw;
-            }
-            catch (Exception error) when (error is JsonException or NotSupportedException or FormatException)
-            {
-                throw new DecisionLedgerStateException("canonical payload is malformed", error);
-            }
-
-            var canonical = ValidateAndNormalize(new DecisionBatchRequest(
-                payload.DecisionBatchId, payload.Decisions, payload.Reopenings, payload.Closures));
-            var normalizedBytes = JsonSerializer.SerializeToUtf8Bytes(
-                canonical, DecisionLedgerCanonicalJson.Default.DecisionBatchPayload);
-            if (!batch.CanonicalBytes.AsSpan().SequenceEqual(normalizedBytes))
-                throw new DecisionLedgerStateException("canonical payload is not canonical");
-            if (payload.DecisionBatchId != batch.DecisionBatchId)
-                throw new DecisionLedgerStateException("canonical payload batch id does not match its record");
-            ValidateResult(batch.Result, payload);
-            ValidateResultIdsBelowNext(batch.Result, snapshot.NextFindingNumber);
         }
 
         var attemptIds = new HashSet<string>(StringComparer.Ordinal);
@@ -1150,41 +1081,6 @@ internal sealed class DecisionLedger
         }
     }
 
-    private static void ValidateResult(DecisionBatchResult result, DecisionBatchPayload payload)
-    {
-        if (result is null) throw new DecisionLedgerStateException("applied batch result must not be null");
-        if (result.DecisionBatchId != payload.DecisionBatchId || result.Outcome != "applied")
-            throw new DecisionLedgerStateException("applied batch result does not match its payload");
-        ValidateSortedIds(result.DecisionFindingIds, payload.Decisions.Select(decision => decision.FindingId));
-        ValidateSortedIds(result.ReopenedFindingIds, payload.Reopenings.Select(reopening => reopening.FindingId));
-        ValidateSortedIds(result.ClosedFindingIds, payload.Closures.Select(closure => closure.FindingId));
-    }
-
-    private static void ValidateOrchestratorPayload(OrchestratorDecisionPayload payload)
-    {
-        if (payload.Decisions is null || payload.Decisions.Count == 0)
-            throw new DecisionLedgerStateException("orchestrator canonical decisions must not be empty");
-        var previous = string.Empty;
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var decision in payload.Decisions)
-        {
-            if (decision is null) throw new DecisionLedgerStateException("orchestrator decisions must not contain null");
-            ValidateFindingId(decision.FindingId);
-            if (!ids.Add(decision.FindingId)
-                || (previous.Length > 0 && string.CompareOrdinal(previous, decision.FindingId) >= 0))
-                throw new DecisionLedgerStateException("orchestrator decisions must be unique and sorted");
-            RequireText(decision.Action, "decision action");
-            ValidateDecision(decision.By, decision.Reason);
-            var action = NormalizeAction(decision.Action);
-            if (action is not "defer" and not "reject" and not "addressedByRevision"
-                and not "hostVerified" and not "duplicateOf" and not "accept" and not "decline")
-                throw new DecisionLedgerStateException($"unsupported decision action '{decision.Action}'");
-            if (action is "hostVerified" or "accept") RequireText(decision.Evidence, "decision evidence");
-            if (action == "duplicateOf") ValidateFindingId(decision.DuplicateOf!);
-            previous = decision.FindingId;
-        }
-    }
-
     private static void ValidateOrchestratorInput(OrchestratorDecisionPayload payload)
     {
         if (payload.Decisions is null || payload.Decisions.Count == 0)
@@ -1199,32 +1095,6 @@ internal sealed class DecisionLedger
             RequireText(decision.Action, "decision action");
             ValidateDecision(decision.By, decision.Reason);
         }
-    }
-
-    private static void ValidateOrchestratorResult(DecisionBatchResult result,
-                                                   OrchestratorDecisionPayload payload)
-    {
-        var expectedOutcome = payload.Decisions.All(decision => NormalizeAction(decision.Action) == "decline")
-            ? "declined"
-            : "applied";
-        if (result is null || result.DecisionBatchId != payload.DecisionBatchId
-            || result.Outcome != expectedOutcome)
-            throw new DecisionLedgerStateException("saved orchestrator result does not match its payload");
-        ValidateSortedIds(result.DecisionFindingIds, payload.Decisions.Select(decision => decision.FindingId));
-        ValidateSortedIds(result.ReopenedFindingIds, payload.Decisions
-            .Where(decision => NormalizeAction(decision.Action) == "accept")
-            .Select(decision => decision.FindingId));
-        ValidateSortedIds(result.ClosedFindingIds, payload.Decisions
-            .Where(decision => NormalizeAction(decision.Action) is "addressedByRevision" or "hostVerified" or "duplicateOf")
-            .Select(decision => decision.FindingId));
-    }
-
-    private static void ValidateSortedIds(IReadOnlyList<string> actual, IEnumerable<string> expected)
-    {
-        if (actual is null) throw new DecisionLedgerStateException("result ids must not be null");
-        var expectedIds = expected.ToArray();
-        if (!actual.SequenceEqual(expectedIds, StringComparer.Ordinal))
-            throw new DecisionLedgerStateException("result ids do not match the canonical payload");
     }
 
     private static IReadOnlyList<string> ValidateSortedFindingIds(IReadOnlyList<string> ids, string name)
@@ -1251,15 +1121,6 @@ internal sealed class DecisionLedger
         RequireText(result.Verification.Outcome, "fix attempt verification outcome");
         if (result.Verification.Evidence is null || result.Summary is null)
             throw new DecisionLedgerStateException("fix attempt result text must not be null");
-    }
-
-    private static void ValidateResultIdsBelowNext(DecisionBatchResult result, int nextFindingNumber)
-    {
-        foreach (var id in result.DecisionFindingIds.Concat(result.ReopenedFindingIds).Concat(result.ClosedFindingIds))
-        {
-            if (ValidateFindingId(id) >= nextFindingNumber)
-                throw new DecisionLedgerStateException("a batch references a finding id beyond nextFindingNumber");
-        }
     }
 
     private static void ValidateClosure(LedgerClosureDecision closure)
@@ -1462,7 +1323,12 @@ internal sealed class DecisionLedgerCritiqueException(string message)
 [JsonSerializable(typeof(BuildResult))]
 [JsonSerializable(typeof(Verification))]
 [JsonSerializable(typeof(GateRun))]
-internal sealed partial class DecisionLedgerJson : JsonSerializerContext;
+internal sealed partial class DecisionLedgerJson : JsonSerializerContext
+{
+    /// <summary>For the file a person opens: non-ASCII text as written, not <c>\uXXXX</c>.</summary>
+    internal static DecisionLedgerJson Readable =>
+        field ??= new(new JsonSerializerOptions(Default.Options) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+}
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
                              UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]

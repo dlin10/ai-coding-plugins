@@ -57,7 +57,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             try
             {
                 var response = ledger.Apply(decisionBatch, LedgerPhase.CodeReview);
-                run.AppendFlowDecisionBatch("Review fix", response);
+                run.AppendFlowDecisionBatch("Review fix", decisionBatch, response);
                 response.ThrowIfConflict();
             }
             catch (DecisionLedgerRequestException error)
@@ -142,7 +142,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                         id, LedgerClosureKind.AutomaticGate, LedgerDecisionMaker.Orchestrator,
                         "closed by the fix attempt", evidence)).ToArray());
                 var closure = ledger.Apply(closureBatch);
-                run.AppendFlowDecisionBatch("Review fix automatic gate", closure);
+                run.AppendFlowDecisionBatch("Review fix automatic gate", closureBatch, closure);
                 closure.ThrowIfConflict();
             }
             catch (DecisionLedgerRequestException error)

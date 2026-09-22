@@ -38,8 +38,9 @@ Orchestrator accepts or declines it, and the Builder never changes a disposition
 
 The Orchestrator sends typed, identity-keyed decisions through the MCP tool contract. Every
 non-empty logical set has one `decisionBatchId`; validated decisions are canonically serialized in
-identity order. An exact retry returns the saved result without another ledger or Flow mutation, and
-a conflicting reuse returns the saved batch/result. A new key represents only a new legal delta.
+identity order, and the ledger keeps only the SHA-256 digest of those bytes beside the batch result.
+An exact retry returns the saved result without another ledger or Flow mutation, and a conflicting
+reuse returns the saved result. A new key represents only a new legal delta.
 Plan closures travel through the next review or final approved confirmation; code decisions and
 host-verified closures travel through the fix act. Fix execution is independent: one
 `fixAttemptId` binds one exact sorted ID set, retries retained work under the same key, and returns a
@@ -51,6 +52,14 @@ decision batches and fix-attempt records. All replacements use `AtomicFile`. Mal
 unsupported version, an invalid transition or an exhausted write retry fails the tool call;
 authoritative decision state is not best effort like the separate telemetry file described by
 [0020](0020-separate-worker-telemetry-from-the-run-log.md).
+
+*Amended 2026-09-22 (schema version 2).* Applied batches originally stored their canonical bytes,
+and loading re-verified digest, canonical form and result against them. That guarded only against
+hand-editing, while the base64 bytes made the file unreadable, and nothing reads a batch's decisions
+after it is applied: a closed entry leaves the ledger, and a settled one keeps its own reason. A
+batch is now its digest and result; the Flow log states each decision as a line of text. The ledger,
+`state.json` and `forge.log` write non-ASCII text as written rather than as `\uXXXX` escapes.
+Version-1 ledgers are not read.
 
 Pre-ledger Run folders are outside the supported scenario: there is no transcript migration,
 fallback reader or compatibility error path. Verification uses deterministic prompt-composition and

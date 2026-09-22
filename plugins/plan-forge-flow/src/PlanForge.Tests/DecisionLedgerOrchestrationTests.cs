@@ -143,7 +143,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
         Assert.Equal("conflict", conflict.Outcome);
         Assert.Equal("declined", conflict.Result.Outcome);
-        Assert.Contains("saved canonical decisions", error.Message, StringComparison.Ordinal);
+        Assert.Contains("saved result", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("saved reason", error.Message, StringComparison.Ordinal);
         Assert.Equal(before, File.ReadAllBytes(ledger.Path));
     }
 
@@ -433,7 +434,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Passed_gate_with_empty_builder_text_uses_stable_closure_evidence_and_preserves_audit()
+    public async Task Passed_gate_with_empty_builder_text_uses_stable_closure_evidence()
     {
         var run = NewRun("empty-passed", plan: "## Gates\n\n1. **G1.** `exit 0` passes.\n");
         var entry = run.ReadDecisionLedger().AddFinding(Finding("gate"), LedgerPhase.CodeReview);
@@ -450,8 +451,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         Assert.Empty(snapshot.Entries);
         var closure = snapshot.AppliedDecisionBatches.Single(batch =>
             batch.DecisionBatchId == "attempt-empty-passed:automatic-gate");
-        Assert.Contains("host gate passed for this fix attempt",
-                        System.Text.Encoding.UTF8.GetString(closure.CanonicalBytes), StringComparison.Ordinal);
+        Assert.Equal([entry.FindingId], closure.Result.ClosedFindingIds);
         Assert.Equal("builder-token", run.ReadState().BuilderSessionId);
         Assert.Null(run.ReadState().PendingGateFailure);
         Assert.Contains("Status: done", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
@@ -658,8 +658,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var entry = ledger.AddFinding(Finding("digest"), LedgerPhase.PlanReview);
         ledger.Apply(new OrchestratorDecisionBatch("batch", [Decision("defer", entry.FindingId)]), LedgerPhase.PlanReview);
         var saved = Assert.Single(ledger.Snapshot.AppliedDecisionBatches);
-        Assert.False(string.IsNullOrWhiteSpace(saved.Digest));
-        Assert.Equal("orchestrator", saved.CanonicalFormat);
+        Assert.Matches("^[0-9a-f]{64}$", saved.Digest);
     }
 
     [Fact]
@@ -694,7 +693,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = LedgerWithAttemptIds();
         ledger.RecordFixAttempt("attempt", ["F-0001"], null, false);
-        Assert.Equal(1, ledger.Snapshot.SchemaVersion);
+        Assert.Equal(2, ledger.Snapshot.SchemaVersion);
     }
 
     [Fact]
@@ -872,9 +871,10 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("utf8"), LedgerPhase.PlanReview);
-        ledger.Apply(Batch(Decision("defer", entry.FindingId, reason: "причина")), LedgerPhase.PlanReview);
+        var batch = Batch(Decision("defer", entry.FindingId, reason: "причина"));
+        ledger.Apply(batch, LedgerPhase.PlanReview);
         var saved = Assert.Single(ledger.Snapshot.AppliedDecisionBatches);
-        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(saved.CanonicalBytes)).ToLowerInvariant(), saved.Digest);
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(DecisionLedger.CanonicalBytes(batch))).ToLowerInvariant(), saved.Digest);
     }
 
     [Fact]
@@ -938,9 +938,53 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     public void Flow_audit_uses_decision_batch_identity()
     {
         var run = NewRun("flow-batch");
-        run.AppendFlowDecisionBatch("test", new DecisionBatchResponse("declined",
-            new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
+        run.AppendFlowDecisionBatch("test", new OrchestratorDecisionBatch("batch", [Decision("decline", "F-0001")]),
+            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
         Assert.Contains("batch", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Flow_audit_lists_each_decision_as_text()
+    {
+        var run = NewRun("flow-lines");
+        var ledger = run.ReadDecisionLedger();
+        var entry = ledger.AddFinding(Finding("flow"), LedgerPhase.PlanReview);
+        var batch = Batch(Decision("defer", entry.FindingId, reason: "причина"));
+
+        run.AppendFlowDecisionBatch("test", batch, ledger.Apply(batch, LedgerPhase.PlanReview));
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains($"- {entry.FindingId} defer (orchestrator): причина", flow, StringComparison.Ordinal);
+        Assert.DoesNotContain("canonical", flow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Flow_audit_of_a_conflict_shows_the_saved_ids_not_the_rejected_decisions()
+    {
+        var run = NewRun("flow-conflict");
+        var ledger = run.ReadDecisionLedger();
+        var entry = ledger.AddFinding(Finding("flow"), LedgerPhase.PlanReview);
+        ledger.Apply(new OrchestratorDecisionBatch("same", [Decision("defer", entry.FindingId)]), LedgerPhase.PlanReview);
+        var retry = new OrchestratorDecisionBatch("same", [Decision("reject", entry.FindingId, reason: "другое")]);
+
+        run.AppendFlowDecisionBatch("test", retry, ledger.Apply(retry, LedgerPhase.PlanReview));
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains($"saved decisions: {entry.FindingId}", flow, StringComparison.Ordinal);
+        Assert.DoesNotContain("другое", flow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ledger_file_keeps_non_ascii_text_as_written()
+    {
+        var ledger = Ledger();
+        var entry = ledger.AddFinding(Finding("находка"), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(Decision("defer", entry.FindingId, reason: "причина")), LedgerPhase.PlanReview);
+
+        var json = File.ReadAllText(ledger.Path);
+        Assert.Contains("находка", json, StringComparison.Ordinal);
+        Assert.Contains("причина", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1019,7 +1063,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
                 Decision("reject", entry.FindingId, reason: "different reason")
             ])));
 
-        Assert.Contains("saved canonical decisions", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("saved reason", error.Message, StringComparison.Ordinal);
         Assert.Contains("saved result", error.Message, StringComparison.Ordinal);
         Assert.Contains(entry.FindingId, error.Message, StringComparison.Ordinal);
         Assert.False(run.ReadState().Approved);
@@ -1143,8 +1187,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     public void Flow_audit_contains_decision_fix_and_closure()
     {
         var run = NewRun("audit");
-        run.AppendFlowDecisionBatch("fix", new DecisionBatchResponse("declined",
-            new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
+        run.AppendFlowDecisionBatch("fix", new OrchestratorDecisionBatch("batch", [Decision("decline", "F-0001")]),
+            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
         run.AppendFlowCutShort("Fixes — round 1", [], "attempt", ["F-0001"]);
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("batch", flow, StringComparison.Ordinal);

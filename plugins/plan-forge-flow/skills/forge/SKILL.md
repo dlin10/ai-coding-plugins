@@ -119,7 +119,7 @@ including duplicate and host-verified closures, through `forge.review.fix`; `for
 never accepts decisions.
 
 An identical `decisionBatchId` retry is a no-op and returns the saved result. A conflicting payload
-under that key also returns the saved batch/result: honour it, then use a new key only for a legal
+under that key also returns the saved result: honour it, then use a new key only for a legal
 delta that has not already been decided. If the Critic response is structurally or semantically
 invalid, the round does not count and no findings are ingested, but decisions applied before the
 call stay applied; retry the round with the same batch and exact decisions.
