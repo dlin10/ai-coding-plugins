@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.35.0
+
+Critic convergence now uses a canonical Run-local decision ledger instead of replaying a growing
+review transcript (issue #101).
+
+- `decision-ledger.json` assigns monotonic finding IDs, persists only unresolved, deferred and
+  rejected dispositions, and records typed decisions, reopenings, closures and retryable fix
+  attempts with atomic replacement and strict validation.
+- Each fresh Critic receives only the bounded projection for its current phase. The Orchestrator is
+  the sole authority for dispositions and reopening decisions, while the Builder receives exactly
+  the ledger findings selected for one fix attempt.
+- Direct and background review paths share idempotent `decisionBatchId`, `fixAttemptId` and
+  `fixFindingIds` contracts. Exact retries are safe, conflicting retries are refused, and successful
+  host gates close only the findings belonging to that attempt.
+- `review-log.md` is removed. Flow remains the user-facing audit, while status, prompts, tool
+  schemas, documentation and package validation reflect the ledger model.
+
 ## 0.34.0
 
 Builders now receive the approved plan context above `## Approach` as a Builder Brief once per
