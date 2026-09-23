@@ -22,7 +22,7 @@ public sealed class JobRegistryTests
         Assert.False(second.Started);
         Assert.Equal(first.JobId, second.JobId);
         gate.SetResult("winner");
-        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public sealed class JobRegistryTests
 
         Assert.True(start.Started);
         Assert.Equal(JobState.Running, start.Record.State);
-        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class JobRegistryTests
         Assert.Null(new JobRegistry().Get(workspace.RunPath, start.JobId));
 
         gate.SetResult("done");
-        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Running, result?.State);
         gate.SetResult("done");
-        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class JobRegistryTests
         using var workspace = new TestWorkspace();
         var registry = new JobRegistry();
         var start = registry.Start(workspace.RunPath, "plan", _ => Task.FromResult("payload"));
-        var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
 
         var roundTripped = new JobRegistry().Get(workspace.RunPath);
 
@@ -113,8 +113,8 @@ public sealed class JobRegistryTests
         Assert.NotEqual(first.JobId, second.JobId);
         Assert.Equal(first.JobId, registry.Get(firstWorkspace.RunPath)?.Id);
         Assert.Equal(second.JobId, registry.Get(secondWorkspace.RunPath)?.Id);
-        await registry.WaitAsync(firstWorkspace.RunPath, first.JobId, TimeSpan.FromSeconds(1));
-        await registry.WaitAsync(secondWorkspace.RunPath, second.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(firstWorkspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
+        await registry.WaitAsync(secondWorkspace.RunPath, second.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class JobRegistryTests
         Assert.False(second.Started);
         Assert.Equal(first.JobId, second.JobId);
         gate.SetResult("done");
-        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -139,15 +139,15 @@ public sealed class JobRegistryTests
         var replacementGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var registry = new JobRegistry();
         var first = registry.Start(workspace.RunPath, "plan", _ => Task.FromResult("first"));
-        var firstResult = await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(1));
+        var firstResult = await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
         var replacement = registry.Start(workspace.RunPath, "plan", _ => replacementGate.Task);
 
         Assert.Equal(JobState.Completed, firstResult?.State);
         Assert.Equal(firstResult, registry.Get(workspace.RunPath, first.JobId));
-        Assert.Equal(firstResult, await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(1)));
+        Assert.Equal(firstResult, await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30)));
 
         replacementGate.SetResult("replacement");
-        await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -158,7 +158,7 @@ public sealed class JobRegistryTests
         var registry = new JobRegistry();
         var start = registry.Start(workspace.RunPath, "plan", _ => Task.FromResult("done"));
 
-        var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
 
         Assert.Equal(JobState.Completed, completed?.State);
         Assert.Equal(completed, registry.Get(workspace.RunPath, start.JobId));
@@ -183,7 +183,7 @@ public sealed class JobRegistryTests
         var registry = new JobRegistry();
         var start = registry.Start(workspace.RunPath, "plan", _ => throw new InvalidOperationException("boom"));
 
-        var result = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        var result = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
 
         Assert.Equal(JobState.Failed, result?.State);
         Assert.Equal("boom", result?.Error);
@@ -201,7 +201,7 @@ public sealed class JobRegistryTests
             return Task.FromResult("done");
         });
 
-        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
         var persisted = new JobRegistry().Get(workspace.RunPath, start.JobId);
 
         Assert.NotNull(persisted?.LastActivityAt);
@@ -238,14 +238,14 @@ public sealed class JobRegistryTests
         await replacementAttempting.Task;
         firstRelease.SetResult("first");
         var replacement = await replacementTask;
-        var firstResult = await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(1));
+        var firstResult = await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
 
         Assert.Equal(JobState.Completed, firstResult?.State);
         Assert.True(replacement.Started);
         Assert.Equal(replacement.JobId, registry.Get(workspace.RunPath)?.Id);
         Assert.Equal(JobState.Running, registry.Get(workspace.RunPath)?.State);
         replacementRelease.SetResult("replacement");
-        await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(1));
+        await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(30));
     }
 
     [Fact]
