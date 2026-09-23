@@ -1,5 +1,14 @@
 # Plan Forge Flow releases
 
+## 0.35.3
+
+Worker telemetry records what a Claude attempt cost.
+
+- A Claude worker's `vendor.usage` record carries `costUsd`, the `total_cost_usd` the CLI reports on
+  its result line. Codex and Cursor report no price, so their records omit the field.
+- A cost that is not a non-negative number is named in `malformedUsageFields`; the token counters
+  are kept.
+
 ## 0.35.2
 
 Run files are readable by a person again.

@@ -21,7 +21,8 @@ internal sealed record WorkerUsage(long? InputTokens = null,
                                    long? CacheCreationTokens = null,
                                    long? OutputTokens = null,
                                    long? ReasoningTokens = null,
-                                   IReadOnlyList<string>? MalformedFields = null);
+                                   IReadOnlyList<string>? MalformedFields = null,
+                                   decimal? CostUsd = null);
 
 /// <summary>One call to a Vendor session, which may launch more than one process.</summary>
 internal sealed class VendorTurn(RoleSpec role, Selection selection, string vendor)
@@ -109,6 +110,7 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
             usage.CacheCreationTokens,
             usage.OutputTokens,
             usage.ReasoningTokens,
+            usage.CostUsd,
             usage.MalformedFields is { Count: > 0 } ? usage.MalformedFields : null);
 
         WorkerTelemetryFile.Append(context, record);
@@ -161,6 +163,7 @@ internal sealed record WorkerUsageRecord(string At,
                                          long? CacheCreationTokens,
                                          long? OutputTokens,
                                          long? ReasoningTokens,
+                                         decimal? CostUsd,
                                          IReadOnlyList<string>? MalformedUsageFields);
 
 internal static class WorkerTelemetryFile

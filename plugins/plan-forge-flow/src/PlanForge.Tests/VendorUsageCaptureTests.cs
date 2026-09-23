@@ -31,6 +31,26 @@ public sealed class VendorUsageCaptureTests
     }
 
     [Fact]
+    public void Claude_keeps_the_reported_cost_of_the_attempt()
+    {
+        var session = new ClaudeCliSession(new RoleSpec(VendorRole.Builder, "prompt"),
+                                           new Selection("model", null), null);
+        using var terminal = JsonDocument.Parse(
+            """
+            {
+              "type": "result",
+              "subtype": "success",
+              "total_cost_usd": 0.4213875,
+              "usage": { "input_tokens": 3, "output_tokens": 4 }
+            }
+            """);
+
+        session.Observe(terminal.RootElement);
+
+        Assert.Equal(0.4213875m, session.ObservedUsage.CostUsd);
+    }
+
+    [Fact]
     public void Codex_keeps_usage_from_a_failed_terminal_turn()
     {
         var session = new CodexCliSession(new RoleSpec(VendorRole.Critic, "prompt"),

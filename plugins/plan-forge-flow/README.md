@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.35.2
+# Plan Forge Flow 0.35.3
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -196,7 +196,8 @@ result.
 In telemetry, `inputTokens` is the complete input processed by the Worker attempt, including cache
 reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that
 total and must not be added to it. Likewise, `outputTokens` is the complete output count and
-`reasoningTokens` is an optional subset of it.
+`reasoningTokens` is an optional subset of it. `costUsd` is the price Claude reports for the attempt
+(`total_cost_usd`); Codex and Cursor report none, so their records carry no `costUsd`.
 
 Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
 after an approval takes that flag back.

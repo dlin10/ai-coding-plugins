@@ -39,6 +39,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     private bool _turnEnded;
     private bool _turnFailed;
     private JsonElement? _terminalUsage;
+    private JsonElement? _terminalCost;
     private string? _attemptSessionId;
 
     /// <param name="role">The worker role and its contract.</param>
@@ -65,7 +66,7 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
-    internal WorkerUsage ObservedUsage => ProviderUsage.Claude(_terminalUsage);
+    internal WorkerUsage ObservedUsage => ProviderUsage.Claude(_terminalUsage, _terminalCost);
 
     /// <summary>
     /// `-p` kills a background task about five seconds after the result line, so a task still open
@@ -80,6 +81,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         _turnEnded = false;
         _turnFailed = false;
         _terminalUsage = null;
+        _terminalCost = null;
         _attemptSessionId = null;
         var resumeToken = _sessionId;
         var executable = ClaudeCliVendor.Executable;
@@ -180,6 +182,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         {
             _turnEnded = true;
             if (root.TryGetProperty("usage", out var usage)) _terminalUsage = usage.Clone();
+            if (root.TryGetProperty("total_cost_usd", out var cost)) _terminalCost = cost.Clone();
             _turnFailed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind is JsonValueKind.True;
             return null;
         }

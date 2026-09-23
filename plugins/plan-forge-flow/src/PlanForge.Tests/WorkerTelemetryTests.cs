@@ -52,7 +52,25 @@ public sealed class WorkerTelemetryTests : IDisposable
         Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$",
                        record.GetProperty("at").GetString()!);
         Assert.False(record.TryGetProperty("round", out _));
+        Assert.False(record.TryGetProperty("costUsd", out _));
         Assert.False(record.TryGetProperty("malformedUsageFields", out _));
+    }
+
+    [Fact]
+    public void Writes_the_reported_cost_after_the_token_counters()
+    {
+        var context = Context("build", taskNumber: 1, taskCount: 1);
+        var role = new RoleSpec(VendorRole.Builder, "role", Telemetry: context);
+        var measured = new VendorTurn(role, new Selection("claude-opus-5-5", "high"), "claude").Start(1, null);
+        measured.Succeeded();
+        measured.Finish(new WorkerUsage(OutputTokens: 7, ReasoningTokens: 3, CostUsd: 0.4213875m), "claude-session");
+
+        var json = File.ReadAllText(context.Path);
+        Assert.True(json.IndexOf("\"reasoningTokens\"", StringComparison.Ordinal) < json.IndexOf("\"costUsd\"", StringComparison.Ordinal));
+
+        using var document = JsonDocument.Parse(json);
+        var record = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(0.4213875m, record.GetProperty("costUsd").GetDecimal());
     }
 
     [Fact]
