@@ -4,7 +4,8 @@ namespace PlanForge.Vendors;
 
 internal static class ProviderUsage
 {
-    public static WorkerUsage Claude(JsonElement? usage)
+    /// <param name="totalCostUsd">The result line's `total_cost_usd`; only claude reports a price.</param>
+    public static WorkerUsage Claude(JsonElement? usage, JsonElement? totalCostUsd = null)
     {
         var reader = new UsageReader(usage);
         var input = reader.Counter("input_tokens");
@@ -12,12 +13,14 @@ internal static class ProviderUsage
         var cacheCreation = reader.Counter("cache_creation_input_tokens");
         var output = reader.Counter("output_tokens");
         var reasoning = reader.NestedCounter("output_tokens_details", "thinking_tokens");
+        var cost = reader.Cost(totalCostUsd);
         return reader.Build(TotalInput(reader, input, cacheRead, cacheCreation, "usage.input_tokens"),
                             cacheRead,
                             cacheCreation,
                             output,
                             ValidateReasoning(reader, output, reasoning,
-                                              "usage.output_tokens_details.thinking_tokens"));
+                                              "usage.output_tokens_details.thinking_tokens"),
+                            cost);
     }
 
     public static WorkerUsage Codex(JsonElement? usage)
@@ -130,14 +133,26 @@ internal static class ProviderUsage
             return null;
         }
 
+        public decimal? Cost(JsonElement? value)
+        {
+            if (value is null) return null;
+            if (value.Value.ValueKind is JsonValueKind.Number && value.Value.TryGetDecimal(out var cost) && cost >= 0)
+                return cost;
+
+            Malformed("total_cost_usd");
+            return null;
+        }
+
         public void Malformed(string path) => _malformed.Add(path);
 
         public WorkerUsage Build(long? input,
                                  long? cacheRead,
                                  long? cacheCreation,
                                  long? output,
-                                 long? reasoning) =>
+                                 long? reasoning,
+                                 decimal? costUsd = null) =>
             new(input, cacheRead, cacheCreation, output, reasoning,
-                _malformed.Count == 0 ? null : [.. _malformed.Order(StringComparer.Ordinal)]);
+                _malformed.Count == 0 ? null : [.. _malformed.Order(StringComparer.Ordinal)],
+                costUsd);
     }
 }

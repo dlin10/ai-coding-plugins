@@ -25,7 +25,18 @@ public sealed class ProviderUsageTests
         Assert.Equal(33, usage.CacheCreationTokens);
         Assert.Equal(44, usage.OutputTokens);
         Assert.Equal(40, usage.ReasoningTokens);
+        Assert.Null(usage.CostUsd);
         Assert.Null(usage.MalformedFields);
+    }
+
+    [Fact]
+    public void Claude_names_a_malformed_cost_and_keeps_the_counters()
+    {
+        var usage = ProviderUsage.Claude(Usage("""{"output_tokens":4}"""), Element("\"0.42\""));
+
+        Assert.Null(usage.CostUsd);
+        Assert.Equal(4, usage.OutputTokens);
+        Assert.Equal(["total_cost_usd"], usage.MalformedFields);
     }
 
     [Fact]
