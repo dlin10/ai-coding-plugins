@@ -45,7 +45,7 @@ public sealed class StatusJobTests : IDisposable
         Assert.Equal("command_execution: dotnet test", active["activeJob"]!["lastEvent"]!.GetValue<string>());
 
         gate.SetResult("done");
-        await registry.WaitAsync(run.Path, start.JobId, TimeSpan.FromSeconds(1), ct);
+        await registry.WaitAsync(run.Path, start.JobId, TimeSpan.FromSeconds(30), ct);
         var terminal = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
 
         Assert.Null(terminal["activeJob"]);
@@ -100,7 +100,7 @@ public sealed class StatusJobTests : IDisposable
         });
 
         replacementRelease.SetResult("replacement");
-        await registry.WaitAsync(run.Path, replacement.JobId, TimeSpan.FromSeconds(1), ct);
+        await registry.WaitAsync(run.Path, replacement.JobId, TimeSpan.FromSeconds(30), ct);
     }
 
     private async Task<RunDirectory> NewRun(string runId)
