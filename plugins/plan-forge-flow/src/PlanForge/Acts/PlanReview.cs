@@ -88,7 +88,7 @@ internal sealed class PlanReview
             try
             {
                 var decisionResult = ledger.Apply(orchestratorDecisions, LedgerPhase.PlanReview);
-                run.AppendFlowDecisionBatch("Plan review", decisionResult);
+                run.AppendFlowDecisionBatch("Plan review", orchestratorDecisions, decisionResult);
                 decisionResult.ThrowIfConflict();
             }
             catch (DecisionLedgerRequestException error)

@@ -381,7 +381,7 @@ internal sealed class ForgeTools
                     try
                     {
                         var response = run.ReadDecisionLedger().Apply(decisions, LedgerPhase.PlanReview);
-                        run.AppendFlowDecisionBatch("Plan confirmation", response);
+                        run.AppendFlowDecisionBatch("Plan confirmation", decisions, response);
                         response.ThrowIfConflict();
                     }
                     catch (DecisionLedgerRequestException error)

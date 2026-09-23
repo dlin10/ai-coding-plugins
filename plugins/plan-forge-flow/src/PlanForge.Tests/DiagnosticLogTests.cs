@@ -198,6 +198,23 @@ public sealed class DiagnosticLogTests : IDisposable
         Assert.Equal("the first attempt returned no object", Field(note, "detail"));
     }
 
+    [Fact]
+    public void Run_files_keep_non_ascii_text_as_written()
+    {
+        var run = RunDirectory.Create(_repo, "20260101-000000-readable");
+
+        run.Log.Write("info", "test", "note", ("message", "повтор критика"));
+        run.WriteState(new RunState(run.RunId, _repo, "Text", DateTimeOffset.Now, 0, 5)
+                       with { BuilderInstructions = "используй ponytail-net" });
+
+        var log = AtomicFile.Read(run.DiagnosticLogPath);
+        Assert.Contains("повтор критика", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u", log, StringComparison.Ordinal);
+        var state = File.ReadAllText(Path.Combine(run.Path, "state.json"));
+        Assert.Contains("используй ponytail-net", state, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u", state, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The twenty-minute timeout that swallowed a critique delivered in two: cursor-agent finished
     /// and exited, an MCP server it had spawned kept the inherited stdout handle, and a reader

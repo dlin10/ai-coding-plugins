@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.35.2
+
+Run files are readable by a person again.
+
+- `decision-ledger.json` moves to schema version 2: an applied decision batch keeps only the SHA-256
+  digest of its canonical decisions and its result, instead of base64 canonical bytes. Loading no
+  longer re-verifies batches against their payload. Version-1 ledgers are not read, so finish an
+  in-flight run on the previous version.
+- `flow_log.md` lists each decision as `- F-0001 defer (orchestrator): reason` instead of a raw
+  canonical JSON line; a conflict shows the saved batch's IDs. The conflict error no longer carries
+  the saved decisions.
+- `decision-ledger.json`, `state.json` and `forge.log` write non-ASCII text as written rather than as
+  `\uXXXX` escapes.
+
 ## 0.35.1
 
 Worker telemetry now gives `inputTokens` the same total-input meaning for Claude, Codex and Cursor
