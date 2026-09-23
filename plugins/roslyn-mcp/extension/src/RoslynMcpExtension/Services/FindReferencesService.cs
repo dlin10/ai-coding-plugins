@@ -10,30 +10,16 @@ namespace RoslynMcpExtension.Services;
 
 internal class FindReferencesService(DocumentFinder documentFinder)
 {
-	public async Task<SymbolListResult> FindReferencesAsync(string filePath, int line, int column, int maxResults)
+	public async Task<SymbolListResult> FindReferencesAsync(string? filePath, int line, int column, string? symbolId,
+	                                                        string? projectName, int maxResults)
 	{
 		var result = new SymbolListResult();
 
 		try
 		{
-			var document = documentFinder.FindDocument(filePath);
-			var semanticModel = await document.GetSemanticModelAsync();
-			var syntaxTree = await document.GetSyntaxTreeAsync();
-			if (semanticModel == null || syntaxTree == null)
-			{
-				result.ErrorMessage = "Failed to get semantic model";
-				return result;
-			}
-
-			result.Compilation = DocumentFinder.CreateCompilationInfo(document, semanticModel);
-
-			var position = DocumentFinder.GetPosition(syntaxTree, line, column);
-			var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, documentFinder.Workspace);
-			if (symbol == null)
-			{
-				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
-				                               $"No symbol found at line {line}, column {column}");
-			}
+			var resolved = await new SymbolResolver(documentFinder).ResolveAsync(filePath, line, column, symbolId, projectName);
+			result.Compilation = resolved.Compilation;
+			var symbol = resolved.Required;
 
 			result.Symbol = CodeMemberInfoFactory.Create(
 				symbol,
@@ -93,6 +79,7 @@ internal class FindReferencesService(DocumentFinder documentFinder)
 			Name = referencedSymbol.Name,
 			MemberType = memberType,
 			ContainingSymbol = containingSymbol?.ToDisplayString(),
+			ContainingSymbolId = CodeMemberInfoFactory.NearestSymbolIdOf(containingSymbol),
 			ProjectName = document?.Project.Name,
 			FilePath = location.SourceTree?.FilePath ?? string.Empty,
 			StartLine = lineSpan.StartLinePosition.Line + 1,

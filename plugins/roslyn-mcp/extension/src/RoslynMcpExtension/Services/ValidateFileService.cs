@@ -71,23 +71,13 @@ internal class ValidateFileService(DocumentFinder documentFinder)
 				}
 			}
 
-			if (runAnalyzers)
+			var withAnalyzers = runAnalyzers ? ProjectAnalyzers.Attach(document.Project, compilation) : null;
+			if (withAnalyzers != null)
 			{
-				var semanticModel = await document.GetSemanticModelAsync();
-				if (semanticModel != null)
-				{
-					var analyzerDiags = semanticModel.GetDiagnostics();
-					foreach (var diag in analyzerDiags.Where(d =>
-								 d.Severity is >= DiagnosticSeverity.Warning or DiagnosticSeverity.Info))
-					{
-						if (!diagnostics.Any(existing => existing.Id == diag.Id &&
-															existing.Location.GetLineSpan().StartLinePosition ==
-															diag.Location.GetLineSpan().StartLinePosition))
-						{
-							result.AnalyzerDiagnostics.Add(ToDiagnosticInfo(diag));
-						}
-					}
-				}
+				var analyzerDiagnostics = (await withAnalyzers.GetAnalyzerSyntaxDiagnosticsAsync(syntaxTree, CancellationToken.None))
+					.AddRange(await withAnalyzers.GetAnalyzerSemanticDiagnosticsAsync(compilation.GetSemanticModel(syntaxTree), null, CancellationToken.None));
+				foreach (var diag in analyzerDiagnostics.Where(d => d.Severity != DiagnosticSeverity.Hidden))
+					result.AnalyzerDiagnostics.Add(ToDiagnosticInfo(diag));
 			}
 
 			result.Success = result.Errors.Count == 0;
@@ -103,7 +93,7 @@ internal class ValidateFileService(DocumentFinder documentFinder)
 		return result;
 	}
 
-	private static DiagnosticInfo ToDiagnosticInfo(Diagnostic diag)
+	internal static DiagnosticInfo ToDiagnosticInfo(Diagnostic diag)
 	{
 		var lineSpan = diag.Location.GetLineSpan();
 		return new DiagnosticInfo

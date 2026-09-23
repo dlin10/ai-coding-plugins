@@ -10,38 +10,22 @@ namespace RoslynMcpExtension.Services;
 
 internal class FindCallersService(DocumentFinder documentFinder)
 {
-	public async Task<SymbolListResult> FindCallersAsync(string filePath, int line, int column, int maxResults)
+	public async Task<SymbolListResult> FindCallersAsync(string? filePath, int line, int column, string? symbolId,
+	                                                     string? projectName, int maxResults)
 	{
 		var result = new SymbolListResult();
 
 		try
 		{
-			var document = documentFinder.FindDocument(filePath);
-			var semanticModel = await document.GetSemanticModelAsync();
-			var syntaxTree = await document.GetSyntaxTreeAsync();
-			if (semanticModel == null || syntaxTree == null)
-			{
-				result.ErrorMessage = "Failed to get semantic model";
-				return result;
-			}
-
-			result.Compilation = DocumentFinder.CreateCompilationInfo(document, semanticModel);
-
-			var position = DocumentFinder.GetPosition(syntaxTree, line, column);
-			var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel,
-			                                                              position,
-			                                                              documentFinder.Workspace);
-			if (symbol == null)
-			{
-				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
-				                               $"No symbol found at line {line}, column {column}");
-			}
+			var resolved = await new SymbolResolver(documentFinder).ResolveAsync(filePath, line, column, symbolId, projectName);
+			result.Compilation = resolved.Compilation;
+			var symbol = resolved.Required;
 
 			result.Symbol = CodeMemberInfoFactory.Create(symbol,
 			                                                   symbol.Name,
 			                                                   "member",
 			                                                   symbol.Locations.FirstOrDefault(location => location.IsInSource),
-			                                                   document.Project.Name);
+			                                                   resolved.Project.Name);
 
 			if (symbol is not IMethodSymbol and not IPropertySymbol and not IEventSymbol)
 			{
@@ -61,16 +45,17 @@ internal class FindCallersService(DocumentFinder documentFinder)
 					if (result.Members.Count >= maxResults) break;
 
 					var displayName = caller.CallingSymbol.ToDisplayString();
-					var projectName = location.SourceTree == null
+					var locationProject = location.SourceTree == null
 						? null
 						: solution.GetDocument(location.SourceTree)?.Project.Name;
 					var member = CodeMemberInfoFactory.Create(caller.CallingSymbol,
 					                                                  displayName,
 					                                                  caller.IsDirect ? "caller" : "indirect-caller",
 					                                                  location,
-					                                                  projectName);
+					                                                  locationProject);
 					member.Name = displayName;
 					member.MemberType = caller.IsDirect ? "caller" : "indirect-caller";
+					member.ContainingSymbolId = CodeMemberInfoFactory.NearestSymbolIdOf(caller.CallingSymbol);
 					await CodeMemberInfoFactory.SetEnclosingSpanAsync(member, caller.CallingSymbol, location);
 					result.Members.Add(member);
 				}

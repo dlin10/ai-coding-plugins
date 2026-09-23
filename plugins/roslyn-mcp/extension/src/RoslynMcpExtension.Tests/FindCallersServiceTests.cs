@@ -22,7 +22,7 @@ public sealed class FindCallersServiceTests : IDisposable
 		                                           loader: TextLoader.From(TextAndVersion.Create(SourceText.From("class Target { }"), VersionStamp.Create())),
 		                                           filePath: path));
 
-		var result = await new FindCallersService(new DocumentFinder(_workspace)).FindCallersAsync(path, 1, 7, 50);
+		var result = await new FindCallersService(new DocumentFinder(_workspace)).FindCallersAsync(path, 1, 7, null, null, 50);
 		RoslynAnalysisService.CompleteResult(result);
 
 		Assert.False(result.RequestSucceeded);

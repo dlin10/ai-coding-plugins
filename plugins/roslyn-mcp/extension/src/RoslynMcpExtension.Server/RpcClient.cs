@@ -64,14 +64,21 @@ public sealed class RpcClient(CancellationTokenSource shutdownCts) : IRoslynAnal
     public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
         => Proxy.ValidateFileAsync(filePath, includeWarnings, runAnalyzers);
 
-    public Task<SymbolListResult> FindReferencesAsync(string filePath, int line, int column, int maxResults)
-        => Proxy.FindReferencesAsync(filePath, line, column, maxResults);
+    public Task<DiagnosticsResult> GetDiagnosticsAsync(string[]? filePaths, string? projectName, bool includeWarnings, bool runAnalyzers,
+                                                       int maxResults)
+        => Proxy.GetDiagnosticsAsync(filePaths, projectName, includeWarnings, runAnalyzers, maxResults);
 
-    public Task<SymbolListResult> FindImplementationsAsync(string filePath, int line, int column, int maxResults)
-        => Proxy.FindImplementationsAsync(filePath, line, column, maxResults);
+    public Task<SymbolListResult> FindReferencesAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
+                                                      int maxResults)
+        => Proxy.FindReferencesAsync(filePath, line, column, symbolId, projectName, maxResults);
 
-    public Task<SymbolListResult> FindCallersAsync(string filePath, int line, int column, int maxResults)
-        => Proxy.FindCallersAsync(filePath, line, column, maxResults);
+    public Task<SymbolListResult> FindImplementationsAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
+                                                           int maxResults)
+        => Proxy.FindImplementationsAsync(filePath, line, column, symbolId, projectName, maxResults);
+
+    public Task<SymbolListResult> FindCallersAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
+                                                   int maxResults)
+        => Proxy.FindCallersAsync(filePath, line, column, symbolId, projectName, maxResults);
 
     public Task<SymbolListResult> GoToDefinitionAsync(string filePath, int line, int column)
         => Proxy.GoToDefinitionAsync(filePath, line, column);
@@ -79,12 +86,16 @@ public sealed class RpcClient(CancellationTokenSource shutdownCts) : IRoslynAnal
     public Task<SymbolListResult> GetDocumentSymbolsAsync(string filePath)
         => Proxy.GetDocumentSymbolsAsync(filePath);
 
-    public Task<SymbolListResult> SearchSymbolsAsync(string query, int maxResults)
-        => Proxy.SearchSymbolsAsync(query, maxResults);
+    public Task<SymbolListResult> SearchSymbolsAsync(string query, bool includeMetadata, int maxResults)
+        => Proxy.SearchSymbolsAsync(query, includeMetadata, maxResults);
 
     public Task<SymbolListResult> FindDeadCodeAsync(int maxResults, bool includeInternal, bool includePublic)
         => Proxy.FindDeadCodeAsync(maxResults, includeInternal, includePublic);
 
-    public Task<SymbolInfoResult> GetSymbolInfoAsync(string filePath, int line, int column)
-        => Proxy.GetSymbolInfoAsync(filePath, line, column);
+    public Task<SymbolInfoResult> GetSymbolInfoAsync(string? filePath, int line, int column, string? symbolId, string? projectName)
+        => Proxy.GetSymbolInfoAsync(filePath, line, column, symbolId, projectName);
+
+    public Task<TypeDescriptionResult> DescribeTypeAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
+                                                         string? memberFilter, int maxResults)
+        => Proxy.DescribeTypeAsync(filePath, line, column, symbolId, projectName, memberFilter, maxResults);
 }
