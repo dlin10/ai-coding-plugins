@@ -45,8 +45,8 @@ internal class FindCallersService(DocumentFinder documentFinder)
 
 			if (symbol is not IMethodSymbol and not IPropertySymbol and not IEventSymbol)
 			{
-				result.ErrorMessage = $"Symbol '{symbol.ToDisplayString()}' is not callable.";
-				return result;
+				throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
+				                               $"Symbol '{symbol.ToDisplayString()}' is not callable.");
 			}
 
 			var solution = documentFinder.Workspace.CurrentSolution;

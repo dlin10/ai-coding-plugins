@@ -3,14 +3,17 @@ using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.VisualStudio.LanguageServices;
 using RoslynMcpExtension.Shared;
 
 namespace RoslynMcpExtension.Services;
 
-internal class DocumentFinder(VisualStudioWorkspace workspace)
+/// <remarks>
+/// Takes the base Workspace rather than VisualStudioWorkspace, whose internal constructor keeps tests
+/// from creating one; the services only need the current solution.
+/// </remarks>
+internal class DocumentFinder(Workspace workspace)
 {
-	public VisualStudioWorkspace Workspace => workspace;
+	public Workspace Workspace => workspace;
 
 	public Document FindDocument(string filePath)
 	{
