@@ -332,6 +332,19 @@ public sealed class IrLoweringTests
     }
 
     [Fact]
+    public async Task Yield_return_is_printed()
+    {
+        var body = await Lower("""
+            using System.Collections.Generic;
+            class C { IEnumerable<int> M() { yield return 1; } }
+            """);
+
+        var yielded = Assert.Single(Operations<IrYieldOperation>(body));
+        Assert.NotNull(yielded.Value);
+        Assert.Contains($"operation {yielded.Id} yield value=%{yielded.Value} |", IrPrinter.Print(body));
+    }
+
+    [Fact]
     public async Task Provenance_is_relative_slash_separated_and_one_based()
     {
         var body = await Lower("""

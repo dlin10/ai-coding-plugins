@@ -73,6 +73,7 @@ public static class IrPrinter
         IrAwaitOperation awaitOperation => F($"await {Value(awaitOperation.AwaitableValue)} " +
                                              $"result={OptionalValue(awaitOperation.ResultValue)}" +
                                              (awaitOperation.TaskValue is int task ? $" task={Value(task)}" : "")),
+        IrYieldOperation yield => F($"yield value={OptionalValue(yield.Value)}"),
         IrSpawnOperation spawn => F($"spawn {spawn.Kind} call={OperationId(spawn.CallOperationId)} " +
                                     $"handle={OptionalValue(spawn.HandleValue)} work={Values(spawn.WorkValues)} " +
                                     $"work-method={OptionalText(spawn.WorkMethod)} state={OptionalValue(spawn.StateValue)} " +
