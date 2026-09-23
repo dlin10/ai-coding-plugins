@@ -46,11 +46,16 @@ public sealed class IrPrinterTests
 
         operations.AddRange(
         [
+            new IrAddressFieldOperation(nextOperation++, nextValue++, 3, Field, Provenance),
+            new IrAddressElementOperation(nextOperation++, nextValue++, 3, [0], Provenance),
+            new IrLoadReferenceOperation(nextOperation++, nextValue++, 0, Provenance),
+            new IrStoreReferenceOperation(nextOperation++, 0, 1, null, Provenance),
             new IrCreateDelegateOperation(nextOperation++, nextValue++, "body:target", null, 3, Provenance),
             new IrCaptureOperation(nextOperation++, 0, "body:target", Provenance),
             new IrEscapeOperation(nextOperation++, 3, "return", Provenance),
             new IrReturnOperation(nextOperation++, 0, Provenance),
             new IrAwaitOperation(nextOperation++, nextValue++, 0, Provenance),
+            new IrYieldOperation(nextOperation++, 0, Provenance),
             new IrSpawnOperation(nextOperation++, IrSpawnKind.TaskRun, 7, 6, [0], Provenance),
             new IrThreadWorkOperation(nextOperation++, 3, 0, Provenance),
             new IrJoinOperation(nextOperation++, IrJoinKind.Wait, 7, [6], true, Provenance),
@@ -68,6 +73,12 @@ public sealed class IrPrinterTests
                                    IrConversionKind.Numeric, Provenance),
             new IrUnknownOperation(nextOperation, nextValue, "Dynamic", "unresolved", [0], Provenance)
         ]);
+        // A kind missing from the list above is a kind the printer is never asked to print.
+        var unlisted = typeof(IrOperation).Assembly.GetTypes()
+                                          .Where(type => type.IsSubclassOf(typeof(IrOperation)) && !type.IsAbstract)
+                                          .Except(operations.Select(operation => operation.GetType()))
+                                          .Select(type => type.Name);
+        Assert.Empty(unlisted);
         var body = WellFormedBody(operations);
 
         var text = IrPrinter.Print(body);
@@ -75,7 +86,8 @@ public sealed class IrPrinterTests
         foreach (var form in new[]
                  {
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
-                     "store-element", "create-delegate", "capture", "escape", "return", "await",
+                     "store-element", "address-field", "address-element", "load-reference", "store-reference",
+                     "create-delegate", "capture", "escape", "return", "await", "yield",
                      "spawn", "thread-work", "join", "when-all", "unwrap", "timer", "acquire", "release", "atomic", "compute", "compare", "convert", "unknown"
                  })
         {
