@@ -60,6 +60,8 @@ public sealed record MethodInstance(string Id, string BodyId, string Context, IR
 
 public sealed record CallEdge(string CallerInstance, int OperationId, string CalleeInstance, string Reason);
 
+public sealed record IteratorObject(string RegionId, CallEdge Creation);
+
 /// <summary>A closed type's type initializer: the instance running it and what triggered it.</summary>
 public sealed record TypeInitializerConstruction(string TypeKey, string InstanceId, IReadOnlyList<string> TriggeringInstances,
                                                  IReadOnlyList<string> TriggeringRegions);
@@ -154,6 +156,9 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<string, HeapRegion> Regions { get; }
     public IReadOnlyDictionary<string, MethodInstance> Instances { get; }
     public IReadOnlyList<CallEdge> Edges { get; }
+    public IReadOnlyList<CallEdge> ExecutionEdges { get; init; } = [];
+    public IReadOnlyList<IteratorObject> IteratorObjects { get; init; } = [];
+    public IReadOnlySet<string> UnknownIterators { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlyList<TypeInitializerConstruction> TypeInitializers { get; }
     public IReadOnlyList<RegionConstruction> Constructions { get; }
     public IReadOnlyDictionary<string, int> Counters { get; }
@@ -351,6 +356,7 @@ public static class WholeProgram
         private readonly HashSet<string> _sccHandled = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _changedRounds = new(StringComparer.Ordinal);
         private readonly HashSet<(string Caller, int Operation, string Callee, string Reason)> _edges = [];
+        private readonly Dictionary<string, CallEdge> _iteratorObjects = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (string InstanceId, HashSet<string> Instances, HashSet<string> Regions)> _typeInitializers =
             new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<string>> _constructions = new(StringComparer.Ordinal);
@@ -475,6 +481,45 @@ public static class WholeProgram
                                                instance.Parameters.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value),
                                                instance.CellOwners),
                 StringComparer.Ordinal);
+            var executionEdges = _edges.Where(edge => _scope.Reachable.Bodies.GetValueOrDefault(_instances[edge.Callee].BodyId)?.IsIterator != true)
+                                       .Select(edge => new CallEdge(edge.Caller, edge.Operation, edge.Callee, edge.Reason)).ToList();
+            var unknownIterators = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var instance in _instances.Values.Where(_ => _iteratorObjects.Count != 0))
+            {
+                if (!_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
+                    continue;
+                var calls = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>().ToDictionary(call => call.Id);
+                foreach (var call in instance.Summary.OpaqueCalls)
+                {
+                    if (!calls.TryGetValue(call.OperationId, out var operation))
+                        continue;
+                    var candidateValues = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values))
+                                              .Where(PotentialIteratorValue).ToArray();
+                    if (candidateValues.Length == 0)
+                        continue;
+                    var iteratorRegions = Eval(instance, candidateValues)
+                        .Where(_iteratorObjects.ContainsKey).ToArray();
+                    foreach (var region in iteratorRegions)
+                    {
+                        if (operation.EnumerationRole == IrEnumerationRole.GetEnumerator &&
+                            Eval(instance, call.Receivers).Contains(region))
+                            executionEdges.Add(new CallEdge(instance.Id, call.OperationId, _iteratorObjects[region].CalleeInstance,
+                                                            "iterator-enumeration"));
+                        else if (operation.EnumerationRole == IrEnumerationRole.None)
+                            unknownIterators.Add(region);
+                    }
+                }
+            }
+            foreach (var values in _fields.Values)
+                unknownIterators.UnionWith(values.Where(_iteratorObjects.ContainsKey));
+
+            static bool PotentialIteratorValue(AbstractValue value) => value switch
+            {
+                AllocationValue or DelegateCreationValue or AwaitResultValue => false,
+                PathValue path => PotentialIteratorValue(path.Base),
+                _ => true
+            };
+
             return new HeapSolution(
                 _regions,
                 instances,
@@ -504,6 +549,10 @@ public static class WholeProgram
                            .ToHashSet(StringComparer.Ordinal)
                     : new HashSet<string>(StringComparer.Ordinal))
             {
+                ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
+                                              .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
+                IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key, pair.Value)).ToArray(),
+                UnknownIterators = unknownIterators,
                 UnresolvedLocators = unresolved.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
                 RegionUncertainties = _uncertainties.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
                 Collections = _collections.ToDictionary(pair => pair.Key,
@@ -1576,7 +1625,14 @@ public static class WholeProgram
                 return;
             foreach (var argument in call.Arguments)
                 Add(Parameter(callee, argument.ParameterOrdinal), Eval(caller, argument.Values));
-            if (AsyncSpawnKind(call, callee) is { } kind)
+            if (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body.IsIterator)
+            {
+                var region = Region($"iterator|{caller.Id}|{call.OperationId}|{callee.Id}", HeapRegionKind.Allocation,
+                                    $"iterator:{call.Target}", null, ContextKey(caller), null);
+                Add(CallResult(caller, call.OperationId), [region]);
+                _iteratorObjects.TryAdd(region, new CallEdge(caller.Id, call.OperationId, callee.Id, reason));
+            }
+            else if (AsyncSpawnKind(call, callee) is { } kind)
                 AsyncSpawn(caller, call.OperationId, callee, kind);
             else
             {

@@ -45,3 +45,47 @@ is a parameter, or over a type the analysis does not model, gives no protection 
 Phase 4 removes candidates in several ways — proven-distinct selectors and guards that cannot both
 hold are the others — but this is the only one that turns a synchronization-shaped construct into a
 proof, which makes it the one whose failure is indistinguishable from safety.
+
+## Amendment, phase 4b: what a lifted scope carries
+
+A scope a callee opens and its caller closes keeps what was true of it inside the callee. If the
+callee held the primitive across a suspension point — an `await` or a `yield return` — the scope is
+`partial` for a thread-owned primitive where the caller holds it too, exactly as it would be had the
+caller written the same code inline (TD-083); a `SemaphoreSlim` whose permits the callee does not
+give back one for one stays unpaired. Phase 4 lost both on the way out of the callee.
+
+An iterator opens its scopes where it is enumerated, not where it is called (ADR 0011). A monitor it
+holds at a `yield return` covers the body of the `foreach` that enumerates it, and one it holds both
+when its body ends and at every `yield return` a `break` can leave it at, net of the `finally` blocks
+the disposal runs there, is held after that loop; both are `partial`, because the holding crosses the
+`yield`. In the simplest shape the enumerating thread does hold the monitor, so this is conservatism
+rather than a missed race, and it was chosen deliberately: an enumerator can be moved to another
+thread between two `MoveNext` calls, the analysis does not prove that it is not, and the error a
+wrong `sufficient` makes is the silent one. Phase 4 lifted the iterator's exit at the call, so a
+write between creating the iterator and enumerating it counted as protected. An iterator also closes
+a scope its enumerator opened, on the same terms as a call: a lock its body lets go on every path
+without having taken it is let go by the enumeration — at every step when an element may still
+follow that exit, since nothing proves which `MoveNext` runs it, and at the disposal when none can,
+so a `finally` after the last `yield` leaves the loop body held and the code after the loop not. A
+handler around the enumeration holds none of the locks the body lets go on some path, because the
+step that throws may have let them go first. Left out, a `Monitor.Exit` in the iterator's `finally`
+kept the enumerator's monitor held after its loop.
+
+Closing a scope and forgetting a lock are two questions. A scope counts as closed only where the body
+lets the lock go on every path, because that is what proves protection. A caller stops holding a lock
+as soon as one path of a call, or of a step of an enumeration, may let it go without the body ever
+taking it itself: an exit some path from the body's entry reaches without passing the body's own
+entry of that lock. A `lock` statement's exit stands behind a flag the analysis does not follow, and
+the must-state before it holds nothing, but every ordinary path to it passes the entry, so it stays
+the body's own; `if (flag) Monitor.Enter(gate); else Monitor.Exit(gate);` does not. Phase 4 asked the first question for both, so
+`if (x) Monitor.Exit(gate)` in a callee left its caller's monitor held after the call.
+
+A call its caller does not await is a spawn (TD-060a): its synchronous prefix runs in the caller and
+its tail after the first `await` is another execution. Such a call opens at the call site only what
+the prefix acquires and the body still holds wherever it can hand control back — at every `await`
+and at its end; whatever the tail acquires belongs to the tail's execution and never protects the
+caller, and neither does a lock the prefix took and the tail lets go, because that release runs
+concurrently with the caller's code. Rejected: lifting nothing from a call that is not awaited,
+which is simpler and errs the safe way, but loses a scope a synchronous prefix really opens.
+Rejected in code review: lifting everything held at the first `await`, which reads the requirement
+literally and proves protection for a caller whose lock the tail may already have released.

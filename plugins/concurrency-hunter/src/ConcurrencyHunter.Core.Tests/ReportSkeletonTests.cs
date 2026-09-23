@@ -496,7 +496,7 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(9, counters.Length);
+        Assert.Equal(10, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));

@@ -87,6 +87,15 @@ public abstract record ElementSelector
         _ => Unknown
     };
 
+    /// <summary>This cell of a slice cut at <paramref name="shift"/> for <paramref name="length"/> cells, in the coordinates of the
+    /// collection it is cut from. A cell nothing numbers inside a slice of a known length is still no further than that slice, so it
+    /// widens to the slice rather than to nothing (TD-043).</summary>
+    public ElementSelector InSlice(long? shift, long? length)
+    {
+        var shifted = shift is { } offset ? Shift(offset) : Unknown;
+        return shifted == Unknown && shift is { } start && length is { } count ? Range(start, start + count) : shifted;
+    }
+
     private sealed record ExactSelector(long Index) : ElementSelector
     {
         public override string Text => $"[{Index.ToString(CultureInfo.InvariantCulture)}]";

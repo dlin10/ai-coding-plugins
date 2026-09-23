@@ -58,6 +58,12 @@ A task-returning call whose handle reaches no `await`, `Wait`, `WhenAll` or `Whe
 a handle stored and awaited elsewhere is a spawn with a join, not fire-and-forget.
 _Avoid_: unawaited call, dropped task, background task
 
+**Unknown execution**:
+An execution the analysis knows will run some code without knowing which root or spawn runs it —
+the enumeration of an iterator that escaped to where the analysis cannot follow it. It may overlap
+every execution of its process scope, itself included, and nothing orders it.
+_Avoid_: background execution, anonymous thread, somewhere
+
 **Join**:
 A point in an execution that runs only after another execution has ended: an `await`, `Wait`,
 `Join` or `WhenAll` on a handle proven to be that execution's, reached on every path including the
@@ -117,7 +123,10 @@ _Avoid_: shared state, variable, field (a field of two different regions is two 
 **Selector**:
 What an access path's last step picks out of an array, span or collection: a proven constant, a
 symbolic expression or conservative range with the guards that bound it, or unknown. Two selectors
-tell two locations apart only when their values are proven never to meet.
+tell two locations apart only when their values are proven never to meet. A slice's selector is
+counted in the storage the slice is cut from: the framework's spans are taken at their word, and any
+other type's offset counts only where its own code proves it over values that cannot change once the
+slice is constructed.
 _Avoid_: index, key, subscript (an index is one shape a selector takes)
 
 **Collection structure**:
@@ -191,7 +200,9 @@ _Avoid_: protection level, protection status, safe/unsafe
 
 **Guard**:
 The path condition an access runs under: the branch, type test, comparison or switch case that must
-hold for control to reach it. Two accesses whose guards cannot both hold never meet.
+hold for control to reach it, in its own body or at any call on the path that reached it. A condition
+a caller states on a value it passes constrains the parameter that value was passed as. Two accesses
+whose guards cannot both hold never meet.
 _Avoid_: protection, lock, condition (bare)
 
 **Confidence label**:
@@ -275,8 +286,10 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - An **Execution root** starts one or more **Execution instances**; a **Spawn site** starts one from inside another.
 - Two **Accesses** form a **Candidate** only when no **Happens-before** orders them; happens-before removes pairs and never adds one. Startup precedes every instance of every root. See `docs/adr/0008`.
 - A **Fire-and-forget** spawn and an `async void` call have no **Join**.
+- An iterator's body runs in the **Execution instance** that enumerates it, at the enumeration, never at the call that creates it; an iterator that reaches a consumer the analysis cannot follow is enumerated by an **Unknown execution** as well. See `docs/adr/0011`.
 - A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
+- A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
 

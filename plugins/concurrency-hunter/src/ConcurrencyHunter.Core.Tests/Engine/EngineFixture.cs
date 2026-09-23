@@ -208,7 +208,9 @@ public static class EngineFixture
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? InterproceduralPairing.SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
-                  first.ExecutionId == second.ExecutionId && heap.Regions[first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
+                  first.ExecutionId == second.ExecutionId && heap.Regions[first.IsReferenceAccess
+                      ? first.Resource.CollectionId ?? first.Resource.RegionId!
+                      : first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
                   region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
                 : executions.Ordered(first, second) ? InterproceduralPairing.SKIP_ORDERED
@@ -233,7 +235,8 @@ public static class EngineFixture
         }
 
         bool IsConfined(Access access) =>
-            executions.Ownership.TryGetValue(access.Resource.RegionId!, out var ownership) && ownership.Kind == OwnershipKind.ThreadConfined;
+            executions.Ownership.TryGetValue(access.IsReferenceAccess ? access.Resource.CollectionId ?? access.Resource.RegionId! : access.Resource.RegionId!, out var ownership) &&
+            ownership.Kind == OwnershipKind.ThreadConfined;
     }
 
     /// <summary>Whether the reference admits two accesses, oriented and reported as the candidate index does, or null.</summary>
@@ -242,6 +245,10 @@ public static class EngineFixture
     {
         if (one.Resource.Scope != other.Resource.Scope)
             return null;
+        if (one.Resource.CollectionId is { } firstCollection && firstCollection == other.Resource.CollectionId &&
+            one.Resource.Selector is { } firstSelector && other.Resource.Selector is { } secondSelector &&
+            firstSelector.MayOverlap(secondSelector))
+            return (one, other, CandidateIndex.ReportedCell(one.Resource, other.Resource), []);
         var wildcard = one.Resource.IsWildcard || other.Resource.IsWildcard;
         if (one.Resource.RegionId == other.Resource.RegionId)
         {

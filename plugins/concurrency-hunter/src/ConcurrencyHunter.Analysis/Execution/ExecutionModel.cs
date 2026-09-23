@@ -14,6 +14,7 @@ public enum ExecutionKind
     TypeInitializer,
     Spawn,
     TimerCallback,
+    UnknownEnumeration,
     Startup
 }
 
@@ -46,7 +47,8 @@ public enum ExecutionEntryKind
     Root,
     Construction,
     TypeInitializer,
-    Spawn
+    Spawn,
+    UnknownEnumeration
 }
 
 /// <summary>Which operations of a body an execution runs: all of them, those an async body runs before its first await, or those it
@@ -268,7 +270,7 @@ public static class ExecutionModel
     {
         private readonly Dictionary<string, ExecutionInstance> _executions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _regionExecutions = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<CallEdge>> _edges = heap.Edges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
+        private readonly Dictionary<string, List<CallEdge>> _edges = heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                         .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _instanceExecutions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _chains = new(StringComparer.Ordinal);
@@ -314,6 +316,16 @@ public static class ExecutionModel
 
             foreach (var (rootId, instanceId) in heap.RootInstances.OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 Entry(RootExecution(rootId), new ExecutionEntry(instanceId, ExecutionEntryKind.Root, null));
+
+            foreach (var iterator in heap.IteratorObjects.Where(iterator => heap.UnknownIterators.Contains(iterator.RegionId))
+                                          .OrderBy(iterator => iterator.RegionId, StringComparer.Ordinal))
+            {
+                var body = heap.Instances[iterator.Creation.CalleeInstance].BodyId;
+                var display = $"unknown enumeration of {scope.Reachable.Bodies[body].MethodSymbol}";
+                var id = Add(new ExecutionInstance($"unknown-enumeration:{iterator.RegionId}", ExecutionKind.UnknownEnumeration,
+                                                   display, REPEATED, null, iterator.RegionId));
+                Entry(id, new ExecutionEntry(iterator.Creation.CalleeInstance, ExecutionEntryKind.UnknownEnumeration, null));
+            }
 
             foreach (var construction in heap.Constructions.OrderBy(construction => heap.Regions[construction.RegionId].Kind != HeapRegionKind.Receiver)
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))

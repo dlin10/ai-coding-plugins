@@ -6,22 +6,22 @@ finished phases are untouched.
 .DESCRIPTION
 Without arguments two checks run.
 
-Consistency: for every entry with phase 4 the case name is the part of `id` before `/`, and that name must have a file
+Consistency: for every entry with phase 4b the case name is the part of `id` before `/`, and that name must have a file
 <Pascal>.cs somewhere under demo/**/Cases/ whose namespace ends with the same <Pascal>, the kebab name joined in PascalCase.
 
 The past: the committed file, read with `git show HEAD:plugins/concurrency-hunter/demo/expected-findings.json`, must still
-hold the same entries for the finished phases 0, 1a, 1b, 2, 2b and 3, entry by entry, by id, rule, resource, accesses,
+hold the same entries for the finished phases 0, 1a, 1b, 2, 2b, 3 and 4, entry by entry, by id, rule, resource, accesses,
 confidence and phase. Formatting and property order are not compared; the two accesses of an entry are compared as the
 unordered pair they are (SPEC 12.2).
 
-With -Complete a third check runs, completeness: the case names of the phase 4 table of demo/SCENARIOS.md must each have a
+With -Complete a third check runs, completeness: the case names of the phase 4b table of demo/SCENARIOS.md must each have a
 file and an entry. Completeness is only reachable at the end of the phase, which is why it is a switch and not the default.
 
 Registration in Program.cs is not checked: cases that live on a controller have none, MVC finds them, and checking would
 fail on them.
 
 .PARAMETER Complete
-Also require every case of the phase 4 catalog to have a file and an entry.
+Also require every case of the phase 4b catalog to have a file and an entry.
 #>
 param(
     [switch]$Complete
@@ -41,8 +41,8 @@ if ([int][char]$PHASE_WORD[0] -ne 0x424) {
     exit 1
 }
 
-$PHASE = '4'
-$FINISHED_PHASES = @('0', '1a', '1b', '2', '2b', '3')
+$PHASE = '4b'
+$FINISHED_PHASES = @('0', '1a', '1b', '2', '2b', '3', '4')
 $COMMITTED = 'HEAD:plugins/concurrency-hunter/demo/expected-findings.json'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -86,7 +86,7 @@ foreach ($file in Get-ChildItem (Join-Path $root 'demo') -Recurse -Filter '*.cs'
     $caseFiles[[IO.Path]::GetFileNameWithoutExtension($file.Name)] = $file.FullName
 }
 
-# 1. Consistency: every phase 4 entry has its case file, and that file carries the matching namespace.
+# 1. Consistency: every phase 4b entry has its case file, and that file carries the matching namespace.
 $cases = @($entries | Where-Object { $_.phase -eq $PHASE } | ForEach-Object { $_.id.Split('/')[0] } | Sort-Object -Unique)
 foreach ($case in $cases) {
     $pascal = Get-PascalName $case
@@ -106,10 +106,22 @@ foreach ($case in $cases) {
     }
 }
 
-# 2. The past: the entries of the finished phases are the committed ones.
-$committedText = (& git -C $root show $COMMITTED) -join "`n"
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "git show $COMMITTED failed with exit code $LASTEXITCODE."
+# 2. The past: the entries of the finished phases are the committed ones. The committed file carries a UTF-8 byte-order mark
+# since phase 4. A process's output is decoded in the console's code page, which is IBM437 in one host and UTF-8 in another,
+# and in the first the mark arrives as three characters no parser accepts; so the output is read as UTF-8, whichever shell
+# runs this, and the mark it then is is dropped before parsing.
+$previousEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+try {
+    $committedText = ((& git -C $root show $COMMITTED) -join "`n").TrimStart([char]0xFEFF)
+    $gitExit = $LASTEXITCODE
+}
+finally {
+    [Console]::OutputEncoding = $previousEncoding
+}
+
+if ($gitExit -ne 0) {
+    Write-Error "git show $COMMITTED failed with exit code $gitExit."
     exit 1
 }
 
@@ -137,7 +149,7 @@ foreach ($id in $present.Keys | Sort-Object) {
     }
 }
 
-# 3. Completeness, on request: every case of the phase 4 catalog has a file and an entry.
+# 3. Completeness, on request: every case of the phase 4b catalog has a file and an entry.
 $catalog = @()
 if ($Complete) {
     $inTable = $false

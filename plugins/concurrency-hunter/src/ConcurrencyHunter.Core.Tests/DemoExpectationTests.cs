@@ -18,28 +18,22 @@ public sealed class DemoExpectationTests
     {
         WriteIndented = true
     };
+    private static readonly Lazy<Task<AnalysisResult>> SharedDemo = new(() => AnalyzeDemoAsync());
 
     [Fact]
-    public async Task Demo_matches_every_phase_4_expectation_on_three_runs()
+    public async Task Demo_matches_every_phase_4b_expectation_on_three_runs()
     {
         var expectationPath = RepositoryFiles.FindRepositoryFile(
             "plugins", "concurrency-hunter", "demo", "expected-findings.json");
-        var serializedRuns = new List<string>();
-        var results = new List<AnalysisResult>();
-
-        for (var run = 0; run < 3; run++)
-        {
-            var result = await AnalyzeDemoAsync();
-            results.Add(result);
-            serializedRuns.Add(JsonSerializer.Serialize(result.Findings, JsonOptions));
-        }
+        var results = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => AnalyzeDemoAsync()));
+        var serializedRuns = results.Select(result => JsonSerializer.Serialize(result.Findings, JsonOptions)).ToArray();
 
         Assert.All(serializedRuns.Skip(1), serialized => Assert.Equal(serializedRuns[0], serialized));
         var finalResult = results[^1];
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "4");
+            "4b");
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
@@ -50,7 +44,7 @@ public sealed class DemoExpectationTests
     [Fact]
     public async Task Demo_test_project_is_not_a_process_scope()
     {
-        var result = await AnalyzeDemoAsync();
+        var result = await SharedDemo.Value;
 
         Assert.Equal(["Demo.Web", "Demo.Worker"], result.Scopes.Select(scope => scope.Id).Order(StringComparer.Ordinal));
         Assert.All(result.Scopes, scope => Assert.DoesNotContain(scope.Projects, project => project.Contains("Demo.Tests", StringComparison.Ordinal)));
@@ -59,7 +53,7 @@ public sealed class DemoExpectationTests
     [Fact]
     public async Task Demo_counts_two_unresolved_locator_calls_and_no_unanalysed_registration_in_the_web_scope()
     {
-        var result = await AnalyzeDemoAsync();
+        var result = await SharedDemo.Value;
 
         var web = Assert.Single(result.Coverage, coverage => coverage.ScopeId == "Demo.Web");
         Assert.Equal(2, web.Skips.GetValueOrDefault(CoverageCounters.UNRESOLVED_LOCATOR));
@@ -69,7 +63,7 @@ public sealed class DemoExpectationTests
     [Fact]
     public async Task Demo_shared_helper_is_one_finding_with_six_occurrences_in_one_group()
     {
-        var result = await AnalyzeDemoAsync();
+        var result = await SharedDemo.Value;
 
         var finding = Assert.Single(result.Findings,
                                     item => item.Resource.Region == "di:Demo.Web.Cases.GroupSharedHelperManyCallers.ActivityLog@Singleton");
@@ -84,8 +78,11 @@ public sealed class DemoExpectationTests
     [Fact]
     public async Task Demo_findings_are_identical_with_and_without_the_candidate_index()
     {
-        var indexed = await AnalyzeDemoAsync();
-        var reference = await AnalyzeDemoAsync(EngineFixture.ReferencePair);
+        var indexedTask = AnalyzeDemoAsync();
+        var referenceTask = AnalyzeDemoAsync(EngineFixture.ReferencePair);
+        await Task.WhenAll(indexedTask, referenceTask);
+        var indexed = await indexedTask;
+        var reference = await referenceTask;
 
         Assert.NotEmpty(indexed.Findings);
         Assert.Equal(JsonSerializer.Serialize(reference.Findings, JsonOptions), JsonSerializer.Serialize(indexed.Findings, JsonOptions));

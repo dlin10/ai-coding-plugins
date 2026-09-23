@@ -56,6 +56,10 @@ public static class IrPrinter
                                          $"{Value(load.ReceiverValue)}{Values(load.IndexValues)}"),
         IrStoreElementOperation store => F($"store-element {Value(store.ReceiverValue)}" +
                                             $"{Values(store.IndexValues)} <- {Value(store.Value)}"),
+        IrAddressFieldOperation address => F($"address-field {Value(address.ResultValue)} <- {OptionalValue(address.ReceiverValue)}.{Text(address.Field.Name)}"),
+        IrAddressElementOperation address => F($"address-element {Value(address.ResultValue)} <- {Value(address.ReceiverValue)}{Values(address.IndexValues)}"),
+        IrLoadReferenceOperation load => F($"load-reference {Value(load.ResultValue)} <- {Value(load.AddressValue)}"),
+        IrStoreReferenceOperation store => F($"store-reference {Value(store.AddressValue)} <- {Value(store.Value)} rmw={OperationId(store.ReadModifyWriteOf)}"),
         IrCallOperation call => F($"call {call.CallKind} result={OptionalValue(call.ResultValue)} " +
                                    $"method={Text(call.Method)} receiver={OptionalValue(call.ReceiverValue)} " +
                                    $"arguments={Values(call.ArgumentValues)}{(call.IsAwaitedImmediately ? " awaited" : "")}"),

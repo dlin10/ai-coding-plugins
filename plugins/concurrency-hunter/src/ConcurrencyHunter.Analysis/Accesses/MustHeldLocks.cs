@@ -21,6 +21,7 @@ internal sealed record LockObject(string Key, string Display, string? SingleObje
     /// <summary>Whether a call carried this entry out of the callee that made it. Such an entry is protection only when the exit
     /// is carried back the same way on every path, since nothing else proves the scope ever closes (ADR 0009).</summary>
     public bool IsLifted { get; init; }
+    public bool IsIteratorCarry { get; init; }
 
     /// <summary>Whether the analysis could name the object at all. A context that names none says nothing about which object a
     /// call works on, so it is no evidence either way about what the call carries out of it.</summary>
@@ -31,7 +32,8 @@ internal enum LockEffectKind
 {
     None,
     Acquire,
-    Release
+    Release,
+    IteratorState
 }
 
 /// <summary>What an operation does to held monitors; a null <see cref="Lock"/> is an object that does not trace to one key.</summary>
@@ -41,6 +43,28 @@ internal readonly record struct LockEffect(LockEffectKind Kind, LockObject? Lock
 
     /// <summary>How many permits an exit gives back, as <see cref="IrReleaseOperation.Permits"/> reads it; an entry takes one.</summary>
     public int? Permits { get; init; } = 1;
+
+    /// <summary>The callee's holding a lifted entry stands for: the acquisition it makes keeps whether that holding crosses a
+    /// suspension and whether its permits pair, on every level it is lifted through (ADR 0009, TD-083).</summary>
+    public HeldLock? Carried { get; init; }
+
+    public IReadOnlyDictionary<string, HeldLock>? IteratorLocks { get; init; }
+    public IReadOnlySet<string>? IteratorKeys { get; init; }
+    public string? IteratorSite { get; init; }
+
+    /// <summary>The locks an iterator's body lets go without holding them itself, which are its enumerator's. Nothing proves which
+    /// step of the enumeration runs that exit, so every step lets go of them — the disposal alone for an exit no element can follow
+    /// (ADR 0011).</summary>
+    public IReadOnlyList<LockObject>? IteratorReleases { get; init; }
+
+    /// <summary>The locks an iterator's body lets go without holding them on some path: a handler around the enumeration may be
+    /// reached after any of them, so it holds none of them (ADR 0011).</summary>
+    public IReadOnlyList<LockObject>? IteratorMayReleases { get; init; }
+
+    /// <summary>The locks a call or a step of an enumeration may let go on some path without the body that does it ever taking
+    /// them, which makes them its caller's or its enumerator's: a must-state holds none of them afterwards, and a handler around
+    /// the operation none either, since the body may throw after letting go (R8, ADR 0009).</summary>
+    public IReadOnlyList<LockObject>? MayReleases { get; init; }
 }
 
 internal readonly record struct HeldLock(int Depth, LockObject Lock, int AcquisitionId)
@@ -150,6 +174,73 @@ internal static class MustHeldLocks
     /// </summary>
     internal static bool HoldsBetween(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int from, int to)
     {
+        var (positions, successors) = Flow(body);
+        if (!positions.TryGetValue(from, out var start) || !positions.TryGetValue(to, out var end))
+            return false;
+
+        var forward = Reachable(successors, (start.Block, start.Index + 1));
+        var backward = Reachable(Reversed(successors), end);
+        foreach (var (block, index) in forward)
+        {
+            if ((block, index) == end || !backward.Contains((block, index)) || index >= body.Blocks[block].Operations.Count)
+                continue;
+            if (Releases(effectOf(body.Blocks[block].Operations[index]), key))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether some path runs from the body's entry to <paramref name="to"/> without taking <paramref name="key"/> on the
+    /// way: what makes an exit at <paramref name="to"/> possibly the exit of a lock somebody else took. An exit every path to which
+    /// passes the body's own entry of that lock may be that entry's exit. An operation the body does not have may be reached any
+    /// way.</summary>
+    internal static bool ReachesWithoutEntry(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int to)
+    {
+        var (positions, successors) = Flow(body);
+        if (body.Blocks.Count == 0 || !positions.TryGetValue(to, out var end))
+            return true;
+
+        var first = (Block: 0, Index: 0);
+        var seen = new HashSet<(int Block, int Index)> { first };
+        var queue = new Queue<(int Block, int Index)>([first]);
+        while (queue.Count > 0)
+        {
+            var position = queue.Dequeue();
+            if (position == end)
+                return true;
+            var operations = body.Blocks[position.Block].Operations;
+            if (position.Index < operations.Count &&
+                effectOf(operations[position.Index]) is { Kind: LockEffectKind.Acquire, Lock: { } entered } &&
+                string.Equals(entered.Key, key, StringComparison.Ordinal))
+                continue;
+            foreach (var next in successors.GetValueOrDefault(position) ?? [])
+            {
+                if (seen.Add(next))
+                    queue.Enqueue(next);
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether some path from just after <paramref name="from"/> reaches an operation <paramref name="target"/> accepts;
+    /// an operation the body does not have may reach anything.</summary>
+    internal static bool Reaches(IrBody body, int from, Func<IrOperation, bool> target)
+    {
+        var (positions, successors) = Flow(body);
+        if (!positions.TryGetValue(from, out var start))
+            return true;
+
+        return Reachable(successors, (start.Block, start.Index + 1))
+            .Any(position => position.Index < body.Blocks[position.Block].Operations.Count &&
+                             target(body.Blocks[position.Block].Operations[position.Index]));
+    }
+
+    /// <summary>Where each operation stands, and which position follows which over the normal control flow of the body.</summary>
+    private static (Dictionary<int, (int Block, int Index)> Positions,
+                    Dictionary<(int Block, int Index), List<(int Block, int Index)>> Successors) Flow(IrBody body)
+    {
         var positions = new Dictionary<int, (int Block, int Index)>();
         for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
         {
@@ -157,9 +248,6 @@ internal static class MustHeldLocks
             for (var index = 0; index < operations.Count; index++)
                 positions[operations[index].Id] = (ordinal, index);
         }
-
-        if (!positions.TryGetValue(from, out var start) || !positions.TryGetValue(to, out var end))
-            return false;
 
         var regions = body.Regions.ToDictionary(region => region.Id);
         var successors = new Dictionary<(int Block, int Index), List<(int Block, int Index)>>();
@@ -197,24 +285,16 @@ internal static class MustHeldLocks
             next.Add(to);
         }
 
-        var forward = Reachable(successors, (start.Block, start.Index + 1));
-        var backward = Reachable(Reversed(successors), end);
-        foreach (var (block, index) in forward)
-        {
-            if ((block, index) == end || !backward.Contains((block, index)) || index >= body.Blocks[block].Operations.Count)
-                continue;
-            if (Releases(effectOf(body.Blocks[block].Operations[index]), key))
-                return false;
-        }
-
-        return true;
+        return (positions, successors);
     }
 
     /// <summary>A release that may let go of <paramref name="key"/>: its own, one that traces to no object at all, and one of an
     /// object whose identity is unknown, which may be any held monitor.</summary>
     private static bool Releases(LockEffect effect, string key) =>
         effect.Kind == LockEffectKind.Release &&
-        (effect.Lock is not { } released || released.IdentityUnknown || string.Equals(released.Key, key, StringComparison.Ordinal));
+        (effect.Lock is not { } released || released.IdentityUnknown || string.Equals(released.Key, key, StringComparison.Ordinal)) ||
+        (effect.IteratorReleases ?? []).Any(released => released.IdentityUnknown || string.Equals(released.Key, key, StringComparison.Ordinal)) ||
+        (effect.MayReleases ?? []).Any(released => !released.NamesObject || string.Equals(released.Key, key, StringComparison.Ordinal));
 
     private static HashSet<(int Block, int Index)> Reachable(IReadOnlyDictionary<(int Block, int Index), List<(int Block, int Index)>> edges,
                                                              (int Block, int Index) from)
@@ -356,11 +436,13 @@ internal static class MustHeldLocks
             var released = ReleasedByFinally(entries);
             var unpaired = Unpaired(result);
 
-            // What the body still holds where it ends on every path: an entry it opened for its caller (ADR 0009).
+            // What the body still holds where it ends on every path: an entry it opened for its caller (ADR 0009). It is marked like
+            // every other state, so that the caller's acquisition keeps what was true of it here.
             var atExit = entries[^1] is { } exit
                 ? Transfer(body.Blocks[^1], exit, null)
                 : new Dictionary<string, HeldLock>(StringComparer.Ordinal);
-            return new MustHeldState(Mark(result, released, unpaired), atExit);
+            var marked = Mark(result, atExit, released, unpaired);
+            return new MustHeldState(marked.States, marked.AtExit);
         }
 
         /// <summary>
@@ -391,9 +473,11 @@ internal static class MustHeldLocks
         /// <summary>Two properties of a whole acquisition, marked into every state that holds it: whether its region holds over a
         /// suspension point, so that an <c>await</c> after the access counts as much as one before it, and whether a
         /// <c>finally</c> releases it, so that no path leaves the region holding it (TD-083).</summary>
-        private Dictionary<int, IReadOnlyDictionary<string, HeldLock>> Mark(Dictionary<int, IReadOnlyDictionary<string, HeldLock>> states,
-                                                                            HashSet<(string Key, int Acquisition)> released,
-                                                                            HashSet<string> unpaired)
+        private (Dictionary<int, IReadOnlyDictionary<string, HeldLock>> States, Dictionary<string, HeldLock> AtExit) Mark(
+            Dictionary<int, IReadOnlyDictionary<string, HeldLock>> states,
+            Dictionary<string, HeldLock> atExit,
+            HashSet<(string Key, int Acquisition)> released,
+            HashSet<string> unpaired)
         {
             var operations = body.Blocks.SelectMany(block => block.Operations.Select(operation => (Block: block, Operation: operation))).ToArray();
             // Every suspension counts, not one kind of it: an iterator resumed after a `yield return` may run on another thread
@@ -405,15 +489,26 @@ internal static class MustHeldLocks
                 if (!states.TryGetValue(operation.Id, out var state) || !suspensions.Contains(operation.Id))
                     continue;
                 foreach (var held in state.Values)
+                {
+                    // A synchronous foreach keeps the caller's header lock while its iterator is suspended.
+                    // The iterator's own acquisition can resume on another thread; the caller's does not.
+                    if (body.IsIterator && Empty.TryGetValue(held.Lock.Key, out var inherited) &&
+                        inherited.Lock.Site == held.Lock.Site)
+                        continue;
                     crossed.Add((held.Lock.Key, held.AcquisitionId));
+                }
             }
 
             if (crossed.Count == 0 && released.Count == 0 && unpaired.Count == 0)
-                return states;
+                return (states, atExit);
 
             foreach (var operationId in states.Keys.ToArray())
-            {
-                states[operationId] = states[operationId].ToDictionary(
+                states[operationId] = Marked(states[operationId]);
+
+            return (states, Marked(atExit));
+
+            Dictionary<string, HeldLock> Marked(IReadOnlyDictionary<string, HeldLock> state) =>
+                state.ToDictionary(
                     pair => pair.Key,
                     pair => pair.Value with
                     {
@@ -422,9 +517,6 @@ internal static class MustHeldLocks
                         IsPaired = pair.Value.IsPaired && !unpaired.Contains(pair.Value.Lock.Key)
                     },
                     StringComparer.Ordinal);
-            }
-
-            return states;
         }
 
         /// <summary>
@@ -579,7 +671,20 @@ internal static class MustHeldLocks
         {
             var entries = Solve(finallyRegion.FirstBlockOrdinal, finallyRegion.LastBlockOrdinal, finallyRegion.FirstBlockOrdinal, state);
             var lastEntry = entries[^1];
-            return lastEntry is null ? null : Transfer(body.Blocks[finallyRegion.LastBlockOrdinal], lastEntry, null);
+            if (lastEntry is null)
+                return null;
+            var exit = Transfer(body.Blocks[finallyRegion.LastBlockOrdinal], lastEntry, null);
+            // A compiler generated foreach finally checks the enumerator for null before Dispose. A null enumerator
+            // cannot reach the statement after the foreach, so the iterator's must state still holds there.
+            foreach (var operation in body.Blocks.Skip(finallyRegion.FirstBlockOrdinal)
+                                          .Take(finallyRegion.LastBlockOrdinal - finallyRegion.FirstBlockOrdinal + 1)
+                                          .SelectMany(block => block.Operations))
+            {
+                if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.Dispose } &&
+                    effectOf(operation) is { Kind: LockEffectKind.IteratorState } effect)
+                    ApplyIteratorState(exit, effect);
+            }
+            return exit;
         }
 
         private IrRegion? Protected(IrRegion handler)
@@ -600,7 +705,17 @@ internal static class MustHeldLocks
                 if (entries[ordinal - first] is not { } entry)
                     continue;
                 minimum = Join(minimum, entry);
-                var exit = Transfer(body.Blocks[ordinal], entry, (_, state) => minimum = Join(minimum, Copy(state)));
+                var exit = Transfer(body.Blocks[ordinal], entry, (operation, state) =>
+                {
+                    minimum = Join(minimum, Copy(state));
+                    // A step of an enumeration runs the iterator's body, which may throw after letting a lock go on a path that
+                    // hands out no element: the handler is reached without it, whatever the loop itself still holds.
+                    if (effectOf(operation) is { Kind: LockEffectKind.IteratorState, IteratorMayReleases: { Count: > 0 } released })
+                        minimum = Join(minimum, Without(state, released));
+                    // A call as much: its callee may let the caller's lock go and throw after.
+                    else if (effectOf(operation) is { MayReleases: { Count: > 0 } mayRelease })
+                        minimum = Join(minimum, LetGo(Copy(state), mayRelease));
+                });
                 minimum = Join(minimum, exit);
             }
 
@@ -628,6 +743,13 @@ internal static class MustHeldLocks
                 }
 
                 var effect = effectOf(operation);
+                if (effect.Kind == LockEffectKind.IteratorState)
+                {
+                    ApplyIteratorState(state, effect);
+                    continue;
+                }
+                // What a call may let go of it lets go while it runs, before the entry it leaves open at its end.
+                LetGo(state, effect.MayReleases);
                 switch (effect.Kind)
                 {
                     // A conditional entry holds nothing where it stands: only the branch on which its flag is true holds it.
@@ -636,7 +758,7 @@ internal static class MustHeldLocks
                             conditional[flag] = Acquired(state, pending, operation.Id);
                         break;
                     case LockEffectKind.Acquire when effect.Lock is { } acquired:
-                        state[acquired.Key] = Acquired(state, acquired, operation.Id);
+                        state[acquired.Key] = Acquired(state, acquired, operation.Id, effect.Carried);
                         break;
                     case LockEffectKind.Release when effect.Lock is { } released:
                         if (state.TryGetValue(released.Key, out var current))
@@ -661,14 +783,48 @@ internal static class MustHeldLocks
             return state;
         }
 
+        private static void ApplyIteratorState(Dictionary<string, HeldLock> state, LockEffect effect)
+        {
+            foreach (var key in effect.IteratorKeys ?? new HashSet<string>(StringComparer.Ordinal))
+            {
+                if (state.TryGetValue(key, out var previous) && previous.Lock.IsLifted &&
+                    previous.Lock.Site.StartsWith(effect.IteratorSite ?? "", StringComparison.Ordinal))
+                    state.Remove(key);
+            }
+            // As a release performed here would: an object not held as such may be any held monitor.
+            foreach (var released in effect.IteratorReleases ?? [])
+            {
+                if (!state.Remove(released.Key) && released.IdentityUnknown)
+                    state.Clear();
+            }
+            LetGo(state, effect.MayReleases);
+            foreach (var (key, held) in effect.IteratorLocks ?? new Dictionary<string, HeldLock>())
+            {
+                if (!state.ContainsKey(key))
+                    state[key] = held;
+            }
+        }
+
         /// <summary>Taking a lock already held: the mode and the site become the new acquisition's, and the section it was held in
         /// until now goes on the stack, so that leaving this acquisition restores it. A reader that takes the same lock for writing
         /// holds it for writing until it leaves, and claiming otherwise would call a write section compatible with somebody else's
-        /// read.</summary>
-        private static HeldLock Acquired(Dictionary<string, HeldLock> state, LockObject acquired, int operationId) =>
+        /// read. A lifted entry starts with what was true of the callee's holding it stands for; permits that do not pair are a
+        /// fact about the object and not about one section of it, so taking it again keeps them unpaired (TD-083).</summary>
+        private static HeldLock Acquired(Dictionary<string, HeldLock> state, LockObject acquired, int operationId,
+                                         HeldLock? carried = null) =>
             state.TryGetValue(acquired.Key, out var held)
-                ? held with { Depth = held.Depth + 1, Lock = acquired, OuterSections = Push(held.Lock, held.OuterSections) }
-                : new HeldLock(1, acquired, operationId);
+                ? held with
+                {
+                    Depth = held.Depth + 1,
+                    Lock = acquired,
+                    OuterSections = Push(held.Lock, held.OuterSections),
+                    IsPaired = held.IsPaired && carried?.IsPaired != false
+                }
+                : new HeldLock(1, acquired, operationId)
+                {
+                    CrossesSuspension = carried?.CrossesSuspension == true,
+                    IsPaired = carried?.IsPaired != false
+                };
 
         /// <summary>The acquisition left behind when an inner one is released: the section around it, or, where the paths that
         /// joined here disagreed and nothing proves which section is left, the weakest mode and the section the release stands in —
@@ -686,6 +842,32 @@ internal static class MustHeldLocks
 
         private static string Push(LockObject held, string outer) =>
             outer.Length == 0 ? $"{held.Mode}{FIELD}{held.Site}" : $"{held.Mode}{FIELD}{held.Site}{RECORD}{outer}";
+
+        /// <summary>A state after the given exits, as a release performed here would leave it: an object not held as such may be
+        /// any held monitor.</summary>
+        private static Dictionary<string, HeldLock> Without(IReadOnlyDictionary<string, HeldLock> state, IReadOnlyList<LockObject> released)
+        {
+            var left = Copy(state);
+            foreach (var exit in released)
+            {
+                if (!left.Remove(exit.Key) && exit.IdentityUnknown)
+                    left.Clear();
+            }
+            return left;
+        }
+
+        /// <summary>A must-state after an operation that may let these locks go: none of them is held any longer, and an object
+        /// nothing names may be any held lock. A named object nobody holds here is not one of this state's, so it takes nothing
+        /// away — a semaphore a callee signals is not a reason to forget the monitor its caller holds.</summary>
+        private static Dictionary<string, HeldLock> LetGo(Dictionary<string, HeldLock> state, IReadOnlyList<LockObject>? released)
+        {
+            foreach (var exit in released ?? [])
+            {
+                if (!state.Remove(exit.Key) && !exit.NamesObject)
+                    state.Clear();
+            }
+            return state;
+        }
 
         private static Dictionary<string, HeldLock> Copy(IReadOnlyDictionary<string, HeldLock> state) =>
             new(state, StringComparer.Ordinal);

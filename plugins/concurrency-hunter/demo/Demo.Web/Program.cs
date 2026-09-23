@@ -6,6 +6,7 @@ using Demo.Web.Cases.AmbiguousRegistrationScopedWins;
 using Demo.Web.Cases.ArrayDisjointConstantIndices;
 using Demo.Web.Cases.ArrayDisjointGuardedRanges;
 using Demo.Web.Cases.ArraySymbolicIndices;
+using Demo.Web.Cases.AsyncTailAcquisition;
 using Demo.Web.Cases.AsyncTailEntry;
 using Demo.Web.Cases.AsyncVoidCall;
 using Demo.Web.Cases.AwaitConditionalTask;
@@ -18,6 +19,7 @@ using Demo.Web.Cases.ConcurrentDictionaryAtomicOps;
 using Demo.Web.Cases.ConcurrentDictionaryCompound;
 using Demo.Web.Cases.ConcurrentDictionaryEnumerateWhileMutate;
 using Demo.Web.Cases.ConcurrentQueueSingleOps;
+using Demo.Web.Cases.ConstantArgumentCells;
 using Demo.Web.Cases.ConditionalJoinInsideWork;
 using Demo.Web.Cases.ConstructionOtherState;
 using Demo.Web.Cases.ConstructorLeaksThis;
@@ -55,10 +57,16 @@ using Demo.Web.Cases.GrpcServiceMethod;
 using Demo.Web.Cases.HostedConstructorBeforeRoots;
 using Demo.Web.Cases.HostedServiceRegisteredTwice;
 using Demo.Web.Cases.HostedStartVsAction;
+using Demo.Web.Cases.IndexFromFieldGuarded;
+using Demo.Web.Cases.IndexGuardAtCallSite;
 using Demo.Web.Cases.IndexOverflowWraps;
 using Demo.Web.Cases.InstanceRegistrationTouchesStatic;
 using Demo.Web.Cases.InterfaceDispatchDi;
 using Demo.Web.Cases.InterlockedMixedWithPlainWrite;
+using Demo.Web.Cases.IteratorCreatedUnderLock;
+using Demo.Web.Cases.IteratorEnumeratedUnderLock;
+using Demo.Web.Cases.IteratorEscapesToField;
+using Demo.Web.Cases.IteratorHeldMonitor;
 using Demo.Web.Cases.JoinSkippedOnException;
 using Demo.Web.Cases.KeyEqualityComparer;
 using Demo.Web.Cases.LambdaAndLocalFunction;
@@ -79,6 +87,7 @@ using Demo.Web.Cases.MonitorTryEnter;
 using Demo.Web.Cases.MutexInProcess;
 using Demo.Web.Cases.MutuallyExclusivePaths;
 using Demo.Web.Cases.NonActionPublicMethod;
+using Demo.Web.Cases.OutAndRefArguments;
 using Demo.Web.Cases.ParallelForDisjointIndex;
 using Demo.Web.Cases.ParallelForSharedTotal;
 using Demo.Web.Cases.ParallelForeach;
@@ -89,6 +98,8 @@ using Demo.Web.Cases.PrimaryConstructorInjection;
 using Demo.Web.Cases.ReaderWriterLockSlim;
 using Demo.Web.Cases.ReceiverSensitivity;
 using Demo.Web.Cases.RecursiveSummary;
+using Demo.Web.Cases.RefLocalWrite;
+using Demo.Web.Cases.RefReturnWrite;
 using Demo.Web.Cases.RmwForms;
 using Demo.Web.Cases.RmwSingletonCounter;
 using Demo.Web.Cases.RmwThreeLayers;
@@ -260,7 +271,19 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddConcurrentBagCountThenAdd()
                 .AddConcurrentDictionaryEnumerateWhileMutate()
                 .AddKeyEqualityComparer()
-                .AddIndexOverflowWraps();
+                .AddIndexOverflowWraps()
+                .AddIndexGuardAtCallSite()
+                .AddIndexFromFieldGuarded()
+                .AddConstantArgumentCells()
+                .AddRefLocalWrite()
+                .AddRefReturnWrite()
+                .AddOutAndRefArguments()
+                .AddCustomSliceOffsets()
+                .AddIteratorCreatedUnderLock()
+                .AddIteratorEnumeratedUnderLock()
+                .AddIteratorEscapesToField()
+                .AddIteratorHeldMonitor()
+                .AddAsyncTailAcquisition();
 
 var app = builder.Build();
 

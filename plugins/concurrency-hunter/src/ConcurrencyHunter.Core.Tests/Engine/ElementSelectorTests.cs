@@ -247,9 +247,7 @@ public sealed class ElementSelectorTests
         Assert.Contains("Wide.[200]", findings);
     }
 
-    /// <summary>A ref-returning indexer of a type the analysis does not know proves nothing about which cell it hands back — it
-    /// may hand back one cell for every index it is given — so two indices of it are one unknown cell and still pair, while the
-    /// same two indices of a <c>Span</c> stay two cells (TD-043).</summary>
+    /// <summary>The source of the ref-returning indexer proves both indices return its one field.</summary>
     [Fact]
     public void Two_indices_of_an_indexer_outside_the_framework_are_not_two_cells()
     {
@@ -267,8 +265,9 @@ public sealed class ElementSelectorTests
                           Startup("services.AddSingleton<Rack>(); services.AddHostedService<FirstWorker>(); " +
                                   "services.AddHostedService<SecondWorker>();"));
 
-        Assert.Equal(["[?]", "[?]"], Cells(run).Select(access => access.Resource.Selector!.Text).ToArray());
-        Assert.Single(run.Pairs.Pairs);
+        Assert.DoesNotContain(run.Collection.Accesses, access => access.Resource.Member.Name == "Slots" &&
+                                                              access.Resource.Selector is not null);
+        Assert.Single(run.Pairs.Pairs, pair => pair.Resource.Member.Name == "_cell" && pair.Resource.Selector is null);
     }
 
     private static string RackWorker(string name, string body) => $$"""

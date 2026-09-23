@@ -264,6 +264,7 @@ public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, 
     public bool IsAsync { get; init; }
     public string ReturnType { get; init; } = "void";
     public bool IsAsyncIterator { get; init; }
+    public bool IsIterator { get; init; }
 }
 
 /// <summary><see cref="SymbolKey"/> identifies the local or parameter a value is a version of, across bodies: the id of the
@@ -301,6 +302,8 @@ public sealed record IrFieldRef(string Assembly, string ContainingType, string N
 
     /// <summary>The field is declared <c>volatile</c>, so each of its reads and writes is atomic on its cell (TD-082).</summary>
     public bool IsVolatile { get; init; }
+
+    public bool IsContainingTypeReadOnly { get; init; }
 }
 
 public sealed record IrPhiInput(IrFlowPredecessor Predecessor, int Value);

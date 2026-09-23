@@ -20,6 +20,7 @@ public static class CoverageCounters
     public const string MERGED_CONTEXT = "merged-context";
     public const string WILDCARD_ACCESS = "wildcard-access";
     public const string UNRESOLVED_LOCATOR = "unresolved-locator";
+    public const string UNPROVEN_REFERENCE = "unproven-reference";
 }
 
 /// <summary>What the execution model ordered and started, which the report shows on lines of their own: the distinct spawn sites
@@ -76,21 +77,29 @@ public static class InterproceduralAccesses
     private const int TOP_CALLEES = 20;
     private const string CONSTRUCTION_PROVIDER = "construction";
 
+    /// <summary>The reason of the edge an enumeration runs an iterator's body by (ADR 0011).</summary>
+    private const string ITERATOR_ENUMERATION = "iterator-enumeration";
+
     public static InterproceduralCollection Collect(InterproceduralInput input)
     {
         var accesses = new List<Access>();
+        var unproven = new HashSet<(string Body, int Operation)>();
         var graph = new WalkGraph(input);
         var discoveries = Discoveries(input, graph);
         foreach (var execution in input.Executions.Executions)
         {
-            if (input.Executions.Entries.TryGetValue(execution.Id, out var entries))
-                accesses.AddRange(new ExecutionCollector(input, execution, entries, graph, discoveries).Collect());
+            if (!input.Executions.Entries.TryGetValue(execution.Id, out var entries))
+                continue;
+            var collector = new ExecutionCollector(input, execution, entries, graph, discoveries);
+            accesses.AddRange(collector.Collect());
+            unproven.UnionWith(collector.UnprovenReferences);
         }
 
-        return new InterproceduralCollection(accesses, Coverage(input, accesses));
+        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven));
     }
 
-    private static InterproceduralCoverage Coverage(InterproceduralInput input, IReadOnlyList<Access> accesses)
+    private static InterproceduralCoverage Coverage(InterproceduralInput input, IReadOnlyList<Access> accesses,
+                                                    IReadOnlySet<(string Body, int Operation)> unproven)
     {
         var heap = input.Heap;
         var summaries = heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal)
@@ -122,6 +131,16 @@ public static class InterproceduralAccesses
                                                               .Count(registration => !registration.IsSupported && registration.BodyId is { } member &&
                                                                                      reachedMembers.Contains(member)),
             [CoverageCounters.UNRESOLVED_LOCATOR] = heap.UnresolvedLocators.Count,
+            // A reference operation counts once one place it may reach is unproven, whatever else it reaches; one that reaches
+            // nothing at all counts too. The read a read-modify-write through the reference folds into its write is that write's,
+            // and an element operation on a collection no caller reads from a field is on no resource at all.
+            [CoverageCounters.UNPROVEN_REFERENCE] = summaries.Sum(summary =>
+                summary.ReferenceAccesses.Count(reference => unproven.Contains((summary.BodyId, reference.OperationId)) ||
+                                                             !reference.IsCollectionElement &&
+                                                             !summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == reference.OperationId) &&
+                                                             !accesses.Any(access => access.BodyId == summary.BodyId &&
+                                                                                     access.OperationId == reference.OperationId)) +
+                summary.OpaqueCalls.Sum(call => call.Arguments.Count(argument => argument.References.Count != 0))),
             [CoverageCounters.NO_RECEIVER_OBJECT] = heap.Counters.GetValueOrDefault(HeapCounters.NO_RECEIVER_OBJECT),
             [CoverageCounters.MERGED_CONTEXT] = heap.Counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT),
             [CoverageCounters.WILDCARD_ACCESS] = accesses.Where(access => access.Resource.IsWildcard)
@@ -168,10 +187,16 @@ public static class InterproceduralAccesses
     }
 
     /// <summary>What a body does to primitives it does not both enter and leave: <see cref="Opened"/> are the entries it hands to its
-    /// caller, <see cref="Closed"/> the exits it makes of a scope its caller opened (ADR 0009).</summary>
-    private sealed record LiftedLocks(IReadOnlyList<HeldLock> Opened, IReadOnlyList<HeldLock> Closed)
+    /// caller, <see cref="Closed"/> the exits it makes of a scope its caller opened (ADR 0009). <see cref="Returned"/> are the
+    /// entries a caller that does not await an async body gets: what is held wherever the body may hand control back, at each
+    /// <c>await</c> and at its end, so an entry its tail makes after the first <c>await</c> is not among them (TD-060a).</summary>
+    private sealed record LiftedLocks(IReadOnlyList<HeldLock> Opened, IReadOnlyList<HeldLock> Closed, IReadOnlyList<HeldLock> Returned)
     {
-        internal static LiftedLocks None { get; } = new([], []);
+        internal static LiftedLocks None { get; } = new([], [], []);
+
+        /// <summary>The locks the body may let go on some path without ever taking them itself — its caller's, whether or not it
+        /// lets them go on every path the way <see cref="Closed"/> needs (R8).</summary>
+        public IReadOnlyList<LockObject> MayRelease { get; init; } = [];
     }
 
     /// <summary>An edge the walk follows from an instance: a call edge, or a construction edge from the operation that triggered a
@@ -186,7 +211,7 @@ public static class InterproceduralAccesses
     private sealed class WalkGraph(InterproceduralInput input)
     {
         private readonly HeapSolution _heap = input.Heap;
-        private readonly Dictionary<string, List<CallEdge>> _edgesByCaller = input.Heap.Edges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
+        private readonly Dictionary<string, List<CallEdge>> _edgesByCaller = input.Heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                                 .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly Dictionary<string, RegionTrigger[]> _triggers = input.Heap.RegionTriggers.GroupBy(trigger => trigger.InstanceId, StringComparer.Ordinal)
                                                                             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
@@ -319,7 +344,18 @@ public static class InterproceduralAccesses
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LiftedLocks> _lifted = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string Instance, int Enumeration), (IReadOnlySet<string> Keys,
+            IReadOnlyDictionary<string, HeldLock> Yield, IReadOnlyDictionary<string, HeldLock> Exit,
+            IReadOnlyList<LockObject> Releases, IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
+            IReadOnlyList<LockObject> ExitMay)?>
+            _enumerationStates = [];
+        private readonly HashSet<(string Instance, int Enumeration)> _enumerationInProgress = [];
+
+        /// <summary>The reference operations, by body, with a place nothing proves among those they may reach (R3).</summary>
+        internal HashSet<(string Body, int Operation)> UnprovenReferences { get; } = [];
+
         private HashSet<string>? _writtenOutsideConstruction;
+        private readonly HashSet<(string Region, string Field)> _constructingFields = [];
         private Dictionary<string, int>? _iterationParameters;
         private readonly HashSet<string> _liftingInProgress = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Dictionary<int, IrProvenance>> _provenance = new(StringComparer.Ordinal);
@@ -344,7 +380,7 @@ public static class InterproceduralAccesses
         private void Visit(ExecutionEntry entry)
         {
             var start = new State(entry.InstanceId, entry.IntervalObject, entry.Segment);
-            var visited = new HashSet<State> { start };
+            var visits = new Dictionary<State, int> { [start] = 1 };
             var pending = new Queue<PathNode>([new PathNode(start, null, null)]);
             while (pending.TryDequeue(out var node))
             {
@@ -381,10 +417,34 @@ public static class InterproceduralAccesses
 
                     _executionEdges.Add(edge);
                     var next = new State(edge.CalleeInstance, interval, segment);
-                    if (visited.Add(next))
+                    if (OnPath(node, next))
+                        continue;
+                    var count = visits.GetValueOrDefault(next);
+                    if (count < MAX_ACCESS_PATHS)
+                    {
+                        visits[next] = count + 1;
                         pending.Enqueue(new PathNode(next, node, edge));
+                    }
+                    else if (count == MAX_ACCESS_PATHS)
+                    {
+                        visits[next] = count + 1;
+                        pending.Enqueue(new PathNode(next, null, null));
+                    }
                 }
             }
+        }
+
+        private const int MAX_ACCESS_PATHS = 16;
+
+        private static bool OnPath(PathNode node, State state)
+        {
+            for (var step = node; step is not null; step = step.Parent)
+            {
+                if (step.State == state)
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>The member symbols of a body's discovery path in this execution, consecutive duplicates (a lambda in its member)
@@ -511,7 +571,11 @@ public static class InterproceduralAccesses
         private LockEffect Effect(MethodInstance instance, IrOperation operation)
         {
             if (operation is IrCallOperation call)
+            {
+                if (call.EnumerationRole != IrEnumerationRole.None)
+                    return EnumerationEffect(instance, call);
                 return Lifted(instance, call);
+            }
 
             if (operation is not (IrAcquireOperation or IrReleaseOperation) ||
                 instance.Summary.Locks.FirstOrDefault(candidate => candidate.OperationId == operation.Id) is not { } transfer)
@@ -545,6 +609,188 @@ public static class InterproceduralAccesses
             };
         }
 
+        private LockEffect EnumerationEffect(MethodInstance instance, IrCallOperation call)
+        {
+            if (call.EnumerationRole == IrEnumerationRole.GetEnumerator || call.EnumerationId is not int enumeration)
+                return LockEffect.None;
+            if (EnumerationState(instance, enumeration) is not { } flow)
+                return LockEffect.None;
+
+            var site = $"iterator:{instance.Id}:{enumeration}:";
+            var held = call.EnumerationRole switch
+            {
+                IrEnumerationRole.Current => flow.Yield,
+                IrEnumerationRole.Dispose => flow.Exit,
+                _ => new Dictionary<string, HeldLock>(StringComparer.Ordinal)
+            };
+            return new LockEffect(LockEffectKind.IteratorState, null)
+            {
+                IteratorKeys = flow.Keys,
+                IteratorSite = site,
+                IteratorReleases = call.EnumerationRole == IrEnumerationRole.Dispose ? [.. flow.Releases, .. flow.ExitReleases] : flow.Releases,
+                IteratorMayReleases = [.. flow.StepMay, .. flow.ExitMay],
+                MayReleases = call.EnumerationRole == IrEnumerationRole.Dispose ? [.. flow.StepMay, .. flow.ExitMay] : flow.StepMay,
+                IteratorLocks = held.ToDictionary(pair => pair.Key,
+                                                  pair => pair.Value with { Lock = pair.Value.Lock with
+                                                  {
+                                                      Site = site + pair.Value.Lock.Site,
+                                                      IsLifted = true,
+                                                      IsIteratorCarry = true
+                                                  } }, StringComparer.Ordinal)
+            };
+        }
+
+        private (IReadOnlySet<string> Keys, IReadOnlyDictionary<string, HeldLock> Yield, IReadOnlyDictionary<string, HeldLock> Exit,
+                 IReadOnlyList<LockObject> Releases, IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
+                 IReadOnlyList<LockObject> ExitMay)?
+            EnumerationState(MethodInstance instance, int enumeration)
+        {
+            var key = (instance.Id, enumeration);
+            if (_enumerationStates.TryGetValue(key, out var cached))
+                return cached;
+            if (!_enumerationInProgress.Add(key))
+                return null;
+            try
+            {
+                if (!input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
+                    body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                        .FirstOrDefault(call => call.EnumerationId == enumeration &&
+                                                call.EnumerationRole == IrEnumerationRole.GetEnumerator) is not { } getEnumerator ||
+                    instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == getEnumerator.Id) is not { } transfer)
+                    return _enumerationStates[key] = null;
+
+                var regions = transfer.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+                var objects = _heap.IteratorObjects.Where(iterator => regions.Contains(iterator.RegionId, StringComparer.Ordinal) &&
+                                                _executionEdges.Contains(new CallEdge(instance.Id, getEnumerator.Id,
+                                                                                      iterator.Creation.CalleeInstance, ITERATOR_ENUMERATION)))
+                                               .ToArray();
+                if (objects.Length == 0)
+                    return _enumerationStates[key] = null;
+
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                var releases = new Dictionary<string, LockObject>(StringComparer.Ordinal);
+                var exitReleases = new Dictionary<string, LockObject>(StringComparer.Ordinal);
+                var stepMay = new Dictionary<string, LockObject>(StringComparer.Ordinal);
+                var exitMay = new Dictionary<string, LockObject>(StringComparer.Ordinal);
+                Dictionary<string, HeldLock>? atYield = null;
+                Dictionary<string, HeldLock>? atExit = null;
+                foreach (var iterator in objects)
+                {
+                    var callee = _heap.Instances[iterator.Creation.CalleeInstance];
+                    if (!input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var iteratorBody))
+                        continue;
+                    var state = MustHeldLocks.Compute(iteratorBody, operation => Effect(callee, operation));
+                    // An iterator closes a scope its enumerator opened exactly as a call closes its caller's (ADR 0009): an exit of a
+                    // lock the body does not hold where it stands, carried only where the body lets it go on every path. An exit no
+                    // `yield return` can follow runs only once the body has handed out its last element, so the enumeration lets go
+                    // there and not before the loop body. An exit on some path only still lets the enumerator's lock go, on the same
+                    // terms of which step it may run in, and a handler around the loop may be reached after it (ADR 0011).
+                    foreach (var (operation, released) in MayLetGo(callee, iteratorBody, state))
+                    {
+                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation))
+                            stepMay.TryAdd(released.Key, released);
+                        else
+                            exitMay.TryAdd(released.Key, released);
+                    }
+                    foreach (var operation in iteratorBody.Blocks.SelectMany(block => block.Operations))
+                    {
+                        if (Effect(callee, operation) is not { Kind: LockEffectKind.Release, Lock: { } released } ||
+                            !state.Operations.TryGetValue(operation.Id, out var before) || before.ContainsKey(released.Key))
+                            continue;
+
+                        if (!MustHeldLocks.ReleasesOnEveryPath(iteratorBody, candidate => Effect(callee, candidate), released.Key))
+                            continue;
+                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation))
+                            releases.TryAdd(released.Key, released);
+                        else
+                            exitReleases.TryAdd(released.Key, released);
+                    }
+                    Dictionary<string, HeldLock>? oneYield = null;
+                    foreach (var yield in iteratorBody.Blocks.SelectMany(block => block.Operations).OfType<IrYieldOperation>())
+                    {
+                        if (!state.Operations.TryGetValue(yield.Id, out var held))
+                            continue;
+                        var holding = new Dictionary<string, HeldLock>(held, StringComparer.Ordinal);
+                        keys.UnionWith(holding.Keys);
+                        oneYield = MustHeldLocks.Join(oneYield, holding);
+                    }
+                    atYield = MustHeldLocks.Join(atYield, oneYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal));
+                    var exiting = new Dictionary<string, HeldLock>(state.AtExit, StringComparer.Ordinal);
+                    var oneYieldOperation = iteratorBody.Blocks.SelectMany(block => block.Operations).OfType<IrYieldOperation>().ToArray();
+                    var straightThrough = oneYieldOperation.Length == 1 &&
+                                          !iteratorBody.Blocks.Any(block => block.ConditionalBranch is not null) &&
+                                          !iteratorBody.Blocks.SelectMany(block => block.Operations)
+                                               .OfType<IrUnknownOperation>().Any(operation => operation.OperationKind == "throw");
+                    foreach (var (lockKey, held) in straightThrough
+                                 ? oneYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal)
+                                 : new Dictionary<string, HeldLock>(StringComparer.Ordinal))
+                    {
+                        if (!exiting.ContainsKey(lockKey) && !iteratorBody.Blocks.SelectMany(block => block.Operations)
+                                .Any(operation => Effect(callee, operation) is { Kind: LockEffectKind.Release, Lock: { } released } &&
+                                                  released.Key == lockKey))
+                            exiting[lockKey] = held;
+                    }
+                    // The disposal also ends an enumeration left early, at a `yield return`, and runs only the `finally` around it:
+                    // what the body does after that point never runs, so the loop's exit holds what both endings hold (ADR 0011).
+                    if (EarlyExit(iteratorBody, state, operation => Effect(callee, operation)) is { } early)
+                        exiting = MustHeldLocks.Join(exiting, early)!;
+                    keys.UnionWith(exiting.Keys);
+                    atExit = MustHeldLocks.Join(atExit, exiting);
+                }
+
+                if (objects.Length != regions.Length)
+                {
+                    atYield = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
+                    atExit = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
+                }
+                return _enumerationStates[key] = (keys, atYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
+                                                  atExit ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
+                                                  releases.Values.ToArray(), exitReleases.Values.ToArray(), stepMay.Values.ToArray(),
+                                                  exitMay.Values.ToArray());
+            }
+            finally
+            {
+                _enumerationInProgress.Remove(key);
+            }
+        }
+
+        /// <summary>What an iterator holds when its enumeration is disposed while it stands at a <c>yield return</c>: what it holds
+        /// there, less what every <c>finally</c> around that point lets go, over every such point. An entry such a <c>finally</c>
+        /// makes is left out, which only ever holds less. Null for a body with no <c>yield return</c>, which always runs to its end
+        /// before an element could end the loop.</summary>
+        private static Dictionary<string, HeldLock>? EarlyExit(IrBody body, MustHeldState state, Func<IrOperation, LockEffect> effect)
+        {
+            Dictionary<string, HeldLock>? early = null;
+            for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
+            {
+                foreach (var yield in body.Blocks[ordinal].Operations.OfType<IrYieldOperation>())
+                {
+                    if (!state.Operations.TryGetValue(yield.Id, out var held))
+                        continue;
+                    var left = new Dictionary<string, HeldLock>(held, StringComparer.Ordinal);
+                    foreach (var @finally in body.Regions.Where(region => region.Kind == IrRegionKind.Finally))
+                    {
+                        if (body.Regions.FirstOrDefault(region => region.Parent == @finally.Parent && region.Kind == IrRegionKind.Try) is not
+                                { } guarded || ordinal < guarded.FirstBlockOrdinal || ordinal > guarded.LastBlockOrdinal)
+                            continue;
+                        foreach (var operation in body.Blocks.Skip(@finally.FirstBlockOrdinal)
+                                                     .Take(@finally.LastBlockOrdinal - @finally.FirstBlockOrdinal + 1)
+                                                     .SelectMany(block => block.Operations))
+                        {
+                            if (effect(operation) is not { Kind: LockEffectKind.Release } release)
+                                continue;
+                            // As a release performed here would: an object not held as such may be any held monitor.
+                            if (release.Lock is not { } released || !left.Remove(released.Key) && released.IdentityUnknown)
+                                left.Clear();
+                        }
+                    }
+                    early = MustHeldLocks.Join(early, left);
+                }
+            }
+
+            return early;
+        }
+
         /// <summary>What a call does to a primitive its callee does not enter and leave itself: entering one it leaves open is an
         /// entry here, and leaving one it never entered — the disposal of a scope its caller opened — is a release here. Only one
         /// such primitive is carried, and only when every callee the call may reach agrees on it (ADR 0009).</summary>
@@ -558,12 +804,28 @@ public static class InterproceduralAccesses
                 return LockEffect.None;
 
             var lifted = callees.Select(LiftedOf).ToArray();
-            if (Single(lifted.Select(item => item.Opened)) is { } opened && CanExclude(opened))
-                return new LockEffect(LockEffectKind.Acquire, opened.Lock with { Site = $"{instance.Id}:{call.Id}", IsLifted = true });
+            // What any callee may let go of its caller's is gone after the call, whichever callee runs.
+            var mayRelease = lifted.SelectMany(item => item.MayRelease).DistinctBy(released => released.Key).ToArray();
+            // A spawned async body hands control back at its first `await`, so its caller holds only what the body holds there.
+            var entries = callees.Zip(lifted, (callee, item) => IsAsyncSpawn(call, callee) ? item.Returned : item.Opened).ToArray();
+            if (Single(entries) is { } opened && CanExclude(opened))
+            {
+                // Every callee that may run hands over its own holding, so the entry keeps what is true of it on any of them.
+                var holdings = entries.SelectMany(held => held).Where(held => held.Lock.Key == opened.Lock.Key).ToArray();
+                return new LockEffect(LockEffectKind.Acquire, opened.Lock with { Site = $"{instance.Id}:{call.Id}", IsLifted = true })
+                {
+                    Carried = opened with
+                    {
+                        CrossesSuspension = holdings.Any(held => held.CrossesSuspension),
+                        IsPaired = holdings.All(held => held.IsPaired)
+                    },
+                    MayReleases = mayRelease
+                };
+            }
             if (Single(lifted.Select(item => item.Closed)) is { } closed && CanExclude(closed))
-                return new LockEffect(LockEffectKind.Release, closed.Lock) { Permits = closed.IsPaired ? 1 : null };
+                return new LockEffect(LockEffectKind.Release, closed.Lock) { Permits = closed.IsPaired ? 1 : null, MayReleases = mayRelease };
 
-            return LockEffect.None;
+            return LockEffect.None with { MayReleases = mayRelease };
 
             // The one lock the call carries. A must-effect is what every callee does, so a callee that carries nothing out of
             // itself takes the proof away: a call that may run an implementation which acquires nothing holds nothing after it,
@@ -589,6 +851,13 @@ public static class InterproceduralAccesses
         private bool CanExclude(HeldLock held) =>
             held.Lock.Primitive != IrSynchronizationPrimitive.SemaphoreSlim ||
             (_locks.TryGetValue(held.Lock.Key, out var info) && info.Capacity == 1);
+
+        /// <summary>Whether a call starts its callee as a spawn: an async body, not an async iterator, whose result the caller does
+        /// not await at once (TD-060a).</summary>
+        private bool IsAsyncSpawn(IrCallOperation call, string calleeInstance) =>
+            !call.IsAwaitedImmediately &&
+            input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[calleeInstance].BodyId, out var body) &&
+            body is { IsAsync: true, IsAsyncIterator: false };
 
         /// <summary>What an instance leaves open and what it closes without having opened it, read from its own body alone.</summary>
         private LiftedLocks LiftedOf(string instanceId)
@@ -618,12 +887,50 @@ public static class InterproceduralAccesses
                 var closed = candidates.Where(held => MustHeldLocks.ReleasesOnEveryPath(
                                                           body, operation => Effect(_heap.Instances[instanceId], operation), held.Lock.Key))
                                        .ToArray();
-                lifted = new LiftedLocks(state.AtExit.Values.ToArray(), closed);
+                var returned = new Dictionary<string, HeldLock>(state.AtExit, StringComparer.Ordinal);
+                foreach (var suspension in body.Blocks.SelectMany(block => block.Operations).Where(operation => operation is IIrSuspension))
+                {
+                    if (state.Operations.TryGetValue(suspension.Id, out var held))
+                        returned = MustHeldLocks.Join(returned, new Dictionary<string, HeldLock>(held, StringComparer.Ordinal))!;
+                }
+                lifted = new LiftedLocks(state.AtExit.Values.ToArray(), closed, returned.Values.ToArray())
+                {
+                    MayRelease = MayLetGo(_heap.Instances[instanceId], body, state).Select(item => item.Lock)
+                                                                                   .DistinctBy(released => released.Key)
+                                                                                   .ToArray()
+                };
             }
 
             _liftingInProgress.Remove(instanceId);
             _lifted[instanceId] = lifted;
             return lifted;
+        }
+
+        /// <summary>The locks a body may let go without ever taking them itself, which can only be its caller's or its enumerator's:
+        /// an exit where the body's own must-state does not hold the lock, and whatever a call or an enumeration in it may let go.
+        /// An exit every path to which passes the body's own entry of that lock may be the exit of that entry: the exit of a
+        /// <c>lock</c> statement stands behind the flag its lowering tests, which the must-state does not follow, and would
+        /// otherwise read as an exit of somebody else's lock. An entry on another path than the exit is no such evidence, and
+        /// neither is one a loop only reaches after the exit (R5). A semaphore that excludes nobody protects nobody, so letting it
+        /// go takes nothing away (R8, ADR 0009).</summary>
+        private IEnumerable<(IrOperation Operation, LockObject Lock)> MayLetGo(MethodInstance instance, IrBody body, MustHeldState state)
+        {
+            var effects = body.Blocks.SelectMany(block => block.Operations)
+                              .Where(operation => state.Operations.ContainsKey(operation.Id))
+                              .Select(operation => (Operation: operation, Effect: Effect(instance, operation)))
+                              .ToArray();
+            foreach (var (operation, effect) in effects)
+            {
+                var exits = effect is { Kind: LockEffectKind.Release, Lock: { } released } && !state.Operations[operation.Id].ContainsKey(released.Key)
+                    ? [released]
+                    : Array.Empty<LockObject>();
+                foreach (var exit in exits.Concat(effect.IteratorReleases ?? []).Concat(effect.MayReleases ?? []))
+                {
+                    if (MustHeldLocks.ReachesWithoutEntry(body, candidate => Effect(instance, candidate), exit.Key, operation.Id) &&
+                        CanExclude(new HeldLock(1, exit, operation.Id)))
+                        yield return (operation, exit);
+                }
+            }
         }
 
         /// <summary>The loads each return value, parameter, capture cell and store depends on, as sets that only grow over the
@@ -697,6 +1004,102 @@ public static class InterproceduralAccesses
             return loads;
         }
 
+        /// <summary>One place a reference points to; a null <see cref="Cell"/> is a place nothing proves, which coverage counts and
+        /// no access stands for (R3).</summary>
+        private sealed record ResolvedReference(ReferenceCell? Cell, MethodInstance Instance, PathNode Node);
+
+        private IEnumerable<ResolvedReference> ResolveReferences(IEnumerable<ReferenceTarget> targets, MethodInstance instance,
+                                                                  PathNode node, int depth = 0)
+        {
+            var unproven = new ResolvedReference(null, instance, node);
+            if (depth >= 8)
+            {
+                yield return unproven;
+                yield break;
+            }
+            foreach (var target in targets)
+            {
+                // Every way down names at least one place, or says that it names none: a reference is never lost silently.
+                var any = false;
+                foreach (var resolved in Resolve(target))
+                {
+                    any = true;
+                    yield return resolved;
+                }
+                if (!any)
+                    yield return unproven;
+            }
+
+            IEnumerable<ResolvedReference> Resolve(ReferenceTarget target)
+            {
+                switch (target)
+                {
+                    case ReferenceCell cell:
+                        yield return new ResolvedReference(cell, instance, node);
+                        break;
+                    case ReferenceParameter parameter when Caller() is { } bound:
+                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
+                        foreach (var resolved in ResolveReferences(argument.References, bound.Instance, bound.Node, depth + 1))
+                            yield return resolved;
+                        break;
+                    // A cell of a collection the body got by value is that cell of the collection the caller handed over, moved by
+                    // the slice the caller cut. The index is the callee's own value, so its expression is bound where it is written
+                    // — which is what ties it to the guards of every caller over the value it came from (R1) — and crosses the call
+                    // already bound.
+                    case ReferenceParameterElement element when Caller() is { } bound:
+                        var term = element.IsTermBound ? element.Term : element.Term is { } written ? Bind(written, instance, node) : null;
+                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
+                        {
+                            var collection = argument.Collection;
+                            var selector = collection is not null ? element.Selector.InSlice(collection.Shift, collection.Length) : ElementSelector.Unknown;
+                            var shifted = term is null || collection?.Shift is not { } shift ? null
+                                : shift == 0 ? term
+                                : BindSum(term, new ConstantTerm(shift, term.Width, term.Signed));
+                            var outer = collection?.Collection switch
+                            {
+                                ReferenceCell cell => (ReferenceTarget)(cell with { Selector = selector, SelectorTerm = shifted, IsTermBound = true }),
+                                ReferenceParameterElement parameter => parameter with { Selector = selector, Term = shifted, IsTermBound = true },
+                                ReferenceCallCollection call => call,
+                                _ => ReferenceUnproven.Instance
+                            };
+                            foreach (var resolved in ResolveReferences([outer], bound.Instance, bound.Node, depth + 1))
+                                yield return resolved;
+                        }
+                        break;
+                    // A cell of a collection a call returned is in the storage the callee's returns name; which cell is unknown,
+                    // since nothing but those returns says how that storage is cut (R3, R4).
+                    case ReferenceCallCollection returned:
+                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id &&
+                                                                            edge.OperationId == returned.OperationId))
+                        {
+                            var callee = _heap.Instances[edge.CalleeInstance];
+                            var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
+                            foreach (var resolved in ResolveReferences(callee.Summary.CollectionReturns, callee, calleeNode, depth + 1))
+                                yield return resolved.Cell is { } cell
+                                    ? resolved with { Cell = cell with { Selector = ElementSelector.Unknown, SelectorTerm = null, IsOnCollection = true } }
+                                    : resolved;
+                        }
+                        break;
+                    case ReferenceCall reference:
+                        var receiverFromCall = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == reference.OperationId)?
+                            .Receivers.Any(value => value is CallResultValue) == true;
+                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id &&
+                                                                            edge.OperationId == reference.OperationId))
+                        {
+                            var callee = _heap.Instances[edge.CalleeInstance];
+                            var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
+                            foreach (var resolved in ResolveReferences(callee.Summary.ReferenceReturns, callee, calleeNode, depth + 1))
+                                yield return receiverFromCall && resolved.Cell is { IsOnCollection: true } cell
+                                    ? resolved with { Cell = cell with { Selector = ElementSelector.Unknown } }
+                                    : resolved;
+                        }
+                        break;
+                }
+            }
+
+            (MethodInstance Instance, PathNode Node, CallTransfer Call)? Caller() => BindingCall(node);
+        }
+
         private IReadOnlyList<Access> Emit()
         {
             var feeding = new Dictionary<(string Instance, int Operation, string Resource), List<(string Instance, int Operation)>>();
@@ -751,26 +1154,71 @@ public static class InterproceduralAccesses
             }
 
             var accesses = new List<Access>();
-            var seen = new HashSet<(string, int, string, AccessOperation, bool, string, string)>();
+            var seen = new Dictionary<(string, int, string, AccessOperation, bool, string, string, string), List<(HashSet<string> Conditions, Access Access)>>();
             foreach (var (entry, node) in _visits)
             {
                 var instance = _heap.Instances[node.State.Instance];
-                foreach (var access in instance.Summary.Accesses.Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId)))
+                var direct = instance.Summary.Accesses
+                    .Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
+                    .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false));
+                var references = new List<(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference)>();
+                foreach (var access in instance.Summary.ReferenceAccesses
+                             .Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId) &&
+                                              !instance.Summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == access.OperationId)))
+                foreach (var target in ResolveReferences(access.Targets, instance, node))
                 {
-                    foreach (var resource in Resources(instance, access))
+                    if (target.Cell is not { } cell)
                     {
-                        if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, resource.Identity)))
+                        if (!access.IsCollectionElement)
+                            UnprovenReferences.Add((instance.BodyId, access.OperationId));
+                        continue;
+                    }
+
+                    // A reference's term is bound where the cell was named, and never again below.
+                    references.Add((new SummaryAccess(access.OperationId, access.Kind, cell.Field, cell.Bases, access.Provenance,
+                                                      access.HeldLocks, access.ReadModifyWriteOf, new HashSet<AbstractValue>(),
+                                                      access.Dependencies)
+                                    {
+                                        Selector = cell.Selector,
+                                        SelectorTerm = cell.SelectorTerm is { } named && !cell.IsTermBound
+                                            ? Bind(named, target.Instance, target.Node)
+                                            : cell.SelectorTerm,
+                                        IsOnCollection = cell.IsOnCollection,
+                                        Conditions = access.Conditions
+                                    }, target.Instance, target.Node, true));
+                }
+                foreach (var (access, source, sourceNode, isReference) in direct.Concat(references))
+                {
+                    var term = access.SelectorTerm is { } selectorTerm ? isReference ? selectorTerm : Bind(selectorTerm, source, sourceNode) : null;
+                    var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
+                    foreach (var original in Resources(source, access))
+                    {
+                        if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, original.Identity)))
                             continue;
 
-                        var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, resource.Identity));
-                        var operation = Operation(access, sources is { Count: > 0 },
-                                                  verified.Contains((instance.Id, access.OperationId, resource.Identity)));
+                        var resource = selector == access.Selector ? original
+                            : Resource(original.RegionId!, access.Field, original.IsWildcard, selector, original.CollectionId);
+                        var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, original.Identity));
+                        var operation = isReference && access.ReadModifyWriteOf is not null
+                            ? AccessOperation.ReadModifyWrite
+                            : Operation(access, sources is { Count: > 0 },
+                                        verified.Contains((instance.Id, access.OperationId, original.Identity)));
                         var conditions = Conditions(instance, access, node);
-                        var regionId = resource.RegionId!;
+                        // Two paths of one body under different guards are two accesses, whatever they touch: keeping one path's
+                        // guards for both would let them decide a pair the other path is part of (R1, R8). A path under every guard
+                        // of another and more adds nothing, since each pair it may be part of the other may be part of too.
+                        var conditionSet = conditions.Select(condition =>
+                                $"{condition.Subject}/{condition.SubjectTerm}/{condition.Relation}/{condition.Value}/{condition.Width}/{condition.Signed}")
+                            .ToHashSet(StringComparer.Ordinal);
+                        var termKey = term?.ToString() ?? "";
+                        var regionId = isReference ? resource.CollectionId ?? resource.RegionId! : resource.RegionId!;
                         var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
                         // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
                         // an occurrence keeps can be the least protected one (R5).
-                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, sources);
+                        // A write through a reference that reads it first spans that read, which stands in this very body; only a
+                        // section held over both protects it (R2).
+                        var held = HeldOverSpan(instance.Id, access.OperationId, operation,
+                                                isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read)] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
                         var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
@@ -780,10 +1228,18 @@ public static class InterproceduralAccesses
                         // A construction triggered by several roots gives one access per root, so each root pair is an occurrence (R5).
                         foreach (var (callPath, pathRoot) in CallPaths(instance.BodyId))
                         {
-                            if (!seen.Add((instance.BodyId, access.OperationId, resource.Identity, operation, local, heldKey, pathRoot.RootId)))
+                            var key = (instance.BodyId, access.OperationId, resource.Identity, operation, local, heldKey, pathRoot.RootId, termKey);
+                            if (!seen.TryGetValue(key, out var kept))
+                                seen[key] = kept = [];
+                            if (kept.Any(other => other.Conditions.IsSubsetOf(conditionSet)))
                                 continue;
+                            foreach (var stronger in kept.Where(other => conditionSet.IsSubsetOf(other.Conditions)).ToArray())
+                            {
+                                kept.Remove(stronger);
+                                accesses.RemoveAt(accesses.FindIndex(candidate => ReferenceEquals(candidate, stronger.Access)));
+                            }
 
-                            accesses.Add(new Access(
+                            var emitted = new Access(
                                 resource,
                                 operation,
                                 Root(),
@@ -809,6 +1265,7 @@ public static class InterproceduralAccesses
                                 Ownership = ownership?.Kind ?? OwnershipKind.Unknown,
                                 OwnershipEvidence = ownership?.Evidence ?? [],
                                 IsConstructionLocal = local,
+                                IsReferenceAccess = isReference,
                                 ReadSources = (sources ?? []).Select(ReadSourceOf).ToArray(),
                                 BodyId = instance.BodyId,
                                 OperationId = access.OperationId,
@@ -822,8 +1279,10 @@ public static class InterproceduralAccesses
                                                      (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
                                 // Values of independent executions are independent unknowns, whatever they are called in the
                                 // body they come from (TD-092).
-                                SelectorTerm = access.SelectorTerm is { } term ? Bind(term, instance.Id) : null
-                            });
+                                SelectorTerm = term
+                            };
+                            kept.Add((conditionSet, emitted));
+                            accesses.Add(emitted);
                         }
                     }
                 }
@@ -896,7 +1355,7 @@ public static class InterproceduralAccesses
         private IReadOnlyList<HeldProtectionInfo> HeldLocks(string instanceId, int operationId) =>
             _lockStates.TryGetValue(instanceId, out var states) && states.TryGetValue(operationId, out var held)
                 // A scope a call opened is protection only where the exit is proven too: nothing else says it ever closes.
-                ? held.Values.Where(lockHeld => !lockHeld.Lock.IsLifted || lockHeld.IsReleasedOnAllPaths)
+                ? held.Values.Where(lockHeld => !lockHeld.Lock.IsLifted || lockHeld.IsReleasedOnAllPaths || lockHeld.Lock.IsIteratorCarry)
                       .Select(lockHeld => _locks.TryGetValue(lockHeld.Lock.Key, out var info)
                                          ? new HeldProtectionInfo(info.Display, info.SingleObjectId, info.Acquisition,
                                                                   lockHeld.Lock.Primitive, lockHeld.Lock.Mode, lockHeld.Lock.Site,
@@ -909,7 +1368,8 @@ public static class InterproceduralAccesses
         /// <summary>Whether one holding excludes anyone at all. A primitive owned by the thread that took it holds nothing over a
         /// suspension point, because the continuation may resume on another thread; a <c>SemaphoreSlim</c> is a mutex only at a
         /// capacity proven to be one, released on every path, and given back one permit for one (TD-083).</summary>
-        private static bool Excludes(HeldLock held, LockInfo info) => held.Lock.Primitive switch
+        private static bool Excludes(HeldLock held, LockInfo info) => held.Lock.IsIteratorCarry && !held.IsReleasedOnAllPaths
+            ? false : held.Lock.Primitive switch
         {
             IrSynchronizationPrimitive.SemaphoreSlim => info.Capacity == 1 && held.IsReleasedOnAllPaths && held.IsPaired,
             _ => !held.CrossesSuspension
@@ -923,21 +1383,38 @@ public static class InterproceduralAccesses
         private IReadOnlyList<PathPredicate> Conditions(MethodInstance instance, SummaryAccess access, PathNode node)
         {
             var conditions = new List<PathPredicate>(Predicates(instance, access.Conditions, node));
-            // What reaches the access is part of the condition it runs under (R8). A call site's guards are added only while the
-            // path to the access is the one way there: where several calls reach an instance, the access runs under one of their
-            // conditions and under no one of them for certain, and the weaker fact is that nothing is known.
+            // Each visit carries one path to this access. Once the path budget is spent, the visit starts at the merge and
+            // carries no guards from above it.
             for (var step = node; step is { Edge: { } edge, Parent: { } caller }; step = caller)
             {
-                if (_executionEdges.Count(candidate => string.Equals(candidate.CalleeInstance, step.State.Instance, StringComparison.Ordinal)) != 1)
-                    break;
                 if (_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance) &&
                     callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
                 {
                     conditions.AddRange(Predicates(callerInstance, transfer.Conditions, caller));
                 }
+
+                // An iterator's body runs with the arguments its creation bound, so the guards that call stood under hold of those
+                // values wherever it is enumerated — and so do the guards of the call its creator was reached by, where that call
+                // is not on this path already (R1, ADR 0011).
+                if (edge.Reason == ITERATOR_ENUMERATION && BindingCall(step) is { } created)
+                {
+                    conditions.AddRange(Predicates(created.Instance, created.Call.Conditions, created.Node));
+                    if (created.Node is { Edge: { } creatorEdge, Parent: { } creatorCaller } && !Ancestors(caller).Contains(created.Node) &&
+                        _heap.Instances.TryGetValue(creatorEdge.CallerInstance, out var creatorCallerInstance) &&
+                        creatorCallerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == creatorEdge.OperationId) is { } creatorCall)
+                    {
+                        conditions.AddRange(Predicates(creatorCallerInstance, creatorCall.Conditions, creatorCaller));
+                    }
+                }
             }
 
             return conditions;
+
+            static IEnumerable<PathNode> Ancestors(PathNode from)
+            {
+                for (var step = from; step is not null; step = step.Parent)
+                    yield return step;
+            }
         }
 
         /// <summary>The predicates of one body, with each subject named as the execution names it.</summary>
@@ -949,15 +1426,32 @@ public static class InterproceduralAccesses
                 var subject = condition switch
                 {
                     { Relation: PathRelation.Unsupported } => "",
-                    { SubjectLoad: { } load } => Canonical(instance, load, node) ?? Local(instance, $"{instance.BodyId}#{load}"),
-                    // The same name a cell's expression gets, so that a bound on an index constrains the cell it names.
+                    { SubjectLoad: { } load } when Canonical(instance, load, node) is { } canonical => canonical,
+                    { SubjectLoad: { } load } => Local(instance, $"{instance.BodyId}#{load}"),
                     { SubjectValue: { } value } => Local(instance, $"{instance.BodyId}:{value}"),
                     _ => ""
                 };
+                ValueTerm? subjectTerm = null;
+                // The subject is bound exactly as an index read from the same value is, canonical or not: a readonly field its
+                // construction sets to a constant is that constant in the guard as much as in the cell (R1).
+                if (condition.SubjectValue is { } subjectValue)
+                {
+                    var bound = Bind(new VariableTerm(condition.SubjectLoad is { } load
+                                                           ? $"{instance.BodyId}#{load}"
+                                                           : $"{instance.BodyId}:{subjectValue}", condition.Width, condition.Signed), instance, node);
+                    if (bound is VariableTerm variable)
+                        subject = variable.Identity;
+                    else
+                    {
+                        subject = "";
+                        subjectTerm = bound;
+                    }
+                }
                 conditions.Add(new PathPredicate(subject, condition.Relation, condition.Value, condition.Text)
                 {
                     Width = condition.Width,
-                    Signed = condition.Signed
+                    Signed = condition.Signed,
+                    SubjectTerm = subjectTerm
                 });
             }
 
@@ -970,13 +1464,200 @@ public static class InterproceduralAccesses
         /// guard to the cell it decides: without it the solver is handed <c>i &lt; 5</c>, <c>j &gt;= 5</c> and <c>i == j</c> over
         /// three unrelated unknowns and can prove nothing, although the three together are unsatisfiable.
         /// </summary>
-        private static ValueTerm Bind(ValueTerm term, string instanceId) => term switch
+        private ValueTerm Bind(ValueTerm term, MethodInstance instance, PathNode node, int depth = 0) => term switch
         {
-            VariableTerm variable => variable with { Identity = Local(instanceId, variable.Identity) },
-            SumTerm sum => new SumTerm(Bind(sum.Left, instanceId), Bind(sum.Right, instanceId)),
-            ConvertTerm convert => convert with { Operand = Bind(convert.Operand, instanceId) },
+            VariableTerm variable => BindVariable(variable, instance, node, depth),
+            SumTerm sum => BindSum(Bind(sum.Left, instance, node, depth), Bind(sum.Right, instance, node, depth)),
+            ConvertTerm convert => convert with { Operand = Bind(convert.Operand, instance, node, depth) },
             _ => term
         };
+
+        private static ValueTerm BindSum(ValueTerm left, ValueTerm right) =>
+            left is ConstantTerm one && right is ConstantTerm two && one.Width == two.Width && one.Signed == two.Signed
+                ? new ConstantTerm(Wrapped(unchecked(one.Value + two.Value), one.Width, one.Signed), one.Width, one.Signed)
+                : new SumTerm(left, right);
+
+        /// <summary>A number as a value of <paramref name="width"/> bits holds it: its low bits, read with the type's sign. A sum of
+        /// two constants wraps in the type it is computed in, exactly as <see cref="SumTerm"/> does for the solver, so the cell it
+        /// names is the one the program indexes and never a number no value of that type can be (TD-094).</summary>
+        private static long Wrapped(long value, int width, bool signed)
+        {
+            if (width >= 64)
+                return value;
+            var bits = value & ((1L << width) - 1);
+            return signed && bits >= 1L << (width - 1) ? bits - (1L << width) : bits;
+        }
+
+        private const int MAX_ARGUMENT_DEPTH = 4;
+
+        private ValueTerm BindVariable(VariableTerm variable, MethodInstance instance, PathNode node, int depth)
+        {
+            if (variable.Identity.StartsWith($"{instance.BodyId}#", StringComparison.Ordinal) &&
+                int.TryParse(variable.Identity[(instance.BodyId.Length + 1)..], out var load))
+            {
+                if (depth < MAX_ARGUMENT_DEPTH && ConstructedField(instance, load, node, depth) is { } constructed)
+                    return constructed;
+                return variable with { Identity = Canonical(instance, load, node) ?? Local(instance, variable.Identity) };
+            }
+
+            if (depth < MAX_ARGUMENT_DEPTH &&
+                input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
+                body.Parameters.FirstOrDefault(parameter => variable.Identity == $"{instance.BodyId}:{parameter.Value}") is
+                    { RefKind: IrRefKind.None } parameter &&
+                BindingCall(node) is { } bound &&
+                bound.Call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == parameter.Ordinal)?.Term is { } argumentTerm)
+            {
+                return Bind(argumentTerm, bound.Instance, bound.Node, depth + 1);
+            }
+
+            return variable with { Identity = Local(instance, variable.Identity) };
+        }
+
+        /// <summary>
+        /// The call that bound the parameters of the instance a path has entered, with where its caller stands. That is the call on
+        /// the path's edge, except for an iterator's body entered by an enumeration: its arguments were bound when the iterator was
+        /// created, so the call that created it binds them (ADR 0011). An enumeration of a value that may be one of several
+        /// iterators the body was created by binds nothing, since no one creation is proven. A creation in another body than the
+        /// enumeration's stands outside this path, so the values of that body are its own from there on.
+        /// </summary>
+        private (MethodInstance Instance, PathNode Node, CallTransfer Call)? BindingCall(PathNode node)
+        {
+            if (node is not { Edge: { } edge, Parent: { } caller } || !_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance))
+                return null;
+            if (edge.Reason != ITERATOR_ENUMERATION)
+                return callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } call
+                    ? (callerInstance, caller, call)
+                    : null;
+
+            var regions = callerInstance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId)?
+                                        .Receivers.SelectMany(value => _heap.Resolve(callerInstance.Id, value)).ToHashSet(StringComparer.Ordinal) ?? [];
+            var creations = _heap.IteratorObjects.Where(iterator => regions.Contains(iterator.RegionId) &&
+                                                                    iterator.Creation.CalleeInstance == edge.CalleeInstance)
+                                                 .Select(iterator => iterator.Creation)
+                                                 .Distinct()
+                                                 .ToArray();
+            if (creations is not [var creation] || !_heap.Instances.TryGetValue(creation.CallerInstance, out var creator) ||
+                creator.Summary.Calls.FirstOrDefault(call => call.OperationId == creation.OperationId) is not { } creating)
+                return null;
+
+            return (creator, CreatorNode(creator.Id, caller, node), creating);
+        }
+
+        /// <summary>
+        /// Where the body that created an iterator stands on the path that enumerates it: the node the path already passed it at,
+        /// or, for a creator one of those bodies called on its own, that call's node under it. Either is where the creator's
+        /// parameters are bound to what the root passed (R1, R2). A creator reached neither way, or by more than one call of one
+        /// body, stands outside the path, and its values are its own from there on.
+        /// </summary>
+        private PathNode CreatorNode(string creatorId, PathNode enumerating, PathNode node)
+        {
+            for (var step = enumerating; step is not null; step = step.Parent)
+            {
+                if (step.State.Instance == creatorId)
+                    return step;
+                var calls = _executionEdges.Where(edge => edge.CallerInstance == step.State.Instance && edge.CalleeInstance == creatorId &&
+                                                          edge.Reason != ITERATOR_ENUMERATION)
+                                           .ToArray();
+                if (calls is [var call])
+                    return new PathNode(new State(creatorId, node.State.Interval, node.State.Segment), step, call);
+                if (calls.Length > 1)
+                    break;
+            }
+
+            return new PathNode(new State(creatorId, node.State.Interval, node.State.Segment), null, null);
+        }
+
+        private ValueTerm? ConstructedField(MethodInstance instance, int loadId, PathNode node, int depth)
+        {
+            if (instance.Summary.Accesses.FirstOrDefault(access => access.OperationId == loadId &&
+                                                          access.Kind == SummaryAccessKind.Load) is not { } load ||
+                !(load.Field.IsReadOnly || load.Field.IsContainingTypeReadOnly) ||
+                WrittenOutsideConstruction.Contains(FieldSlot.Key(load.Field)))
+                return null;
+
+            var resources = Resources(instance, load);
+            if (resources.Count != 1 || resources[0].RegionId is not { } region)
+                return null;
+
+            var construction = (region, FieldSlot.Key(load.Field));
+            if (!_constructingFields.Add(construction))
+                return null;
+
+            try
+            {
+                return ConstructedFieldValue(load, region, node, depth);
+            }
+            finally
+            {
+                _constructingFields.Remove(construction);
+            }
+        }
+
+        private ValueTerm? ConstructedFieldValue(SummaryAccess load, string region, PathNode node, int depth)
+        {
+            var terms = new List<ValueTerm>();
+            foreach (var (constructor, constructorNode) in ConstructorPaths(region, node))
+            {
+                var stores = constructor.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
+                                                                  FieldSlot.Key(access.Field) == FieldSlot.Key(load.Field) &&
+                                                                  Resources(constructor, access).Any(resource => resource.RegionId == region))
+                                                       .ToArray();
+                if (stores.Length != 1 || stores[0].StoredTerm is not { } stored ||
+                    !ConstructorExpression(stored, constructor))
+                    return null;
+                terms.Add(Bind(stored, constructor, constructorNode, depth));
+            }
+
+            return terms.Count != 0 && terms.All(term => term == terms[0]) ? terms[0] : null;
+        }
+
+        private bool ConstructorExpression(ValueTerm term, MethodInstance instance) => term switch
+        {
+            ConstantTerm => true,
+            SumTerm sum => ConstructorExpression(sum.Left, instance) && ConstructorExpression(sum.Right, instance),
+            ConvertTerm convert => ConstructorExpression(convert.Operand, instance),
+            VariableTerm variable when input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
+                                       body.Parameters.Any(parameter => parameter.RefKind == IrRefKind.None &&
+                                                                        variable.Identity == $"{instance.BodyId}:{parameter.Value}") => true,
+            VariableTerm variable when variable.Identity.StartsWith($"{instance.BodyId}#", StringComparison.Ordinal) &&
+                                       int.TryParse(variable.Identity[(instance.BodyId.Length + 1)..], out var load) =>
+                instance.Summary.Accesses.Any(access => access.OperationId == load &&
+                                                        (access.Field.IsReadOnly || access.Field.IsContainingTypeReadOnly) &&
+                                                        !WrittenOutsideConstruction.Contains(FieldSlot.Key(access.Field))),
+            _ => false
+        };
+
+        private IEnumerable<(MethodInstance Constructor, PathNode Node)> ConstructorPaths(string region, PathNode node)
+        {
+            var producer = node.Edge is { } callEdge && node.Parent is { } caller &&
+                           _heap.Instances.TryGetValue(callEdge.CallerInstance, out var callerInstance)
+                ? callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == callEdge.OperationId)?
+                    .Receivers.OfType<CallResultValue>().Select(value => value.OperationId).ToArray()
+                : null;
+            if (producer is { Length: > 0 } && node.Parent is { } parent)
+            {
+                foreach (var sliceEdge in _heap.Edges.Where(edge => edge.CallerInstance == parent.State.Instance &&
+                                                                      producer.Contains(edge.OperationId)))
+                {
+                    var sliceNode = new PathNode(new State(sliceEdge.CalleeInstance, node.State.Interval, node.State.Segment), parent, sliceEdge);
+                    foreach (var constructorEdge in _heap.Edges.Where(edge => edge.CallerInstance == sliceEdge.CalleeInstance &&
+                                                                               _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
+                                                                               IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
+                        yield return (_heap.Instances[constructorEdge.CalleeInstance],
+                                      new PathNode(new State(constructorEdge.CalleeInstance, node.State.Interval, node.State.Segment),
+                                                   sliceNode, constructorEdge));
+                }
+                yield break;
+            }
+
+            foreach (var edge in _heap.Edges.Where(edge => _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
+                                                          IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
+            {
+                var callerNode = new PathNode(new State(edge.CallerInstance, node.State.Interval, node.State.Segment), null, null);
+                yield return (_heap.Instances[edge.CalleeInstance],
+                              new PathNode(new State(edge.CalleeInstance, node.State.Interval, node.State.Segment), callerNode, edge));
+            }
+        }
 
         /// <summary>What one execution's own value is called, wherever the query names it.</summary>
         private static string Local(MethodInstance instance, string value) => Local(instance.Id, value);
@@ -1149,7 +1830,8 @@ public static class InterproceduralAccesses
 
             var described = input.Executions.Executions.FirstOrDefault(candidate => candidate.Id == top) ?? execution;
             return new AccessRoot(described.Id, described.Display, described.Display, CONSTRUCTION_PROVIDER,
-                                  described.Kind == ExecutionKind.TypeInitializer ? "type-initializer" : "construction", described.Policy,
+                                  described.Kind == ExecutionKind.TypeInitializer ? "type-initializer" :
+                                  described.Kind == ExecutionKind.UnknownEnumeration ? "unknown-enumeration" : "construction", described.Policy,
                                   input.Scope.ScopeId);
         }
 
@@ -1413,11 +2095,15 @@ public static class InterproceduralPairing
         // A transient resolved for a hosted service is one object per hosted instance: an execution overlapping itself because the
         // instance count is unknown runs its two sides on different instances, so on different transients.
         bool IsHostedInstanceTransient(Access access) =>
-            heap.Regions[access.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
+            heap.Regions[access.IsReferenceAccess ? access.Resource.CollectionId ?? access.Resource.RegionId!
+                                                   : access.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
             region.Context.StartsWith($"di|{DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal);
 
         bool IsConfined(Access access) =>
-            executions.Ownership.TryGetValue(access.Resource.RegionId!, out var ownership) && ownership.Kind == OwnershipKind.ThreadConfined;
+            executions.Ownership.TryGetValue(access.IsReferenceAccess
+                                                 ? access.Resource.CollectionId ?? access.Resource.RegionId!
+                                                 : access.Resource.RegionId!, out var ownership) &&
+            ownership.Kind == OwnershipKind.ThreadConfined;
 
         var index = CandidateIndex.Build(candidates, heap);
         foreach (var candidate in index.OrderedPairs())

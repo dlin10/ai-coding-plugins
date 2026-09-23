@@ -27,6 +27,8 @@ public enum PathRelation
 /// </summary>
 public sealed record PathPredicate(string Subject, PathRelation Relation, string? Value, string Text)
 {
+    public ValueTerm? SubjectTerm { get; init; }
+
     /// <summary>The mark a canonical subject carries, which is what tells a value every execution reads alike from one of a
     /// single execution's own.</summary>
     public const string CANONICAL = "canon|";

@@ -33,7 +33,8 @@ public static class ReportRenderer
         [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, modelled without effect",
         [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing",
         [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
-        [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource"
+        [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource",
+        [CoverageCounters.UNPROVEN_REFERENCE] = "reference accesses whose target has no proven source location"
     };
     private static readonly Regex HEADING_PATTERN = new(@"^( {0,3})(#{1,6})(?=[ \t]|$)");
     private static readonly Regex FENCE_PATTERN = new("^ {0,3}(`{3,}|~{3,})");

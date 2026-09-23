@@ -85,7 +85,9 @@ public sealed class Z3ConstraintSolver : IConstraintSolver
         if (predicate.Value is not { } text || Number(text) is not { } value)
             return null;
 
-        var subject = Variable(predicate.Subject, predicate.Width, variables);
+        var subject = predicate.SubjectTerm is { } term
+            ? Converted(Term(term, variables), predicate.Width, term.Signed)
+            : Variable(predicate.Subject, predicate.Width, variables);
         var constant = _context.MkBV(value, (uint)predicate.Width);
         return predicate.Relation switch
         {

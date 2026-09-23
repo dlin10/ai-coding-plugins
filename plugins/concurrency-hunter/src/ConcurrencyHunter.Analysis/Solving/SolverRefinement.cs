@@ -107,9 +107,11 @@ public static class SolverRefinement
             OfSide(pair.First.SelectorTerm, "first"), OfSide(pair.Second.SelectorTerm, "second"));
 
     private static IEnumerable<PathPredicate> OfSide(IReadOnlyList<PathPredicate> conditions, string side) =>
-        conditions.Select(condition => condition.IsCanonical || condition.Subject.Length == 0
-                                           ? condition
-                                           : condition with { Subject = $"{side}|{condition.Subject}" });
+        conditions.Select(condition => condition with
+        {
+            Subject = condition.IsCanonical || condition.Subject.Length == 0 ? condition.Subject : $"{side}|{condition.Subject}",
+            SubjectTerm = OfSide(condition.SubjectTerm, side)
+        });
 
     private static ValueTerm? OfSide(ValueTerm? term, string side) => term switch
     {

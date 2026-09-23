@@ -205,6 +205,8 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// <summary>The expression naming this access's cell, in the width of its own type, for the solver (TD-092).</summary>
     public ValueTerm? SelectorTerm { get; init; }
 
+    public ValueTerm? StoredTerm { get; init; }
+
     /// <summary>Whether this access works on the collection a field holds, or on one of its cells, rather than on the field
     /// itself (ADR 0010). Such a resource is the collection object and not the field that reached it: two fields holding one
     /// dictionary hold one dictionary, and naming the resource after the field leaves their accesses unable to ever meet.</summary>
@@ -247,6 +249,65 @@ public sealed record DelegateTransfer(int OperationId, DelegateCreationValue Del
 public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractValue> Values)
 {
     public IReadOnlySet<ValueDependency> Dependencies { get; init; } = new HashSet<ValueDependency>();
+
+    public ValueTerm? Term { get; init; }
+    public IReadOnlyList<ReferenceTarget> References { get; init; } = [];
+
+    /// <summary>The collection the argument is, where the body names one: what a callee's reference to a cell of the parameter
+    /// it binds points to (R3).</summary>
+    public ArgumentCollection? Collection { get; init; }
+}
+
+/// <summary>A collection handed over by value: <see cref="Collection"/> is a <see cref="ReferenceCell"/> of the field it was read
+/// from or a <see cref="ReferenceParameterElement"/> of the parameter it came in as, cut at <see cref="Shift"/> for
+/// <see cref="Length"/> cells.</summary>
+public sealed record ArgumentCollection(ReferenceTarget Collection, long? Shift, long? Length);
+
+public abstract record ReferenceTarget;
+
+public sealed record ReferenceCell(IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, ElementSelector? Selector,
+                                   ValueTerm? SelectorTerm, bool IsOnCollection) : ReferenceTarget
+{
+    /// <summary>Whether <see cref="SelectorTerm"/> already names its values as the execution does: a term that crossed a call is
+    /// bound where it was written, and binding it again would rename it away from the guards over the same values.</summary>
+    public bool IsTermBound { get; init; }
+}
+
+public sealed record ReferenceParameter(int Ordinal) : ReferenceTarget;
+
+public sealed record ReferenceCall(int OperationId) : ReferenceTarget;
+
+/// <summary>A cell of the collection a by-value parameter holds on entry, in that collection's own coordinates; the caller's
+/// argument says which collection that is. <see cref="Term"/> is the cell's expression in the same coordinates, which is what a
+/// guard of the caller over the index is compared with (R1).</summary>
+public sealed record ReferenceParameterElement(int Ordinal, ElementSelector Selector, ValueTerm? Term = null) : ReferenceTarget
+{
+    /// <inheritdoc cref="ReferenceCell.IsTermBound"/>
+    public bool IsTermBound { get; init; }
+}
+
+/// <summary>A cell nothing numbers of the collection a call with a body returns: the storage that body hands back, as its own
+/// returns name it (R3).</summary>
+public sealed record ReferenceCallCollection(int OperationId) : ReferenceTarget;
+
+/// <summary>A place a reference may point to that nothing proves: counted in coverage, never an access to a guessed place (R3).</summary>
+public sealed record ReferenceUnproven : ReferenceTarget
+{
+    public static ReferenceUnproven Instance { get; } = new();
+}
+
+public sealed record SummaryReferenceAccess(int OperationId, SummaryAccessKind Kind, IReadOnlyList<ReferenceTarget> Targets,
+                                            IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks,
+                                            IReadOnlySet<ValueDependency> Dependencies)
+{
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+    public int? ReadModifyWriteOf { get; init; }
+
+    /// <summary>Whether this is an element operation on a collection the body did not read from a field — one it got by value, or
+    /// one a call returned — rather than an operation through a reference. The caller's argument or the callee's return says which
+    /// collection it is; one that is not read from a field there either is no resource (TD-043), so the operation stands for no
+    /// access and is not a place nothing proves.</summary>
+    public bool IsCollectionElement { get; init; }
 }
 
 /// <summary>A monitor acquisition or release: the values of its lock object, and the IR value the object comes from through
@@ -375,6 +436,13 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
                                    IReadOnlyList<CallTransfer> Calls, IReadOnlyList<SummaryOpaqueCall> OpaqueCalls,
                                    IReadOnlyList<CapturedStore> CapturedStores, IReadOnlyList<SummaryVariable> Variables)
 {
+    public IReadOnlyList<SummaryReferenceAccess> ReferenceAccesses { get; init; } = [];
+    public IReadOnlyList<ReferenceTarget> ReferenceReturns { get; init; } = [];
+
+    /// <summary>The collections the body returns by value, one per return: a field it read, a parameter it got, another call's
+    /// result, or a place nothing proves. What a caller's element operation on the result is on (R3).</summary>
+    public IReadOnlyList<ReferenceTarget> CollectionReturns { get; init; } = [];
+
     public IReadOnlyList<LockTransfer> Locks { get; init; } = [];
     public IReadOnlyList<SummarySpawn> Spawns { get; init; } = [];
     public IReadOnlyList<SummaryThreadWork> ThreadWorks { get; init; } = [];

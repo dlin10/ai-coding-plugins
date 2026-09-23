@@ -120,7 +120,7 @@ public sealed class ExpectationMatcherTests
     [Fact]
     public void Phases_order_from_0_through_1a_1b_to_8()
     {
-        string[] phases = ["0", "1a", "1b", "2", "2b", "3", "4", "5", "6", "7", "8"];
+        string[] phases = ["0", "1a", "1b", "2", "2b", "3", "4", "4b", "5a", "5b", "5c", "5d", "5e", "6", "7", "8"];
 
         for (var first = 0; first < phases.Length; first++)
         {
@@ -128,6 +128,7 @@ public sealed class ExpectationMatcherTests
                 Assert.Equal(first.CompareTo(second), PhaseOrder.Compare(phases[first], phases[second]));
         }
         Assert.Throws<ArgumentOutOfRangeException>(() => PhaseOrder.Compare("unknown", "8"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PhaseOrder.Compare("5", "8"));
     }
 
     [Fact]

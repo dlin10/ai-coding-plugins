@@ -504,7 +504,8 @@ public static class IrLowering
                                     .ToArray(),
                 IsAsync = _method.IsAsync,
                 ReturnType = TypeName(_method.ReturnType),
-                IsAsyncIterator = _method is { IsAsync: true, IsIterator: true }
+                IsAsyncIterator = _method is { IsAsync: true, IsIterator: true },
+                IsIterator = _method is { IsAsync: false, IsIterator: true }
             };
             var problems = IrValidator.Validate(body);
             if (problems.Count != 0)
@@ -858,7 +859,10 @@ public static class IrLowering
 
             LowerOperations(block);
 
-            int? branchValue = block.BranchValue is null ? null : LowerValue(block.BranchValue);
+            var byRefReturn = _method.ReturnsByRef || _method.ReturnsByRefReadonly;
+            int? branchValue = block.BranchValue is null ? null
+                : byRefReturn && block.FallThroughSuccessor?.Semantics == ControlFlowBranchSemantics.Return
+                    ? LowerAddress(block.BranchValue) : LowerValue(block.BranchValue);
             // The section's exit stands after everything the block runs inside it, the condition it leaves on included.
             LowerLockExits(block);
             if (block.FallThroughSuccessor?.Semantics == ControlFlowBranchSemantics.Return)
@@ -866,7 +870,10 @@ public static class IrLowering
                 _operations.Add(new IrReturnOperation(
                     NextOperation(),
                     branchValue,
-                    Provenance(block.BranchValue ?? block.Operations.LastOrDefault() ?? _graph.OriginalOperation, "return")));
+                    Provenance(block.BranchValue ?? block.Operations.LastOrDefault() ?? _graph.OriginalOperation, "return"))
+                {
+                    IsByRef = byRefReturn
+                });
             }
 
             var predecessors = block.Predecessors.Select(predecessor => predecessor.Source.Ordinal + _offset).ToArray();
@@ -1052,7 +1059,10 @@ public static class IrLowering
                         LowerTop(declarator);
                     break;
                 case IVariableDeclaratorOperation declarator when declarator.Initializer is not null:
-                    StoreSymbol(declarator.Symbol, LowerValue(declarator.Initializer.Value), declarator, "declaration");
+                    StoreSymbol(declarator.Symbol,
+                                declarator.Symbol is ILocalSymbol { RefKind: not RefKind.None }
+                                    ? LowerAddress(declarator.Initializer.Value)
+                                    : LowerValue(declarator.Initializer.Value), declarator, "declaration");
                     break;
                 case IVariableDeclaratorOperation declarator:
                     GetSymbolValue(declarator.Symbol);
@@ -1091,8 +1101,10 @@ public static class IrLowering
                     Constant(field, "constant"),
                 IFieldReferenceOperation field => LowerFieldLoad(field, "direct"),
                 IPropertyReferenceOperation property => LowerPropertyLoad(property),
-                IParameterReferenceOperation parameter => LowerParameter(parameter),
-                ILocalReferenceOperation local => GetSymbolValue(local.Local),
+                IParameterReferenceOperation parameter => parameter.Parameter.RefKind == RefKind.None
+                    ? LowerParameter(parameter) : LowerReferencedParameter(parameter),
+                ILocalReferenceOperation local => local.Local.RefKind == RefKind.None
+                    ? GetSymbolValue(local.Local) : LowerReferenceLoad(GetSymbolValue(local.Local), local),
                 IInstanceReferenceOperation => _receiverValue ?? Unknown(operation, "unsupported"),
                 IFlowCaptureOperation capture => LowerCapture(capture),
                 IFlowCaptureReferenceOperation capture => LowerCaptureReference(capture),
@@ -1121,12 +1133,90 @@ public static class IrLowering
 
         private int LowerAssignment(ISimpleAssignmentOperation assignment)
         {
-            var value = LowerValue(assignment.Value);
+            var bindsReference = UnwrapTarget(assignment.Target) is ILocalReferenceOperation { Local.RefKind: not RefKind.None } &&
+                                 (assignment.Syntax is VariableDeclaratorSyntax or AssignmentExpressionSyntax { Right: RefExpressionSyntax });
+            var value = bindsReference ? LowerAddress(assignment.Value) : LowerValue(assignment.Value);
+            if (bindsReference && UnwrapTarget(assignment.Target) is ILocalReferenceOperation local)
+                return StoreSymbol(local.Local, value, assignment, "ref-assignment");
             return LowerStore(assignment.Target, value, assignment, "assignment");
+        }
+
+        private int LowerAddress(IOperation target)
+        {
+            target = UnwrapTarget(target);
+            switch (target)
+            {
+                case IFieldReferenceOperation field:
+                {
+                    var location = GetFieldLocation(field);
+                    var address = AddTemporary(field.Type);
+                    _operations.Add(new IrAddressFieldOperation(NextOperation(), address, location.Receiver, location.Field,
+                                                                Provenance(field, "address")));
+                    return address;
+                }
+                case IArrayElementReferenceOperation element:
+                {
+                    var receiver = LowerValue(element.ArrayReference);
+                    var indices = element.Indices.Select(LowerValue).ToArray();
+                    var address = AddTemporary(element.Type);
+                    _operations.Add(new IrAddressElementOperation(NextOperation(), address, receiver, indices,
+                                                                  Provenance(element, "address")));
+                    return address;
+                }
+                case IPropertyReferenceOperation property when IsElementIndexer(property) && NamesOneCell(property):
+                {
+                    var receiver = LowerValue(property.Instance!);
+                    var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
+                    var address = AddTemporary(property.Type);
+                    _operations.Add(new IrAddressElementOperation(NextOperation(), address, receiver, indices,
+                                                                  Provenance(property, "address")));
+                    return address;
+                }
+                case IPropertyReferenceOperation property when IsElementIndexer(property):
+                    return AddCall(property, property.Property.GetMethod!, LowerValue(property.Instance!),
+                                   LowerArguments(property.Arguments), property.Type);
+                case IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly:
+                    return LowerInvocation(invocation, true);
+                case ILocalReferenceOperation local when local.Local.RefKind != RefKind.None:
+                    return GetSymbolValue(local.Local);
+                case IParameterReferenceOperation parameter when parameter.Parameter.RefKind != RefKind.None:
+                    return _parameterValues[parameter.Parameter];
+                case IFlowCaptureReferenceOperation capture:
+                    return LowerCaptureReference(capture);
+                default:
+                    return Unknown(target, "unproven-reference");
+            }
+        }
+
+        private int LowerReferenceLoad(int address, IOperation source)
+        {
+            var result = AddTemporary(source.Type);
+            _operations.Add(new IrLoadReferenceOperation(NextOperation(), result, address, Provenance(source, "reference-load")));
+            return result;
+        }
+
+        private int LowerReferencedParameter(IParameterReferenceOperation parameter)
+        {
+            var loaded = LowerReferenceLoad(_parameterValues[parameter.Parameter], parameter);
+            var current = GetSymbolValue(parameter.Parameter);
+            return current == _parameterValues[parameter.Parameter] ? loaded : current;
         }
 
         private int LowerCompoundAssignment(ICompoundAssignmentOperation compound)
         {
+            if (ReferenceTarget(compound.Target))
+            {
+                var address = LowerAddress(compound.Target);
+                var loaded = LowerReferenceLoad(address, compound.Target);
+                var loadId = ((IrLoadReferenceOperation)_operations[^1]).Id;
+                var right = LowerValue(compound.Value);
+                var result = AddTemporary(compound.Type);
+                var provenance = Provenance(compound, "compound-assignment");
+                _operations.Add(new IrComputeOperation(NextOperation(), result, compound.OperatorKind.ToString(),
+                                                      [loaded, right], provenance));
+                _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, result, loadId, provenance));
+                return result;
+            }
             if (TryLocation(compound.Target, out var location))
             {
                 var loaded = AddTemporary(compound.Target.Type);
@@ -1170,6 +1260,20 @@ public static class IrLowering
 
         private int LowerIncrement(IIncrementOrDecrementOperation increment)
         {
+            if (ReferenceTarget(increment.Target))
+            {
+                var address = LowerAddress(increment.Target);
+                var refLoaded = LowerReferenceLoad(address, increment.Target);
+                var refLoadId = ((IrLoadReferenceOperation)_operations[^1]).Id;
+                var refOne = Constant(increment, 1, "increment");
+                var refResult = AddTemporary(increment.Type);
+                var refProvenance = Provenance(increment, "increment");
+                _operations.Add(new IrComputeOperation(NextOperation(), refResult,
+                                                      increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
+                                                      [refLoaded, refOne], refProvenance));
+                _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, refResult, refLoadId, refProvenance));
+                return increment.IsPostfix ? refLoaded : refResult;
+            }
             if (!TryLocation(increment.Target, out var location))
             {
                 var target = UnwrapTarget(increment.Target);
@@ -1288,17 +1392,28 @@ public static class IrLowering
                 // it writes that cell and never a property of the receiver (TD-043).
                 case IPropertyReferenceOperation property when IsElementIndexer(property):
                 {
-                    var receiver = LowerValue(property.Instance!);
-                    var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
-                    _operations.Add(new IrStoreElementOperation(
-                        NextOperation(), receiver, indices, value, Provenance(source, transformation))
+                    if (NamesOneCell(property))
                     {
-                        NamesOneCell = NamesOneCell(property)
-                    });
+                        var receiver = LowerValue(property.Instance!);
+                        var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
+                        _operations.Add(new IrStoreElementOperation(
+                            NextOperation(), receiver, indices, value, Provenance(source, transformation)));
+                    }
+                    else
+                    {
+                        var address = LowerAddress(property);
+                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, value, null,
+                                                                     Provenance(source, transformation)));
+                    }
                     return value;
                 }
                 case IPropertyReferenceOperation property:
                     return LowerPropertyStore(property, value, source, transformation);
+                case IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef:
+                    var returnAddress = LowerAddress(invocation);
+                    _operations.Add(new IrStoreReferenceOperation(NextOperation(), returnAddress, value, null,
+                                                                 Provenance(source, transformation)));
+                    return value;
                 case IArrayElementReferenceOperation element:
                 {
                     var receiver = LowerValue(element.ArrayReference);
@@ -1310,8 +1425,21 @@ public static class IrLowering
                 case IFlowCaptureReferenceOperation capture when _capturedTargets.TryGetValue(capture.Id, out var captured):
                     return LowerStore(captured, value, source, transformation);
                 case ILocalReferenceOperation local:
+                    if (local.Local.RefKind != RefKind.None)
+                    {
+                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), GetSymbolValue(local.Local), value, null,
+                                                                     Provenance(source, transformation)));
+                        return value;
+                    }
                     return StoreSymbol(local.Local, value, source, transformation);
                 case IParameterReferenceOperation parameter:
+                    if (parameter.Parameter.RefKind != RefKind.None)
+                    {
+                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), _parameterValues[parameter.Parameter], value, null,
+                                                                     Provenance(source, transformation)));
+                        StoreSymbol(parameter.Parameter, value, source, transformation);
+                        return value;
+                    }
                     if (!IsPrimaryConstructorParameter(parameter.Parameter))
                         return StoreSymbol(parameter.Parameter, value, source, transformation);
                     var primaryLocation = GetPrimaryConstructorParameterLocation(parameter.Parameter);
@@ -1405,6 +1533,8 @@ public static class IrLowering
         private int LowerPropertyLoad(IPropertyReferenceOperation property)
         {
             // Reading through a ref-returning indexer reads one cell of the receiver's own storage (TD-043).
+            if (IsElementIndexer(property) && !NamesOneCell(property))
+                return LowerReferenceLoad(LowerAddress(property), property);
             if (IsElementIndexer(property))
             {
                 var element = AddTemporary(property.Type);
@@ -1536,7 +1666,8 @@ public static class IrLowering
             {
                 _capturedTargets[capture.Id] = capture.Value;
             }
-            var sourceValue = LowerValue(capture.Value);
+            var sourceValue = capture.Syntax.Parent is RefExpressionSyntax
+                ? LowerAddress(capture.Value) : LowerValue(capture.Value);
             var variable = _ssaPlan.GetVariable(capture.Id);
             var targetValue = ResolveToken(NextDefinition(variable));
             SetCurrent(variable, targetValue);
@@ -1553,7 +1684,7 @@ public static class IrLowering
                 : Unknown(capture, "unsupported");
         }
 
-        private int LowerInvocation(IInvocationOperation invocation)
+        private int LowerInvocation(IInvocationOperation invocation, bool asAddress = false)
         {
             if (TryLowerSynchronization(invocation, out var synchronizationResult))
                 return synchronizationResult;
@@ -1569,7 +1700,21 @@ public static class IrLowering
             if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
                 _configuredTasks[result] = configured;
             AnnotateBclCall(invocation, method, call, invocation.Arguments, arguments);
-            return result;
+            // A method with no body at hand — none in source, or an `extern` one declared there — writes its `out` arguments where
+            // it is called, since no body will say where (R3).
+            if (method.DeclaringSyntaxReferences.Length == 0 || method.IsExtern)
+            {
+                foreach (var argument in invocation.Arguments.Where(argument => argument.Parameter?.RefKind == RefKind.Out))
+                {
+                    if (arguments.At(argument.Parameter!.Ordinal) is not int address)
+                        continue;
+                    var written = Unknown(argument, "opaque-out-value");
+                    _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null,
+                                                                 Provenance(argument, "opaque-out")));
+                }
+            }
+            return asAddress || !(method.ReturnsByRef || method.ReturnsByRefReadonly)
+                ? result : LowerReferenceLoad(result, invocation);
         }
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
@@ -1582,7 +1727,20 @@ public static class IrLowering
             _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")) with
             {
                 ServiceCall = serviceCall,
-                IsAwaitedImmediately = awaited
+                IsAwaitedImmediately = awaited,
+                EnumerationId = source.IsImplicit
+                    ? source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().FirstOrDefault()?.SpanStart
+                    : null,
+                EnumerationRole = source.IsImplicit && source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
+                    ? method.Name switch
+                    {
+                        "GetEnumerator" => IrEnumerationRole.GetEnumerator,
+                        "MoveNext" => IrEnumerationRole.MoveNext,
+                        "get_Current" => IrEnumerationRole.Current,
+                        "Dispose" => IrEnumerationRole.Dispose,
+                        _ => IrEnumerationRole.None
+                    }
+                    : IrEnumerationRole.None
             });
             return result ?? Constant(source, null, "void");
         }
@@ -2055,20 +2213,33 @@ public static class IrLowering
         {
             if (argument.Parameter?.RefKind is not (RefKind.Ref or RefKind.Out or RefKind.In or RefKind.RefReadOnlyParameter))
                 return LowerValue(argument.Value);
-
-            var value = UnwrapTarget(argument.Value);
-            IReadOnlyList<int> operands = value switch
+            var target = UnwrapTarget(argument.Value);
+            if (target is ILocalReferenceOperation { Local.RefKind: RefKind.None } local)
             {
-                ILocalReferenceOperation local => [GetSymbolValue(local.Local)],
-                IParameterReferenceOperation parameter when IsPrimaryConstructorParameter(parameter.Parameter) => [],
-                IParameterReferenceOperation parameter => [GetSymbolValue(parameter.Parameter)],
-                _ => []
-            };
-            _operations.Add(new IrUnknownOperation(
-                NextOperation(), null, argument.Value.Kind.ToString(), "address-taken", operands,
-                Provenance(argument, "address-taken")));
-            return operands.Count == 0 ? null : operands[0];
+                var value = GetSymbolValue(local.Local);
+                _operations.Add(new IrUnknownOperation(NextOperation(), null, argument.Value.Kind.ToString(), "address-taken",
+                                                       [value], Provenance(argument, "address-taken")));
+                return value;
+            }
+            if (target is IParameterReferenceOperation { Parameter.RefKind: RefKind.None } parameter &&
+                !IsPrimaryConstructorParameter(parameter.Parameter))
+            {
+                var value = GetSymbolValue(parameter.Parameter);
+                _operations.Add(new IrUnknownOperation(NextOperation(), null, argument.Value.Kind.ToString(), "address-taken",
+                                                       [value], Provenance(argument, "address-taken")));
+                return value;
+            }
+            return LowerAddress(argument.Value);
         }
+
+        private static bool ReferenceTarget(IOperation target) => UnwrapTarget(target) switch
+        {
+            ILocalReferenceOperation local => local.Local.RefKind != RefKind.None,
+            IParameterReferenceOperation parameter => parameter.Parameter.RefKind != RefKind.None,
+            IPropertyReferenceOperation property => IsElementIndexer(property) && !NamesOneCell(property),
+            IInvocationOperation invocation => invocation.TargetMethod.ReturnsByRef,
+            _ => false
+        };
 
         private int LowerObjectCreation(IObjectCreationOperation creation)
         {
@@ -2401,7 +2572,8 @@ public static class IrLowering
                     SymbolNames.Type(field.Type),
                     SymbolNames.TypeIdentity(field.ContainingType))
                 {
-                    IsVolatile = field.IsVolatile
+                    IsVolatile = field.IsVolatile,
+            IsContainingTypeReadOnly = field.ContainingType.IsReadOnly
                 });
         }
 

@@ -206,7 +206,7 @@ public sealed class IrLoweringTests
     {
         var body = await Lower("class C { int Value; static void Take(ref int value) { } void M() { Take(ref Value); } }");
 
-        Assert.Contains(Operations<IrUnknownOperation>(body), operation => operation.Reason == "address-taken");
+        Assert.Single(Operations<IrAddressFieldOperation>(body));
         Assert.Empty(Operations<IrLoadFieldOperation>(body));
         Assert.Empty(Operations<IrStoreFieldOperation>(body));
     }
@@ -219,7 +219,7 @@ public sealed class IrLoweringTests
 
         foreach (var lowered in new[] { body, readOnlyRef })
         {
-            Assert.Contains(Operations<IrUnknownOperation>(lowered), operation => operation.Reason == "address-taken");
+            Assert.Single(Operations<IrAddressFieldOperation>(lowered));
             Assert.Empty(Operations<IrLoadFieldOperation>(lowered));
         }
     }

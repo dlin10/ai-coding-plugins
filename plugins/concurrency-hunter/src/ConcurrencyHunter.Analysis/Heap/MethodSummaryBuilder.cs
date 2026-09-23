@@ -135,6 +135,9 @@ public static class MethodSummaryBuilder
                                     .Where(operation => operation.TargetOperationId is not null)
                                     .ToDictionary(operation => operation.TargetOperationId!.Value, operation => operation);
             var accesses = new List<SummaryAccess>();
+            var referenceAccesses = new List<SummaryReferenceAccess>();
+            var referenceReturns = new List<ReferenceTarget>();
+            var collectionReturns = new List<ReferenceTarget>();
             var stores = new List<StoreTransfer>();
             var elements = new List<ElementTransfer>();
             var returns = new List<ReturnTransfer>();
@@ -147,6 +150,19 @@ public static class MethodSummaryBuilder
                 var locks = held.GetValueOrDefault(operation.Id) ?? [];
                 switch (operation)
                 {
+                    case IrLoadReferenceOperation load:
+                        referenceAccesses.Add(new SummaryReferenceAccess(load.Id, SummaryAccessKind.Load,
+                                                                         References(load.AddressValue), load.Provenance, locks,
+                                                                         new HashSet<ValueDependency>()));
+                        break;
+                    case IrStoreReferenceOperation store:
+                        referenceAccesses.Add(new SummaryReferenceAccess(store.Id, SummaryAccessKind.Store,
+                                                                         References(store.AddressValue), store.Provenance, locks,
+                                                                         Dependencies(store.Value))
+                        {
+                            ReadModifyWriteOf = store.ReadModifyWriteOf
+                        });
+                        break;
                     case IrLoadFieldOperation load:
                         accesses.Add(new SummaryAccess(load.Id, SummaryAccessKind.Load, load.Field, AccessBases(Points(load.ReceiverValue)),
                                                        load.Provenance, locks, null, Final(Points(load.ResultValue), delegates),
@@ -162,7 +178,8 @@ public static class MethodSummaryBuilder
                                                        store.ReadModifyWriteOf, stored, Dependencies(store.Value))
                         {
                             Atomic = atomic.TryGetValue(store.Id, out var storeMark) ? storeMark.Effect : null,
-                            ComparandLoad = Comparand(atomic, store.Id)
+                            ComparandLoad = Comparand(atomic, store.Id),
+                            StoredTerm = Term(store.Value)
                         });
                         if (!IsValueType(store.Field.Type))
                             stores.Add(new StoreTransfer(store.Id, store.Field, bases, stored));
@@ -199,14 +216,34 @@ public static class MethodSummaryBuilder
                                                          Final(Points(loadElement.ResultValue), delegates)));
                         break;
                     case IrStoreElementOperation element:
+                        if (((ReferenceTarget?)ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) ??
+                             CallCollection(element.ReceiverValue)) is { } storeCollection)
+                            referenceAccesses.Add(new SummaryReferenceAccess(element.Id, SummaryAccessKind.Store, [storeCollection],
+                                                                             element.Provenance, locks, Dependencies(element.Value))
+                            {
+                                IsCollectionElement = true
+                            });
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
                                                          Final(Points(element.Value), delegates)));
                         break;
                     case IrLoadElementOperation element:
+                        if (((ReferenceTarget?)ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) ??
+                             CallCollection(element.ReceiverValue)) is { } loadCollection)
+                            referenceAccesses.Add(new SummaryReferenceAccess(element.Id, SummaryAccessKind.Load, [loadCollection],
+                                                                             element.Provenance, locks, new HashSet<ValueDependency>())
+                            {
+                                IsCollectionElement = true
+                            });
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Load, Final(Points(element.ReceiverValue), delegates),
                                                          Final(Points(element.ResultValue), delegates)));
                         break;
+                    case IrReturnOperation { Value: int returned, IsByRef: true }:
+                        referenceReturns.AddRange(References(returned));
+                        break;
                     case IrReturnOperation { Value: int returned } @return:
+                        // What the body hands back is only ever indexed if it is a collection; a return nothing names is kept as
+                        // such, so an element operation on the result never takes the returns that do name one for all of them.
+                        collectionReturns.Add(Collection(returned)?.Collection ?? ReferenceUnproven.Instance);
                         returns.Add(new ReturnTransfer(@return.Id, Final(Points(returned), delegates), Dependencies(returned))
                         {
                             UnknownSources = _unknown[returned],
@@ -255,6 +292,8 @@ public static class MethodSummaryBuilder
                                      .ToDictionary(operation => operation, Conditions);
             for (var index = 0; index < accesses.Count; index++)
                 accesses[index] = accesses[index] with { Conditions = conditions[accesses[index].OperationId] };
+            for (var index = 0; index < referenceAccesses.Count; index++)
+                referenceAccesses[index] = referenceAccesses[index] with { Conditions = Conditions(referenceAccesses[index].OperationId) };
 
             var refParameters = _body.Parameters.Where(parameter => parameter.RefKind is IrRefKind.Ref or IrRefKind.Out)
                                      .Select(parameter =>
@@ -287,6 +326,9 @@ public static class MethodSummaryBuilder
             return new MethodSummary(_body.BodyId, accesses, stores, elements, returns, refParameters, delegateTransfers, calls, opaqueCalls,
                                      capturedStores, variables)
             {
+                ReferenceAccesses = referenceAccesses,
+                ReferenceReturns = referenceReturns,
+                CollectionReturns = collectionReturns,
                 Locks = lockTransfers,
                 Spawns = _operations.OfType<IrSpawnOperation>().Select(spawn => Spawn(spawn, delegates)).ToArray(),
                 ThreadWorks = _operations.OfType<IrThreadWorkOperation>()
@@ -359,7 +401,10 @@ public static class MethodSummaryBuilder
                     position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position,
                     Final(Points(value), delegates))
                 {
-                    Dependencies = Dependencies(value)
+                    Dependencies = Dependencies(value),
+                    Term = Term(value),
+                    References = References(value),
+                    Collection = Collection(value)
                 })
                 .ToArray();
 
@@ -526,6 +571,7 @@ public static class MethodSummaryBuilder
                 IrAwaitOperation awaited => [.. _dependencies[awaited.AwaitableValue]],
                 IrUnknownOperation unknown => unknown.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrLoadFieldOperation load => [new LoadDependency(load.Id)],
+                IrLoadReferenceOperation load => [new LoadDependency(load.Id)],
                 // What a collection member returns is what it read from the collection, so the member itself is the dependency:
                 // that is what makes a change decided by an earlier read of the same collection one compound operation.
                 IrCallOperation { Collection: not null } collection when collection.ResultValue == value.Id ||
@@ -650,15 +696,82 @@ public static class MethodSummaryBuilder
             // A cell of storage nothing numbers is still that storage: it stays an access of the collection, and only which cell
             // it is stays unknown, so two indices of it are never proven disjoint (TD-043).
             var selector = indices.Count == 1 && namesOneCell ? Selector(indices[0]) : ElementSelector.Unknown;
-            var shifted = slice.Shift is { } shift ? selector.Shift(shift) : ElementSelector.Unknown;
-            // An index nothing proves, inside a slice of a known length, is still no further than that slice: unsupported widens
-            // to a safe range rather than to nothing (TD-043).
-            return new ElementCell(load.Field, load.ReceiverValue ?? slice.Array,
-                                   shifted == ElementSelector.Unknown && slice is { Shift: { } start, Length: { } length }
-                                       ? ElementSelector.Range(start, start + length)
-                                       : shifted,
+            return new ElementCell(load.Field, load.ReceiverValue ?? slice.Array, selector.InSlice(slice.Shift, slice.Length),
                                    indices.Count == 1 && namesOneCell ? Shifted(Term(indices[0]), slice.Shift) : null);
         }
+
+        /// <summary>The cell an element address takes of a collection this body got by value: which cell, in the coordinates of the
+        /// collection its caller handed over. Only the value the parameter has on entry is that collection.</summary>
+        private ReferenceParameterElement? ParameterElement(int receiver, IReadOnlyList<int> indices, bool namesOneCell)
+        {
+            var slice = Slice(receiver);
+            if (!_parameterOrdinals.TryGetValue(slice.Array, out var ordinal) ||
+                !_body.Parameters.Any(parameter => parameter.Ordinal == ordinal && parameter.RefKind == IrRefKind.None))
+                return null;
+
+            var oneCell = indices.Count == 1 && namesOneCell;
+            var selector = oneCell ? Selector(indices[0]) : ElementSelector.Unknown;
+            return new ReferenceParameterElement(ordinal, selector.InSlice(slice.Shift, slice.Length),
+                                                 oneCell ? Shifted(Term(indices[0]), slice.Shift) : null);
+        }
+
+        /// <summary>The collection an element operation is on when a call with a body returned it: which cell of it is left
+        /// unknown, since only the callee's returns say what storage that is (R3).</summary>
+        private ReferenceCallCollection? CallCollection(int receiver)
+        {
+            var array = Slice(receiver).Array;
+            return Definition(array) is IrCallOperation call && call.ResultValue == array && !IsOpaque(call)
+                ? new ReferenceCallCollection(call.Id)
+                : null;
+        }
+
+        /// <summary>The collection a value is, as a caller hands it to a callee or a callee hands it back: the field it was read
+        /// from, the parameter it came in as, or the call that returned it, with the slice cut from it.</summary>
+        private ArgumentCollection? Collection(int value)
+        {
+            var slice = Slice(value);
+            if (Definition(slice.Array) is IrLoadFieldOperation load)
+                return new ArgumentCollection(new ReferenceCell(load.Field, AccessBases(Points(load.ReceiverValue ?? slice.Array)), null, null, true),
+                                              slice.Shift, slice.Length);
+            if (ParameterElement(value, [], false) is { } parameter)
+                return new ArgumentCollection(parameter with { Selector = ElementSelector.Unknown }, slice.Shift, slice.Length);
+            return CallCollection(value) is { } call ? new ArgumentCollection(call, slice.Shift, slice.Length) : null;
+        }
+
+        private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0)
+        {
+            if (depth >= _limits.MaxAccessPathDepth)
+                return [];
+            if (_parameterOrdinals.TryGetValue(value, out var ordinal) &&
+                _body.Parameters.Any(parameter => parameter.Ordinal == ordinal && parameter.RefKind != IrRefKind.None))
+                return [new ReferenceParameter(ordinal)];
+            if (!_definitions.TryGetValue(value, out var definition))
+                return [];
+
+            return definition switch
+            {
+                IrAddressFieldOperation field =>
+                    [new ReferenceCell(field.Field, AccessBases(Points(field.ReceiverValue)), null, null, false)],
+                IrAddressElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } cell =>
+                    [new ReferenceCell(cell.Field, AccessBases(Points(cell.BaseValue)), cell.Selector, cell.Term, true)],
+                IrAddressElementOperation element when ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } parameter =>
+                    [parameter],
+                IrAddressElementOperation element when CallCollection(element.ReceiverValue) is { } call => [call],
+                IrAssignOperation assign => References(assign.SourceValue, depth + 1),
+                IrPhiOperation phi => Alternatives(phi.Inputs.Select(input => References(input.Value, depth + 1)).ToArray()),
+                IrConvertOperation convert => References(convert.OperandValue, depth + 1),
+                IrCallOperation call when call.ResultValue == value && !IsOpaque(call) => [new ReferenceCall(call.Id)],
+                _ => []
+            };
+        }
+
+        /// <summary>The places a reference that joins several may point to. Where some alternative names a place and another names
+        /// none, the unnamed one is a place nothing proves: it is kept as such, so it is counted rather than lost behind the others
+        /// (R3). Alternatives that all name nothing are a value that is no reference at all.</summary>
+        private static IReadOnlyList<ReferenceTarget> Alternatives(IReadOnlyList<ReferenceTarget>[] alternatives) =>
+            alternatives.Any(targets => targets.Count != 0) && alternatives.Any(targets => targets.Count == 0)
+                ? [.. alternatives.SelectMany(targets => targets), ReferenceUnproven.Instance]
+                : alternatives.SelectMany(targets => targets).ToArray();
 
         /// <summary>The cell's expression in the coordinates of the collection it is cut from, which is where the selector already
         /// is: an index of a slice names the cell that many places further along, and handing the solver the index of the window
@@ -759,6 +872,7 @@ public static class MethodSummaryBuilder
                                                               IsSigned(convert.Type)),
                 IrComputeOperation { Operator: "Add", OperandValues.Count: 2 } compute =>
                     new SumTerm(Term(compute.OperandValues[0], depth + 1), Term(compute.OperandValues[1], depth + 1)),
+                IrLoadFieldOperation load => new VariableTerm($"{_body.BodyId}#{load.Id}", width, signed),
                 _ => new VariableTerm($"{_body.BodyId}:{origin}", width, signed)
             };
         }
@@ -908,9 +1022,10 @@ public static class MethodSummaryBuilder
         };
 
         /// <summary>The conditions whose outcome decides that an operation runs, each with the value it must have there: the
-        /// branch of every block that dominates the operation and reaches it through one of its two destinations only. Reaching
-        /// the destination a branch jumps to means the condition holds as the branch tests it; reaching the other means it does
-        /// not.</summary>
+        /// branch of every block that dominates the operation and reaches it through one of its two edges only. Reaching the
+        /// destination a branch jumps to means the condition holds as the branch tests it; reaching the other means it does not.
+        /// It is the edge that has to stand on every path, not only its destination: the block after an <c>if</c> without an
+        /// <c>else</c> is the destination of the branch that skips the <c>if</c>, and is reached from its body as well.</summary>
         private IReadOnlyList<(int Value, bool Expected)> Guards(int operationId)
         {
             if (!BlockOf.TryGetValue(operationId, out var block))
@@ -925,13 +1040,20 @@ public static class MethodSummaryBuilder
                     continue;
                 }
 
-                var jumped = Dominators[block].Contains(taken);
-                if (jumped != Dominators[block].Contains(skipped))
+                var jumped = EdgeDominates(candidate.Ordinal, taken, block);
+                if (jumped != EdgeDominates(candidate.Ordinal, skipped, block))
                     guards.Add((condition, jumped == (branch.JumpIfTrue ?? true)));
             }
 
             return guards;
         }
+
+        /// <summary>Whether every path to <paramref name="block"/> takes the edge from <paramref name="from"/> to
+        /// <paramref name="to"/>: <paramref name="to"/> dominates it, and nothing enters <paramref name="to"/> but that edge and
+        /// paths that already passed through <paramref name="to"/> itself.</summary>
+        private bool EdgeDominates(int from, int to, int block) =>
+            Dominators[block].Contains(to) &&
+            _body.Blocks[to].Predecessors.All(predecessor => predecessor == from || Dominators[predecessor].Contains(to));
 
         /// <summary>The predicates that must hold where an operation runs (TD-090): one per condition that decides it, read as
         /// far as the bounded forms go. Everything else is kept as an unsupported predicate, which constrains nothing and is
@@ -948,7 +1070,7 @@ public static class MethodSummaryBuilder
                     return Predicate(convert.OperandValue, expected);
                 // A condition that is the value itself tests a boolean, and the branch says which one it must be.
                 case IrLoadFieldOperation load when load.Field.Type is "bool" or "System.Boolean":
-                    return new SummaryPredicate(load.Id, null, PathRelation.Equal, expected ? "true" : "false",
+                    return new SummaryPredicate(load.Id, origin, PathRelation.Equal, expected ? "true" : "false",
                                                 $"{load.Field.ContainingType}.{load.Field.Name}");
                 case IrCompareOperation { Operator: { } comparison } compare when Compare(compare, comparison, expected) is { } predicate:
                     return predicate;
@@ -990,7 +1112,7 @@ public static class MethodSummaryBuilder
             // The subject is decided in the width of its own type: a guard over a `long` read as an `int` is another guard.
             var type = Definition(origin) is IrLoadFieldOperation field ? field.Field.Type : TypeOf(origin);
             return Definition(origin) is IrLoadFieldOperation load
-                ? new SummaryPredicate(load.Id, null, relation, constant, $"{load.Field.ContainingType}.{load.Field.Name}")
+                ? new SummaryPredicate(load.Id, origin, relation, constant, $"{load.Field.ContainingType}.{load.Field.Name}")
                     { Width = Width(type), Signed = IsSigned(type) }
                 : new SummaryPredicate(null, origin, relation, constant, Describe(origin))
                     { Width = Width(type), Signed = IsSigned(type) };

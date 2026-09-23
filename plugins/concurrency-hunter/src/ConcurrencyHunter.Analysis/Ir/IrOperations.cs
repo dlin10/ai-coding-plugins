@@ -54,6 +54,36 @@ public sealed record IrStoreFieldOperation(int Id, int? ReceiverValue, IrFieldRe
     public override IReadOnlyList<int> Operands => ReceiverValue is int receiver ? [receiver, Value] : [Value];
 }
 
+/// <summary>The address of a field or element. Taking the address does not read or write its storage.</summary>
+public sealed record IrAddressFieldOperation(int Id, int ResultValue, int? ReceiverValue, IrFieldRef Field,
+                                             IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => ReceiverValue is int receiver ? [receiver] : [];
+}
+
+public sealed record IrAddressElementOperation(int Id, int ResultValue, int ReceiverValue, IReadOnlyList<int> IndexValues,
+                                               IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => [ReceiverValue, .. IndexValues];
+    public bool NamesOneCell { get; init; } = true;
+}
+
+public sealed record IrLoadReferenceOperation(int Id, int ResultValue, int AddressValue, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => [AddressValue];
+}
+
+public sealed record IrStoreReferenceOperation(int Id, int AddressValue, int Value, int? ReadModifyWriteOf,
+                                               IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => [AddressValue, Value];
+}
+
 /// <summary>
 /// The types whose element and slice semantics the analysis knows: an index names the cell that many places along, and a slice
 /// starts at the offset it names. Every other type has to prove it — a ref-returning indexer of a foreign type may hand back one
@@ -163,6 +193,18 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
 
     /// <summary>The call's result is awaited in the same expression, directly or through <c>ConfigureAwait</c>.</summary>
     public bool IsAwaitedImmediately { get; init; }
+
+    public IrEnumerationRole EnumerationRole { get; init; }
+    public int? EnumerationId { get; init; }
+}
+
+public enum IrEnumerationRole
+{
+    None,
+    GetEnumerator,
+    MoveNext,
+    Current,
+    Dispose
 }
 
 /// <summary>What a member of a modelled collection does to the collection's two resources (ADR 0010): its structure, which is the
@@ -214,6 +256,7 @@ public sealed record IrReturnOperation(int Id, int? Value, IrProvenance Provenan
 {
     public override IReadOnlyList<int> DefinedValues => [];
     public override IReadOnlyList<int> Operands => Value is int value ? [value] : [];
+    public bool IsByRef { get; init; }
 }
 
 /// <summary>

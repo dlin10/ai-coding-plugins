@@ -71,6 +71,7 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     public OwnershipKind Ownership { get; init; } = OwnershipKind.Unknown;
     public IReadOnlyList<string> OwnershipEvidence { get; init; } = [];
     public bool IsConstructionLocal { get; init; }
+    internal bool IsReferenceAccess { get; init; }
     public IReadOnlyList<ReadSource> ReadSources { get; init; } = [];
     public string BodyId { get; init; } = "";
     public int OperationId { get; init; }
