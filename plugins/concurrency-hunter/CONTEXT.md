@@ -312,3 +312,14 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   `docs/adr/0007`.
 - Phase 1a read the whole solution as one program. Resolved: a solution may hold several
   applications, and the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.
+- An **Opaque call** whose **Semantic gap** stays unresolved could be read as touching nothing or as
+  a write. Resolved in the phase-5 interview: it may read and may write whatever its receiver and
+  arguments reach, so on either side of a pair it conflicts like a write, and it never proves safety.
+- Whether an entity an EF Core query returns belongs to the `DbContext` that produced it. Resolved in
+  the phase-5 interview: only when entity tracking is proven for that query, and tracking that is
+  not proven does not prove the entity isolated either. Until phase 5e models tracking, EF Core is
+  opaque persistence and never yields a database verdict.
+- An object handed over through a `Channel<T>` could be linked from the writer to the reader.
+  Resolved on 2026-09-23 for the first version: the written object is `Escaped`, the object the
+  reader gets back is not linked to it, and the producer–consumer pair shows as uncertainty, never
+  as safety. Linking the two waits for the second-wave `Channel` semantics (PRD 8).

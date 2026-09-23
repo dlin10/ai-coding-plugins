@@ -2,7 +2,7 @@
 
 | Поле | Значение |
 |---|---|
-| Статус | Черновик 2026-09-15; перечень кейсов demo на все фазы v1 |
+| Статус | Черновик 2026-09-15; перечень кейсов demo на все фазы v1; фаза 5 разложена по подфазам 4b и 5a–5e 2026-09-23 |
 | Ожидания | [`expected-findings.json`](expected-findings.json), формат в [SPEC 12.2](../docs/SPEC.md) |
 | Фазы | [SPEC 14.3](../docs/SPEC.md) |
 
@@ -12,7 +12,7 @@
 
 1. Имя кейса это kebab-имя файла; `имя/суффикс` это отдельная запись того же файла, как `id` в `expected-findings.json`.
 2. Один файл, один namespace, регистрация через `Add<Case>()` или `Map<Case>()` в `Program.cs`; общих строк между кейсами нет.
-3. Кейс фазы P не содержит конструкций поздних фаз, если они не его предмет: в кейсах фазы 3 нет guards и вызовов, способных стать semantic gap, в кейсах фазы 4 нет gap-вызовов. Иначе метка confidence сдвинется в поздней фазе, а запись ожиданий по 12.2 не переписывается.
+3. Кейс фазы P не содержит конструкций поздних фаз, если они не его предмет: в кейсах фазы 3 нет guards и вызовов, способных стать semantic gap, в кейсах фаз 4, 4b и 5a нет gap-вызовов. Иначе метка confidence сдвинется в поздней фазе, а запись ожиданий по 12.2 не переписывается.
 4. Запись в HTTP action всегда даёт self-pair: action пересекается сам с собой. Поэтому action в кейсах про защиту и порядок только читает, а negatives про disjointness строятся на `BackgroundService`, один экземпляр которого сам с собой не пересекается (TD-064). Spawn-кейсы фазы 3 живут внутри одного `BackgroundService`: до фазы 3 у них нет пересечения вообще.
 5. Access в лямбде или local function получает symbol содержащего члена (12.2). Если в файле нужны две записи с одинаковой парой symbol/operation на одном resource, тела spawn и callbacks выносятся в именованные методы, иначе записи неразличимы.
 6. Кейсы, которые проверяет не `expected-findings.json`, а тест отчёта или evals, помечены в колонке «Ожидание».
@@ -209,25 +209,73 @@
 | `mutually-exclusive-paths` | negative | Singleton-опции с `readonly bool IsPrimary`; worker A пишет под `if (IsPrimary)`, worker B под `if (!IsPrimary)`; вариант со `switch` по enum | `/boolean`, `/enum-switch` нет, UNSAT (вопрос 10) | TD-090, TD-092, 12.2 | nD |
 | `unsupported-guard-kept` | positive | Та же форма с guard `Name.StartsWith("x")` и его отрицанием | DCA1001 с uncertainty «unsupported predicate» | TD-095 | — |
 
-## Фаза 5 — Semantic gaps
+## Фаза 5 — подфазы
+
+Фаза 5 SPEC разбита 2026-09-23 на подфазы 4b и 5a–5e ([SPEC 14.3](../docs/SPEC.md)). Кейсы прежнего раздела «Фаза 5» разложены по ним без изменения намерения, кроме трёх правок: вопросы 7 и 12 закрыты решениями из [CONTEXT.md](../CONTEXT.md), а `ef-core-no-db-verdict` переехал в 5e, потому что «нет находки» требует доказанного entity tracking. Кейсы 4b, 5e и вопросы 20–21 добавлены при разбиении. В колонке «До фазы» ранний анализатор — это предыдущая подфаза.
+
+## Фаза 4b — остатки фазы 4
+
+Вопрос 19 кейса не получает: через async его граница недостижима, и ограничение закреплено тестом `A_monitor_held_over_a_yield_return_is_partial`. Demo-кейс нужен, только если план 4b найдёт форму, в которой потеря `CrossesSuspension` меняет находку.
 
 | Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
 |---|---|---|---|---|---|
-| `reflection-primitive-args-no-gap` | negative | `MethodInfo.Invoke` статического метода только со строками и числами | нет gap packet; проверка: resolver evals | TD-034 | — |
+| `index-guard-at-call-site` | оба | Два worker-а вызывают метод записи `_slots[k] = v`, передавая индекс из независимых источников под `if (i < 4)` и `if (j >= 4)`; вариант с пересекающимися `i < 6` и `j >= 4`; по массиву и методу записи на вариант (правило 5) | `/disjoint` нет, UNSAT: guard вызывающего связан с параметром-индексом; `/overlapping` DCA1001 | TD-092, вопрос 17 | nD / — |
+| `custom-slice-offsets` | оба | Пользовательская структура-окно над массивом: `Slice(start, length)` и ref-returning индексатор `ref _array[_offset + i]`; два worker-а пишут `[0]` окон `Slice(0, 8)` и `Slice(8, 8)`; вариант, где смещение приходит из недоказанного значения; по массиву на вариант | `/proven-offset` нет: смещение выведено из тел `Slice` и индексатора, а не из имени; `/unproven-offset` DCA1001 на `[?]` | TD-043, вопрос 18 | вопрос 18 |
+
+## Фаза 5a — известные вызовы
+
+Семейства таблицы TD-034a проверяются contract tests (см. «Вне demo»); demo показывает эффект, который меняет находку.
+
+| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
+|---|---|---|---|---|---|
+| `json-serialize-reads-deep` | positive | GET сериализует singleton через `JsonSerializer.Serialize`, worker пишет вложенное поле | DCA1001 `Deterministic` по эффекту `reads-deep` | TD-034a | — |
+
+## Фаза 5b — неизвестные вызовы без AI
+
+Resolver в 5b не вызывается: gaps видны в coverage и uncertainty, а resolver evals по этим кейсам добавляются в 5d.
+
+| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
+|---|---|---|---|---|---|
+| `unknown-call-model-not-noop` | positive | Singleton-список передаётся методу того же пакета, который его мутирует | gap не разрешён; finding с uncertainty: неразрешённый `UnknownEffect` конфликтует как запись (вопрос 12) | TD-025, TD-034 | — |
+| `reflection-primitive-args-no-gap` | negative | `MethodInfo.Invoke` статического метода только со строками и числами | нет gap; проверка: тест coverage, с 5d resolver evals | TD-034 | — |
+| `library-table-no-gap` | negative | `ILogger`, `JsonSerializer`, `HttpClient` получают singleton-объекты | нет gap; проверка: тест coverage, с 5d resolver evals | TD-034a | — |
+| `gap-materiality-order` | gap | Два gap: один достигает трёх roots и двух регионов, другой одного | порядок gaps в coverage, с 5d и очереди `get_gaps`; проверка: тест coverage, с 5d resolver evals | TD-039a | — |
+| `opaque-task-source` | positive | Хелпер возвращает либо известную запущенную задачу, либо задачу из opaque-фабрики; родитель `await`-ит результат и пишет поле работы. Отложен из фазы 3: opaque-вызов становится gap по TD-034, а метку находки решает TD-108 (вопрос 16) | DCA1001 | TD-034, TD-108 | — |
+| `mixed-source-timer` | positive | Подписка на `c ? knownDisabledTimer : factory.Get()`; callback пишет поле, action читает. Отложен из фазы 3 по той же причине | DCA1001 и self-pair: смешанный источник периодический | TD-034, TD-061 | — |
+| `channel-handoff` | negative | Producer пишет объект в `Channel<T>` и продолжает его менять, consumer читает | нет находки: объект producer-а `Escaped`, результат чтения с ним не связан, пара видна как uncertainty; проверка: тест отчёта (вопрос 7) | TD-086, PRD 3 | — |
+
+## Фаза 5c — проверка AI-фактов
+
+Ответы resolver подаются in-process из рукописных файлов, написанных до реализации; живого AI в gate нет. Вопрос 21 решается до записи ожиданий этих кейсов.
+
+| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
+|---|---|---|---|---|---|
 | `reflection-invoke-target` | positive | `GetMethod("Bump").Invoke(_counter, null)` в action, `Bump` делает RMW | gap; accepted target `Bump`; DCA1002 `AI-Assisted`, метка по TD-108 | TD-036, TD-037, TD-108 | — |
 | `reflection-unresolvable-name` | gap | Имя метода приходит из запроса | принятого факта нет; gap в coverage с materiality; проверка: resolver evals | TD-036, TD-039 | — |
 | `dynamic-call-target` | positive | `dynamic sink = _sink; sink.Record(path)` в action | gap; accepted target; DCA1001 `AI-Assisted` | TD-034 | — |
-| `memory-cache-returns-shared-object` | positive | `IMemoryCache.GetOrCreate("settings", _ => new Settings())` отдаёт один объект всем запросам; action пишет в него | gap; accepted `ReturnAlias`; DCA1001 `AI-Assisted`; если план фазы 5 внесёт `IMemoryCache` в таблицу TD-034a, кейс станет deterministic | TD-034a, TD-036 | ⚠ |
-| `unknown-library-captures-delegate` | positive | Метод пакета вне таблицы получает лямбду, которая пишет singleton; пакет выбирает план фазы 5 | gap `captures-delegate`; DCA1001 `AI-Assisted` | TD-034, TD-036 | — |
-| `unknown-call-model-not-noop` | positive | Singleton-список передаётся методу того же пакета, который его мутирует; resolver недоступен | gap не разрешён; finding с uncertainty (вопрос 12) | TD-025, TD-034 | — |
+| `memory-cache-returns-shared-object` | positive | `IMemoryCache.GetOrCreate("settings", _ => new Settings())` отдаёт один объект всем запросам; action пишет в него | gap; accepted `ReturnAlias`; DCA1001 `AI-Assisted`; если `IMemoryCache` войдёт в таблицу TD-034a, кейс станет deterministic | TD-034a, TD-036 | ⚠ |
+| `unknown-library-captures-delegate` | positive | Метод пакета вне таблицы получает лямбду, которая пишет singleton; пакет выбирает план 5c | gap `captures-delegate`; DCA1001 `AI-Assisted` | TD-034, TD-036 | — |
+
+## Фаза 5d — протокол resolver
+
+| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
+|---|---|---|---|---|---|
 | `gap-second-round` | gap | Reflection указывает на метод с `dynamic`-вызовом, цель которого делает ещё один reflection-вызов | rounds 1 и 2 разрешены; gap третьего уровня в coverage; проверка: resolver evals | TD-131, TC-05 | — |
-| `gap-materiality-order` | gap | Два gap: один достигает трёх roots и двух регионов, другой одного | порядок очереди и coverage; проверка: resolver evals | TD-039a | — |
-| `library-table-no-gap` | negative | `ILogger`, `JsonSerializer`, `HttpClient` получают singleton-объекты | нет gap packets; проверка: resolver evals | TD-034a | — |
-| `json-serialize-reads-deep` | positive | GET сериализует singleton через `JsonSerializer.Serialize`, worker пишет вложенное поле | DCA1001 `Deterministic` по эффекту `reads-deep` | TD-034a | — |
+
+## Фаза 5e — остаток семантики
+
+AutoMapper и FluentValidation проверяются contract tests таблицы; demo-кейс для них нужен, только если план 5e найдёт форму, которую contract test не видит.
+
+| Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
+|---|---|---|---|---|---|
 | `ef-core-no-db-verdict` | negative | Scoped `DbContext`, два запроса делают `item.Stock--` и `SaveChangesAsync`; нужен пакет EF Core | нет находки и нет DB verdict (вопрос 14) | PRD 7 п. 4, TD-034a | ⚠ |
-| `channel-handoff` | positive | Producer пишет объект в `Channel<T>` и продолжает его менять, consumer читает | finding или uncertainty (вопрос 7) | TD-086 | — |
-| `opaque-task-source` | positive | Хелпер возвращает либо известную запущенную задачу, либо задачу из opaque-фабрики; родитель `await`-ит результат и пишет поле работы. Отложен из фазы 3: opaque-вызов становится gap по TD-034, а метку находки решает TD-108 (вопрос 16) | DCA1001 | TD-034, TD-108 | — |
-| `mixed-source-timer` | positive | Подписка на `c ? knownDisabledTimer : factory.Get()`; callback пишет поле, action читает. Отложен из фазы 3 по той же причине | DCA1001 и self-pair: смешанный источник периодический | TD-034, TD-061 | — |
+| `polly-execute-invokes-delegate` | positive | `ResiliencePipeline.Execute(() => _state.Hits++)` в action над singleton-ом; нужен пакет Polly | DCA1002 `Deterministic`: делегат выполняется синхронно в исполнении action | TD-034a | — |
+| `mediatr-send-dispatches-handler` | positive | Action `await _mediator.Send(new Bump())`; обработчик `Bump` делает `_state.Hits++` над singleton-ом; нужен пакет MediatR | DCA1002 `Deterministic`: `Send` вызывает обработчик, найденный по типу запроса | TD-034a | — |
+| `thread-static-slot` | оба | `[ThreadStatic]` счётчик: `_hits++` в action; второе `[ThreadStatic]` поле получает ссылку на список singleton-а, и action делает `Add` | `/slot` нет, как и запись самого слота: у каждого потока своя ячейка, а синхронный `++` смену потока не пересекает; `/shared-object` DCA1001 на структуре и ячейке списка: локален слот, а не объект | TD-051, вопрос 8 | nD |
+| `thread-local-values` | positive | `ThreadLocal<List<int>>` с `trackAllValues: true`: action добавляет в список своего потока, worker перечисляет `Values` | DCA1001 action × worker на структуре списка; action × action нет | TD-052, вопрос 8 | ⚠ |
+| `async-local-flow` | оба | `AsyncLocal<Counter>`: action кладёт новый объект и делает `Hits++`; вариант, где action запускает `Task.Run` с `Hits++` и делает `Hits++` сам до `await` задачи | `/per-request` нет: значение течёт только в своё исполнение; `/flows-to-child` DCA1002: дочерняя задача получает тот же объект и пересекается с родителем до join | TD-065, вопрос 8 | nD / — |
+| `keyed-singleton-services` | оба | `AddKeyedSingleton<Counter>` с ключами `"a"`, `"b"` и `"c"`; worker-ы с `[FromKeyedServices]` делают `Value++`: два с ключами `"a"` и `"b"`, два с ключом `"c"` | `/distinct-keys` нет; `/same-key` DCA1002 | TD-040, TD-121, вопрос 20 | nD / — |
+| `type-valued-registration` | positive | `AddSingleton(typeof(IStats), typeof(Stats))`; два worker-а получают `IStats` и делают `Hits++` | DCA1002 | TD-040, TD-121 | ⚠ |
 
 ## Фаза 6 — Triage
 
@@ -250,6 +298,7 @@
 | TC-02: отсутствие Cartesian | `metrics` |
 | TC-03, TC-04, TC-16, TC-18: synthetic provider, duplicate id, непроверенная область против пустого результата | Provider fixture в `ConcurrencyHunter.Core.Tests` |
 | TC-15: малый context budget не теряет may-effects | Unit test с уменьшенной константой |
+| TD-123, TD-124: таблица библиотек — exact overload, version range, duplicate и conflicting declarations, out-of-range в coverage | Contract tests в `ConcurrencyHunter.Core.Tests`, семейства 5a и 5e |
 | TC-05: отказ invented и incompatible гипотез | Resolver evals на пакетах `reflection-invoke-target` и `dynamic-call-target` |
 | TC-06, TC-14: отказ narrative, `verify manually`, категории remediation | Composer evals на `rmw-singleton-counter` (атомарность), `escape-into-singleton` (владение), `fire-and-forget-vs-awaited` (порядок) |
 | TC-09: resolver недоступен | Plugin tests: demo с gaps даёт `Incomplete`, target без gaps `Complete` |
@@ -271,18 +320,20 @@
 | 4 | Закрыт в фазе 4: enumerate + mutate это не составная операция и не DCA1004. Перечисление читает структуру, вставка её пишет; на thread-safe коллекции обе операции атомарны по структуре и пары нет, на обычной не атомарна ни одна и срабатывает обычное правило конфликта. DCA1004 остаётся потерей обновления и не расширяется (ADR 0010, TD-085) | `concurrent-dictionary-enumerate-while-mutate` | 4 |
 | 5 | Закрыт. Atomic операция против незащищённой записи: DCA1001. Атомарность это свойство операции по TD-071 и TD-072, а не защита: пара, у которой одна сторона неатомарна, остаётся обычным незащищённым конфликтом, и `protectionAnalysis` о ней ничего не знает | `interlocked-mixed-with-plain-write` | 4 |
 | 6 | Закрыт [ADR 0009](../docs/adr/0009-a-synchronization-wrapper-is-transparent-never-a-lock-type.md): обёртка прозрачна, а не распознана. Защиту доказывает тот же must-hold анализ на регионе нижележащего примитива, если захват сводится к моделируемому примитиву с доказанной identity, освобождение сводится к нему же и происходит на всех путях | `custom-async-lock-releaser` | 4 |
-| 7 | Как результат `ChannelReader.ReadAsync` связывается с записанным объектом; фаза для `Channel<T>` в 14.3 не названа | `channel-handoff` | 5 |
-| 8 | Закрыт: конструкторы и type initializers решены в [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md); ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal` переносится в фазу 5 | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; кейсов на thread-local нет | 5 |
+| 7 | Закрыт 2026-09-23: в первой версии результат `ChannelReader.ReadAsync` с записанным объектом не связан — ни детерминированно, ни принятым фактом. Записанный объект `Escaped`, пара producer–consumer видна как uncertainty и никогда как безопасность; связь приходит со второй волной `Channel` (PRD 8, [CONTEXT.md](../CONTEXT.md)) | `channel-handoff` | 5b |
+| 8 | Закрыт: конструкторы и type initializers решены в [ADR 0006](../docs/adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md); ownership `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal` переносится в подфазу 5e | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; thread-local кейсы в разделе 5e | 5e |
 | 9 | Корень репозитория для `.concurrency-hunter/suppressions.json`, когда demo лежит внутри репозитория CodexPlugins (14.1 п. 6) | `suppress-file-fingerprint` | 6 |
 | 10 | Закрыт в фазе 4: да, но только когда доказано всё сразу — регион представляет ровно один объект на процесс (статическое хранилище, DI singleton или allocation site, выполняющийся не более одного раза), поле `readonly` или get-only auto-property, вне конструирования своего региона его никто не пишет, и чтение происходит после этого конструирования. Всё остальное это значение одного исполнения, которого не разделяет никакое другое, и пару оно снять не может. Граница односторонняя: ошибка здесь подавляет настоящую гонку (TD-090, TD-092) | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
 | 11 | Закрыт: файл ⚠-кейса входит в demo в той же задаче, что и изменение движка, дающее его находкам записанную identity, — и константа фазы матчера переключается в последней задаче фазы, когда все её записи уже верны | все ⚠ | план каждой фазы |
-| 12 | Конфликтует ли `UnknownEffect` как запись по TD-072, когда gap не разрешён | `unknown-call-model-not-noop` | 5 |
+| 12 | Закрыт в интервью фазы 5: да. Неразрешённый opaque-вызов может читать и писать всё, что достижимо из receiver и аргументов, поэтому с любой стороны пары конфликтует как запись и никогда не доказывает безопасность ([CONTEXT.md](../CONTEXT.md)) | `unknown-call-model-not-noop` | 5b |
 | 13 | Что именно redaction убирает из snippets | `redaction-in-snippet` | 6 |
-| 14 | Region и ownership сущности, которую вернул opaque persistence-вызов EF Core | `ef-core-no-db-verdict` | 5 |
+| 14 | Region и ownership сущности, которую вернул opaque persistence-вызов EF Core. Частично закрыт в интервью фазы 5: сущность принадлежит `DbContext` только при доказанном entity tracking, а недоказанный tracking не доказывает и изоляцию ([CONTEXT.md](../CONTEXT.md)). Поэтому до 5e материализация EF изоляцию не доказывает; region при доказанном tracking и без него решает план 5e | `ef-core-no-db-verdict` | 5e |
 | 15 | Закрыт в фазе 4: связывание параметра именует экземпляр, а не summary, поэтому handle, переданный параметром, доказан так же, как прочитанный из поля, и `void Run(Task t) => t.Wait();` упорядочивает вызывающего | `callee-joins-on-all-paths`, `callee-joins-on-a-parameter` | 4 |
-| 16 | Создаёт ли вызов нераспознанного interface-метода semantic gap по TD-034 и опускает ли TD-108 метку таких находок до Medium: от этого зависит, можно ли писать кейсы неизвестного происхождения задачи и таймера раньше фазы 5 | `opaque-task-source`, `mixed-source-timer` | 5 |
-| 17 | Как guard точки вызова на значении, переданном как индекс, связать с термом индекса. Измерено в фазе 4: субъекты именуются по экземпляру и связывания аргумента с параметром нет, поэтому `Index < 4` в вызывающем не доказывает, что ячейка не `[9]`. Граница односторонняя в безопасную сторону — это потеря точности, а не подавление находки | `array-disjoint-guarded-ranges`, `array-symbolic-indices` | 5 |
-| 18 | Как доказывать семантику смещения для пользовательского типа со срезом или ref-returning индексатором. Фаза 4 сопоставляет объявляющий тип вместе с членом, поэтому чужой `Slice` не даёт ячейку вовсе: `Cell` требует, чтобы коллекция прослеживалась до чтения поля. Это безопаснее прежнего поведения, где любой член с таким именем принимался за `Span` и ячейка оказывалась не на месте | `span-slices-disjoint` | 5 |
-| 19 | Проводить ли `MustHeldState.AtExit` через `Mark`. Без этого scope, поднятый из итератора, который делает `yield return` под удержанием, потерял бы `CrossesSuspension`. Измерено в фазе 4: через async недостижимо, поэтому находку это сейчас не теряет | кейса нет; ограничение закреплено тестом `A_monitor_held_over_a_yield_return_is_partial` | 5 |
+| 16 | Создаёт ли вызов нераспознанного interface-метода semantic gap по TD-034 и опускает ли TD-108 метку таких находок до Medium: от этого зависит, можно ли писать кейсы неизвестного происхождения задачи и таймера раньше фазы 5 | `opaque-task-source`, `mixed-source-timer` | 5b |
+| 17 | Как guard точки вызова на значении, переданном как индекс, связать с термом индекса. Измерено в фазе 4: субъекты именуются по экземпляру и связывания аргумента с параметром нет, поэтому `Index < 4` в вызывающем не доказывает, что ячейка не `[9]`. Граница односторонняя в безопасную сторону — это потеря точности, а не подавление находки | `array-disjoint-guarded-ranges`, `array-symbolic-indices`, `index-guard-at-call-site` | 4b |
+| 18 | Как доказывать семантику смещения для пользовательского типа со срезом или ref-returning индексатором. Фаза 4 сопоставляет объявляющий тип вместе с членом, поэтому чужой `Slice` не даёт ячейку вовсе: `Cell` требует, чтобы коллекция прослеживалась до чтения поля. Это безопаснее прежнего поведения, где любой член с таким именем принимался за `Span` и ячейка оказывалась не на месте | `span-slices-disjoint`, `custom-slice-offsets` | 4b |
+| 19 | Проводить ли `MustHeldState.AtExit` через `Mark`. Без этого scope, поднятый из итератора, который делает `yield return` под удержанием, потерял бы `CrossesSuspension`. Измерено в фазе 4: через async недостижимо, поэтому находку это сейчас не теряет | кейса нет; ограничение закреплено тестом `A_monitor_held_over_a_yield_return_is_partial` | 4b |
+| 20 | Как `resource.region` из SPEC 12.2 называет keyed-регистрацию: `di:<ImplementationType>@<Lifetime>` не различает ключи, и запись `notDefects` на одном ключе запретила бы находку на другом | `keyed-singleton-services` | 5e |
+| 21 | Снимает ли принятый target или эффект консервативную модель того же opaque call site. Если нет, у кейса 5c рядом с `AI-Assisted`-находкой остаётся находка от `UnknownEffect` — на wildcard-ресурсе receiver-а или на той же паре, но `Deterministic`, — и ожидания 5c обязаны её назвать. TD-038 запрещает удалять deterministic effect, но не говорит, считается ли им модель по умолчанию | кейсы 5c | 5c |
 
 **Как закрывать остаток.** Четыре раунда код-ревью фазы 4 дали 20, 8, 8 и 7 находок, и около половины каждого раунда были следствиями правок предыдущего: правило вводилось в одном слое и не применялось в соседнем, либо две независимо добавленные фичи фазы не сочетались друг с другом — атомарность на элементе и `Span` не знали друг о друге, пока это не проверили попарно. Мутационный тест доказывает, что правка что-то меняет, и не доказывает, что она не открыла дыру рядом. Поэтому остаток этого хвоста дешевле закрывать систематическим проходом — перечислить все распознаватели, все места, где решает каждое правило, и все пары фич, обязанных сочетаться, — чем новыми раундами ревью.

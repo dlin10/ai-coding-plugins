@@ -328,7 +328,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-110.** В v1 результаты анализа между runs не хранятся; каждый run это clean full scan. Summaries, points-to и candidate artifacts несут `InputHash` и `DependencyHash` по TD-021 и TD-024; они пишутся в `run-metadata.json` как диагностика и являются условием будущего кэша по PRD 8.
 
-**TD-111.** Кэш inferred facts ключуется по payload hash пакета, provider/model identity, prompt/schema version и engine/provider version; hit не освобождает ответ от валидации. Хранится в artifact directory плагина.
+**TD-111.** Кэш inferred facts ключуется по payload hash пакета, provider/model identity, prompt/schema version и engine/provider version; hit не освобождает ответ от валидации. Хранится в artifact directory плагина. PRD FR-19 его допускает, но не требует; реализуется в фазе 8, до неё resolver работает без кэша.
 
 ### 4.13. Built-in providers
 
@@ -877,7 +877,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 - `resource.accessPath` `["*"]` это wildcard resource на регионе, с которого начинается свёрнутый путь (TD-042). Read-modify-write записывается в месте своей записи. Factory- и instance-регистрации это `di:<ImplementationType>@<Lifetime>`, где тип это последний generic-аргумент регистрации.
 - Ячейка массива, среза или коллекции пишется отдельным сегментом `resource.accessPath` сразу после поля коллекции: `[0]` для доказанной константы, `["a"]` для доказанного ключа, как его сравнивает компаратор коллекции, `[0..8]` для консервативного диапазона и `[?]` для всего остального (TD-043, ADR 0010). Сегмент входит в идентичность ресурса, поэтому `["_cells", "[0]"]` и `["_cells", "[1]"]` это два ресурса, а `["_cells", "[?]"]` пересекается с любой ячейкой того же поля (TD-075). Доступ к самой коллекции пишется без сегмента.
 - Запись `notDefects` без `accesses` запрещает любую находку на resource, с `accesses` только на этой паре.
-- `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе. Порядок фаз: `0`, `1a`, `1b`, `2`, `2b`, `3`, `4`, `5`, `6`, `7`, `8`.
+- `phase` это фаза, с гейта которой запись проверяется; содержимое записи это окончательный ответ v1 и при переходе фаз не переписывается. До своей фазы запись игнорируется в обе стороны. Находка, не совпавшая ни с одной записью, это false positive на любой фазе. Порядок фаз: `0`, `1a`, `1b`, `2`, `2b`, `3`, `4`, `4b`, `5a`, `5b`, `5c`, `5d`, `5e`, `6`, `7`, `8`.
 - `confidence` (метка, без score) проверяется отдельно от идентичности, с фазы `max(phase, 2)`. Case-ы фаз 1–2 не содержат guards, spawn sites и вызовов, способных стать semantic gap, поэтому поздние фазы их метку не меняют.
 - Гейт demo это точное совпадение по записям с `phase ≤ N`, стабильное на трёх прогонах; recall и precision High по G1/G3 печатаются, но гейт не ослабляют.
 
@@ -961,17 +961,29 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 | **2b** | Bucket index, группы TD-076, fingerprints, подкоманда `metrics`, eShop, константы, service locator и тела factory, прогон в трёх hosts | Первый `metrics` на eShop |
 | **3** | Execution model: все spawn sites TD-065, join/happens-before по handle, exception paths, timers и `PeriodicTimer`, gRPC root | Demo TC-12 |
 | **4** | Protection и selectors: Interlocked, volatile, `SemaphoreSlim`, RWLS, `Lock`, Mutex, TryEnter, таблица collections, DCA1003/1004, `ElementSelector`, guards, Z3 в пакете с деградацией | Demo TC-17; размер exe измерен |
-| **5** | Semantic gaps: unknown-call model, таблица библиотек, пакеты по callee, materiality, `get_gaps`/`submit_inferences`/`run_continue`, два rounds, `AI-Assisted`, Medium cap | Resolver evals; `metrics` eShop с числом пакетов |
+| **4b** | Остатки фазы 4, вопросы 17–19 [`demo/SCENARIOS.md`](../demo/SCENARIOS.md): guard точки вызова на значении, переданном как индекс, связывается с термом индекса; смещения и aliases пользовательских срезов и ref-returning индексаторов выводятся из их тел, а не из имени; `MustHeldState.AtExit` проходит через `Mark`, и область, поднятая из итератора, сохраняет `CrossesSuspension` | Demo фаз ≤ 4 без изменений и парные case-ы 4b |
+| **5a** | Известные вызовы: таблица семантики библиотек TD-034a со словарём эффектов, exact symbol и version range по TD-122, contract tests и self-check по TD-123, out-of-range в coverage по TD-124; семейства, не вызывающие пользовательский код: `System.*` по аннотациям immutability и чистоты, `Microsoft.Extensions.Logging`, `System.Text.Json`, `Newtonsoft.Json`, `HttpClient`; EF Core `DbContext`/`DbSet` как opaque persistence без entity tracking | Demo `json-serialize-reads-deep` |
+| **5b** | Неизвестные вызовы без AI: unknown-call model TD-025 и TD-034 вместо вызова без эффекта, `UnknownEffect` в процедуре раздела 7; делегаты, переданные opaque-вызову; virtual, interface и delegate calls без receiver object; reflection, `dynamic` и locator-вызовы с неконстантным типом или provider неизвестного происхождения как места gap; gap на callee, materiality TD-039a, gaps по materiality в coverage, штраф confidence по TD-039 и TD-103 | Demo `unknown-call-model-not-noop`, `reflection-primitive-args-no-gap`, `library-table-no-gap`, `gap-materiality-order`, `opaque-task-source`, `mixed-source-timer`, `channel-handoff`; `metrics` eShop с числом gaps |
+| **5c** | Проверка AI-фактов без MCP: gap packets TD-035, Validation Service для inferred facts TD-036 и TD-037, применение принятых фактов повторным fixpoint затронутых SCC TD-038, gaps второго round от принятых фактов, `AI-Assisted`, Medium cap TD-108, fingerprint TD-109; ответы resolver подаются in-process из рукописных файлов | Resolver evals на replay, accepted и rejected; demo `reflection-invoke-target`, `reflection-unresolvable-name`, `dynamic-call-target`, `memory-cache-returns-shared-object`, `unknown-library-captures-delegate` |
+| **5d** | Протокол resolver: checkpoint `awaiting_gaps`, `get_gaps`, `submit_inferences`, `run_continue`, `run_cancel`, повтор и late responses по TD-136 и TD-140, два rounds TD-131, обязательность resolver TD-130 и `Incomplete` при его сбое, счётчики раздела 10.7, правила resolver в skill | Resolver evals раздела 12.1; TC-05, TC-09, TC-10; demo `gap-second-round`; `metrics` eShop с числом пакетов |
+| **5e** | Остаток семантики: библиотеки, вызывающие пользовательский код, — MediatR, AutoMapper, FluentValidation, Polly; entity tracking EF Core; `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal`; non-generic и `Type`-valued регистрации, keyed services | Demo `ef-core-no-db-verdict` и остальные case-ы 5e; `metrics` eShop, где gaps этих вызовов исчезли |
 | **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14 |
 | **7** | Масштаб: nopCommerce, OrchardCore, eShopOnAbp до terminal status; performance targets; ручной triage High на eShop и nopCommerce; прогон skill в трёх hosts | `metrics` по PRD 6.1; `evals/*/expected.json` |
-| **8** | По PRD 8: summary hashes входов и зависимостей, incremental cache, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
+| **8** | По PRD 8: summary hashes входов и зависимостей, incremental cache, кэш inferred facts TD-111, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
+
+Фаза 5 разбита на подфазы 4b и 5a–5e 2026-09-23: единый план фазы не сошёлся за 14 раундов plan review в двух forge-ранах. Подфазы идут в порядке таблицы: известные вызовы описываются до того, как неизвестные перестают быть вызовами без эффекта, чтобы gaps от ILogger, сериализации и EF не заливали eShop в промежуточном состоянии. 5e ни от чего после 5b не зависит, и до неё её вызовы остаются обычными gaps. В подфазах skill прогоняется в одном хосте и только по правилу раздела 9.6; три хоста остаются проверкой релиза.
 
 Временные границы фазы 2a и фазы, которые их снимают:
 
-- Opaque calls моделируются без эффекта, а делегаты, переданные в вызовы, отличные от распознанных spawn- и timer-API, не вызываются никогда (5).
-- Virtual, interface и delegate calls без receiver object ничего не вызывают (5).
+- Opaque calls моделируются без эффекта, а делегаты, переданные в вызовы, отличные от распознанных spawn- и timer-API, не вызываются никогда (5a для вызовов из таблицы, 5b для остальных, 5e для библиотек, вызывающих пользовательский код).
+- Virtual, interface и delegate calls без receiver object ничего не вызывают (5b).
 - Element accesses не анализируются (4).
-- Locator-вызовы с неконстантным типом или с provider неизвестного происхождения, non-generic и `Type`-valued регистрации, keyed services не анализируются (5).
-- `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5).
+- Locator-вызовы с неконстантным типом или с provider неизвестного происхождения не анализируются (5b); non-generic и `Type`-valued регистрации, keyed services не анализируются (5e).
+- `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5e).
+
+Временные границы подфаз 5 и подфазы, которые их снимают:
+
+- Resolver не вызывается: gaps видны в coverage и uncertainty, а обязательность resolver по TD-130 и TC-09 не действует (5d).
+- EF Core моделируется как opaque persistence без entity tracking (5e).
 
 Порядок последовательный; forge работает в одном working tree.
