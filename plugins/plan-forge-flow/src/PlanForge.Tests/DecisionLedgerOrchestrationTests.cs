@@ -536,25 +536,52 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
             Batch(Decision("accept", entry.FindingId, evidence: "")), LedgerPhase.PlanReview));
     }
 
+    [Theory]
+    [InlineData("defer")]
+    [InlineData("reject")]
+    [InlineData("addressedByRevision")]
+    [InlineData("duplicateOf")]
+    [InlineData("hostVerified")]
+    [InlineData("accept")]
+    [InlineData("decline")]
+    public void The_user_may_make_any_decision(string action)
+    {
+        var ledger = Ledger();
+        var phase = action == "hostVerified" ? LedgerPhase.CodeReview : LedgerPhase.PlanReview;
+        var entry = ledger.AddFinding(Finding("decided"), phase);
+        var other = ledger.AddFinding(Finding("other"), phase);
+        if (action is "accept" or "decline")
+            ledger.Apply(Batch(Decision("defer", entry.FindingId)), phase);
+
+        var response = ledger.Apply(Batch(Decision(action, entry.FindingId, by: "user",
+                                                   evidence: action is "hostVerified" or "accept" ? "evidence" : null,
+                                                   duplicateOf: action == "duplicateOf" ? other.FindingId : null)),
+                                    phase);
+
+        Assert.Equal(action == "decline" ? "declined" : "applied", response.Outcome);
+        Assert.Equal([entry.FindingId], response.Result.DecisionFindingIds);
+    }
+
     [Fact]
-    public void Only_the_orchestrator_can_accept_reopening()
+    public void A_reopening_the_user_accepted_survives_a_reload()
     {
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("settled"), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.PlanReview);
-        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            new OrchestratorDecisionBatch("reopen", [new OrchestratorDecision(entry.FindingId, "accept", "user", "why", "evidence")]),
-            LedgerPhase.PlanReview));
+        ledger.Apply(Batch(Decision("accept", entry.FindingId, by: "user", evidence: "evidence")), LedgerPhase.PlanReview);
+
+        var reopened = Assert.Single(DecisionLedger.Open(ledger.Path).Snapshot.Entries);
+        Assert.Equal(LedgerDecisionMaker.User, reopened.Reopening!.By);
     }
 
     [Fact]
-    public void Only_the_orchestrator_can_close()
+    public void An_unknown_decision_maker_is_rejected()
     {
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("close"), LedgerPhase.PlanReview);
-        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            new OrchestratorDecisionBatch("close", [new OrchestratorDecision(entry.FindingId, "addressedByRevision", "user", "done")]),
-            LedgerPhase.PlanReview));
+        var error = Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(Decision("addressedByRevision", entry.FindingId, by: "critic")), LedgerPhase.PlanReview));
+        Assert.Equal("unsupported decision-maker 'critic'", error.Message);
     }
 
     [Fact]
