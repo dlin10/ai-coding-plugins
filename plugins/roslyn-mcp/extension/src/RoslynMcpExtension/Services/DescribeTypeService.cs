@@ -56,12 +56,14 @@ internal class DescribeTypeService(DocumentFinder documentFinder, TimeSpan budge
 			result.ExtensionsComplete = result.UnscannedAssemblies.Count == 0;
 			result.ExtensionCount = extensions.Count;
 			// Those a caller at the position reaches as the code stands come first; then those nearest the type's own
-			// namespace, where .NET convention puts the extensions meant for it.
+			// namespace, where .NET convention puts the extensions meant for it, and the type's own assembly's first
+			// among them, the package's core API: AddSingleton before the hundred AddXxx that ASP.NET Core adds.
 			var inScope = InScopeIds(resolved.Site, type);
 			var typeNamespace = type.ContainingNamespace.ToDisplayString();
 			result.Extensions.AddRange(extensions
 				.OrderBy(extension => inScope.Contains(CodeMemberInfoFactory.SymbolIdOf(extension.Definition)) ? 0 : 1)
 				.ThenByDescending(extension => SharedSegments(extension.Definition.ContainingNamespace.ToDisplayString(), typeNamespace))
+				.ThenBy(extension => extension.Definition.ContainingAssembly.Identity.Equals(type.ContainingAssembly.Identity) ? 0 : 1)
 				.ThenBy(extension => extension.Definition.ContainingNamespace.ToDisplayString(), StringComparer.Ordinal)
 				.ThenBy(extension => extension.Definition.Name, StringComparer.Ordinal)
 				.Take(Math.Max(0, maxResults - result.Members.Count))

@@ -45,7 +45,8 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		}
 		""";
 
-	// Imports Zed, not System.Linq, so at the list's position only Zed's extension is in reach.
+	// Imports Zed, not System.Linq, so at the list's position only Zed's extension is in reach. Abacus extends Widget
+	// from outside Widget's assembly.
 	private const string App = """
 		using Zed;
 		namespace Ns
@@ -57,6 +58,7 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		            var list = new System.Collections.Generic.List<int>();
 		        }
 		    }
+		    public static class AppWidgetExtensions { public static int Abacus(this Widget widget) => 0; }
 		}
 		""";
 
@@ -134,6 +136,15 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		// Named by ID there is no position; System.Linq shares "System" with System.Collections.Generic, Zed nothing.
 		var byId = await DescribeAsync(symbolId: "T:System.Collections.Generic.List`1", projectName: "App", maxResults: 500);
 		Assert.True(IndexOf(byId, "Where") < IndexOf(byId, "Zap"));
+	}
+
+	[Fact]
+	public async Task WithinANamespaceTheTypesOwnAssemblyComesFirst()
+	{
+		// Abacus, in App, sorts before Area, but Area comes from Widget's own assembly; Aardvark is in another namespace.
+		var result = await DescribeAsync(symbolId: Widget, projectName: "App");
+
+		Assert.Equal(["Area", "Abacus", "Aardvark"], result.Extensions.Select(e => e.Name));
 	}
 
 	[Theory]
