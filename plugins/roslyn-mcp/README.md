@@ -1,4 +1,4 @@
-# Roslyn MCP 0.8.3
+# Roslyn MCP 0.9.0
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
@@ -74,19 +74,23 @@ Loading, closing, and reloading a solution — what a branch switch does — sta
 
 | Tool | Purpose |
 |------|---------|
-| `roslyn_validate_file` | Return compiler, nullable, warning, and optional analyzer diagnostics. |
-| `roslyn_search_symbols` | Find source declarations by exact, substring, or camel-hump pattern. |
+| `roslyn_validate_file` | Return compiler, nullable, warning, and optional analyzer diagnostics for one file. |
+| `roslyn_get_diagnostics` | Return errors and warnings across the projects a change can have broken, or a project, or the solution, under a time budget that names what it skipped. |
+| `roslyn_search_symbols` | Find source declarations by exact, substring, or camel-hump pattern; optionally referenced types and members by exact name. |
 | `roslyn_find_references` | Find deduplicated references with containing symbols. |
 | `roslyn_find_implementations` | Find implementations, derived types, and overrides. |
 | `roslyn_find_callers` | Find direct and indirect callers. |
 | `roslyn_go_to_definition` | Navigate to source definitions or metadata. |
 | `roslyn_get_document_symbols` | List declarations in a C# file. |
 | `roslyn_get_symbol_info` | Return symbol details and XML documentation. |
+| `roslyn_describe_type` | Describe a type's API as the project sees it, NuGet and framework types included, with the extension methods in reach. |
 | `roslyn_find_dead_code` | Conservatively identify potentially unused declarations. |
+
+Every result that reports a symbol carries its `symbolId`, the documentation comment ID such as `M:Ns.Type.Method(System.Int32)`. The references, implementations, callers, symbol-info, and describe-type tools accept it in place of a file, line, and column, so a client can follow a chain of calls without looking positions up, and the ID survives edits that move the code. The vocabulary is in `CONTEXT.md` and the decisions behind it in `docs/adr/`.
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.8.3**.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.9.0**.
 - `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.

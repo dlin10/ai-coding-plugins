@@ -1,16 +1,20 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.VisualStudio.LanguageServices;
 using RoslynMcpExtension.Shared;
 
 namespace RoslynMcpExtension.Services;
 
-internal class DocumentFinder(VisualStudioWorkspace workspace)
+/// <remarks>
+/// Takes the base Workspace rather than VisualStudioWorkspace, whose internal constructor keeps tests
+/// from creating one; the services only need the current solution.
+/// </remarks>
+internal class DocumentFinder(Workspace workspace)
 {
-	public VisualStudioWorkspace Workspace => workspace;
+	public Workspace Workspace => workspace;
 
 	public Document FindDocument(string filePath)
 	{
@@ -72,6 +76,22 @@ internal class DocumentFinder(VisualStudioWorkspace workspace)
 		return new ToolRequestException(ToolErrorCodes.DocumentNotFound, $"File not found in {scope}: {filePath}");
 	}
 
+	/// <summary>
+	/// A project by name. A multi-targeted project is one project per framework, named "Name (tfm)"; its bare name
+	/// matches every one of them.
+	/// </summary>
+	public static IReadOnlyList<Project> ProjectsNamed(Solution solution, string projectName)
+	{
+		var named = solution.Projects
+			.Where(project => string.Equals(project.Name, projectName, StringComparison.OrdinalIgnoreCase)
+			                  || project.Name.StartsWith(projectName + " (", StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		return named.Count > 0
+			? named
+			: throw new ToolRequestException(ToolErrorCodes.InvalidArgument,
+			                                 $"No project named '{projectName}' in solution {solution.FilePath}.");
+	}
+
 	public static int GetPosition(SyntaxTree syntaxTree, int line, int column)
 	{
 		var text = syntaxTree.GetText();
@@ -104,16 +124,20 @@ internal class DocumentFinder(VisualStudioWorkspace workspace)
 	}
 
 	public static CompilationInfo CreateCompilationInfo(Document document, SemanticModel semanticModel)
+		=> CreateCompilationInfo(document.Project, semanticModel);
+
+	/// <param name="semanticModel">The model of the document the request was about; null for a symbol from metadata.</param>
+	public static CompilationInfo CreateCompilationInfo(Project project, SemanticModel? semanticModel)
 	{
-		var parseOptions = document.Project.ParseOptions as CSharpParseOptions;
+		var parseOptions = project.ParseOptions as CSharpParseOptions;
 
 		return new CompilationInfo
 		{
-			ProjectName = document.Project.Name,
-			AssemblyName = document.Project.AssemblyName ?? document.Project.Name,
+			ProjectName = project.Name,
+			AssemblyName = project.AssemblyName ?? project.Name,
 			LanguageVersion = parseOptions?.LanguageVersion.ToString() ?? "Unknown",
 			Defines = parseOptions?.PreprocessorSymbolNames.ToList() ?? [],
-			DocumentErrorCount = semanticModel.GetDiagnostics().Count(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+			DocumentErrorCount = semanticModel?.GetDiagnostics().Count(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
 		};
 	}
 
