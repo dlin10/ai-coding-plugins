@@ -27,6 +27,7 @@ using Demo.Web.Cases.ContinueWith;
 using Demo.Web.Cases.ControllerConstructorStaticCounter;
 using Demo.Web.Cases.CustomAsyncLockReleaser;
 using Demo.Web.Cases.CustomLockByName;
+using Demo.Web.Cases.CustomSliceOffsets;
 using Demo.Web.Cases.DeepAccessPathWildcard;
 using Demo.Web.Cases.DelegateField;
 using Demo.Web.Cases.DiFactoryRegistration;
