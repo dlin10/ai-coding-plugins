@@ -493,8 +493,8 @@ public static class ReachableSet
             else if (create.TargetMethodId is { } methodId && _program.Method(methodId) is { } method &&
                      (DelegateTypeKey(type) is not { } delegateTypeKey || _program.IsDelegateCompatible(delegateTypeKey, methodId)))
             {
-                var virtualDispatch = method.IsVirtual || method.IsAbstract || method.IsOverride ||
-                                      _program.Type(method.ContainingTypeKey)?.IsInterface == true;
+                var virtualDispatch = !create.IsNonVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride ||
+                                                               _program.Type(method.ContainingTypeKey)?.IsInterface == true);
                 targets.AddRange(Targets(methodId, virtualDispatch).Select(target => target.MethodId));
                 if (method.IsStatic)
                     Reference(method.ContainingTypeKey, bodyId);
@@ -589,7 +589,8 @@ public static class ReachableSet
 
             if (creation.TargetMethodId is not { } methodId || _program.Method(methodId) is not { } method)
                 return;
-            var virtualDispatch = method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true;
+            var virtualDispatch = !creation.IsNonVirtual &&
+                                  (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
             foreach (var target in Targets(methodId, virtualDispatch))
                 ReachBody(target.MethodId, reason);
         }

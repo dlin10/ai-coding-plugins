@@ -312,10 +312,13 @@ public static class WholeProgram
     }
 
     private sealed class DelegateState(string target, bool isNestedBody, string? containingTypeKey, IReadOnlyList<string> methodTypeArguments,
-                                       IReadOnlyDictionary<string, string> ownerSubstitution)
+                                       IReadOnlyDictionary<string, string> ownerSubstitution, bool isNonVirtual)
     {
         internal string Target { get; } = target;
         internal bool IsNestedBody { get; } = isNestedBody;
+
+        /// <summary>The method group was named through <c>base</c>: its target runs on each receiver without dispatch.</summary>
+        internal bool IsNonVirtual { get; } = isNonVirtual;
         internal string? ContainingTypeKey { get; } = containingTypeKey;
         internal IReadOnlyList<string> MethodTypeArguments { get; } = methodTypeArguments;
         internal IReadOnlyDictionary<string, string> OwnerSubstitution { get; } = ownerSubstitution;
@@ -1560,7 +1563,8 @@ public static class WholeProgram
 
             if (state.CapturedReceivers.Count == 0)
                 noReceiver();
-            var isVirtual = method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true;
+            var isVirtual = !state.IsNonVirtual &&
+                            (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
             foreach (var receiver in state.CapturedReceivers.ToArray())
             {
                 if (isVirtual)
@@ -1891,7 +1895,7 @@ public static class WholeProgram
                 created.Target, method is null,
                 transfer?.TargetContainingTypeKey is { } containing ? ProgramIndex.Substitute(containing, instance.Substitution) : null,
                 (transfer?.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, instance.Substitution)).ToArray(),
-                instance.Substitution);
+                instance.Substitution, transfer?.IsNonVirtual == true);
             return identity;
         }
 

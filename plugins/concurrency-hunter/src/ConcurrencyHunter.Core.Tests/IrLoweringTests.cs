@@ -88,6 +88,51 @@ public sealed class IrLoweringTests
     }
 
     [Fact]
+    public async Task Base_call_into_a_source_body_runs_exactly_the_nearest_base_implementation()
+    {
+        var body = await Lower("""
+            class A { public virtual void M() { } public virtual int Value { get => 1; set { } } }
+            class B : A { public override void M() { } public override int Value { get => 2; set { } } }
+            class C : B { public override void M() { base.M(); base.Value = base.Value; } }
+            """);
+
+        var calls = Operations<IrCallOperation>(body);
+        Assert.All(calls, call => Assert.Equal(IrCallKind.Instance, call.CallKind));
+        Assert.Equal(["body:Fixture:M:B.M", "body:Fixture:M:B.get_Value", "body:Fixture:M:B.set_Value(System.Int32)"],
+                     calls.Select(call => call.TargetMethodId).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Base_ref_indexer_as_a_reference_runs_exactly_the_nearest_base_accessor()
+    {
+        var body = await Lower("""
+            class A { int _cell; public virtual ref int this[int i] => ref _cell; }
+            class B : A { public override ref int this[int i] => ref base[i]; }
+            class C : B { public override ref int this[int i] => ref base[i]; void M() { base[0] = 1; var read = base[1]; } }
+            """);
+
+        var calls = Operations<IrCallOperation>(body);
+        Assert.Equal(2, calls.Length);
+        Assert.All(calls, call => Assert.Equal(IrCallKind.Instance, call.CallKind));
+        Assert.All(calls, call => Assert.Equal("body:Fixture:M:B.get_Item(System.Int32)", call.TargetMethodId));
+    }
+
+    [Fact]
+    public async Task Base_method_group_delegate_runs_exactly_the_nearest_base_implementation()
+    {
+        var body = await Lower("""
+            class A { public virtual void M() { } }
+            class B : A { public override void M() { } }
+            class C : B { public override void M() { System.Action fromBase = base.M; System.Action fromThis = this.M; } }
+            """);
+
+        var creations = Operations<IrCreateDelegateOperation>(body);
+        var fromBase = Assert.Single(creations, create => create.TargetMethodId == "body:Fixture:M:B.M");
+        Assert.True(fromBase.IsNonVirtual);
+        Assert.False(Assert.Single(creations, create => create.TargetMethodId == "body:Fixture:M:C.M").IsNonVirtual);
+    }
+
+    [Fact]
     public async Task Boxing_conversion_is_recorded()
     {
         var body = await Lower("class C { object M(int value) => value; }");

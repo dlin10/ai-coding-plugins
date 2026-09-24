@@ -1214,8 +1214,12 @@ public static class IrLowering
                     return address;
                 }
                 case IPropertyReferenceOperation property when IsElementIndexer(property):
-                    return AddCall(property, property.Property.GetMethod!, LowerValue(property.Instance!),
-                                   LowerArguments(property.Arguments), property.Type);
+                {
+                    var address = AddCall(property, property.Property.GetMethod!, LowerValue(property.Instance!),
+                                          LowerArguments(property.Arguments), property.Type);
+                    _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property));
+                    return address;
+                }
                 case IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly:
                     return LowerInvocation(invocation, true);
                 case ILocalReferenceOperation local when local.Local.RefKind != RefKind.None:
@@ -1606,7 +1610,7 @@ public static class IrLowering
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
             var value = AddCall(property, getter, receiver, LowerArguments(property.Arguments), property.Type);
-            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property), getter);
+            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property));
             return value;
         }
 
@@ -1623,7 +1627,7 @@ public static class IrLowering
                 Values = [.. arguments.Values, value],
                 Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
             };
-            _operations.Add(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property), setter));
+            _operations.Add(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property)));
             if (receiver is int timer && Bcl.TypeOf(setter) == Bcl.TIMERS_TIMER && property.Property.Name is "AutoReset" or "Enabled")
             {
                 var action = property.Property.Name == "AutoReset" ? IrTimerAction.SetAutoReset : IrTimerAction.SetEnabled;
@@ -1729,7 +1733,7 @@ public static class IrLowering
             var arguments = LowerArguments(invocation.Arguments);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
                                  ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
-            var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual, method);
+            var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
             call = AnnotateLibraryCall(call, invocation.Arguments, arguments);
             _operations[^1] = call;
 
@@ -1753,16 +1757,15 @@ public static class IrLowering
                 ? result : LowerReferenceLoad(result, invocation);
         }
 
-        /// <summary>A base call runs the base member itself, never an override of it (R1): into a member without a source body it is
-        /// the opaque call the library table may know. One into a source body keeps the dispatch it had.</summary>
-        private static IrCallOperation AsBaseCall(IrCallOperation call, bool isVirtual, IMethodSymbol method) =>
-            !isVirtual && call.CallKind == IrCallKind.Virtual && !method.OriginalDefinition.Locations.Any(location => location.IsInSource)
-                ? call with { CallKind = IrCallKind.Instance }
-                : call;
+        /// <summary>A base call runs the base member itself, never an override of it (R1): an exact call of that member, which runs
+        /// its source body where it has one and is the opaque call the library table may know where it has none.</summary>
+        private static IrCallOperation AsBaseCall(IrCallOperation call, bool isVirtual) =>
+            !isVirtual && call.CallKind == IrCallKind.Virtual ? call with { CallKind = IrCallKind.Instance } : call;
 
-        /// <summary>Whether a property's accessor is dispatched virtually: not through <c>base</c>, which, as a base invocation does,
-        /// runs the base accessor itself.</summary>
-        private static bool IsVirtualAccess(IPropertyReferenceOperation property) => property.Instance?.Syntax is not BaseExpressionSyntax;
+        /// <summary>Whether a property's accessor or a method group is dispatched virtually: not through <c>base</c>, which, as a base
+        /// invocation does, names the base member itself. Roslyn's <see cref="IMethodReferenceOperation.IsVirtual"/> is true for
+        /// <c>base.M</c> as well, so only the receiver's syntax tells the two apart.</summary>
+        private static bool IsVirtualAccess(IMemberReferenceOperation member) => member.Instance?.Syntax is not BaseExpressionSyntax;
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
                             LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null,
@@ -2569,6 +2572,7 @@ public static class IrLowering
             IMethodSymbol? target = null;
             IReadOnlyList<string> captured = [];
             int? receiver = null;
+            var isNonVirtual = false;
             switch (delegateCreation.Target)
             {
                 case IFlowAnonymousFunctionOperation anonymousFunction:
@@ -2587,6 +2591,8 @@ public static class IrLowering
                     {
                         targetMethod = SymbolNames.Method(methodReference.Method);
                         target = methodReference.Method;
+                        // A method group named through `base` binds the base member itself, as a base call runs it (R1).
+                        isNonVirtual = !IsVirtualAccess(methodReference) && CallKind(target) == IrCallKind.Virtual;
                     }
                     receiver = methodReference.Instance is null ? null : LowerValue(methodReference.Instance);
                     break;
@@ -2600,7 +2606,8 @@ public static class IrLowering
                 SiteOrdinal = _context.SiteOrdinals.Of(delegateCreation),
                 TargetMethodId = target is null ? null : RootBodyId(target.OriginalDefinition),
                 TargetContainingTypeKey = target is null ? null : SymbolNames.TypeKey(target.ContainingType),
-                TargetMethodTypeArgumentKeys = target is null ? [] : target.TypeArguments.Select(SymbolNames.TypeKey).ToArray()
+                TargetMethodTypeArgumentKeys = target is null ? [] : target.TypeArguments.Select(SymbolNames.TypeKey).ToArray(),
+                IsNonVirtual = isNonVirtual
             });
             return result;
         }

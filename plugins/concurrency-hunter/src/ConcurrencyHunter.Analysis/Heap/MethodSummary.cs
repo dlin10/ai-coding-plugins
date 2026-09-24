@@ -252,9 +252,11 @@ public sealed record RefParameterTransfer(int Ordinal, IReadOnlySet<AbstractValu
 }
 
 /// <summary>A delegate creation; the target type keys are the method group's containing type and method type arguments as the
-/// creation names them, in the creating body's own type parameters.</summary>
+/// creation names them, in the creating body's own type parameters. A non-virtual one names its method through <c>base</c> and runs
+/// it without dispatch.</summary>
 public sealed record DelegateTransfer(int OperationId, DelegateCreationValue Delegate, IReadOnlySet<AbstractValue> Receivers,
-                                      string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null);
+                                      string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null,
+                                      bool IsNonVirtual = false);
 
 /// <summary>A call argument bound to its parameter, with what its value depends on.</summary>
 public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractValue> Values)

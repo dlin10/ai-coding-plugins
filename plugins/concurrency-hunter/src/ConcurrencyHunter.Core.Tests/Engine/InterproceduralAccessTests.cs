@@ -258,6 +258,68 @@ public sealed class InterproceduralAccessTests
     }
 
     [Fact]
+    public void Base_call_from_an_override_runs_the_base_body_at_the_call_site_and_never_an_override()
+    {
+        var run = Analyze("""
+            public class Tally { protected int _base; public virtual void Bump() => _base = 1; }
+            public class MidTally : Tally { protected int _mid; public override void Bump() { _mid = 1; base.Bump(); } }
+            public sealed class TopTally : MidTally { public override void Bump() => base.Bump(); }
+            public sealed class SideTally : Tally { private int _side; public override void Bump() => _side = 1; }
+            public class TallyController(TopTally tally) : ControllerBase { public void Post() => tally.Bump(); }
+            """ + Startup("services.AddSingleton<TopTally>();"));
+
+        Assert.Equal(["calls TopTally.Bump() on di:TopTally@Singleton", "calls MidTally.Bump() on di:TopTally@Singleton",
+                      "calls Tally.Bump() on di:TopTally@Singleton"],
+                     Assert.Single(run.Accesses("_base")).CodeFlow.Where(step => step.Kind == "call").Select(step => step.Text));
+        Assert.Single(run.Accesses("_mid"));
+        var heap = run.Execution.Heap.Heap;
+        Assert.DoesNotContain(heap.Edges, edge => heap.Instances[edge.CallerInstance].BodyId == heap.Instances[edge.CalleeInstance].BodyId);
+        Assert.False(run.Execution.Heap.Program.Reaches("body:Fixture:M:SideTally.Bump"));
+    }
+
+    [Theory]
+    [InlineData("Action bump = base.Bump; bump();")]
+    [InlineData("Task.Run(base.Bump).Wait();")]
+    public void Base_method_group_delegate_runs_the_base_body_and_never_an_override(string callBase)
+    {
+        var run = Analyze($$"""
+            public class Tally { protected int _base; public virtual void Bump() => _base = 1; }
+            public class MidTally : Tally { protected int _mid; public override void Bump() { _mid = 1; {{callBase}} } }
+            public sealed class TopTally : MidTally { public override void Bump() { {{callBase}} } }
+            public sealed class SideTally : Tally { private int _side; public override void Bump() => _side = 1; }
+            public class TallyController(TopTally tally) : ControllerBase { public void Post() => tally.Bump(); }
+            """ + Startup("services.AddSingleton<TopTally>();"));
+
+        Assert.Equal("di:TopTally@Singleton", Assert.Single(run.Accesses("_base")).Resource.Region);
+        Assert.Single(run.Accesses("_mid"));
+        var heap = run.Execution.Heap.Heap;
+        Assert.DoesNotContain(heap.Edges, edge => heap.Instances[edge.CallerInstance].BodyId == heap.Instances[edge.CalleeInstance].BodyId);
+        // A spawned body is no call edge: it is one of the spawn's callees.
+        Assert.DoesNotContain(heap.Spawns, spawn => spawn.Callees.Any(callee => heap.Instances[callee.InstanceId].BodyId == heap.Instances[spawn.CallerInstance].BodyId));
+        Assert.False(run.Execution.Heap.Program.Reaches("body:Fixture:M:SideTally.Bump"));
+    }
+
+    [Fact]
+    public void Base_ref_indexer_reaches_the_cell_the_base_accessor_returns_and_never_an_override()
+    {
+        var run = Analyze("""
+            public class Cells { public int Cell; public virtual ref int this[int index] => ref Cell; }
+            public class MidCells : Cells { public int Reads; public override ref int this[int index] { get { Reads++; return ref base[index]; } } }
+            public sealed class TopCells : MidCells { public override ref int this[int index] => ref base[index]; }
+            public sealed class SideCells : Cells { public int Side; public override ref int this[int index] => ref Side; }
+            public class CellsController(TopCells cells) : ControllerBase { public void Post() => cells[0] = 1; }
+            """ + Startup("services.AddSingleton<TopCells>();"));
+
+        var write = Assert.Single(run.Accesses("Cell"));
+        Assert.Equal(AccessOperation.Write, write.Operation);
+        Assert.Equal("di:TopCells@Singleton", write.Resource.Region);
+        Assert.Single(run.Accesses("Reads"));
+        var heap = run.Execution.Heap.Heap;
+        Assert.DoesNotContain(heap.Edges, edge => heap.Instances[edge.CallerInstance].BodyId == heap.Instances[edge.CalleeInstance].BodyId);
+        Assert.False(run.Execution.Heap.Program.Reaches("body:Fixture:M:SideCells.get_Item(System.Int32)"));
+    }
+
+    [Fact]
     public void Wildcard_write_pairs_with_a_read_of_another_field_and_with_a_wildcard_read()
     {
         var run = Analyze(DeepChain(string.Empty) + """

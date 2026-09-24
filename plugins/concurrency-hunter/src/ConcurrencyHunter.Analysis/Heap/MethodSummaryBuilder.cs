@@ -253,7 +253,7 @@ public static class MethodSummaryBuilder
                         break;
                     case IrCreateDelegateOperation create:
                         delegateTransfers.Add(new DelegateTransfer(create.Id, delegates[Site(create)], Final(Points(create.ReceiverValue), delegates),
-                                                                   create.TargetContainingTypeKey, create.TargetMethodTypeArgumentKeys));
+                                                                   create.TargetContainingTypeKey, create.TargetMethodTypeArgumentKeys, create.IsNonVirtual));
                         break;
                     case IrCallOperation call when IsOpaque(call):
                         opaqueCalls.Add(new SummaryOpaqueCall(call.Id, call.Method,
@@ -269,15 +269,13 @@ public static class MethodSummaryBuilder
                         });
                         if (call.Library is { InRange: true } library)
                         {
-                            foreach (var effect in library.Effects)
-                            foreach (var argument in effect.Arguments)
-                            {
-                                argumentEffects.Add(new SummaryArgumentEffect(effect.Kind, call.Id, Final(Points(argument.Value), delegates),
-                                                                              Collection(argument.Value), argument.IsSlice, call.Provenance, locks)
-                                {
-                                    IsSequence = argument.IsSequence
-                                });
-                            }
+                            argumentEffects.AddRange(library.Effects.SelectMany(effect => effect.Arguments, (effect, argument) =>
+                                                                                    new SummaryArgumentEffect(effect.Kind, call.Id,
+                                                                                     Final(Points(argument.Value), delegates), Collection(argument.Value),
+                                                                                     argument.IsSlice, call.Provenance, locks)
+                                                                                    {
+                                                                                        IsSequence = argument.IsSequence
+                                                                                    }));
                         }
 
                         break;

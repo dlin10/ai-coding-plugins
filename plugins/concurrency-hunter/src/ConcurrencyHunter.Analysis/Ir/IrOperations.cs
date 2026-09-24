@@ -268,6 +268,10 @@ public sealed record IrCreateDelegateOperation(int Id, int ResultValue, string? 
     public string? TargetMethodId { get; init; }
     public string? TargetContainingTypeKey { get; init; }
     public IReadOnlyList<string> TargetMethodTypeArgumentKeys { get; init; } = [];
+
+    /// <summary>The method group names a virtual member through <c>base</c>: the delegate runs <see cref="TargetMethodId"/> itself,
+    /// never an override of it, as a base call does.</summary>
+    public bool IsNonVirtual { get; init; }
 }
 
 public sealed record IrCaptureOperation(int Id, int Value, string TargetBodyId, IrProvenance Provenance)
