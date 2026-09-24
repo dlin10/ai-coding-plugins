@@ -803,7 +803,6 @@ internal sealed class DecisionLedger
                     if (phase != LedgerPhase.PlanReview)
                         throw new DecisionLedgerRequestException("addressedByRevision is only valid during plan review");
                     RequireActiveUnresolved(entry, phase, decision.FindingId);
-                    RequireOrchestrator(decisionMaker, "only the orchestrator may close a finding");
                     if (decision.Evidence is not null)
                         throw new DecisionLedgerRequestException("addressedByRevision does not accept evidence");
                     closures.Add(new LedgerClosureDecision(decision.FindingId, LedgerClosureKind.Revision,
@@ -815,7 +814,6 @@ internal sealed class DecisionLedger
                     if (phase != LedgerPhase.CodeReview)
                         throw new DecisionLedgerRequestException("hostVerified is only valid during code review");
                     RequireActiveUnresolved(entry, phase, decision.FindingId);
-                    RequireOrchestrator(decisionMaker, "only the orchestrator may close a finding");
                     RequireText(decision.Evidence, "verified closure evidence");
                     closures.Add(new LedgerClosureDecision(decision.FindingId, LedgerClosureKind.HostVerified,
                                                            decisionMaker, decision.Reason, decision.Evidence!));
@@ -826,7 +824,6 @@ internal sealed class DecisionLedger
                     if (phase != LedgerPhase.PlanReview && phase != LedgerPhase.CodeReview)
                         throw new DecisionLedgerRequestException("duplicateOf is not valid in this phase");
                     RequireActiveUnresolved(entry, phase, decision.FindingId);
-                    RequireOrchestrator(decisionMaker, "only the orchestrator may close a finding");
                     ValidateFindingId(decision.DuplicateOf!);
                     if (decision.DuplicateOf == decision.FindingId || !entries.ContainsKey(decision.DuplicateOf!))
                         throw new DecisionLedgerRequestException("duplicateOf must reference a different known finding");
@@ -839,7 +836,6 @@ internal sealed class DecisionLedger
 
                 case "accept":
                     RequireSettledProjectionEntry(entry, phase, decision.FindingId);
-                    RequireOrchestrator(decisionMaker, "only the orchestrator may accept a reopening");
                     RequireText(decision.Evidence, "reopening evidence");
                     reopenings.Add(new LedgerReopeningDecision(decision.FindingId, PhaseName(phase),
                                                                decisionMaker, decision.Reason, decision.Evidence!));
@@ -891,11 +887,6 @@ internal sealed class DecisionLedger
             throw new DecisionLedgerRequestException($"finding '{findingId}' is not a settled {PhaseName(phase)} projection entry");
     }
 
-    private static void RequireOrchestrator(LedgerDecisionMaker by, string message)
-    {
-        if (by != LedgerDecisionMaker.Orchestrator) throw new DecisionLedgerRequestException(message);
-    }
-
     private static IReadOnlyList<string> NormalizeFindingIds(IReadOnlyList<string> findingIds, string name)
     {
         if (findingIds is null) throw new DecisionLedgerRequestException($"{name} must not be null");
@@ -934,8 +925,6 @@ internal sealed class DecisionLedger
             if (reopening is null) throw new DecisionLedgerRequestException("reopenings must not contain null");
             ValidateFindingId(reopening.FindingId);
             ValidatePhase(reopening.ActivePhase, "reopening activePhase");
-            if (reopening.By != LedgerDecisionMaker.Orchestrator)
-                throw new DecisionLedgerRequestException("only the orchestrator may accept a reopening");
             ValidateDecision(reopening.By, reopening.Reason);
             RequireText(reopening.Evidence, "reopening evidence");
         }
@@ -1127,8 +1116,6 @@ internal sealed class DecisionLedger
     {
         if (!Enum.IsDefined(closure.Kind))
             throw new DecisionLedgerRequestException($"unsupported closure kind '{closure.Kind}'");
-        if (closure.By != LedgerDecisionMaker.Orchestrator)
-            throw new DecisionLedgerRequestException("only the orchestrator may close a finding");
         RequireText(closure.Reason, "closure reason");
         if (closure.Kind is LedgerClosureKind.HostVerified or LedgerClosureKind.AutomaticGate)
             RequireText(closure.Evidence, "closure evidence");
@@ -1166,8 +1153,6 @@ internal sealed class DecisionLedger
     {
         if (data is null) throw new DecisionLedgerStateException("reopening data must not be null");
         RequireText(data.DecisionBatchId, "reopening decision batch id");
-        if (data.By != LedgerDecisionMaker.Orchestrator)
-            throw new DecisionLedgerStateException("only the orchestrator may accept a reopening");
         RequireText(data.Reason, "reopening reason");
         RequireText(data.Evidence, "reopening evidence");
     }
