@@ -165,7 +165,13 @@ public sealed class ProgramIndex
     /// <summary>The form <paramref name="typeKey"/> gives the base type or interface whose original definition is
     /// <paramref name="originalDefinitionKey"/>, found through the whole base and interface graph with each level's type
     /// arguments substituted (for <c>Derived : Base&lt;Order&gt;</c>, <c>Base&lt;T&gt;</c> is <c>Base&lt;Order&gt;</c>), or null.</summary>
-    public string? ConstructedBase(string typeKey, string originalDefinitionKey)
+    public string? ConstructedBase(string typeKey, string originalDefinitionKey) =>
+        Supertypes(typeKey).FirstOrDefault(key => Decompose(key).DefinitionKey == originalDefinitionKey);
+
+    /// <summary><paramref name="typeKey"/> and every base type and interface it has, breadth-first through the whole base and
+    /// interface graph, each in the form the type gives it (for <c>Derived : Base&lt;Order&gt;</c>, <c>Base&lt;Order&gt;</c>). The
+    /// walk goes through every type the index holds, a definition from metadata among them.</summary>
+    public IEnumerable<string> Supertypes(string typeKey)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Queue<string>([typeKey]);
@@ -174,9 +180,8 @@ public sealed class ProgramIndex
             if (!visited.Add(key))
                 continue;
 
+            yield return key;
             var (definitionKey, arguments) = Decompose(key);
-            if (definitionKey == originalDefinitionKey)
-                return key;
             if (!_types.TryGetValue(definitionKey, out var type) || type.TypeParameterKeys.Count != arguments.Count)
                 continue;
 
@@ -184,8 +189,6 @@ public sealed class ProgramIndex
             foreach (var baseKey in type.InterfaceKeys.Prepend(type.BaseTypeKey).OfType<string>())
                 pending.Enqueue(Substitute(baseKey, substitution));
         }
-
-        return null;
     }
 
     /// <summary>Whether a type key still names a type parameter of a type or method of the scope.</summary>

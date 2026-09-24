@@ -365,9 +365,11 @@ public static class InterproceduralAccesses
         return calls.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<(MethodInstance, SummaryOpaqueCall)>)pair.Value, StringComparer.Ordinal);
     }
 
-    /// <summary>A field that holds each collection some instance field of the solved heap points to, the first by region and field
-    /// order. A collection a known call is handed through a local is still the one that field holds, and is read as such (R3); its
-    /// identity is the collection itself, so which of its fields names it does not matter (ADR 0010).</summary>
+    /// <summary>A field that holds each collection some field of the solved heap points to: an instance field of an object of the
+    /// run's own, the first by region and field order, and otherwise a static field or a field of an object from metadata, as the
+    /// bodies that load and store it name it. A collection a known call is handed through a local, a parameter or the cells of
+    /// another is still the one that field holds, and is read as such (R3); its identity is the collection itself, so which of its
+    /// fields names it does not matter (ADR 0010).</summary>
     private static IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)> Holders(InterproceduralInput input)
     {
         var holders = new Dictionary<string, (string Parent, IrFieldRef Field)>(StringComparer.Ordinal);
@@ -377,6 +379,21 @@ public static class InterproceduralAccesses
                 continue;
             foreach (var field in fields)
             foreach (var target in input.Heap.PointsTo(regionId, FieldSlot.Key(field)).Order(StringComparer.Ordinal))
+                holders.TryAdd(target, (regionId, field));
+        }
+
+        // A static storage and a library object have no fields the program index lists, only the slots the bodies fill.
+        var named = input.Heap.Instances.Values.SelectMany(instance => instance.Summary.Accesses.Select(access => access.Field))
+                         .GroupBy(FieldSlot.Key, StringComparer.Ordinal)
+                         .ToDictionary(group => group.Key,
+                                       group => group.OrderBy(field => field.ContainingTypeId, StringComparer.Ordinal).First(),
+                                       StringComparer.Ordinal);
+        foreach (var regionId in input.Heap.Regions.Keys.Order(StringComparer.Ordinal))
+        foreach (var slot in input.Heap.FieldsOf(regionId).Order(StringComparer.Ordinal))
+        {
+            if (!named.TryGetValue(slot, out var field))
+                continue;
+            foreach (var target in input.Heap.PointsTo(regionId, slot).Order(StringComparer.Ordinal))
                 holders.TryAdd(target, (regionId, field));
         }
 
@@ -1427,7 +1444,9 @@ public static class InterproceduralAccesses
                 }
             }
 
-            if (read.IsSlice && held.Count == 0)
+            // A slice whose storage the argument does not name is cut from the arrays it may be, and those are still read where a
+            // field holds them; only a slice of storage no field holds is a reference nothing proves.
+            if (read.IsSlice && held.Count == 0 && !objects.Any(region => CollectionKind(region).IsCollection && holders.Value.ContainsKey(region)))
             {
                 UnprovenReferences.Add((instance.BodyId, read.OperationId));
                 return accesses;
@@ -1562,16 +1581,44 @@ public static class InterproceduralAccesses
             };
 
         /// <summary>The objects a sequence may yield: a collection's or an array's own, and for a sequence type of the run's own that
-        /// is no collection, those of the collections its fields hold, which are what it can enumerate.</summary>
+        /// is no collection, every object it reaches, however deep and through whatever holds it, of a type it enumerates. Its
+        /// enumerator may hand out any of them, and the call never runs it to learn which (R3). A sequence that names no element
+        /// type, or names <c>object</c>, may yield anything it reaches.</summary>
         private IEnumerable<string> SequenceElements(string region)
         {
             if (CollectionKind(region).IsCollection)
                 return ElementsOf(region);
-            if (_heap.Regions[region].TypeKey is not { } key || input.Scope.Program.InstanceFieldsOf(key) is not { } fields)
+            var program = input.Scope.Program;
+            if (_heap.Regions[region].TypeKey is not { } key || program.Type(key) is not { IsSource: true })
                 return [];
-            return fields.SelectMany(field => _heap.PointsTo(region, FieldSlot.Key(field)))
-                         .Where(target => CollectionKind(target).IsCollection)
-                         .SelectMany(ElementsOf);
+
+            var enumerated = program.Supertypes(key).Where(type => TypeName(type) == "System.Collections.Generic.IEnumerable")
+                                    .Select(type => type[(type.IndexOf('<') + 1)..type.LastIndexOf('>')].Trim())
+                                    .ToArray();
+            var anything = enumerated.Length == 0 || enumerated.Any(element => TypeName(element) == "object" || program.IsOpen(element));
+            var yielded = new SortedSet<string>(StringComparer.Ordinal);
+            var visited = new HashSet<string>(StringComparer.Ordinal) { region };
+            var pending = new Queue<string>(Reached(region));
+            while (pending.TryDequeue(out var current))
+            {
+                if (!visited.Add(current))
+                    continue;
+                if (_heap.Regions[current].TypeKey is { } type &&
+                    (anything || program.Supertypes(type).Any(supertype => enumerated.Contains(supertype, StringComparer.Ordinal))))
+                    yielded.Add(current);
+                foreach (var next in Reached(current))
+                    pending.Enqueue(next);
+            }
+
+            return yielded;
+
+            // What an object holds: the objects in a collection's cells, and what every field of it points to.
+            IEnumerable<string> Reached(string holder) =>
+                (CollectionKind(holder).IsCollection ? ElementsOf(holder) : [])
+                    .Concat(_heap.FieldsOf(holder).Where(slot => slot != PathValue.ELEMENT).SelectMany(slot => _heap.PointsTo(holder, slot)))
+                    .Where(target => _heap.Regions[target].Kind != HeapRegionKind.Delegate);
+
+            static string TypeName(string typeKey) => FieldSlot.WithoutTypeArguments(typeKey[(typeKey.IndexOf(':') + 1)..]);
         }
 
         /// <summary>The objects a collection or an array may hold: what its cells point to and what its members were handed.</summary>

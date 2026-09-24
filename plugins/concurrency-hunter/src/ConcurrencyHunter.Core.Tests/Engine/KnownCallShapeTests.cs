@@ -75,6 +75,56 @@ public sealed class KnownCallShapeTests
         Assert.Equal(without.Counter(CoverageCounters.UNPROVEN_REFERENCE), run.Counter(CoverageCounters.UNPROVEN_REFERENCE));
     }
 
+    [Theory]
+    [InlineData("System.Linq.Enumerable.Count(items);")]
+    [InlineData("Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Log, \"{A}\", items);")]
+    [InlineData("Count(items);")]
+    [InlineData("var outer = new List<List<Item>>(); outer.Add(items); System.Linq.Enumerable.Count(outer);")]
+    public async Task Collection_only_a_static_field_holds_is_read_as_the_ordinary_read_of_that_field_is(string read)
+    {
+        // The argument is a local, a parameter or a cell, never the field: the field is still what holds the list.
+        const string Hold = "var items = new List<Item>(); Holder.Spare = items; ";
+        var ordinary = Structure(await Findings(Hold + "_ = Holder.Spare.Count;", "Holder.Spare.Add(new Item());"));
+        var deep = Structure(await Findings(Hold + read, "Holder.Spare.Add(new Item());"));
+
+        Assert.Equal(ordinary.Resource.Identity, deep.Resource.Identity);
+        AssertTwoSides(deep);
+    }
+
+    // ---- collections a library object holds ----
+
+    [Theory]
+    [InlineData("System.Text.Json.JsonSerializer.Serialize(_state.ListBox);", "_state.ListBox.Value")]
+    [InlineData("System.Text.Json.JsonSerializer.Serialize(Holder.ListBox);", "Holder.ListBox.Value")]
+    [InlineData("System.Linq.Enumerable.Count(_state.Boxes);", "_state.ListBox.Value")]
+    public async Task Collection_in_a_field_of_a_library_object_is_read_as_the_ordinary_read_of_that_field_is(string read, string held)
+    {
+        // Past the library object the walk has no field of its own to name the list by; the object's field still holds it.
+        var ordinary = Structure(await Findings($"_ = {held}.Count;", $"{held}.Add(new Item());"));
+        var deep = Structure(await Findings(read, $"{held}.Add(new Item());"));
+
+        Assert.Equal(ordinary.Resource.Identity, deep.Resource.Identity);
+        AssertTwoSides(deep);
+    }
+
+    // ---- slices of an array handed over through a local ----
+
+    [Theory]
+    [InlineData("var names = new string[4]; _state.SpareNames = names;", "System.ReadOnlySpan<string> span = names; string.Concat(span);", "_state.SpareNames")]
+    [InlineData("var names = new string[4]; Holder.SpareNames = names;", "System.ReadOnlySpan<string> span = names; string.Concat(span);", "Holder.SpareNames")]
+    [InlineData("var names = new string[4]; Holder.SpareNames = names;", "string.Concat(names);", "Holder.SpareNames")]
+    public async Task Slice_of_an_array_a_field_holds_pairs_on_the_cell_the_ordinary_read_does(string hold, string read, string held)
+    {
+        var ordinary = Assert.Single(await Findings($"{hold} _ = {held}[System.DateTime.Now.Second];", $"{held}[0] = \"x\";"),
+                                     finding => finding.Resource.Selector is not null);
+        var deep = Assert.Single(await Findings($"{hold} {read}", $"{held}[0] = \"x\";"), finding => finding.Resource.Selector is not null);
+
+        Assert.Equal(ordinary.Resource.Identity, deep.Resource.Identity);
+        AssertTwoSides(deep);
+        // The storage is proven, so the slice is no reference nothing proves.
+        Assert.Equal(Run(hold, "").Counter(CoverageCounters.UNPROVEN_REFERENCE), Run($"{hold} {read}", "").Counter(CoverageCounters.UNPROVEN_REFERENCE));
+    }
+
     // ---- a slice of a slice ----
 
     [Fact]
@@ -224,6 +274,10 @@ public sealed class KnownCallShapeTests
         Assert.Contains(new[] { finding.AccessA, finding.AccessB }, access => access.Symbol.StartsWith("Reader.", StringComparison.Ordinal));
     }
 
+    /// <summary>The one finding on a collection's structure, as against its cells and the fields that lead to it.</summary>
+    private static Finding Structure(IReadOnlyList<Finding> findings) =>
+        Assert.Single(findings, finding => finding.Resource.CollectionId is not null && finding.Resource.Selector is null);
+
     /// <summary>The reads the reader makes at its known call, without the load of the singleton it starts from.</summary>
     private static Access[] AtCall(EngineRun run) =>
         run.Collection.Accesses.Where(access => access.Symbol.StartsWith("Reader.", StringComparison.Ordinal) &&
@@ -260,6 +314,9 @@ public sealed class KnownCallShapeTests
         {
             public static List<Item> Items = new();
             public static string[] Names = new string[4];
+            public static List<Item>? Spare;
+            public static string[]? SpareNames;
+            public static System.Runtime.CompilerServices.StrongBox<List<Item>> ListBox = new() { Value = new List<Item>() };
         }
 
         public sealed class State
@@ -284,6 +341,9 @@ public sealed class KnownCallShapeTests
             public Tally Tally = new();
             public Item Boxed = new();
             public System.Runtime.CompilerServices.StrongBox<Item> Box = new();
+            public System.Runtime.CompilerServices.StrongBox<List<Item>> ListBox = new() { Value = new List<Item>() };
+            public List<System.Runtime.CompilerServices.StrongBox<List<Item>>> Boxes = new();
+            public string[]? SpareNames;
             public Version Version;
 
             public State(Version version)
@@ -306,11 +366,13 @@ public sealed class KnownCallShapeTests
                 Queue.Enqueue(new Item());
                 Mixed = DateTime.Now.Ticks > 0 ? Plain : Queue;
                 Own.Add(First);
+                Boxes.Add(ListBox);
             }
         }
 
         public sealed class Reader : BackgroundService
         {
+            private static readonly Microsoft.Extensions.Logging.ILogger Log = null!;
             private readonly State _state;
             public Reader(State state) => _state = state;
 
@@ -321,6 +383,8 @@ public sealed class KnownCallShapeTests
             }
 
             private static void Concat(System.ReadOnlySpan<string> data) => string.Concat(data.Slice(1, 1));
+
+            private static int Count(List<Item> items) => System.Linq.Enumerable.Count(items);
         }
 
         public sealed class Writer : BackgroundService

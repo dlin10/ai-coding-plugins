@@ -119,6 +119,29 @@ public sealed class ArgumentWriteTests
         AssertAdderWrites(finding);
     }
 
+    [Theory]
+    [InlineData("_state.Deep")]
+    [InlineData("_state.Boxed")]
+    [InlineData("_state.Pair")]
+    public async Task Sequence_of_a_type_of_its_own_writes_every_object_of_its_element_type_it_reaches(string sequence)
+    {
+        // Two levels down, behind a library object, or in a field its iterator yields: the enumerator may hand any of them out.
+        var ordinary = Assert.Single(await Findings("_state.First.Stock = 0;", "_ = _state.First.Stock;"));
+        var written = Assert.Single(await Findings($"_shop.AddRange({sequence});", "_ = _state.First.Stock;"));
+
+        Assert.Equal(ordinary.Resource.Identity, written.Resource.Identity);
+        AssertAdderWrites(written);
+    }
+
+    [Fact]
+    public async Task Sequence_of_a_type_of_its_own_writes_no_object_of_another_type_it_reaches()
+    {
+        // The holder on the way and the objects of an entity are no entities of the sequence: both are read, neither is written.
+        Assert.Empty(await Findings("_shop.AddRange(_state.Deep);", "_ = _state.Deep.Middle.Counter;"));
+        Assert.DoesNotContain(await Findings("_shop.AddRange(_state.Deep);", "_ = _state.First.Detail.Note;"),
+                              finding => finding.Resource.AccessPath is ["Note"]);
+    }
+
     // ---- the other members ----
 
     [Theory]
@@ -218,6 +241,29 @@ public sealed class ArgumentWriteTests
             System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
+        public sealed class Middle { public int Counter; public List<Item> Items = new(); }
+
+        public sealed class DeepSource : IEnumerable<Item>
+        {
+            public Middle Middle = new();
+            public IEnumerator<Item> GetEnumerator() => Middle.Items.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
+        public sealed class BoxedSource : IEnumerable<Item>
+        {
+            public System.Runtime.CompilerServices.StrongBox<List<Item>> Box = new();
+            public IEnumerator<Item> GetEnumerator() => Box.Value!.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
+        public sealed class PairSource : IEnumerable<Item>
+        {
+            public Item? A;
+            public IEnumerator<Item> GetEnumerator() { yield return A!; }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
         public sealed class Shop : DbContext
         {
             public DbSet<Item> Items { get; set; } = null!;
@@ -233,6 +279,9 @@ public sealed class ArgumentWriteTests
             public System.Text.StringBuilder Builder = new();
             public ItemList Own = new();
             public ItemSource Source = new();
+            public DeepSource Deep = new();
+            public BoxedSource Boxed = new();
+            public PairSource Pair = new();
 
             public State()
             {
@@ -241,6 +290,11 @@ public sealed class ArgumentWriteTests
                 Pending.Add(Second);
                 Own.Add(First);
                 Source.Items.Add(First);
+                Deep.Middle.Items.Add(First);
+                var boxed = new List<Item>();
+                boxed.Add(First);
+                Boxed.Box.Value = boxed;
+                Pair.A = First;
             }
         }
 
