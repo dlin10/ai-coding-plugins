@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using RoslynMcpExtension.Shared;
@@ -39,8 +40,49 @@ internal static class CodeMemberInfoFactory
         info.FullName = symbol.ToDisplayString();
         info.MemberType = GetMemberType(symbol);
         info.Accessibility = symbol.DeclaredAccessibility.ToString();
+        info.SymbolId = SymbolIdOf(symbol);
+        if (symbol.Locations.All(l => !l.IsInSource) && symbol.ContainingAssembly is { } assembly)
+            info.Assembly = $"{assembly.Identity.Name} {assembly.Identity.Version}";
 
         return info;
+    }
+
+    /// <summary>
+    /// The documentation comment ID a request can name the symbol by (docs/adr/0001), or null for the kinds that
+    /// have none: locals, parameters, local functions, lambdas, anonymous types.
+    /// </summary>
+    public static string? SymbolIdOf(ISymbol? symbol)
+    {
+        // A generic instantiation and an extension method called on an instance both share their definition's ID.
+        var definition = (symbol is IMethodSymbol { ReducedFrom: { } reducedFrom } ? reducedFrom : symbol)?.OriginalDefinition;
+        var id = definition switch
+        {
+            IMethodSymbol { MethodKind: MethodKind.LocalFunction or MethodKind.AnonymousFunction } => null,
+            INamedTypeSymbol { IsAnonymousType: true } or INamespaceSymbol { IsGlobalNamespace: true } => null,
+            INamespaceSymbol or INamedTypeSymbol or IMethodSymbol or IPropertySymbol or IFieldSymbol or IEventSymbol
+                => DocumentationCommentId.CreateDeclarationId(definition),
+            _ => null
+        };
+
+        // Roslyn appends "~ReturnType" to every method. The documented form, the one XML documentation files carry,
+        // keeps it only on a conversion operator, the one kind C# overloads by return type; both forms resolve.
+        var returnType = id?.IndexOf('~') ?? -1;
+        return returnType >= 0 && definition is IMethodSymbol { MethodKind: not MethodKind.Conversion } ? id!.Substring(0, returnType) : id;
+    }
+
+    /// <summary>
+    /// The ID of the nearest symbol that has one, walking out of lambdas and local functions to the member
+    /// declaring them — the one a client asks about next when it follows a chain of calls.
+    /// </summary>
+    public static string? NearestSymbolIdOf(ISymbol? symbol)
+    {
+        for (; symbol != null; symbol = symbol.ContainingSymbol)
+        {
+            if (SymbolIdOf(symbol) is { } id)
+                return id;
+        }
+
+        return null;
     }
 
     /// <summary>

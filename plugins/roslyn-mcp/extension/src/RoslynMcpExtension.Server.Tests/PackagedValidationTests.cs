@@ -66,13 +66,29 @@ public sealed class PackagedValidationTests
 				return message["result"]!;
 			}
 			var initialized = await Call("initialize", new { protocolVersion = "2025-03-26", capabilities = new { }, clientInfo = new { name = "issue70-test", version = "1" } });
-			Assert.Equal("1.8.3", initialized["serverInfo"]!["version"]!.GetValue<string>());
+			Assert.Equal("1.9.0", initialized["serverInfo"]!["version"]!.GetValue<string>());
 			var instructions = initialized["instructions"]!.GetValue<string>();
 			Assert.Contains(@"C:\repo\Sample.sln", instructions);
 			Assert.Contains($"port {port}", instructions);
 			var current = (await Call("tools/list", new { }))["tools"]!.AsArray();
-			Assert.Equal(9, current.Count);
-			var validate = current.Single(t => t!["name"]!.GetValue<string>() == "roslyn_validate_file")!["inputSchema"]!;
+			Assert.Equal(11, current.Count);
+			JsonNode Schema(string tool) => current.Single(t => t!["name"]!.GetValue<string>() == tool)!["inputSchema"]!;
+			// A symbol is named by position or by symbolId, so neither form can be required.
+			foreach (var addressed in new[] { "roslyn_find_references", "roslyn_find_implementations", "roslyn_find_callers", "roslyn_get_symbol_info", "roslyn_describe_type" })
+			{
+				Assert.Contains("symbolId", Schema(addressed)["properties"]!.AsObject().Select(p => p.Key));
+				Assert.Empty(Schema(addressed)["required"]?.AsArray() ?? []);
+			}
+			Assert.Equal(new[] { "filePath", "column", "line" }.OrderBy(n => n),
+			             Schema("roslyn_go_to_definition")["required"]!.AsArray().Select(n => n!.GetValue<string>()).OrderBy(n => n));
+
+			var diagnostics = JsonNode.Parse((await Call("tools/call", new { name = "roslyn_get_diagnostics", arguments = new { filePaths = new[] { "C:/a.cs", "C:/b.cs" } } }))["content"]![0]!["text"]!.GetValue<string>())!;
+			Assert.Equal(new[] { "C:/a.cs", "C:/b.cs" }, diagnostics["checkedProjects"]!.AsArray().Select(n => n!.GetValue<string>()));
+			var references = JsonNode.Parse((await Call("tools/call", new { name = "roslyn_find_references", arguments = new { symbolId = "M:Ns.Api.Get(System.Int32)" } }))["content"]![0]!["text"]!.GetValue<string>())!;
+			Assert.Equal("M:Ns.Api.Get(System.Int32)", references["symbol"]!["symbolId"]!.GetValue<string>());
+			Assert.True(references["requestSucceeded"]!.GetValue<bool>(), "An omitted filePath must arrive as null, not as an empty path");
+
+			var validate = Schema("roslyn_validate_file");
 			Assert.Equal(new[] { "filePath", "includeWarnings", "runAnalyzers" }, validate["properties"]!.AsObject().Select(p => p.Key).OrderBy(n => n));
 			Assert.Equal(new[] { "filePath" }, validate["required"]!.AsArray().Select(n => n!.GetValue<string>()));
 			Assert.True(validate["properties"]!["includeWarnings"]!["default"]!.GetValue<bool>());
@@ -114,13 +130,18 @@ public sealed class PackagedValidationTests
 		public Task ReadyAsync() { Ready.TrySetResult(); return Task.CompletedTask; }
 		public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
 			=> Task.FromResult(new ValidateFileResult { FilePath = filePath, Success = true, RequestSucceeded = true, SourceGeneratedDocumentCount = Count });
-		public Task<SymbolListResult> FindReferencesAsync(string filePath, int line, int column, int maxResults) => throw new NotSupportedException();
-		public Task<SymbolListResult> FindImplementationsAsync(string filePath, int line, int column, int maxResults) => throw new NotSupportedException();
-		public Task<SymbolListResult> FindCallersAsync(string filePath, int line, int column, int maxResults) => throw new NotSupportedException();
+		// These two echo their input, so the test sees what crossed the pipe.
+		public Task<DiagnosticsResult> GetDiagnosticsAsync(string[]? filePaths, string? projectName, bool includeWarnings, bool runAnalyzers, int maxResults)
+			=> Task.FromResult(new DiagnosticsResult { CheckedProjects = [.. filePaths ?? []], Complete = true, RequestSucceeded = true });
+		public Task<SymbolListResult> FindReferencesAsync(string? filePath, int line, int column, string? symbolId, string? projectName, int maxResults)
+			=> Task.FromResult(new SymbolListResult { Symbol = new SymbolLocation { SymbolId = symbolId }, RequestSucceeded = filePath == null });
+		public Task<SymbolListResult> FindImplementationsAsync(string? filePath, int line, int column, string? symbolId, string? projectName, int maxResults) => throw new NotSupportedException();
+		public Task<SymbolListResult> FindCallersAsync(string? filePath, int line, int column, string? symbolId, string? projectName, int maxResults) => throw new NotSupportedException();
 		public Task<SymbolListResult> GoToDefinitionAsync(string filePath, int line, int column) => throw new NotSupportedException();
 		public Task<SymbolListResult> GetDocumentSymbolsAsync(string filePath) => throw new NotSupportedException();
-		public Task<SymbolListResult> SearchSymbolsAsync(string query, int maxResults) => throw new NotSupportedException();
+		public Task<SymbolListResult> SearchSymbolsAsync(string query, bool includeMetadata, int maxResults) => throw new NotSupportedException();
 		public Task<SymbolListResult> FindDeadCodeAsync(int maxResults, bool includeInternal, bool includePublic) => throw new NotSupportedException();
-		public Task<SymbolInfoResult> GetSymbolInfoAsync(string filePath, int line, int column) => throw new NotSupportedException();
+		public Task<SymbolInfoResult> GetSymbolInfoAsync(string? filePath, int line, int column, string? symbolId, string? projectName) => throw new NotSupportedException();
+		public Task<TypeDescriptionResult> DescribeTypeAsync(string? filePath, int line, int column, string? symbolId, string? projectName, string? memberFilter, int maxResults) => throw new NotSupportedException();
 	}
 }

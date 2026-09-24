@@ -88,6 +88,19 @@ public sealed class ValidateFileGeneratorTests : IDisposable
 	}
 
 	[Fact]
+	public async Task AnalyzerOptionRunsTheProjectAnalyzersOnThisFileOnly()
+	{
+		var doc = Document("class Fine {}", other: "class Elsewhere {}");
+		doc = doc.Project.AddAnalyzerReference(new TestAnalyzerReference(new TypeNameAnalyzer())).GetDocument(doc.Id)!;
+
+		var result = await ValidateFileService.ValidateDocumentAsync(doc, true, true);
+
+		Assert.Contains(result.AnalyzerDiagnostics, d => d.Id == TypeNameAnalyzer.Id && d.Message.Contains("Fine"));
+		Assert.DoesNotContain(result.AnalyzerDiagnostics, d => d.Message.Contains("Elsewhere"));
+		Assert.Empty((await ValidateFileService.ValidateDocumentAsync(doc, true, false)).AnalyzerDiagnostics);
+	}
+
+	[Fact]
 	public void ResultFinalizationDistinguishesRequestAndCompilerFailures()
 	{
 		var success = new ValidateFileResult { Success = true };
