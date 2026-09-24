@@ -384,7 +384,7 @@
       "accesses": 8,
       "counters": {
         "delegate-to-opaque": 7,
-        "element-operation": 1,
+        "element-operation": 0,
         "known-call": 6,
         "merged-context": 0,
         "no-receiver-object": 0,

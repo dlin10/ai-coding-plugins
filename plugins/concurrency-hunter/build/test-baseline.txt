@@ -121,7 +121,20 @@ ConcurrencyHunter.Core.Tests.Engine.ArgumentWriteTests.Written_field_is_not_also
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_a_List_pairs_with_an_indexer_set_on_the_cell_as_well_as_the_structure	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_a_string_array_pairs_with_a_cell_write	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_against_a_read_of_a_cell_is_no_finding	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_behind_an_interface_or_a_span_pairs_with_a_cell_write(read: "foreach (var x in _state.C.AsSpan()) { }")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_behind_an_interface_or_a_span_pairs_with_a_cell_write(read: "foreach (var x in _state.ReadOnly) { }")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_behind_an_interface_or_a_span_pairs_with_a_cell_write(read: "foreach (var x in _state.Seq) { }")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_behind_an_interface_or_a_span_pairs_with_a_cell_write(read: "System.ReadOnlySpan<Item> span = _state.C; foreach"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_either_branch_may_give_pairs_with_a_cell_write	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_pairs_with_a_cell_write_as_an_unproven_index_does	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_interface_holding_a_ConcurrentDictionary_reads_it_atomically_and_meets_no_TryAdd	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_interface_holding_a_List_conflicts_with_Add_on_the_structure	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_under_the_lock_the_writer_takes_is_protected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.C.AsSpan()) { x.Value = 1"···, write: "_ = _state.First.Value;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.C) { _ = x.Value; }", write: "_state.First.Value = 1;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.C) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.Seq) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "System.ReadOnlySpan<Item> span = _state.C; foreach"···, write: "_ = _state.First.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Acquisition_after_the_first_await_does_not_protect_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Acquisition_in_the_synchronous_prefix_is_lifted_to_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Async_body_without_an_await_hands_back_its_exit	Passed

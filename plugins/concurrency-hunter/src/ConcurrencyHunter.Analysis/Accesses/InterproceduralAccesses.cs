@@ -1278,9 +1278,12 @@ public static class InterproceduralAccesses
                                         .Where(effect => input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId))
                                         .GroupBy(effect => effect.OperationId)
                                         .SelectMany(call => WithoutReadsOfWrittenFields(
-                                            call.SelectMany(effect => effect.Kind == IrLibraryEffectKind.DeepRead
-                                                                          ? DeepReadAccesses(effect, instance, node)
-                                                                          : ArgumentWriteAccesses(effect, instance))
+                                            call.SelectMany(effect => effect.Kind switch
+                                                {
+                                                    IrLibraryEffectKind.DeepRead => DeepReadAccesses(effect, instance, node),
+                                                    IrLibraryEffectKind.Enumerate => EnumerationAccesses(effect, instance, node),
+                                                    _ => ArgumentWriteAccesses(effect, instance)
+                                                })
                                                 .ToArray()))
                                         .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false))
                                         .ToArray();
@@ -1411,42 +1414,16 @@ public static class InterproceduralAccesses
             // The collections whose structure and cells are already read, under the cells a slice cuts.
             var structureRead = new HashSet<string>(StringComparer.Ordinal);
 
-            if (read.Collection is { } argument && (read.IsSlice || objects.Any(region => CollectionKind(region).IsCollection)))
+            foreach (var (parent, field, collections, cells) in HeldCollections(read, instance, node, objects))
             {
-                // The slice this call cuts is applied where the collection came in, so a caller's slice composes with it rather than
-                // taking its place.
-                var target = argument.Collection is ReferenceParameterElement incoming
-                    ? incoming with { Selector = incoming.Selector.InSlice(argument.Shift, argument.Length) }
-                    : argument.Collection;
-                foreach (var resolved in ResolveReferences([target], instance, node))
-                {
-                    if (resolved.Cell is not { } storage)
-                        continue;
-                    var cells = storage.Selector ?? ElementSelector.Unknown.InSlice(argument.Shift, argument.Length);
-                    // A static field has no object that holds it: its storage is the static region of its type.
-                    var parents = storage.Field.IsStatic
-                        ? [_heap.StaticRegionOf(resolved.Instance.Id, storage.Field)]
-                        : storage.Bases.SelectMany(@base => _heap.Resolve(resolved.Instance.Id, @base)).Distinct(StringComparer.Ordinal)
-                                 .Order(StringComparer.Ordinal).ToArray();
-                    foreach (var parent in parents)
-                    {
-                        var collections = _heap.PointsTo(parent, FieldSlot.Key(storage.Field))
-                                               .Where(region => read.IsSlice || CollectionKind(region).IsCollection)
-                                               .ToArray();
-                        if (collections.Length == 0)
-                            continue;
-                        held.UnionWith(collections);
-                        structureRead.UnionWith(collections);
-                        accesses.AddRange(CollectionReads(read, parent, storage.Field, collections, cells, withStructure: !read.IsSlice));
-                        foreach (var collection in collections)
-                            pending.Enqueue((collection, 0, (parent, storage.Field)));
-                    }
-                }
+                held.UnionWith(collections);
+                structureRead.UnionWith(collections);
+                accesses.AddRange(CollectionReads(read, parent, field, collections, cells, withStructure: !read.IsSlice));
+                foreach (var collection in collections)
+                    pending.Enqueue((collection, 0, (parent, field)));
             }
 
-            // A slice whose storage the argument does not name is cut from the arrays it may be, and those are still read where a
-            // field holds them; only a slice of storage no field holds is a reference nothing proves.
-            if (read.IsSlice && held.Count == 0 && !objects.Any(region => CollectionKind(region).IsCollection && holders.Value.ContainsKey(region)))
+            if (IsUnprovenSlice(read, held, objects))
             {
                 UnprovenReferences.Add((instance.BodyId, read.OperationId));
                 return accesses;
@@ -1502,6 +1479,80 @@ public static class InterproceduralAccesses
 
             return accesses;
         }
+
+        /// <summary>
+        /// The reads a <c>foreach</c> makes of what it enumerates where no collection member models it (ADR 0010): the structure and
+        /// every cell of each collection or array the value may be, read where a field holds it and as atomically as its own
+        /// enumeration, and nothing those cells hold, which only the loop's body reads. A slice is the cells of the storage it is cut
+        /// from, and one nothing proves any storage of is counted and reads nothing, as a known call's is.
+        /// </summary>
+        private IReadOnlyList<SummaryAccess> EnumerationAccesses(SummaryArgumentEffect read, MethodInstance instance, PathNode node)
+        {
+            var accesses = new List<SummaryAccess>();
+            var objects = read.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+            var held = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (parent, field, collections, cells) in HeldCollections(read, instance, node, objects))
+            {
+                held.UnionWith(collections);
+                accesses.AddRange(CollectionReads(read, parent, field, collections, cells, withStructure: !read.IsSlice));
+            }
+
+            if (IsUnprovenSlice(read, held, objects))
+            {
+                UnprovenReferences.Add((instance.BodyId, read.OperationId));
+                return accesses;
+            }
+
+            // A collection the value does not name by where it came from is still read by a field that holds it, as a deep read's is.
+            foreach (var collection in objects.Where(region => !held.Contains(region) && CollectionKind(region).IsCollection).Order(StringComparer.Ordinal))
+            {
+                if (holders.Value.TryGetValue(collection, out var holder))
+                    accesses.AddRange(CollectionReads(read, holder.Parent, holder.Field, [collection], ElementSelector.Unknown, withStructure: true));
+            }
+
+            return accesses;
+        }
+
+        /// <summary>The collections a value names by where it came from, each with the field that holds it, the object holding that
+        /// field and the cells of it the value covers. A slice is every storage it may be cut from; any other value, the collections
+        /// and arrays among what that field holds.</summary>
+        private IEnumerable<(string Parent, IrFieldRef Field, string[] Collections, ElementSelector Cells)> HeldCollections(
+            SummaryArgumentEffect read, MethodInstance instance, PathNode node, IReadOnlySet<string> objects)
+        {
+            if (read.Collection is not { } argument || !read.IsSlice && !objects.Any(region => CollectionKind(region).IsCollection))
+                yield break;
+
+            // The slice this call cuts is applied where the collection came in, so a caller's slice composes with it rather than
+            // taking its place.
+            var target = argument.Collection is ReferenceParameterElement incoming
+                ? incoming with { Selector = incoming.Selector.InSlice(argument.Shift, argument.Length) }
+                : argument.Collection;
+            foreach (var resolved in ResolveReferences([target], instance, node))
+            {
+                if (resolved.Cell is not { } storage)
+                    continue;
+                var cells = storage.Selector ?? ElementSelector.Unknown.InSlice(argument.Shift, argument.Length);
+                // A static field has no object that holds it: its storage is the static region of its type.
+                var parents = storage.Field.IsStatic
+                    ? [_heap.StaticRegionOf(resolved.Instance.Id, storage.Field)]
+                    : storage.Bases.SelectMany(@base => _heap.Resolve(resolved.Instance.Id, @base)).Distinct(StringComparer.Ordinal)
+                             .Order(StringComparer.Ordinal).ToArray();
+                foreach (var parent in parents)
+                {
+                    var collections = _heap.PointsTo(parent, FieldSlot.Key(storage.Field))
+                                           .Where(region => read.IsSlice || CollectionKind(region).IsCollection)
+                                           .ToArray();
+                    if (collections.Length != 0)
+                        yield return (parent, storage.Field, collections, cells);
+                }
+            }
+        }
+
+        /// <summary>Whether a slice is of storage nothing proves. One whose storage the value does not name is cut from the arrays
+        /// it may be, and those are still read where a field holds them; only a slice of storage no field holds is a reference
+        /// nothing proves.</summary>
+        private bool IsUnprovenSlice(SummaryArgumentEffect read, IReadOnlySet<string> held, IReadOnlySet<string> objects) =>
+            read.IsSlice && held.Count == 0 && !objects.Any(region => CollectionKind(region).IsCollection && holders.Value.ContainsKey(region));
 
         /// <summary>The reads of collections a field of <paramref name="parent"/> holds: the structure and the cells of each, atomic
         /// for a thread-safe collection, whose enumeration is atomic, and ordinary for any other (ADR 0010).</summary>

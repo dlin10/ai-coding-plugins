@@ -72,6 +72,9 @@ public static class MethodSummaryBuilder
         private readonly Dictionary<int, HashSet<int>> _workValues;
         private readonly HashSet<int> _modeledCalls = [];
         private readonly Dictionary<int, int> _unwrapped = [];
+
+        /// <summary>What each <c>foreach</c> of the body enumerates, by its enumeration id: the receiver of its <c>GetEnumerator</c>.</summary>
+        private readonly Dictionary<int, int> _enumerated = [];
         private Dictionary<int, int>? _blockOf;
         private Dictionary<int, HashSet<int>>? _dominators;
 
@@ -109,6 +112,9 @@ public static class MethodSummaryBuilder
                         break;
                     case IrWhenAllOperation whenAll:
                         ModelCall(whenAll.ResultValue);
+                        break;
+                    case IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, EnumerationId: int enumeration, ReceiverValue: int enumerated }:
+                        _enumerated[enumeration] = enumerated;
                         break;
                 }
             }
@@ -294,6 +300,15 @@ public static class MethodSummaryBuilder
                     case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
                         capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue)));
                         break;
+                }
+
+                // A `foreach` reads what it enumerates where no collection member says what that is: an array through the interface
+                // it is converted to, a slice, or a collection behind an interface (ADR 0010).
+                if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, Collection: null, ReceiverValue: int enumerated } enumeration)
+                {
+                    argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, enumeration.Id, Final(Points(enumerated), delegates),
+                                                                  Collection(enumerated), SpanTypes.Names(_values[enumerated].Type),
+                                                                  enumeration.Provenance, locks));
                 }
             }
 
@@ -560,6 +575,11 @@ public static class MethodSummaryBuilder
                 IrLoadFieldOperation { Field.IsStatic: true } load => [new StaticFieldValue(load.Field)],
                 IrLoadFieldOperation { ReceiverValue: int receiver } load => Extend(_points[receiver], FieldSlot.Key(load.Field)),
                 IrLoadElementOperation load => Extend(_points[load.ReceiverValue], PathValue.ELEMENT),
+                // The object a `foreach` is at is one the storage it enumerates holds, whichever enumerator hands it out; a slice is
+                // the storage it is cut from (ADR 0010, TD-043).
+                IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
+                    when call.ResultValue == value.Id && _enumerated.TryGetValue(enumeration, out var enumerated) =>
+                    [new CallResultValue(call.Id), .. Extend(_points[Slice(enumerated).Array], PathValue.ELEMENT)],
                 IrCallOperation call when call.ResultValue == value.Id => [new CallResultValue(call.Id)],
                 IrCallOperation call => call.RefResults.Where(pair => pair.Value == value.Id)
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))

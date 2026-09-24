@@ -245,7 +245,12 @@ public enum IrLibraryEffectKind
     DeepRead,
 
     /// <summary>A write of every field of the argument's own regions, one level deep.</summary>
-    WriteArgument
+    WriteArgument,
+
+    /// <summary>A <c>foreach</c>'s read of what it enumerates where no member of a collection type models it: the structure and every
+    /// cell of each collection or array the value may be, as that collection's own enumeration reads them, and nothing they hold
+    /// (ADR 0010).</summary>
+    Enumerate
 }
 
 /// <summary>What a locator or scope-creation call names: the constant service type key (null when the type is not a constant)
