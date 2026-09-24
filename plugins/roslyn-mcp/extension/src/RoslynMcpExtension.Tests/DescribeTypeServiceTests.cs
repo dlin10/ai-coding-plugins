@@ -35,9 +35,19 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		        public static void Poke(this object anything) { }
 		    }
 		}
+		namespace Aaa
+		{
+		    public static class Early { public static int Aardvark(this Ns.Widget widget) => 0; }
+		}
+		namespace Zed
+		{
+		    public static class ZedExtensions { public static int Zap<T>(this System.Collections.Generic.List<T> list) => 0; }
+		}
 		""";
 
+	// Imports Zed, not System.Linq, so at the list's position only Zed's extension is in reach.
 	private const string App = """
+		using Zed;
 		namespace Ns
 		{
 		    class Use
@@ -79,7 +89,9 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		Assert.Equal("Resizes the Ns.Widget to size.", result.Members.Single(m => m.Name == "Resize").Summary);
 		Assert.True(result.Members.Single(m => m.Name == "Old").Obsolete);
 
-		var extension = Assert.Single(result.Extensions);
+		// Area shares the type's namespace, so it leads Aardvark although Aaa sorts first.
+		Assert.Equal(["Area", "Aardvark"], result.Extensions.Select(e => e.Name));
+		var extension = result.Extensions[0];
 		Assert.Equal(("Area", "Ns", "M:Ns.WidgetExtensions.Area(Ns.Widget)"), (extension.Name, extension.Namespace, extension.SymbolId));
 		Assert.True(result.ExtensionsComplete);
 	}
@@ -98,7 +110,7 @@ public sealed class DescribeTypeServiceTests : IDisposable
 	public async Task APositionDescribesTheVariablesTypeWithTheExtensionsInReach()
 	{
 		// LINQ alone declares more extensions for IEnumerable<T> than the default limit leaves room for.
-		var result = await DescribeAsync(PathOf("App"), 7, 17, maxResults: 500);
+		var result = await DescribeAsync(PathOf("App"), 8, 17, maxResults: 500);
 
 		Assert.Null(result.ErrorMessage);
 		Assert.False(result.Truncated);
@@ -109,6 +121,30 @@ public sealed class DescribeTypeServiceTests : IDisposable
 		Assert.Equal("System.Linq", where.Namespace);
 		Assert.StartsWith("System.Core ", where.Assembly);
 	}
+
+	[Fact]
+	public async Task ExtensionsInReachAtThePositionComeFirstAndOnlyThere()
+	{
+		static int IndexOf(TypeDescriptionResult result, string name) => result.Extensions.FindIndex(e => e.Name == name);
+
+		// At the position, App imports Zed and not System.Linq.
+		var atPosition = await DescribeAsync(PathOf("App"), 8, 17, maxResults: 500);
+		Assert.Equal("Zap", atPosition.Extensions[0].Name);
+
+		// Named by ID there is no position; System.Linq shares "System" with System.Collections.Generic, Zed nothing.
+		var byId = await DescribeAsync(symbolId: "T:System.Collections.Generic.List`1", projectName: "App", maxResults: 500);
+		Assert.True(IndexOf(byId, "Where") < IndexOf(byId, "Zap"));
+	}
+
+	[Theory]
+	[InlineData("TryGetAsync", "TGA", true)]
+	[InlineData("TryGetAsync", "GA", true)]
+	[InlineData("AddSingleton", "AddSin", true)]
+	[InlineData("TryAddSingleton", "AddSingleton", true)]
+	[InlineData("AddDiSingletonControllerVsWorker", "AddSingleton", false)]
+	[InlineData("TryGetAsync", "TrAs", false)]
+	public void MemberFilterHumpsMustFollowOneAnother(string name, string filter, bool matches)
+		=> Assert.Equal(matches, DescribeTypeService.Matches(name, filter));
 
 	[Fact]
 	public async Task MemberFilterNarrowsMembersAndExtensionsAlike()
@@ -136,7 +172,7 @@ public sealed class DescribeTypeServiceTests : IDisposable
 	[Fact]
 	public async Task TheLimitCutsExtensionsBeforeDeclaredMembers()
 	{
-		var result = await DescribeAsync(PathOf("App"), 7, 17, maxResults: 2);
+		var result = await DescribeAsync(PathOf("App"), 8, 17, maxResults: 2);
 
 		Assert.Equal(2, result.Members.Count);
 		Assert.Empty(result.Extensions);

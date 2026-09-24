@@ -55,8 +55,14 @@ internal class DescribeTypeService(DocumentFinder documentFinder, TimeSpan budge
 			var extensions = Extensions(type, compilation, memberFilter, clock, result.UnscannedAssemblies);
 			result.ExtensionsComplete = result.UnscannedAssemblies.Count == 0;
 			result.ExtensionCount = extensions.Count;
+			// Those a caller at the position reaches as the code stands come first; then those nearest the type's own
+			// namespace, where .NET convention puts the extensions meant for it.
+			var inScope = InScopeIds(resolved.Site, type);
+			var typeNamespace = type.ContainingNamespace.ToDisplayString();
 			result.Extensions.AddRange(extensions
-				.OrderBy(extension => extension.Definition.ContainingNamespace.ToDisplayString(), StringComparer.Ordinal)
+				.OrderBy(extension => inScope.Contains(CodeMemberInfoFactory.SymbolIdOf(extension.Definition)) ? 0 : 1)
+				.ThenByDescending(extension => SharedSegments(extension.Definition.ContainingNamespace.ToDisplayString(), typeNamespace))
+				.ThenBy(extension => extension.Definition.ContainingNamespace.ToDisplayString(), StringComparer.Ordinal)
 				.ThenBy(extension => extension.Definition.Name, StringComparer.Ordinal)
 				.Take(Math.Max(0, maxResults - result.Members.Count))
 				.Select(extension =>
@@ -174,26 +180,48 @@ internal class DescribeTypeService(DocumentFinder documentFinder, TimeSpan budge
 		}
 	}
 
+	/// <summary>The IDs of the extension methods a caller at the site reaches with no using to add; none without a site.</summary>
+	private static HashSet<string?> InScopeIds((SemanticModel Model, int Position)? site, INamedTypeSymbol type)
+		=> site is { } at
+			? at.Model.LookupSymbols(at.Position, type, includeReducedExtensionMethods: true)
+				.OfType<IMethodSymbol>()
+				.Where(method => method.ReducedFrom != null)
+				.Select(CodeMemberInfoFactory.SymbolIdOf)
+				.ToHashSet()
+			: [];
+
+	/// <summary>How many leading namespace segments two namespaces share: Microsoft.AspNetCore and Microsoft.Extensions share one.</summary>
+	private static int SharedSegments(string first, string second)
+	{
+		var a = first.Split('.');
+		var b = second.Split('.');
+		var shared = 0;
+		while (shared < a.Length && shared < b.Length && a[shared] == b[shared])
+			shared++;
+		return shared;
+	}
+
 	private static bool AcceptsAnyType(ITypeSymbol receiver)
 		=> receiver.SpecialType == SpecialType.System_Object || receiver is ITypeParameterSymbol { ConstraintTypes.IsEmpty: true };
 
-	/// <summary>A case-insensitive substring of the name, or a prefix of each of its successive humps: TGA finds TryGetAsync.</summary>
+	/// <summary>
+	/// A case-insensitive substring of the name, or prefixes of humps that follow one another in it: TGA finds
+	/// TryGetAsync and AddSin finds AddSingleton, but AddSingleton does not find AddDiSingleton.
+	/// </summary>
 	internal static bool Matches(string name, string? filter)
 	{
 		if (string.IsNullOrEmpty(filter) || name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
 			return true;
 
 		var humps = Humps(name);
-		var next = 0;
-		foreach (var piece in Humps(filter!))
+		var pieces = Humps(filter!);
+		for (var start = 0; start + pieces.Count <= humps.Count; start++)
 		{
-			while (next < humps.Count && !humps[next].StartsWith(piece, StringComparison.OrdinalIgnoreCase))
-				next++;
-			if (next++ >= humps.Count)
-				return false;
+			if (pieces.Select((piece, i) => humps[start + i].StartsWith(piece, StringComparison.OrdinalIgnoreCase)).All(match => match))
+				return true;
 		}
 
-		return true;
+		return false;
 	}
 
 	private static List<string> Humps(string text)

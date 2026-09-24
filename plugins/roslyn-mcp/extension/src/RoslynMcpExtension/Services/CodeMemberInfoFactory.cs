@@ -54,7 +54,7 @@ internal static class CodeMemberInfoFactory
     public static string? SymbolIdOf(ISymbol? symbol)
     {
         // A generic instantiation and an extension method called on an instance both share their definition's ID.
-        var definition = symbol is IMethodSymbol { ReducedFrom: { } reducedFrom } ? reducedFrom : symbol?.OriginalDefinition;
+        var definition = (symbol is IMethodSymbol { ReducedFrom: { } reducedFrom } ? reducedFrom : symbol)?.OriginalDefinition;
         var id = definition switch
         {
             IMethodSymbol { MethodKind: MethodKind.LocalFunction or MethodKind.AnonymousFunction } => null,

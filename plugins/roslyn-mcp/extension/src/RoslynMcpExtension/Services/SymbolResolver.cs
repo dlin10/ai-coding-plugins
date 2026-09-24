@@ -8,11 +8,15 @@ using RoslynMcpExtension.Shared;
 namespace RoslynMcpExtension.Services;
 
 /// <summary>The symbol a request named, and the project context it was resolved in.</summary>
-internal sealed class ResolvedSymbol(ISymbol? symbol, Project project, CompilationInfo compilation, string notFound)
+internal sealed class ResolvedSymbol(ISymbol? symbol, Project project, CompilationInfo compilation, string notFound,
+                                     (SemanticModel Model, int Position)? site = null)
 {
 	public ISymbol? Symbol { get; } = symbol;
 	public Project Project { get; } = project;
 	public CompilationInfo Compilation { get; } = compilation;
+
+	/// <summary>Where a request named by position points; null for one named by symbol ID.</summary>
+	public (SemanticModel Model, int Position)? Site { get; } = site;
 
 	/// <summary>The symbol, or an invalid_argument naming the position that held none.</summary>
 	public ISymbol Required => Symbol ?? throw new ToolRequestException(ToolErrorCodes.InvalidArgument, notFound);
@@ -44,7 +48,7 @@ internal class SymbolResolver(DocumentFinder documentFinder)
 		var position = DocumentFinder.GetPosition(syntaxTree, line, column);
 		var symbol = await SymbolFinder.FindSymbolAtPositionAsync(semanticModel, position, documentFinder.Workspace);
 		return new ResolvedSymbol(symbol, document.Project, DocumentFinder.CreateCompilationInfo(document, semanticModel),
-		                          $"No symbol found at line {line}, column {column}");
+		                          $"No symbol found at line {line}, column {column}", (semanticModel, position));
 	}
 
 	private async Task<ResolvedSymbol> ResolveIdAsync(string symbolId, string? projectName)
