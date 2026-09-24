@@ -18,7 +18,15 @@ public enum ProgramMethodKind
 /// <see cref="TypeParameterKeys"/>, which list the type parameters of the containing types first.</summary>
 public sealed record ProgramType(string TypeKey, string DisplayName, string Assembly, string? BaseTypeKey,
                                  IReadOnlyList<string> InterfaceKeys, bool IsInterface, bool IsAbstract, bool IsSealed,
-                                 bool IsDelegate, bool IsValueType, IReadOnlyList<string> TypeParameterKeys);
+                                 bool IsDelegate, bool IsValueType, IReadOnlyList<string> TypeParameterKeys)
+{
+    /// <summary>The instance fields a source type declares itself, as an access names them: its fields, the backing fields of its
+    /// automatic properties and its captured primary constructor parameters. Empty for a type from metadata.</summary>
+    public IReadOnlyList<IrFieldRef> InstanceFields { get; init; } = [];
+
+    /// <summary>Whether the type is declared in source, so its instance fields are all known.</summary>
+    public bool IsSource { get; init; }
+}
 
 public sealed record ProgramParameter(string Name, string TypeKey, IrRefKind RefKind);
 
@@ -75,7 +83,34 @@ public sealed class ProgramIndex
     public IReadOnlyList<ProgramField> Fields { get; }
     public IReadOnlyList<ClosedGenericType> ClosedGenericTypes { get; }
 
+    /// <summary>The type keys source creates objects of whose values can be neither changed nor used to reach anything that can
+    /// (the library table's immutable types): a known call's effect on such an object touches nothing (R3).</summary>
+    public IReadOnlySet<string> ImmutableTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     public ProgramMethod? Method(string methodId) => _methods.GetValueOrDefault(methodId);
+
+    /// <summary>The instance fields of an object of <paramref name="typeKey"/>, its own and those of its source base types, each
+    /// named for the closed type that holds it; null when the type itself is not declared in source. A base from metadata ends
+    /// the walk: its state is a library object's, which is no resource.</summary>
+    public IReadOnlyList<IrFieldRef>? InstanceFieldsOf(string typeKey)
+    {
+        var fields = new List<IrFieldRef>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        for (string? current = typeKey; current is not null;)
+        {
+            var (definitionKey, arguments) = Decompose(current);
+            if (!visited.Add(definitionKey) || !_types.TryGetValue(definitionKey, out var type) || !type.IsSource)
+                return fields.Count == 0 && visited.Count == 1 ? null : fields;
+            var substitution = type.TypeParameterKeys.Zip(arguments).Where(pair => pair.First != pair.Second)
+                                   .ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
+            fields.AddRange(type.InstanceFields.Select(field => field.ContainingTypeIdentity is { } identity && substitution.Count != 0
+                                                                    ? field with { ContainingTypeIdentity = Substitute(identity, substitution) }
+                                                                    : field));
+            current = type.BaseTypeKey is { } baseKey ? Substitute(baseKey, substitution) : null;
+        }
+
+        return fields;
+    }
 
     /// <summary>The type <paramref name="typeKey"/> is an instance of, through its original definition.</summary>
     public ProgramType? Type(string typeKey) => _types.GetValueOrDefault(Decompose(typeKey).DefinitionKey);

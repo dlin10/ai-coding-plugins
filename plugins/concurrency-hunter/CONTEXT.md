@@ -213,6 +213,19 @@ _Avoid_: severity (the impact of a finding, assessed separately and never decidi
 
 ### What the analysis could not settle
 
+**Known call**:
+A call into a method whose body the run does not have and whose effects a built-in semantics
+describes for that exact method and a supported version of its assembly; its effects are the ones
+described, and it is never a **Semantic gap**. The same method in an unsupported version is opaque.
+_Avoid_: library call, recognized call, BCL call (a method is known by its description, not by who ships it)
+
+**Deep read**:
+What a **Known call** does to an argument it consumes whole, as a serializer or a formatter does: a
+read of every field of every region reachable from that argument, up to the depth the summaries are
+bounded by, and a wildcard read beyond it. It reads private fields as well, because it stands for
+whatever the argument's getters could read without running them.
+_Avoid_: serialization read, full read, recursive read
+
 **Opaque call**:
 A call into a method whose body the run does not have and whose effects no built-in semantics
 describes; its effects are unknown, which is not the same as none.
@@ -289,6 +302,8 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - An iterator's body runs in the **Execution instance** that enumerates it, at the enumeration, never at the call that creates it; an iterator that reaches a consumer the analysis cannot follow is enumerated by an **Unknown execution** as well. See `docs/adr/0011`.
 - A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
+- A **Known call** into a member of an immutable framework type touches nothing only when every argument it receives is immutable too; an argument that is not gets that argument's own effect, such as a **Deep read**.
+- A **Known call** never runs the user's code: a library member that takes a delegate it may invoke — a LINQ operator with a lambda, a retry policy, a mediator — is not known until the sub-phase that models the invocation, and a lambda that becomes an expression tree is data, not code.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
@@ -332,6 +347,13 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   the phase-5 interview: only when entity tracking is proven for that query, and tracking that is
   not proven does not prove the entity isolated either. Until phase 5e models tracking, EF Core is
   opaque persistence and never yields a database verdict.
+- A library object's own state — a `DbContext`'s change tracker, an `HttpClient`'s default headers —
+  could be read as a **Resource** a **Known call** reads or writes. Resolved in the phase-5a
+  interview: it is not a resource. A **Known call** is described only by what it does to its
+  arguments, so a member that changes that state is not known and stays an **Opaque call**, while
+  one that only reads it is known and touches nothing; the `DbContext` and `DbSet` members are the
+  exception the SPEC fixes as opaque persistence, which is why a `DbContext` shared between
+  executions is not seen until phase 5e.
 - An object handed over through a `Channel<T>` could be linked from the writer to the reader.
   Resolved on 2026-09-23 for the first version: the written object is `Escaped`, the object the
   reader gets back is not linked to it, and the producer–consumer pair shows as uncertainty, never

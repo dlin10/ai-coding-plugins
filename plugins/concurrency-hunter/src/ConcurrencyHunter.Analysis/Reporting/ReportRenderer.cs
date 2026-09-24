@@ -27,6 +27,8 @@ public static class ReportRenderer
     {
         [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
         [CoverageCounters.OPAQUE_CALL] = "calls without a source body, modelled without effect",
+        [CoverageCounters.KNOWN_CALL] = "calls without a source body that the library semantics table describes, with the effects it gives them",
+        [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member the table describes, in an assembly version outside its supported range",
         [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs, never invoked",
         [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
         [CoverageCounters.UNANALYSED_REGISTRATION] = "unsupported registrations in reached members, binding nothing",

@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.1",
   "target": "demo/Demo.slnx",
-  "revision": "fe0d550ad5fe7ec68ac9572e453c5995252faa9f",
+  "revision": "895e214327e0bd7bb2bf652edeb36bcd8c7b78af",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-23T18:25:56.2013152\u002B00:00",
+  "recordedAt": "2026-09-24T16:55:06.9277378\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,35 +18,35 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.206
+        "seconds": 3.386
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.525
+        "seconds": 1.591
       },
       {
         "step": "program-index",
-        "seconds": 0.907
+        "seconds": 1.001
       },
       {
         "step": "lowering",
-        "seconds": 0.987
+        "seconds": 1.032
       },
       {
         "step": "reachable-set",
-        "seconds": 0.057
+        "seconds": 0.067
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.367
+        "seconds": 0.385
       },
       {
         "step": "executions",
-        "seconds": 0.149
+        "seconds": 0.152
       },
       {
         "step": "accesses",
-        "seconds": 0.464
+        "seconds": 0.453
       },
       {
         "step": "pairing",
@@ -54,55 +54,55 @@
       },
       {
         "step": "solver",
-        "seconds": 0.154
+        "seconds": 0.177
       },
       {
         "step": "findings",
-        "seconds": 0.038
+        "seconds": 0.036
       },
       {
         "step": "render",
-        "seconds": 0.132
+        "seconds": 0.144
       }
     ],
-    "totalSeconds": 10.203
+    "totalSeconds": 10.689
   },
-  "peakWorkingSetMb": 286.1,
+  "peakWorkingSetMb": 299.4,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 232,
+    "roots": 238,
     "rootsPerProvider": {
-      "aspnetcore": 89,
-      "hosting": 143
+      "aspnetcore": 91,
+      "hosting": 147
     },
-    "reachableBodies": 898,
-    "summaries": 898,
-    "regions": 573,
-    "instances": 940,
-    "accesses": 1075,
+    "reachableBodies": 921,
+    "summaries": 921,
+    "regions": 586,
+    "instances": 963,
+    "accesses": 1101,
     "pairs": {
-      "comparisons": 1214,
-      "cartesianBound": 301477,
+      "comparisons": 1236,
+      "cartesianBound": 314822,
       "largestBucket": 8,
-      "buckets": 474,
+      "buckets": 486,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 259,
+        "no-overlap": 263,
         "ordered": 20,
-        "read-read": 682,
+        "read-read": 697,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 154
+      "candidates": 157
     },
-    "findings": 145,
-    "occurrences": 154,
-    "groups": 125,
+    "findings": 148,
+    "occurrences": 157,
+    "groups": 128,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
@@ -125,11 +125,13 @@
       "243e5f431bb28527",
       "27b0533faa174d90",
       "2bdeb4f5cc9954f1",
+      "2c8cd1cfcda5645d",
       "2cb16b8a1acdc46b",
       "2eb10dac39b1ab87",
       "2f2c498276cc327b",
       "2f670aa8284d3790",
       "33ef591448fde6b9",
+      "3730bda85a8cc9a7",
       "386b91364073a8cc",
       "39e862e1c3353646",
       "3b3cb21a0be99d2a",
@@ -151,6 +153,7 @@
       "5f158cc5a1d9ae41",
       "5f4cd8fbb74fe791",
       "5f4e356ccf353d27",
+      "608cad26b11b15f2",
       "63130a58ff958b92",
       "644c6073c130aa6a",
       "64bdde19a43fcdbd",
@@ -255,17 +258,19 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 89,
-        "hosting": 142
+        "aspnetcore": 91,
+        "hosting": 146
       },
-      "accesses": 776,
+      "accesses": 793,
       "counters": {
         "delegate-to-opaque": 5,
-        "element-operation": 20,
+        "element-operation": 21,
+        "known-call": 167,
         "merged-context": 0,
         "no-receiver-object": 7,
-        "opaque-call": 920,
-        "reachable-bodies": 895,
+        "opaque-call": 788,
+        "out-of-range-call": 0,
+        "reachable-bodies": 918,
         "scc-budget-exceeded": 0,
         "solver-available": 1,
         "solver-queries": 11,
@@ -294,9 +299,11 @@
       "counters": {
         "delegate-to-opaque": 0,
         "element-operation": 0,
+        "known-call": 0,
         "merged-context": 0,
         "no-receiver-object": 0,
         "opaque-call": 7,
+        "out-of-range-call": 0,
         "reachable-bodies": 3,
         "scc-budget-exceeded": 0,
         "solver-available": 1,
@@ -317,12 +324,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 10.203,
+      "actual": 10.689,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.279,
+      "actual": 0.292,
       "met": true
     }
   }

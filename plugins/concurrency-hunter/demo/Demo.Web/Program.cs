@@ -39,6 +39,7 @@ using Demo.Web.Cases.DiTransient;
 using Demo.Web.Cases.DictionaryDisjointKeysStructural;
 using Demo.Web.Cases.DisposeAsyncConfigureAwait;
 using Demo.Web.Cases.DistinctAllocationSites;
+using Demo.Web.Cases.EfAddSharedEntity;
 using Demo.Web.Cases.EscapeIntoSingleton;
 using Demo.Web.Cases.EscapeViaArrayElement;
 using Demo.Web.Cases.EscapeViaCapturedClosure;
@@ -69,6 +70,7 @@ using Demo.Web.Cases.IteratorEnumeratedUnderLock;
 using Demo.Web.Cases.IteratorEscapesToField;
 using Demo.Web.Cases.IteratorHeldMonitor;
 using Demo.Web.Cases.JoinSkippedOnException;
+using Demo.Web.Cases.JsonSerializeReadsDeep;
 using Demo.Web.Cases.KeyEqualityComparer;
 using Demo.Web.Cases.LambdaAndLocalFunction;
 using Demo.Web.Cases.LocatorScopedViaCreateScope;
@@ -80,6 +82,7 @@ using Demo.Web.Cases.LockHeldByCaller;
 using Demo.Web.Cases.LockIdentityThroughAlias;
 using Demo.Web.Cases.LockOnFreshObject;
 using Demo.Web.Cases.LockProtectedVsUnprotected;
+using Demo.Web.Cases.LoggerArgReadsDeep;
 using Demo.Web.Cases.MaybeNullHandle;
 using Demo.Web.Cases.MinimalApiLambdaHandler;
 using Demo.Web.Cases.MinimalApiReadWrite;
@@ -284,7 +287,10 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddIteratorEnumeratedUnderLock()
                 .AddIteratorEscapesToField()
                 .AddIteratorHeldMonitor()
-                .AddAsyncTailAcquisition();
+                .AddAsyncTailAcquisition()
+                .AddJsonSerializeReadsDeep()
+                .AddLoggerArgReadsDeep()
+                .AddEfAddSharedEntity();
 
 var app = builder.Build();
 

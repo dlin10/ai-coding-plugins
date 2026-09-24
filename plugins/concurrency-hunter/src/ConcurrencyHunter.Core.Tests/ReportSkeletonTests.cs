@@ -496,12 +496,12 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(10, counters.Length);
+        Assert.Equal(12, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));
         Assert.StartsWith("    - Top opaque callees: ", lines[opaque + 1], StringComparison.Ordinal);
-        Assert.Contains("object..ctor() ", lines[opaque + 1], StringComparison.Ordinal);
+        Assert.DoesNotContain("object..ctor() ", lines[opaque + 1], StringComparison.Ordinal);
         var reached = Array.FindIndex(lines, line => line.StartsWith("  - Reachable bodies: ", StringComparison.Ordinal));
         Assert.True(Array.FindIndex(lines, line => line.StartsWith("  - Other diagnostics: ", StringComparison.Ordinal)) < reached);
         var notAnalyzed = Array.FindIndex(lines, line => line.StartsWith("- Not analyzed in this version: ", StringComparison.Ordinal));

@@ -1,5 +1,6 @@
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Ir;
+using ConcurrencyHunter.Providers.LibrarySemantics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -19,6 +20,13 @@ public static class ProgramIndexBuilder
         foreach (var type in sourceTypes)
             types.TryAdd(SymbolNames.TypeKey(type), type);
 
+        var sourceCompilations = new Dictionary<INamedTypeSymbol, Compilation>(SymbolEqualityComparer.Default);
+        foreach (var compilation in compilations)
+        {
+            foreach (var type in SourceTypes(compilation.Assembly.GlobalNamespace))
+                sourceCompilations.TryAdd(type, compilation);
+        }
+
         var closedTypes = new Dictionary<string, ClosedGenericType>(StringComparer.Ordinal);
         foreach (var type in sourceTypes)
         {
@@ -30,16 +38,58 @@ public static class ProgramIndexBuilder
             AddMentionedTypes(type, closedTypes);
         }
 
+        // The objects of an immutable type source names are regions a known call's effect touches nothing of (R3). Source names
+        // the type wherever such an object comes from: the `new` that makes it, the type argument or `typeof` a container is
+        // given it by, and the field, property or parameter that takes it in.
+        var immutableTypeKeys = new HashSet<string>(StringComparer.Ordinal);
+        void AddImmutable(ITypeSymbol? type)
+        {
+            if (type is not null && LibrarySemanticsTable.BuiltIn.IsImmutable(type))
+                immutableTypeKeys.Add(SymbolNames.TypeKey(type));
+        }
+
         foreach (var compilation in compilations)
         {
             foreach (var tree in compilation.SyntaxTrees)
             {
                 var model = compilation.GetSemanticModel(tree);
-                foreach (var name in tree.GetRoot(cancellationToken).DescendantNodes().OfType<GenericNameSyntax>())
+                foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes())
                 {
-                    if (model.GetSymbolInfo(name, cancellationToken).Symbol is INamedTypeSymbol mentioned)
-                        AddClosed(mentioned, closedTypes);
+                    if (node is GenericNameSyntax name)
+                    {
+                        var symbol = model.GetSymbolInfo(name, cancellationToken).Symbol;
+                        if (symbol is INamedTypeSymbol mentioned)
+                            AddClosed(mentioned, closedTypes);
+                        foreach (var argument in symbol switch
+                                 {
+                                     INamedTypeSymbol type => type.TypeArguments,
+                                     IMethodSymbol method => method.TypeArguments,
+                                     _ => []
+                                 })
+                            AddImmutable(argument);
+                    }
+                    if (node is BaseObjectCreationExpressionSyntax creation)
+                        AddImmutable(model.GetTypeInfo(creation, cancellationToken).Type);
+                    if (node is TypeOfExpressionSyntax typeOf)
+                        AddImmutable(model.GetTypeInfo(typeOf.Type, cancellationToken).Type);
                 }
+            }
+        }
+
+        foreach (var member in sourceTypes.SelectMany(type => type.GetMembers()))
+        {
+            switch (member)
+            {
+                case IFieldSymbol field:
+                    AddImmutable(field.Type);
+                    break;
+                case IPropertySymbol property:
+                    AddImmutable(property.Type);
+                    break;
+                case IMethodSymbol method:
+                    foreach (var parameter in method.Parameters)
+                        AddImmutable(parameter.Type);
+                    break;
             }
         }
 
@@ -80,16 +130,55 @@ public static class ProgramIndexBuilder
                                                                   SymbolNames.TypeKey(field.Type))));
         }
 
-        return new ProgramIndex(scopeId, types.Select(pair => Type(pair.Key, pair.Value)).ToArray(), methods.Values.ToArray(), fields,
-                                closedTypes.Values.ToArray());
+        return new ProgramIndex(scopeId,
+                                types.Select(pair => Type(pair.Key, pair.Value, sourceCompilations.GetValueOrDefault(pair.Value), cancellationToken))
+                                     .ToArray(),
+                                methods.Values.ToArray(), fields, closedTypes.Values.ToArray())
+        {
+            ImmutableTypeKeys = immutableTypeKeys
+        };
     }
 
-    private static ProgramType Type(string typeKey, INamedTypeSymbol type) =>
+    private static ProgramType Type(string typeKey, INamedTypeSymbol type, Compilation? source, CancellationToken cancellationToken) =>
         new(typeKey, SymbolNames.Type(type), type.ContainingAssembly.Name,
             type.BaseType is null ? null : SymbolNames.TypeKey(type.BaseType),
             type.Interfaces.Select(SymbolNames.TypeKey).ToArray(),
             type.TypeKind == TypeKind.Interface, type.IsAbstract, type.IsSealed, type.TypeKind == TypeKind.Delegate, type.IsValueType,
-            TypeArguments(type).Select(SymbolNames.TypeKey).ToArray());
+            TypeArguments(type).Select(SymbolNames.TypeKey).ToArray())
+        {
+            IsSource = source is not null,
+            InstanceFields = source is null ? [] : InstanceFields(type, source, cancellationToken)
+        };
+
+    /// <summary>The instance fields a source type declares, named as accesses name them: its fields, the backing fields of its
+    /// automatic properties and of a record's positional ones, the backing field a property's accessors name with <c>field</c>,
+    /// and the primary constructor parameters it captures (R3).</summary>
+    private static IReadOnlyList<IrFieldRef> InstanceFields(INamedTypeSymbol type, Compilation compilation, CancellationToken cancellationToken)
+    {
+        // An accessor body reaches the backing field through `field` as an ordinary field; an automatic or positional property's
+        // accesses name it through the property instead, below.
+        var fields = type.GetMembers().OfType<IFieldSymbol>()
+                         .Where(field => !field.IsStatic && !field.IsConst &&
+                                         (!field.IsImplicitlyDeclared ||
+                                          field.AssociatedSymbol is IPropertySymbol property && !IrLowering.IsAutoProperty(property, cancellationToken) &&
+                                          !IsPositional(property, cancellationToken)))
+                         .Select(IrLowering.FieldRef);
+        var properties = type.GetMembers().OfType<IPropertySymbol>()
+                             .Where(property => !property.IsStatic && !property.IsIndexer &&
+                                                (IrLowering.IsAutoProperty(property, cancellationToken) || IsPositional(property, cancellationToken)))
+                             .Select(IrLowering.PropertyField);
+        var parameters = type.InstanceConstructors
+                             .Where(constructor => constructor.DeclaringSyntaxReferences.Any(reference =>
+                                 reference.GetSyntax(cancellationToken) is TypeDeclarationSyntax))
+                             .SelectMany(constructor => IrLowering.CapturedPrimaryConstructorParameters(type, constructor, compilation, cancellationToken))
+                             .Select(IrLowering.PrimaryConstructorParameterField);
+        return fields.Concat(properties).Concat(parameters).ToArray();
+    }
+
+    /// <summary>A property a record declares by a parameter of its primary constructor: the compiler gives it a backing field.</summary>
+    private static bool IsPositional(IPropertySymbol property, CancellationToken cancellationToken) =>
+        property.ContainingType.IsRecord &&
+        property.DeclaringSyntaxReferences.Any(reference => reference.GetSyntax(cancellationToken) is ParameterSyntax);
 
     private static ProgramMethod Method(IMethodSymbol method, string typeKey, IReadOnlyDictionary<string, List<string>> implementations,
                                         IReadOnlyList<Compilation> compilations, CancellationToken cancellationToken)

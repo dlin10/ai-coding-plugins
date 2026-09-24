@@ -111,6 +111,13 @@ public static class FieldSlot
     }
 }
 
+/// <summary>One region of the solved heap, named directly: the base of an access a known call's effect makes on an object the heap
+/// already resolved (R3). No summary produces it; only the collection of accesses does, after the heap is solved.</summary>
+public sealed record RegionValue(string RegionId) : AbstractValue
+{
+    public override string ToString() => $"region:{RegionId}";
+}
+
 /// <summary>The object reached from <see cref="Base"/> through field segments; <c>[]</c> is an array element, and a path longer
 /// than the depth limit is the single segment <c>*</c>.</summary>
 public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segments) : AbstractValue
@@ -211,6 +218,10 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// itself (ADR 0010). Such a resource is the collection object and not the field that reached it: two fields holding one
     /// dictionary hold one dictionary, and naming the resource after the field leaves their accesses unable to ever meet.</summary>
     public bool IsOnCollection { get; init; }
+
+    /// <summary>The collections the access is on, where the collection of accesses already knows them: those the field holds, or
+    /// those held in the cells of what it holds. Null where every collection the field may hold is.</summary>
+    public IReadOnlySet<string>? CollectionRegions { get; init; }
 }
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
@@ -346,6 +357,29 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     public IReadOnlySet<AbstractValue> Receivers { get; init; } = new HashSet<AbstractValue>();
     public IReadOnlyList<CallArgument> Arguments { get; init; } = [];
     public IrServiceCall? ServiceCall { get; init; }
+
+    /// <summary>The table's word on the callee (TD-034a). A call it knows in range is a known call: coverage counts it apart from
+    /// the opaque ones, and every other reader of <see cref="MethodSummary.OpaqueCalls"/> treats it exactly as before (R1).</summary>
+    public IrLibraryCall? Library { get; init; }
+
+    public bool IsKnown => Library is { InRange: true };
+
+    /// <summary>What the call does to the collection it is a member of (ADR 0010): a member that puts values into it tells a deep
+    /// read which objects the collection holds.</summary>
+    public IrCollectionCall? Collection { get; init; }
+}
+
+/// <summary>What a known call does to one argument (R3), a deep read or a write: the objects the argument may be, or the collection
+/// or slice it is cut from, with the call's own place, locks and conditions. Collecting the accesses expands it over the solved
+/// heap.</summary>
+public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int OperationId, IReadOnlySet<AbstractValue> Values,
+                                           ArgumentCollection? Collection, bool IsSlice, IrProvenance Provenance,
+                                           IReadOnlyList<HeldLockValue> HeldLocks)
+{
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+
+    /// <summary>Whether the argument is a sequence of the objects the effect is on (<see cref="IrLibraryArgument.IsSequence"/>).</summary>
+    public bool IsSequence { get; init; }
 }
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
@@ -437,6 +471,9 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
                                    IReadOnlyList<CapturedStore> CapturedStores, IReadOnlyList<SummaryVariable> Variables)
 {
     public IReadOnlyList<SummaryReferenceAccess> ReferenceAccesses { get; init; } = [];
+
+    /// <summary>The deep reads and argument writes of the known calls of the body (R3).</summary>
+    public IReadOnlyList<SummaryArgumentEffect> ArgumentEffects { get; init; } = [];
     public IReadOnlyList<ReferenceTarget> ReferenceReturns { get; init; } = [];
 
     /// <summary>The collections the body returns by value, one per return: a field it read, a parameter it got, another call's

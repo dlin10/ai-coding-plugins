@@ -29,6 +29,10 @@ public sealed record FixtureOptions
     /// <summary>Assembly name per project; a project not named here is compiled as an assembly of its own name.</summary>
     public IReadOnlyDictionary<string, string> ProjectAssemblyNames { get; init; } = new Dictionary<string, string>();
 
+    /// <summary>Further references of every project, for cases over the library table's real packages; none may share a name with
+    /// a stub the project references.</summary>
+    public IReadOnlyList<MetadataReference> MetadataReferences { get; init; } = [];
+
     /// <summary>Stub assemblies no project references, for cases about a framework that is absent.</summary>
     public IReadOnlyList<string> OmittedStubs { get; init; } = [];
 
@@ -114,7 +118,7 @@ public static class FixtureSolution
                 options.ProjectOutputKinds.GetValueOrDefault(name, options.OutputKind),
                 nullableContextOptions: NullableContextOptions.Enable),
             parseOptions: CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest),
-            metadataReferences: StubAssemblies.PlatformWithout(extraNames).Concat(stubs).Concat(extras));
+            metadataReferences: StubAssemblies.PlatformWithout(extraNames).Concat(stubs).Concat(extras).Concat(options.MetadataReferences));
         return solution.AddProject(projectInfo);
     }
 

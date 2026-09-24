@@ -1540,6 +1540,39 @@
         { "symbol": "Demo.Web.Cases.AsyncTailAcquisition.SpawningWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.AsyncTailAcquisition.WritingWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "json-serialize-reads-deep",
+      "phase": "5a",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.JsonSerializeReadsDeep.Settings..ctor()#Demo.Web.Cases.JsonSerializeReadsDeep.Limits", "accessPath": ["Max"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.JsonSerializeReadsDeep.LimitsWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.JsonSerializeReadsDeep.SettingsController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "logger-arg-reads-deep",
+      "phase": "5a",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LoggerArgReadsDeep.Basket@Singleton", "accessPath": ["Items"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LoggerArgReadsDeep.BasketWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LoggerArgReadsDeep.BasketController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "ef-add-shared-entity",
+      "phase": "5a",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EfAddSharedEntity.Catalog..ctor()#Demo.Web.Cases.EfAddSharedEntity.Product", "accessPath": ["Stock"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EfAddSharedEntity.ImportWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EfAddSharedEntity.StockWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [

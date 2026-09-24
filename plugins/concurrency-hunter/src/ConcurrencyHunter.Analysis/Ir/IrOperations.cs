@@ -191,6 +191,10 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// <summary>What the call does to the collection it is a member of, null for every other call (ADR 0010).</summary>
     public IrCollectionCall? Collection { get; init; }
 
+    /// <summary>What the library semantics table says about the target, null for a target it does not describe (TD-034a). It
+    /// decides only for a call that would otherwise be opaque: one whose dispatch may reach a source body runs that body.</summary>
+    public IrLibraryCall? Library { get; init; }
+
     /// <summary>The call's result is awaited in the same expression, directly or through <c>ConfigureAwait</c>.</summary>
     public bool IsAwaitedImmediately { get; init; }
 
@@ -213,6 +217,36 @@ public enum IrEnumerationRole
 /// collection's own guarantee: a thread-safe collection performs each of its members atomically on both resources.</summary>
 public sealed record IrCollectionCall(string Member, IrCollectionEffect Structure, IrCollectionEffect Element, int? KeyArgument,
                                       bool IsAtomic);
+
+/// <summary>A member the library semantics table describes (TD-034a): its documentation id, whether the assembly it was found in
+/// is inside the table's version range, and its effects on its arguments. Out of range the call stays opaque and is counted
+/// apart.</summary>
+public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects);
+
+/// <summary>What a known call does to the argument bound to the parameter with <see cref="ParameterOrdinal"/>.
+/// <see cref="Arguments"/> are the values it does it to: the argument itself, or each element of a <c>params</c> array or slice
+/// the call creates, without those whose type is immutable, since an effect on them touches nothing (R3).</summary>
+public sealed record IrLibraryEffect(IrLibraryEffectKind Kind, int ParameterOrdinal)
+{
+    public IReadOnlyList<IrLibraryArgument> Arguments { get; init; } = [];
+}
+
+/// <summary>One value an effect applies to; a framework slice handed over ready is the storage it is cut from.</summary>
+public sealed record IrLibraryArgument(int Value, bool IsSlice)
+{
+    /// <summary>Whether the parameter takes a sequence of objects rather than one: <c>entities</c> and not <c>entity</c>. An effect
+    /// on it is an effect on the objects the sequence holds, and none on the sequence itself (R3).</summary>
+    public bool IsSequence { get; init; }
+}
+
+public enum IrLibraryEffectKind
+{
+    /// <summary>A read of every field of every region reachable from the argument.</summary>
+    DeepRead,
+
+    /// <summary>A write of every field of the argument's own regions, one level deep.</summary>
+    WriteArgument
+}
 
 /// <summary>What a locator or scope-creation call names: the constant service type key (null when the type is not a constant)
 /// and the kind of provider its receiver is (null when its origin is none of <see cref="IrProviderKind"/>).</summary>

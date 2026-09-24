@@ -6,22 +6,22 @@ finished phases are untouched.
 .DESCRIPTION
 Without arguments two checks run.
 
-Consistency: for every entry with phase 4b the case name is the part of `id` before `/`, and that name must have a file
+Consistency: for every entry with phase 5a the case name is the part of `id` before `/`, and that name must have a file
 <Pascal>.cs somewhere under demo/**/Cases/ whose namespace ends with the same <Pascal>, the kebab name joined in PascalCase.
 
 The past: the committed file, read with `git show HEAD:plugins/concurrency-hunter/demo/expected-findings.json`, must still
-hold the same entries for the finished phases 0, 1a, 1b, 2, 2b, 3 and 4, entry by entry, by id, rule, resource, accesses,
+hold the same entries for the finished phases 0, 1a, 1b, 2, 2b, 3, 4 and 4b, entry by entry, by id, rule, resource, accesses,
 confidence and phase. Formatting and property order are not compared; the two accesses of an entry are compared as the
 unordered pair they are (SPEC 12.2).
 
-With -Complete a third check runs, completeness: the case names of the phase 4b table of demo/SCENARIOS.md must each have a
+With -Complete a third check runs, completeness: the case names of the phase 5a table of demo/SCENARIOS.md must each have a
 file and an entry. Completeness is only reachable at the end of the phase, which is why it is a switch and not the default.
 
 Registration in Program.cs is not checked: cases that live on a controller have none, MVC finds them, and checking would
 fail on them.
 
 .PARAMETER Complete
-Also require every case of the phase 4b catalog to have a file and an entry.
+Also require every case of the phase 5a catalog to have a file and an entry.
 #>
 param(
     [switch]$Complete
@@ -41,8 +41,8 @@ if ([int][char]$PHASE_WORD[0] -ne 0x424) {
     exit 1
 }
 
-$PHASE = '4b'
-$FINISHED_PHASES = @('0', '1a', '1b', '2', '2b', '3', '4')
+$PHASE = '5a'
+$FINISHED_PHASES = @('0', '1a', '1b', '2', '2b', '3', '4', '4b')
 $COMMITTED = 'HEAD:plugins/concurrency-hunter/demo/expected-findings.json'
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -86,7 +86,7 @@ foreach ($file in Get-ChildItem (Join-Path $root 'demo') -Recurse -Filter '*.cs'
     $caseFiles[[IO.Path]::GetFileNameWithoutExtension($file.Name)] = $file.FullName
 }
 
-# 1. Consistency: every phase 4b entry has its case file, and that file carries the matching namespace.
+# 1. Consistency: every phase 5a entry has its case file, and that file carries the matching namespace.
 $cases = @($entries | Where-Object { $_.phase -eq $PHASE } | ForEach-Object { $_.id.Split('/')[0] } | Sort-Object -Unique)
 foreach ($case in $cases) {
     $pascal = Get-PascalName $case
@@ -149,7 +149,7 @@ foreach ($id in $present.Keys | Sort-Object) {
     }
 }
 
-# 3. Completeness, on request: every case of the phase 4b catalog has a file and an entry.
+# 3. Completeness, on request: every case of the phase 5a catalog has a file and an entry.
 $catalog = @()
 if ($Complete) {
     $inTable = $false

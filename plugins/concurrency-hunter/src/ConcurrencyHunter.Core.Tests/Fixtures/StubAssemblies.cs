@@ -19,6 +19,10 @@ public static class StubAssemblies
     public const string GRPC_CORE_API = "Grpc.Core.Api";
     public const string GRPC_ASPNETCORE_SERVER = "Grpc.AspNetCore.Server";
 
+    /// <summary>A stand-in for a library-table package at a version its range excludes. It is not one of <see cref="Names"/>: no
+    /// fixture references it unless a case asks for it by name.</summary>
+    public const string NEWTONSOFT_JSON = "Newtonsoft.Json";
+
     /// <summary>The gRPC packages are versioned on their own: their stubs default to <see cref="GRPC_DEFAULT_VERSION"/> and compile
     /// against the framework stubs at <see cref="FixtureOptions.DEFAULT_STUB_VERSION"/>.</summary>
     public const int GRPC_DEFAULT_VERSION = 2;
@@ -45,12 +49,13 @@ public static class StubAssemblies
             [MVC_CORE] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING], MvcCoreSource),
             [MVC] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, MVC_CORE], MvcSource),
             [GRPC_CORE_API] = ([], GrpcCoreSource),
-            [GRPC_ASPNETCORE_SERVER] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, GRPC_CORE_API], GrpcServerSource)
+            [GRPC_ASPNETCORE_SERVER] = ([DEPENDENCY_INJECTION_ABSTRACTIONS, HTTP_ABSTRACTIONS, ROUTING, GRPC_CORE_API], GrpcServerSource),
+            [NEWTONSOFT_JSON] = ([], NewtonsoftJsonSource)
         };
 
     private static readonly ConcurrentDictionary<(string Name, int Major, bool Empty), Lazy<MetadataReference>> Cache = new();
 
-    public static IReadOnlyList<string> Names { get; } = Stubs.Keys.ToArray();
+    public static IReadOnlyList<string> Names { get; } = Stubs.Keys.Where(name => name != NEWTONSOFT_JSON).ToArray();
 
     /// <summary>Whether a stub follows the target framework's major version; the gRPC stubs do not.</summary>
     public static bool IsFramework(string name) => name is not (GRPC_CORE_API or GRPC_ASPNETCORE_SERVER);
@@ -902,6 +907,16 @@ public static class StubAssemblies
             public static class GrpcServicesExtensions
             {
                 public static IGrpcServerBuilder AddGrpc(this IServiceCollection services) => throw null!;
+            }
+        }
+        """;
+
+    private const string NewtonsoftJsonSource = """
+        namespace Newtonsoft.Json
+        {
+            public static class JsonConvert
+            {
+                public static string SerializeObject(object? value) => throw null!;
             }
         }
         """;

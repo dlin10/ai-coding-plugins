@@ -2,6 +2,7 @@ using System.Globalization;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Providers.LibrarySemantics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -203,6 +204,46 @@ public static class IrLowering
             reference.GetSyntax(cancellationToken) is PropertyDeclarationSyntax { AccessorList: { Accessors.Count: > 0 } accessors } &&
             accessors.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null));
 
+    /// <summary>A field as every access to it names it.</summary>
+    internal static IrFieldRef FieldRef(IFieldSymbol field) =>
+        new(
+            field.ContainingAssembly.Name,
+            SymbolNames.Type(field.ContainingType),
+            field.Name,
+            IrFieldKind.Field,
+            field.IsStatic,
+            field.IsReadOnly,
+            SymbolNames.Type(field.Type),
+            SymbolNames.TypeIdentity(field.ContainingType))
+        {
+            IsVolatile = field.IsVolatile,
+            IsContainingTypeReadOnly = field.ContainingType.IsReadOnly
+        };
+
+    /// <summary>The backing field of an automatic property as every access to it names it.</summary>
+    internal static IrFieldRef PropertyField(IPropertySymbol property) =>
+        new(
+            property.ContainingAssembly.Name,
+            SymbolNames.Type(property.ContainingType),
+            property.Name,
+            IrFieldKind.PropertyBackingField,
+            property.IsStatic,
+            property.SetMethod is null,
+            SymbolNames.Type(property.Type),
+            SymbolNames.TypeIdentity(property.ContainingType));
+
+    /// <summary>The storage of a captured primary constructor parameter as every access to it names it.</summary>
+    internal static IrFieldRef PrimaryConstructorParameterField(IParameterSymbol parameter) =>
+        new(
+            parameter.ContainingType.ContainingAssembly.Name,
+            SymbolNames.Type(parameter.ContainingType),
+            parameter.Name,
+            IrFieldKind.PrimaryConstructorParameter,
+            false,
+            false,
+            SymbolNames.Type(parameter.Type),
+            SymbolNames.TypeIdentity(parameter.ContainingType));
+
     /// <summary>The field and property initializers of <paramref name="type"/> with the member each initializes, instance or
     /// static, ordered by file path (ordinal) and span start.</summary>
     internal static IReadOnlyList<(EqualsValueClauseSyntax Clause, ISymbol Member)> Initializers(
@@ -325,7 +366,7 @@ public static class IrLowering
     /// <summary>The primary constructor parameters the type captures: those referenced outside its initializers and the
     /// primary constructor's base argument list. A reference inside a lambda or local function an initializer declares is a
     /// capture too: that nested body reads the parameter through the type, so the constructor must store it there.</summary>
-    private static IReadOnlyList<IParameterSymbol> CapturedPrimaryConstructorParameters(INamedTypeSymbol type, IMethodSymbol constructor,
+    internal static IReadOnlyList<IParameterSymbol> CapturedPrimaryConstructorParameters(INamedTypeSymbol type, IMethodSymbol constructor,
                                                                                       Compilation compilation,
                                                                                       CancellationToken cancellationToken)
     {
@@ -1564,7 +1605,9 @@ public static class IrLowering
             if (getter is null)
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
-            return AddCall(property, getter, receiver, LowerArguments(property.Arguments), property.Type);
+            var value = AddCall(property, getter, receiver, LowerArguments(property.Arguments), property.Type);
+            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property), getter);
+            return value;
         }
 
         private int LowerPropertyStore(IPropertyReferenceOperation property, int value, IOperation source,
@@ -1580,7 +1623,7 @@ public static class IrLowering
                 Values = [.. arguments.Values, value],
                 Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
             };
-            _operations.Add(Call(null, setter, receiver, arguments, Provenance(source, transformation)));
+            _operations.Add(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property), setter));
             if (receiver is int timer && Bcl.TypeOf(setter) == Bcl.TIMERS_TIMER && property.Property.Name is "AutoReset" or "Enabled")
             {
                 var action = property.Property.Name == "AutoReset" ? IrTimerAction.SetAutoReset : IrTimerAction.SetEnabled;
@@ -1634,17 +1677,7 @@ public static class IrLowering
         }
 
         private FieldLocation GetPrimaryConstructorParameterLocation(IParameterSymbol parameter) =>
-            new(
-                _receiverValue,
-                new IrFieldRef(
-                    parameter.ContainingType.ContainingAssembly.Name,
-                    SymbolNames.Type(parameter.ContainingType),
-                    parameter.Name,
-                    IrFieldKind.PrimaryConstructorParameter,
-                    false,
-                    false,
-                    SymbolNames.Type(parameter.Type),
-                    SymbolNames.TypeIdentity(parameter.ContainingType)));
+            new(_receiverValue, PrimaryConstructorParameterField(parameter));
 
         private bool IsPrimaryConstructorParameter(IParameterSymbol parameter)
         {
@@ -1696,7 +1729,10 @@ public static class IrLowering
             var arguments = LowerArguments(invocation.Arguments);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
                                  ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
-            var call = (IrCallOperation)_operations[^1];
+            var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual, method);
+            call = AnnotateLibraryCall(call, invocation.Arguments, arguments);
+            _operations[^1] = call;
+
             if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
                 _configuredTasks[result] = configured;
             AnnotateBclCall(invocation, method, call, invocation.Arguments, arguments);
@@ -1716,6 +1752,17 @@ public static class IrLowering
             return asAddress || !(method.ReturnsByRef || method.ReturnsByRefReadonly)
                 ? result : LowerReferenceLoad(result, invocation);
         }
+
+        /// <summary>A base call runs the base member itself, never an override of it (R1): into a member without a source body it is
+        /// the opaque call the library table may know. One into a source body keeps the dispatch it had.</summary>
+        private static IrCallOperation AsBaseCall(IrCallOperation call, bool isVirtual, IMethodSymbol method) =>
+            !isVirtual && call.CallKind == IrCallKind.Virtual && !method.OriginalDefinition.Locations.Any(location => location.IsInSource)
+                ? call with { CallKind = IrCallKind.Instance }
+                : call;
+
+        /// <summary>Whether a property's accessor is dispatched virtually: not through <c>base</c>, which, as a base invocation does,
+        /// runs the base accessor itself.</summary>
+        private static bool IsVirtualAccess(IPropertyReferenceOperation property) => property.Instance?.Syntax is not BaseExpressionSyntax;
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
                             LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null,
@@ -1912,6 +1959,62 @@ public static class IrLowering
             }
         }
 
+        /// <summary>Binds each effect of a library call to the values it applies to (R3): the argument, or each element of a
+        /// <c>params</c> array or slice the call creates, which are arguments of their own. A value of an immutable type touches
+        /// nothing and is left out; a framework slice handed over ready is marked, since its effect is on the storage it is cut
+        /// from.</summary>
+        private IrCallOperation AnnotateLibraryCall(IrCallOperation call, IEnumerable<IArgumentOperation> argumentOperations,
+                                                    LoweredArguments arguments)
+        {
+            if (call.Library is not { Effects.Count: > 0 } library)
+                return call;
+
+            var effects = library.Effects.Select(effect =>
+            {
+                var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal == effect.ParameterOrdinal);
+                if (argument is null)
+                    return effect;
+                if (argument.ArgumentKind is ArgumentKind.ParamArray or ArgumentKind.ParamCollection &&
+                    ListedElements(argument.Value) is { } listed && Unwrapped(argument.Value) is var created &&
+                    (created is IArrayCreationOperation { Initializer: { } initializer } ? initializer.ElementValues
+                        : created is ICollectionExpressionOperation collection ? collection.Elements
+                        : []) is { Length: > 0 } elements && elements.Length == listed.Count)
+                {
+                    return effect with
+                    {
+                        Arguments = listed.Zip(elements).Where(pair => !IsImmutableValue(pair.Second))
+                                          .Select(pair => new IrLibraryArgument(pair.First, false)).ToArray()
+                    };
+                }
+
+                return ArgumentValue(arguments, effect.ParameterOrdinal) is int value && !IsImmutableValue(argument.Value)
+                    ? effect with
+                    {
+                        // The parameter as declared: `TEntity entity` takes one entity whatever type the call gives it.
+                        Arguments = [new IrLibraryArgument(value, IsFrameworkSlice(argument.Parameter!.Type))
+                        {
+                            IsSequence = IsSequence(argument.Parameter.OriginalDefinition.Type)
+                        }]
+                    }
+                    : effect;
+            }).ToArray();
+            return call with { Library = library with { Effects = effects } };
+
+            static IOperation Unwrapped(IOperation value) => value is IConversionOperation conversion ? Unwrapped(conversion.Operand) : value;
+
+            static bool IsImmutableValue(IOperation value) =>
+                Unwrapped(value).Type is not { } type || LibrarySemanticsTable.BuiltIn.IsImmutable(type);
+
+            static bool IsFrameworkSlice(ITypeSymbol type) => Bcl.TypeName(type) is "System.Span`1" or "System.ReadOnlySpan`1";
+
+            // A parameter of a sequence type takes objects and not an object: `entities` and not `entity`.
+            static bool IsSequence(ITypeSymbol type) =>
+                type is IArrayTypeSymbol ||
+                type.SpecialType != SpecialType.System_String &&
+                (type.SpecialType == SpecialType.System_Collections_IEnumerable ||
+                 type.AllInterfaces.Any(@interface => @interface.SpecialType == SpecialType.System_Collections_IEnumerable));
+        }
+
         /// <summary>The values of the tasks a call lists itself (separate arguments, an array creation or a collection expression
         /// written in the call); null for any other collection.</summary>
         private IReadOnlyList<int>? ListedElements(IOperation? argument)
@@ -1966,6 +2069,7 @@ public static class IrLowering
                 ArgumentParameterOrdinals = arguments.Ordinals,
                 RefResults = arguments.RefResults,
                 Collection = Collections.Of(method),
+                Library = nestedId is null ? LibraryCalls.Of(method) : null,
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
@@ -2256,6 +2360,7 @@ public static class IrLowering
             {
                 var arguments = LowerArguments(creation.Arguments);
                 _operations.Add(Call(null, creation.Constructor, result, arguments, provenance));
+                _operations[^1] = AnnotateLibraryCall((IrCallOperation)_operations[^1], creation.Arguments, arguments);
                 AnnotateBclCall(creation, creation.Constructor, (IrCallOperation)_operations[^1], creation.Arguments, arguments);
             }
 
@@ -2557,39 +2662,11 @@ public static class IrLowering
             }
         }
 
-        private FieldLocation GetFieldLocation(IFieldReferenceOperation reference)
-        {
-            var field = reference.Field;
-            return new FieldLocation(
-                reference.Instance is null ? null : LowerValue(reference.Instance),
-                new IrFieldRef(
-                    field.ContainingAssembly.Name,
-                    SymbolNames.Type(field.ContainingType),
-                    field.Name,
-                    IrFieldKind.Field,
-                    field.IsStatic,
-                    field.IsReadOnly,
-                    SymbolNames.Type(field.Type),
-                    SymbolNames.TypeIdentity(field.ContainingType))
-                {
-                    IsVolatile = field.IsVolatile,
-            IsContainingTypeReadOnly = field.ContainingType.IsReadOnly
-                });
-        }
+        private FieldLocation GetFieldLocation(IFieldReferenceOperation reference) =>
+            new(reference.Instance is null ? null : LowerValue(reference.Instance), FieldRef(reference.Field));
 
         private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference) =>
             new(reference.Instance is null ? null : LowerValue(reference.Instance), PropertyField(reference.Property));
-
-        private static IrFieldRef PropertyField(IPropertySymbol property) =>
-            new(
-                property.ContainingAssembly.Name,
-                SymbolNames.Type(property.ContainingType),
-                property.Name,
-                IrFieldKind.PropertyBackingField,
-                property.IsStatic,
-                property.SetMethod is null,
-                SymbolNames.Type(property.Type),
-                SymbolNames.TypeIdentity(property.ContainingType));
 
         /// <summary>Whether a property reference names one cell of its receiver's storage rather than a value the receiver
         /// computes: an indexer that hands back a reference hands back the cell itself, which is what <c>Span&lt;T&gt;</c> and
@@ -3119,6 +3196,24 @@ public static class IrLowering
 
         private static bool IsModelled(string type) =>
             type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG;
+    }
+
+    /// <summary>The library semantics table's word on a called member without a source declaration (TD-034a), with each effect
+    /// bound to the ordinal of the parameter it names; a member of this compilation is never the library's.</summary>
+    private static class LibraryCalls
+    {
+        internal static IrLibraryCall? Of(IMethodSymbol method)
+        {
+            var definition = (method.ReducedFrom ?? method).OriginalDefinition;
+            if (definition.Locations.Any(location => location.IsInSource) ||
+                LibrarySemanticsTable.BuiltIn.Find(definition) is not { } match)
+                return null;
+            var effects = match.Effects.Select(effect => new IrLibraryEffect(
+                                               effect.Kind == LibraryEffectKind.DeepRead ? IrLibraryEffectKind.DeepRead : IrLibraryEffectKind.WriteArgument,
+                                               definition.Parameters.Single(parameter => parameter.Name == effect.Parameter).Ordinal))
+                                   .ToArray();
+            return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects);
+        }
     }
 
     /// <summary>The <c>Interlocked</c> and <c>Volatile</c> members that name one cell, with what each does to it (TD-082). The two

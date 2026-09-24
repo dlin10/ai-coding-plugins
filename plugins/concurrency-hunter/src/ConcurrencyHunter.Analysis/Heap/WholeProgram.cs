@@ -13,6 +13,9 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
 
     public int Built => _summaries.Count;
 
+    /// <summary>The limits the summaries are built under, which the accesses expanded from them keep too.</summary>
+    public AnalysisLimits Limits => limits;
+
     public bool IsBuilt(string bodyId) => _summaries.ContainsKey(bodyId);
 
     public MethodSummary? Get(string bodyId)
@@ -224,7 +227,8 @@ public sealed class HeapSolution
     public IReadOnlySet<string> DelegateCaptures(string regionId) => _delegateCaptures(regionId);
 
     /// <summary>The regions an abstract value of an instance's summary points to.</summary>
-    public IReadOnlySet<string> Resolve(string instanceId, AbstractValue value) => _resolve(instanceId, value);
+    public IReadOnlySet<string> Resolve(string instanceId, AbstractValue value) =>
+        value is RegionValue region ? new HashSet<string>(StringComparer.Ordinal) { region.RegionId } : _resolve(instanceId, value);
 
     /// <summary>The regions a field of a region points to, including what open regions of its group store. The field is a slot key
     /// as <see cref="FieldsOf"/> gives it, <c>[]</c>, or a bare field name, which joins the slots of every declaring type with that

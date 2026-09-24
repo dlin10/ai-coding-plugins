@@ -6,6 +6,7 @@ using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Providers.LibrarySemantics;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
 using ConcurrencyHunter.Solving;
@@ -92,6 +93,9 @@ public static class PhaseOneAnalyzer
         var candidates = 0;
         var suppressed = 0;
         var pairSkips = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        // One out-of-range diagnostic per project and assembly in the whole report (R5): a project two scopes share is reported in
+        // the first of them.
+        var outOfRangeReported = new HashSet<(ProjectId, string)>();
 
         foreach (var scoped in discovery.Scopes)
         {
@@ -101,12 +105,14 @@ public static class PhaseOneAnalyzer
             var diagnostics = new List<string>(discovery.Diagnostics);
             var compilations = new List<Compilation>();
             var projectFiles = new List<(Compilation, string?)>();
+            var compiledProjects = new List<(Project Project, Compilation Compilation)>();
             foreach (var project in scoped.Projects)
             {
                 if (await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false) is { } compilation)
                 {
                     compilations.Add(compilation);
                     projectFiles.Add((compilation, project.FilePath));
+                    compiledProjects.Add((project, compilation));
                 }
             }
 
@@ -143,6 +149,13 @@ public static class PhaseOneAnalyzer
             var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, cancellationToken);
             diagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
                                          .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
+            diagnostics.AddRange(compiledProjects.SelectMany(compiled => LibrarySemanticsTable.BuiltIn.OutOfRangeReferences(compiled.Compilation)
+                                                                                              .Where(reference => outOfRangeReported.Add((compiled.Project.Id, reference.Assembly.Name)))
+                                                                                              .Select(reference =>
+                $"library-semantics: {RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion} {compiled.Project.Name}: " +
+                $"{reference.Assembly.Name} {reference.Assembly.Version}: {compiled.Project.Name} references {reference.Assembly.Name} " +
+                $"{reference.Assembly.Version}, outside the supported range {reference.Range.Minimum} up to {reference.Range.MaximumExclusive}; " +
+                "the calls of its members the library table describes are opaque calls.")));
 
             Record(timings, SCOPE_DISCOVERY, step);
             var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);

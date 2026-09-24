@@ -144,6 +144,7 @@ public static class MethodSummaryBuilder
             var delegateTransfers = new List<DelegateTransfer>();
             var calls = new List<CallTransfer>();
             var opaqueCalls = new List<SummaryOpaqueCall>();
+            var argumentEffects = new List<SummaryArgumentEffect>();
             var capturedStores = new List<CapturedStore>();
             foreach (var operation in _operations)
             {
@@ -262,8 +263,23 @@ public static class MethodSummaryBuilder
                         {
                             Receivers = Final(Points(call.ReceiverValue), delegates),
                             Arguments = Arguments(call, delegates),
-                            ServiceCall = call.ServiceCall
+                            ServiceCall = call.ServiceCall,
+                            Library = call.Library,
+                            Collection = call.Collection
                         });
+                        if (call.Library is { InRange: true } library)
+                        {
+                            foreach (var effect in library.Effects)
+                            foreach (var argument in effect.Arguments)
+                            {
+                                argumentEffects.Add(new SummaryArgumentEffect(effect.Kind, call.Id, Final(Points(argument.Value), delegates),
+                                                                              Collection(argument.Value), argument.IsSlice, call.Provenance, locks)
+                                {
+                                    IsSequence = argument.IsSequence
+                                });
+                            }
+                        }
+
                         break;
                     case IrCallOperation call:
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
@@ -294,6 +310,9 @@ public static class MethodSummaryBuilder
                 accesses[index] = accesses[index] with { Conditions = conditions[accesses[index].OperationId] };
             for (var index = 0; index < referenceAccesses.Count; index++)
                 referenceAccesses[index] = referenceAccesses[index] with { Conditions = Conditions(referenceAccesses[index].OperationId) };
+            // An argument effect runs where its call runs, under the call's guards like any access there.
+            for (var index = 0; index < argumentEffects.Count; index++)
+                argumentEffects[index] = argumentEffects[index] with { Conditions = Conditions(argumentEffects[index].OperationId) };
 
             var refParameters = _body.Parameters.Where(parameter => parameter.RefKind is IrRefKind.Ref or IrRefKind.Out)
                                      .Select(parameter =>
@@ -327,6 +346,7 @@ public static class MethodSummaryBuilder
                                      capturedStores, variables)
             {
                 ReferenceAccesses = referenceAccesses,
+                ArgumentEffects = argumentEffects,
                 ReferenceReturns = referenceReturns,
                 CollectionReturns = collectionReturns,
                 Locks = lockTransfers,

@@ -21,7 +21,7 @@ public sealed class DemoExpectationTests
     private static readonly Lazy<Task<AnalysisResult>> SharedDemo = new(() => AnalyzeDemoAsync());
 
     [Fact]
-    public async Task Demo_matches_every_phase_4b_expectation_on_three_runs()
+    public async Task Demo_matches_every_phase_5a_expectation_on_three_runs()
     {
         var expectationPath = RepositoryFiles.FindRepositoryFile(
             "plugins", "concurrency-hunter", "demo", "expected-findings.json");
@@ -33,7 +33,7 @@ public sealed class DemoExpectationTests
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "4b");
+            "5a");
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
