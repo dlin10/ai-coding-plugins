@@ -1730,6 +1730,14 @@ public static class IrLowering
 
             var method = invocation.TargetMethod;
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
+            if (EnumeratedArray(invocation) is { } array && receiver is int enumerated)
+            {
+                var element = AddTemporary(array.ElementType);
+                _operations.Add(new IrLoadElementOperation(NextOperation(), element, enumerated, [], Provenance(invocation, "element-load"))
+                {
+                    NamesOneCell = false
+                });
+            }
             var arguments = LowerArguments(invocation.Arguments);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
                                  ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
@@ -1756,6 +1764,15 @@ public static class IrLowering
             return asAddress || !(method.ReturnsByRef || method.ReturnsByRefReadonly)
                 ? result : LowerReferenceLoad(result, invocation);
         }
+
+        /// <summary>The array a <c>foreach</c> enumerates, where this call is that loop's <c>GetEnumerator</c>. The control-flow graph
+        /// enumerates an array through the non-generic <c>IEnumerable</c> it is converted to, a member no collection model knows,
+        /// yet the loop reads every cell of the array all the same (ADR 0010): a read of its element storage under an unknown selector.</summary>
+        private static IArrayTypeSymbol? EnumeratedArray(IInvocationOperation invocation) =>
+            invocation is { IsImplicit: true, TargetMethod.Name: "GetEnumerator", Instance: IConversionOperation { Operand.Type: IArrayTypeSymbol array } } &&
+            invocation.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
+                ? array
+                : null;
 
         /// <summary>A base call runs the base member itself, never an override of it (R1): an exact call of that member, which runs
         /// its source body where it has one and is the opaque call the library table may know where it has none.</summary>
