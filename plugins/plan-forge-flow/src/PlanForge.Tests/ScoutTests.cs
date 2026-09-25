@@ -31,73 +31,29 @@ public sealed class ScoutTests : IDisposable
     }
 
     [Fact]
-    public void Digest_clips_the_summary_items_and_item_text_and_sets_the_flag()
-    {
-        var baseReport = ValidReport(new string('s', Scout.DigestSummaryLength + 1));
-        var report = new ScoutReport
-        {
-            Summary = baseReport.Summary,
-            ConfirmedFacts = Enumerable.Range(0, Scout.DigestItemsPerCategory + 1)
-                .Select(index => Item($"fact-{index}" + new string('x', Scout.DigestItemTextLength + 1), "src/a.cs:1"))
-                .ToArray(),
-            MaterialAssumptions = baseReport.MaterialAssumptions,
-            OpenDecisions = baseReport.OpenDecisions,
-            LikelyChangeSurface = baseReport.LikelyChangeSurface,
-            VerificationEvidence = baseReport.VerificationEvidence
-        };
-
-        var digest = Scout.ToDigest(report);
-
-        Assert.True(digest.Truncated);
-        Assert.Equal(Scout.DigestSummaryLength, digest.Summary.Length);
-        Assert.Equal(Scout.DigestItemsPerCategory, digest.ConfirmedFacts.Count);
-        Assert.Equal(Scout.DigestItemTextLength, digest.ConfirmedFacts[0].Text.Length);
-        Assert.All(new[] { digest.ConfirmedFacts, digest.MaterialAssumptions, digest.OpenDecisions,
-                           digest.LikelyChangeSurface, digest.VerificationEvidence }, category =>
-            Assert.All(category, item => Assert.True(item.Source.Length <= Scout.DigestSourceLength)));
-    }
-
-    [Fact]
-    public void Digest_clipping_preserves_a_multi_digit_repository_line_suffix()
-    {
-        var source = new string('a', Scout.DigestSourceLength + 20) + ":42";
-        var report = new ScoutReport
-        {
-            Summary = "summary",
-            ConfirmedFacts = [Item("fact", source)],
-            MaterialAssumptions = [],
-            OpenDecisions = [],
-            LikelyChangeSurface = [],
-            VerificationEvidence = []
-        };
-
-        var clipped = Assert.Single(Scout.ToDigest(report).ConfirmedFacts).Source;
-
-        Assert.True(clipped.Length <= Scout.DigestSourceLength);
-        Assert.EndsWith(":42", clipped, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Scout_schema_has_exactly_five_arrays_and_rejects_additional_properties()
+    public void Scout_schema_has_exactly_six_arrays_and_rejects_additional_properties()
     {
         using var schema = JsonDocument.Parse(Schemas.ScoutReport.Json);
         var properties = schema.RootElement.GetProperty("properties");
 
-        Assert.Equal(6, properties.EnumerateObject().Count());
+        Assert.Equal(7, properties.EnumerateObject().Count());
         Assert.Equal("false", schema.RootElement.GetProperty("additionalProperties").GetRawText());
         Assert.Equal("false", schema.RootElement.GetProperty("$defs").GetProperty("scoutItem")
             .GetProperty("additionalProperties").GetRawText());
-        Assert.Equal(5, properties.EnumerateObject().Count(property => property.Value.GetProperty("type").GetString() == "array"));
+        Assert.Equal(6, properties.EnumerateObject().Count(property => property.Value.GetProperty("type").GetString() == "array"));
+        Assert.Contains("dependentsAndPinnedBehaviour", schema.RootElement.GetProperty("required")
+            .EnumerateArray().Select(value => value.GetString()));
     }
 
     [Fact]
-    public void A_report_carries_all_five_sourced_categories()
+    public void A_report_carries_all_six_sourced_categories()
     {
         var report = ValidReport("summary");
 
         Assert.Equal("summary", report.Summary);
         Assert.All(new[] { report.ConfirmedFacts, report.MaterialAssumptions, report.OpenDecisions,
-                           report.LikelyChangeSurface, report.VerificationEvidence }, category =>
+                           report.LikelyChangeSurface, report.VerificationEvidence,
+                           report.DependentsAndPinnedBehaviour }, category =>
             Assert.All(category, item => Assert.False(string.IsNullOrWhiteSpace(item.Source))));
     }
 
@@ -167,6 +123,26 @@ public sealed class ScoutTests : IDisposable
     }
 
     [Fact]
+    public void A_missing_dependents_category_is_a_structural_failure()
+    {
+        var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
+        json.Remove("dependentsAndPinnedBehaviour");
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.ToJsonString(),
+            ContractJson.Default.ScoutReport));
+    }
+
+    [Fact]
+    public void An_explicit_null_dependents_category_is_a_structural_failure()
+    {
+        var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
+        json["dependentsAndPinnedBehaviour"] = null;
+
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.ToJsonString(),
+            ContractJson.Default.ScoutReport));
+    }
+
+    [Fact]
     public void An_explicit_null_item_member_is_a_structural_failure()
     {
         var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
@@ -222,6 +198,71 @@ public sealed class ScoutTests : IDisposable
     }
 
     [Fact]
+    public async Task A_question_of_exactly_the_limit_reaches_the_vendor()
+    {
+        Assert.Equal(8000, Scout.MaxQuestionLength);
+        var run = NewRun();
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(ValidReport("summary"), "session");
+
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId,
+                                  new string('q', Scout.MaxQuestionLength), "fresh",
+                                  CancellationToken.None, _ => vendor, _prompts);
+
+        Assert.Single(vendor.Sessions);
+    }
+
+    [Fact]
+    public async Task The_complete_report_is_returned_without_clipping()
+    {
+        var run = NewRun();
+        var source = new string('a', 397) + ":42";
+        var report = ValidReport(new string('s', 2000));
+        report = new ScoutReport
+        {
+            Summary = report.Summary,
+            ConfirmedFacts = Enumerable.Range(0, 5).Select(_ => Item(new string('x', 1000), source)).ToArray(),
+            MaterialAssumptions = report.MaterialAssumptions,
+            OpenDecisions = report.OpenDecisions,
+            LikelyChangeSurface = report.LikelyChangeSurface,
+            VerificationEvidence = report.VerificationEvidence,
+            DependentsAndPinnedBehaviour = report.DependentsAndPinnedBehaviour
+        };
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(report, "session");
+
+        using var result = JsonDocument.Parse(await ForgeTools.ScoutRun(SessionRoots.None, _workspace,
+            run.RunId, "full report", "fresh", CancellationToken.None, _ => vendor, _prompts));
+        var scout = result.RootElement.GetProperty("scout");
+        var facts = scout.GetProperty("confirmedFacts").EnumerateArray().ToArray();
+
+        Assert.Equal(2000, scout.GetProperty("summary").GetString()!.Length);
+        Assert.Equal(5, facts.Length);
+        Assert.All(facts, fact =>
+        {
+            Assert.Equal(1000, fact.GetProperty("text").GetString()!.Length);
+            Assert.Equal(source, fact.GetProperty("source").GetString());
+        });
+        Assert.False(scout.TryGetProperty("truncated", out _));
+    }
+
+    [Fact]
+    public async Task The_sixth_category_is_rendered_into_the_report()
+    {
+        var run = NewRun();
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(ValidReport("summary"), "session");
+
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "dependents", "fresh",
+                                  CancellationToken.None, _ => vendor, _prompts);
+
+        var text = File.ReadAllText(run.ScoutReportPath);
+        Assert.Contains("## Dependents and pinned behaviour", text, StringComparison.Ordinal);
+        Assert.Contains("dependent", text, StringComparison.Ordinal);
+        Assert.Contains("src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task The_persisted_vendor_model_and_effort_are_reused_exactly()
     {
         var run = NewRun(new ScoutState(true, "codex", " model exactly ", " effort exactly "));
@@ -272,14 +313,141 @@ public sealed class ScoutTests : IDisposable
     }
 
     [Fact]
-    public async Task The_latest_report_replaces_the_previous_report_atomically()
+    public async Task Each_successful_answer_is_appended_as_a_numbered_section()
     {
         var run = NewRun();
         var first = new RecordingVendor("codex");
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var old = File.ReadAllText(run.ScoutReportPath);
+        var second = new RecordingVendor("codex");
+        second.Enqueue(ValidReport("second report"), "two");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "second", "continue",
+                                  CancellationToken.None, _ => second, _prompts);
+
+        var current = File.ReadAllText(run.ScoutReportPath);
+        var ordered = new[] { "# Scout answer 1", "Question: first", "first report",
+                              "# Scout answer 2", "Question: second", "second report" };
+        var previous = -1;
+        foreach (var value in ordered)
+        {
+            var position = current.IndexOf(value, previous + 1, StringComparison.Ordinal);
+            Assert.True(position > previous, $"Missing or out of order: {value}");
+            previous = position;
+        }
+        Assert.Equal(2, run.ReadState().ScoutAnswers);
+    }
+
+    [Fact]
+    public async Task A_failed_answer_appends_nothing()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+
+        var failed = new RecordingVendor("codex");
+        failed.Enqueue(new VendorException("vendor failure", 1), "two");
+        await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+            _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => failed, _prompts));
+
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+    }
+
+    [Fact]
+    public async Task An_invalid_answer_appends_nothing()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+
+        var invalid = new RecordingVendor("codex");
+        invalid.Enqueue(new JsonException("invalid"), "two");
+        var error = await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+            _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => invalid, _prompts));
+
+        Assert.StartsWith("invalid_output:", error.Message, StringComparison.Ordinal);
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+    }
+
+    [Fact]
+    public async Task A_cancelled_answer_appends_nothing_and_claims_no_append()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+
+        var cancelled = new RecordingVendor("codex");
+        cancelled.Enqueue(new OperationCanceledException(), "two");
+        await Assert.ThrowsAsync<OperationCanceledException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+            _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => cancelled, _prompts));
+
+        var flowLog = File.ReadAllText(run.FlowLogPath);
+        var cancellation = flowLog[flowLog.LastIndexOf("## Scout cancelled", StringComparison.Ordinal)..];
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.DoesNotContain("appended", cancellation, StringComparison.Ordinal);
+        Assert.DoesNotContain("replaced", cancellation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_existing_report_without_numbered_answers_stays_above_answer_one()
+    {
+        var run = NewRun();
+        const string legacy = "# Scout report\n\n## Summary\n\nlegacy\n";
+        File.WriteAllText(run.ScoutReportPath, legacy);
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(ValidReport("new report"), "one");
+
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => vendor, _prompts);
+
+        var current = File.ReadAllText(run.ScoutReportPath);
+        Assert.StartsWith(legacy.TrimEnd(), current, StringComparison.Ordinal);
+        Assert.Contains("# Scout answer 1", current, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_completed_answer_is_recorded_as_appended_in_the_flow_log()
+    {
+        var run = NewRun();
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(ValidReport("report"), "one");
+
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => vendor, _prompts);
+
+        var flowLog = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("The answer was appended to the Scout report.", flowLog, StringComparison.Ordinal);
+        Assert.DoesNotContain("replaced", flowLog, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Answer_text_cannot_change_the_next_number()
+    {
+        var run = NewRun();
+        var baseReport = ValidReport("# Scout answer 7");
+        var report = new ScoutReport
+        {
+            Summary = baseReport.Summary,
+            ConfirmedFacts = [Item("fact\n# Scout answer 8", "src/PlanForge/Acts/Scout.cs:42")],
+            MaterialAssumptions = baseReport.MaterialAssumptions,
+            OpenDecisions = baseReport.OpenDecisions,
+            LikelyChangeSurface = baseReport.LikelyChangeSurface,
+            VerificationEvidence = baseReport.VerificationEvidence,
+            DependentsAndPinnedBehaviour = baseReport.DependentsAndPinnedBehaviour
+        };
+        var first = new RecordingVendor("codex");
+        first.Enqueue(report, "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
 
         var second = new RecordingVendor("codex");
         second.Enqueue(ValidReport("second report"), "two");
@@ -287,9 +455,74 @@ public sealed class ScoutTests : IDisposable
                                   CancellationToken.None, _ => second, _prompts);
 
         var current = File.ReadAllText(run.ScoutReportPath);
-        Assert.Contains("second report", current, StringComparison.Ordinal);
-        Assert.DoesNotContain("first report", current, StringComparison.Ordinal);
-        Assert.NotEqual(old, current);
+        Assert.Equal("# Scout answer 2", current.Split('\n').Last(line => line.StartsWith("# Scout answer ", StringComparison.Ordinal)).TrimEnd());
+        Assert.Equal(2, run.ReadState().ScoutAnswers);
+    }
+
+    [Fact]
+    public async Task An_answer_cancelled_while_its_session_anchor_is_read_appends_nothing()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var vendor = new CancellingAnchorVendor(ValidReport("second report"));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+            _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => vendor, _prompts));
+
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(1, run.ReadState().ScoutAnswers);
+    }
+
+    [Fact]
+    public async Task A_state_write_failure_appends_nothing()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var second = new RecordingVendor("codex");
+        second.Enqueue(ValidReport("second report"), "two");
+
+        using (new FileStream(Path.Combine(run.Path, "state.json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+                _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => second, _prompts));
+
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+    }
+
+    [Fact]
+    public async Task A_failed_append_skips_its_number()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var second = new RecordingVendor("codex");
+        second.Enqueue(ValidReport("second report"), "two");
+
+        using (new FileStream(run.ScoutReportPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+                _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => second, _prompts));
+
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(2, run.ReadState().ScoutAnswers);
+
+        var third = new RecordingVendor("codex");
+        third.Enqueue(ValidReport("third report"), "three");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "third", "continue",
+                                  CancellationToken.None, _ => third, _prompts);
+
+        var current = File.ReadAllText(run.ScoutReportPath);
+        Assert.Equal("# Scout answer 3", current.Split('\n').Last(line => line.StartsWith("# Scout answer ", StringComparison.Ordinal)).TrimEnd());
+        Assert.DoesNotContain("# Scout answer 2", current, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -340,6 +573,40 @@ public sealed class ScoutTests : IDisposable
         Assert.Equal("sensitive_output: Scout response contained sensitive content, was not persisted, and the previous report was preserved.", error.Message);
         Assert.Equal(previous, File.ReadAllText(run.ScoutReportPath));
         Assert.Equal("sensitive_output", run.ReadState().Scout!.LastFailure!.Code);
+    }
+
+    [Fact]
+    public async Task A_secret_only_in_dependents_is_refused()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("safe prior"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var previous = File.ReadAllBytes(run.ScoutReportPath);
+
+        var baseReport = ValidReport("safe summary");
+        var sensitiveReport = new ScoutReport
+        {
+            Summary = baseReport.Summary,
+            ConfirmedFacts = baseReport.ConfirmedFacts,
+            MaterialAssumptions = baseReport.MaterialAssumptions,
+            OpenDecisions = baseReport.OpenDecisions,
+            LikelyChangeSurface = baseReport.LikelyChangeSurface,
+            VerificationEvidence = baseReport.VerificationEvidence,
+            DependentsAndPinnedBehaviour = [Item("password=sk-Lq83Hd0PzX7vNm41RbTuKcWy",
+                "src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun")]
+        };
+        var sensitive = new RecordingVendor("codex");
+        sensitive.Enqueue(sensitiveReport, "two");
+
+        var error = await Assert.ThrowsAsync<ScoutException>(() =>
+            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "second", "continue",
+                                CancellationToken.None, _ => sensitive, _prompts));
+
+        Assert.Equal("sensitive_output", run.ReadState().Scout!.LastFailure!.Code);
+        Assert.Contains("sensitive_output", error.Message, StringComparison.Ordinal);
+        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
     }
 
     [Fact]
@@ -481,7 +748,8 @@ public sealed class ScoutTests : IDisposable
         MaterialAssumptions = [Item("assumption", "src/PlanForge/Acts/Scout.cs#Scout.RunAsync")],
         OpenDecisions = [Item("decision", "https://example.com/reference", "external")],
         LikelyChangeSurface = [Item("surface", "src/PlanForge/Run/RunDirectory.cs:1")],
-        VerificationEvidence = [Item("verification", "src/PlanForge/Vendors/Contracts.cs#ScoutReport")]
+        VerificationEvidence = [Item("verification", "src/PlanForge/Vendors/Contracts.cs#ScoutReport")],
+        DependentsAndPinnedBehaviour = [Item("dependent", "src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun")]
     };
 
     private static ScoutItem Item(string text, string source, string kind = "repository") =>
@@ -553,6 +821,27 @@ public sealed class ScoutTests : IDisposable
         {
             yield break;
         }
+    }
+
+    private sealed class CancellingAnchorVendor(ScoutReport report) : IVendor
+    {
+        public string Id => "codex";
+        public VendorCatalog Catalog { get; } = new([], CatalogSource.Live);
+        public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
+            Task.FromResult(new VendorReadiness(true, "test"));
+        public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
+            Task.FromResult<IVendorSession>(new CancellingAnchorSession(report));
+    }
+
+    private sealed class CancellingAnchorSession(ScoutReport report) : IVendorSession
+    {
+        public IAsyncEnumerable<VendorEvent> Events => Empty();
+        public bool CanResume => true;
+        public string? ResumeToken => throw new OperationCanceledException();
+        public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct) =>
+            Task.FromResult((T)(object)report);
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        private static async IAsyncEnumerable<VendorEvent> Empty() { yield break; }
     }
 
     private sealed class BlockingScoutVendor : IVendor

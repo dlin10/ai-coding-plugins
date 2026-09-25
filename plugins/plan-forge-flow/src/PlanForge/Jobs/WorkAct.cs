@@ -79,7 +79,7 @@ internal sealed class WorkAct
             case "scout":
                 var scoutAct = new Scout(_vendor, _prompts);
                 var scout = await scoutAct.RunAsync(run, question!, sessionMode!, ct).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutDigest),
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutReport),
                                             scoutAct.SpeedWarning);
 
             default:

@@ -1,5 +1,23 @@
 # Plan Forge Flow releases
 
+## 0.37.0
+
+The Scout finds what a plan breaks, and its whole answer reaches the orchestrator (issue #117, docs/adr/0021).
+
+- Every plan gets an Impact pass before its first `forge.plan.write`. The skill supplies a Scout
+  question template and an Evidence check, and recommends the strongest catalogue combination at
+  high effort.
+- Scout's contract requires a sixth category, `dependentsAndPinnedBehaviour`, with a sourced
+  "none found" item when a location has no dependents. Names must appear at their cited location,
+  and the answer must include every relevant fact read. The shared Roslyn contract, used by Scout
+  and Critic, directs usage claims to reference and caller queries.
+- `forge.scout.run` and Scout background jobs return the complete answer. The bounded digest and
+  `truncated` field are gone.
+- `SCOUT.md` accumulates numbered answers with their questions. Numbers come from the new
+  `run.scoutAnswers` state field. A call that fails before appending leaves the report unchanged;
+  cancellation no longer claims in the Flow log that the report was replaced.
+- Scout questions can be up to 8,000 characters long.
+
 ## 0.36.0
 
 A worker can run at its vendor's Fast tier (issue #116, docs/adr/0023).
