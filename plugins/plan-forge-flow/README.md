@@ -99,7 +99,7 @@ independent:
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
 | `claude` | Claude Code CLI | `--json-schema`, natively | resolved, aliases through `init` |
-| `codex` | Codex App Server over stdio | schema in the prompt, validated here | live, `model/list` |
+| `codex` | Codex CLI, `codex exec` | `--output-schema`, natively | live, `codex debug models` |
 | `cursor` | `cursor-agent` CLI | schema in the prompt, validated here | live, `--list-models` |
 
 Structured output is a hard requirement of the vendor interface, so a vendor without native support
