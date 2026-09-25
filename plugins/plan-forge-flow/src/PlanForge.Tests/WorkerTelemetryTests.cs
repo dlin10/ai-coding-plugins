@@ -73,6 +73,35 @@ public sealed class WorkerTelemetryTests : IDisposable
         Assert.Equal(0.4213875m, record.GetProperty("costUsd").GetDecimal());
     }
 
+    /// <summary>
+    /// The requested speed is written for every attempt beside the effort; the speed served only
+    /// where the vendor reported it — claude's <c>fast_mode_state</c>. See docs/adr/0023.
+    /// </summary>
+    [Fact]
+    public void Records_the_requested_speed_for_every_attempt_and_the_served_one_where_reported()
+    {
+        var context = Context("build", taskNumber: 1, taskCount: 1);
+        var role = new RoleSpec(VendorRole.Builder, "role", Telemetry: context);
+
+        var claude = new VendorTurn(role, new Selection("opus", "high", Fast: true), "claude").Start(1, null);
+        claude.Succeeded();
+        claude.Finish(new WorkerUsage(), "claude-session", servedFastState: "cooldown");
+        var codex = new VendorTurn(role, new Selection("gpt-6-astra", "high"), "codex").Start(1, null);
+        codex.Succeeded();
+        codex.Finish(new WorkerUsage(), "codex-thread");
+
+        var json = File.ReadAllText(context.Path);
+        Assert.True(json.IndexOf("\"effort\"", StringComparison.Ordinal) < json.IndexOf("\"fast\"", StringComparison.Ordinal));
+        Assert.True(json.IndexOf("\"fastModeState\"", StringComparison.Ordinal) < json.IndexOf("\"sessionMode\"", StringComparison.Ordinal));
+
+        using var document = JsonDocument.Parse(json);
+        var records = document.RootElement.EnumerateArray().ToArray();
+        Assert.True(records[0].GetProperty("fast").GetBoolean());
+        Assert.Equal("cooldown", records[0].GetProperty("fastModeState").GetString());
+        Assert.False(records[1].GetProperty("fast").GetBoolean());
+        Assert.False(records[1].TryGetProperty("fastModeState", out _));
+    }
+
     [Fact]
     public void Cursor_schema_retry_keeps_turn_identity_and_numbers_process_attempts()
     {

@@ -67,7 +67,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var run = NewRun("code-tool", approved: false);
         await Assert.ThrowsAsync<NotApprovedException>(() => ForgeTools.ReviewCode(
-            SessionRoots.None, _workspace, run.RunId, "critic", CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "critic", CancellationToken.None,
             vendor: "codex"));
     }
 
@@ -291,7 +291,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var run = NewRun("revision-guard");
         await Assert.ThrowsAsync<SensitiveContentException>(() => ForgeTools.ReviewPlan(
-            SessionRoots.None, _workspace, run.RunId, "critic", CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, "critic", CancellationToken.None,
             planDraft: "# Plan", vendor: "codex",
             revision: "api_key: Abcdefghijklmnop1234+"));
     }

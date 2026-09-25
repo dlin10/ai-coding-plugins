@@ -28,10 +28,33 @@ public sealed class CodexArgumentTests
             "--output-schema", "schema.json",
             "-o", "result.json",
             "-m", "gpt-5.6-sol",
+            "-c", "service_tier=" + TomlValue.String("default"),
             "-c", "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false",
             "-c", "sandbox_mode=" + TomlValue.String("read-only"),
             "-c", "developer_instructions=" + TomlValue.String("review the plan")
         ], arguments);
+    }
+
+    /// <summary>
+    /// A worker inherits `service_tier` from `~/.codex/config.toml`, which the Codex desktop app
+    /// rewrites whenever its Fast toggle changes, so standard speed is asked for as explicitly as
+    /// Fast is — see docs/adr/0023. `default` and `fast` are the spellings codex-cli 0.157.0 served
+    /// as standard and as its priority tier on 2026-09-25.
+    /// </summary>
+    [Fact]
+    public void Every_turn_names_its_speed_so_the_desktop_toggle_cannot_choose_it()
+    {
+        var role = new RoleSpec(VendorRole.Builder, "implement the task");
+
+        var fast = CodexCliSession.BuildArguments(role, new Selection("gpt-6-astra", "high", Fast: true), "thread-1",
+                                                  "schema.json", "result.json");
+        var standard = CodexCliSession.BuildArguments(role, new Selection("gpt-6-astra", "high"), "thread-1",
+                                                      "schema.json", "result.json");
+
+        Assert.Contains("service_tier=" + TomlValue.String("fast"), fast);
+        Assert.DoesNotContain("service_tier=" + TomlValue.String("default"), fast);
+        Assert.Contains("service_tier=" + TomlValue.String("default"), standard);
+        Assert.DoesNotContain("service_tier=" + TomlValue.String("fast"), standard);
     }
 
     [Fact]

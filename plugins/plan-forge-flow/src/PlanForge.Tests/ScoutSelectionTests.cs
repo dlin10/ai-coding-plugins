@@ -37,11 +37,35 @@ public sealed class ScoutSelectionTests : IDisposable
         Assert.Null(run.ReadState().Scout);
     }
 
+    /// <summary>
+    /// A Scout selection carries its speed beside its model and effort. It is confirmed when chosen
+    /// rather than at the first question, and a refusal leaves the selection as it stood.
+    /// </summary>
+    [Fact]
+    public async Task A_fast_scout_is_confirmed_when_selected_and_kept_with_the_selection()
+    {
+        var run = NewRun();
+        var cache = new CatalogCache((id, _) => new RecordingVendor(id!)
+        {
+            Catalog = new VendorCatalog([new VendorModel("gpt-6-astra", ["low"]) { FastEfforts = ["low"] },
+                                         new VendorModel("gpt-5.4-mini", ["low"])], CatalogSource.Live)
+        });
+
+        await ForgeTools.SelectScout(cache, SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+            vendor: "codex", model: "gpt-6-astra", effort: "low", fast: true);
+        Assert.True(run.ReadState().Scout!.Fast);
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.SelectScout(cache, SessionRoots.None,
+            _workspace, run.RunId, true, CancellationToken.None, vendor: "codex", model: "gpt-5.4-mini", effort: "low",
+            fast: true));
+        Assert.Equal("gpt-6-astra", run.ReadState().Scout!.Model);
+    }
+
     [Fact]
     public async Task A_selected_choice_persists_exactly_and_status_exposes_it()
     {
         var run = await NewGitRun();
-        await ForgeTools.SelectScout(SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
             vendor: "codex", model: " model exactly ", effort: " effort exactly ");
 
         var state = run.ReadState().Scout;
@@ -67,7 +91,7 @@ public sealed class ScoutSelectionTests : IDisposable
     {
         var run = NewRun();
 
-        await ForgeTools.SelectScout(SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
 
         var state = run.ReadState().Scout;
         Assert.NotNull(state);
@@ -85,9 +109,9 @@ public sealed class ScoutSelectionTests : IDisposable
     public async Task A_declined_run_can_be_explicitly_enabled()
     {
         var run = NewRun();
-        await ForgeTools.SelectScout(SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None);
 
-        await ForgeTools.SelectScout(SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+        await ForgeTools.SelectScout(new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
             vendor: "claude", model: "model", effort: null);
 
         var state = run.ReadState().Scout;
@@ -105,7 +129,7 @@ public sealed class ScoutSelectionTests : IDisposable
         var run = NewRun(new ScoutState(true, "codex", "model", "low", "session-1"));
 
         using var result = JsonDocument.Parse(await ForgeTools.SelectScout(
-            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
             vendor: "codex", model: "model", effort: "low"));
 
         var state = run.ReadState().Scout;
@@ -122,7 +146,7 @@ public sealed class ScoutSelectionTests : IDisposable
                                         new ScoutFailure("vendor_failed", "previous failure")));
 
         using var result = JsonDocument.Parse(await ForgeTools.SelectScout(
-            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
             vendor: "codex", model: "model", effort: "low"));
 
         var state = run.ReadState().Scout;
@@ -139,7 +163,7 @@ public sealed class ScoutSelectionTests : IDisposable
         var run = NewRun();
 
         await Assert.ThrowsAsync<VendorException>(() => ForgeTools.SelectScout(
-            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
             vendor: "unknown", model: "model"));
 
         Assert.Null(run.ReadState().Scout);
@@ -152,7 +176,7 @@ public sealed class ScoutSelectionTests : IDisposable
         var run = NewRun();
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.SelectScout(
-            SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None,
+            new CatalogCache(), SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None,
             vendor: "codex"));
 
         Assert.Null(run.ReadState().Scout);

@@ -47,7 +47,8 @@ act — including Scout — goes through `forge.work.start` → `forge.work.poll
 do not call a one-call worker tool there. On non-Cursor hosts, call `forge.scout.run` directly
 for Scout, and use the one-call worker tools — `forge.plan.review`, `forge.build.next`,
 `forge.review.code`, `forge.review.fix` — for the other acts. Those legacy tools take `model`, an
-optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to `claude`.
+optional `effort`, an optional `fast`, and an optional `vendor`: `claude`, `codex`, or `cursor`,
+defaulting to `claude`. `forge.work.start` takes the same `fast` for every act but Scout.
 The critic's selection goes to the two review tools, the builder's to `forge.build.next` and
 `forge.review.fix`, and Scout always reuses its persisted selection. Direct and Cursor-background
 forms have the same decision contract; a decisions-only `review.fix` has no `fixFindingIds` or
@@ -161,7 +162,9 @@ after final Critic/Builder selection; if the first need occurs before it, this S
 is still just-in-time and separate from the final refresh below.
 When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
 the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
-question as well and offer the resolved Cursor choices directly.
+question as well and offer the resolved Cursor choices directly. Offer the Fast tier for Scout by
+the same rule as for the other roles below, as its own yes/no after the combination is chosen, and
+pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
 
 For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
@@ -320,7 +323,8 @@ vendor's own catalogue — the position in its newest-first list and the chosen 
 remembered model name.
 
 State the builder's selection at the top of the plan, above `## Requirements`, in one line — vendor,
-model, effort. The critic judges the plan's depth against the builder named there.
+model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
+builder named there.
 
 ## Rounds, revision, and caps
 
@@ -570,8 +574,9 @@ only reason they were not fixed here, and they are candidates for the next run.
 This happens at the end of Act 1, after the last interview question and before the first plan
 draft — the depth rule above reads the builder's selection.
 
-Critic/Builder selection remains at most four questions total: two Vendor questions and two
-model/effort questions. Then ask the two instruction questions of step 3 as one round. A single
+Critic/Builder selection remains at most six questions total: two Vendor questions, two
+model/effort questions, and one Fast question for each role whose choice offers it. Then ask the two
+instruction questions of step 4 as one round. A single
 just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
@@ -604,14 +609,27 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
 
    For the `cursor` vendor, the catalogue has already collapsed the ~200 raw ids into families:
    the model id is the family (`gpt-5.3-codex`) and `efforts` are the variants the CLI actually
-   listed (`low`, `high`, `high-fast`, …, plus `default` when the bare id is itself listed). Pass
-   the family id as `model` and the chosen variant as `effort` — or leave `effort` unset for the
-   `default` variant — and the server joins them back into an id the CLI listed. Never build an id
-   yourself, never offer an effort the catalogue does not list for that family, and never use the
-   bracket-override syntax the CLI's own tip advertises (`model[effort=high]`): measured on
-   2026-08-19, cursor-agent rejects even the tip's own example.
+   listed (`low`, `high`, …, plus `default` when the bare id is itself listed), with the ones it
+   also listed as a `-fast` id under `fastEfforts`. Pass the family id as `model` and the chosen
+   variant as `effort` — or leave `effort` unset for the `default` variant — and the server joins
+   them back into an id the CLI listed, adding `-fast` when `fast` is true. Never build an id
+   yourself, never write `-fast` into a model or an effort, never offer an effort the catalogue does
+   not list for that family, and never use the bracket-override syntax the CLI's own tip advertises
+   (`model[effort=high]`): measured on 2026-08-19, cursor-agent rejects even the tip's own example.
 
-3. Ask, as one round of two questions, whether the user wants to tell either worker anything for
+3. For each role whose chosen model lists the chosen effort under `fastEfforts` — `default` for a
+   cursor family chosen without an effort, any entry at all for claude or codex without one — with
+   `fastUnavailable` null, ask whether it should run at the vendor's Fast tier: quicker, at a higher
+   usage price. Ask both roles in one round, offer "standard speed" first, and name `fastHint`
+   beside Fast where the catalogue gives one — it is the vendor's own word on the price. Pass
+   `fast: true` to that role's tools only on a yes. A model whose `fastUnavailable` is set offers
+   Fast but this account will not serve it: do not ask, and say why when the user asks for Fast
+   anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has it
+   off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
+   again at the start of the worker's session; a turn claude served at standard speed for part of
+   the way still counts, and its result carries `speedWarning` — tell the user.
+
+4. Ask, as one round of two questions, whether the user wants to tell either worker anything for
    this run — one question for the critic, one for the builder, each offering "no instructions"
    first. This is their only channel to a worker besides the plan: a language to answer in, a class
    of finding this repository does not want raised, a skill the builder should use, a house style.
@@ -626,8 +644,9 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    assume it landed. The builder's text is also shown to the code-review critic as context, so that
    critic does not raise findings for a choice the user asked for.
 
-The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
-refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The
+The catalogue is advisory for model and effort: an unfamiliar model arriving as free text is worth
+mentioning, not refusing, because the vendor CLI decides. Fast is the exception — the server
+refuses what the catalogue does not confirm. The roles are not interchangeable in strength. The
 builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
 nearer the strong end.
 

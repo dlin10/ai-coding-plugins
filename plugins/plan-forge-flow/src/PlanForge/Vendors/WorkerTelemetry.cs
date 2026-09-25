@@ -74,7 +74,10 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
         if (_outcome is not "succeeded") Terminal("cancelled");
     }
 
-    public void Finish(WorkerUsage usage, string? reportedSessionId)
+    /// <param name="usage">The provider counters the attempt's terminal event reported.</param>
+    /// <param name="reportedSessionId">The session id the process reported, when it did.</param>
+    /// <param name="servedFastState">The speed the vendor says it served, where it says: claude's <c>fast_mode_state</c>.</param>
+    public void Finish(WorkerUsage usage, string? reportedSessionId, string? servedFastState = null)
     {
         if (_finished) return;
         _finished = true;
@@ -98,6 +101,8 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
             role.ToString().ToLowerInvariant(),
             selection.Model,
             selection.Effort,
+            selection.Fast,
+            servedFastState,
             resumed ? "resumed" : "fresh",
             sessionId,
             turnId,
@@ -151,6 +156,8 @@ internal sealed record WorkerUsageRecord(string At,
                                          string Role,
                                          string Model,
                                          string? Effort,
+                                         bool Fast,
+                                         string? FastModeState,
                                          string SessionMode,
                                          string? SessionId,
                                          string TurnId,

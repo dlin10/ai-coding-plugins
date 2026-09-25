@@ -368,6 +368,8 @@ internal sealed class RunDirectory
 
             if (scout.Effort is not null)
                 entry.Append("Effort: ").AppendLine(scout.Effort);
+            if (scout.Fast)
+                entry.AppendLine("Speed: Fast");
         }
         else
         {
@@ -446,6 +448,14 @@ internal sealed class RunDirectory
 
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
+
+    /// <summary>A Fast turn served at standard speed for part of it: the work counts, the speed did not hold.</summary>
+    public void AppendFlowSpeedWarning(string warning) =>
+        AtomicFile.Append(FlowLogPath, new StringBuilder().AppendLine("## Speed")
+                                                          .AppendLine()
+                                                          .AppendLine(warning)
+                                                          .AppendLine()
+                                                          .ToString());
 
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
@@ -675,7 +685,8 @@ internal sealed record ScoutState(bool Enabled,
                                   string? Model = null,
                                   string? Effort = null,
                                   string? SessionId = null,
-                                  ScoutFailure? LastFailure = null);
+                                  ScoutFailure? LastFailure = null,
+                                  bool Fast = false);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 
