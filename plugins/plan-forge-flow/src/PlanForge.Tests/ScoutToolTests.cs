@@ -33,7 +33,7 @@ public sealed class ScoutToolTests : IDisposable
     }
 
     [Fact]
-    public async Task Direct_result_uses_the_named_bounded_scout_digest_and_documents()
+    public async Task Direct_result_carries_the_complete_report_and_documents()
     {
         var run = NewRun();
         var vendor = VendorWith("direct", "session");
@@ -41,8 +41,9 @@ public sealed class ScoutToolTests : IDisposable
         using var result = JsonDocument.Parse(await Direct(run, vendor));
         var root = result.RootElement;
 
-        Assert.True(root.TryGetProperty("scout", out var digest));
-        Assert.True(digest.TryGetProperty("truncated", out _));
+        Assert.True(root.TryGetProperty("scout", out var scout));
+        Assert.True(scout.TryGetProperty("dependentsAndPinnedBehaviour", out _));
+        Assert.False(scout.TryGetProperty("truncated", out _));
         Assert.False(root.TryGetProperty("report", out _));
         Assert.Equal(run.ScoutReportPath, root.GetProperty("documents").GetProperty("scout").GetProperty("path").GetString());
     }
@@ -66,7 +67,7 @@ public sealed class ScoutToolTests : IDisposable
         using var result = JsonDocument.Parse(await Direct(run, VendorWith("direct", "session")));
 
         Assert.Equal(
-            "show the latest Scout report to the user now, and show it again only after a later successful Scout call replaces it.",
+            "show the Scout report to the user now, and show it again after each later successful Scout call appends its answer.",
             result.RootElement.GetProperty("documents").GetProperty("scout").GetProperty("next").GetString());
     }
 
@@ -233,11 +234,14 @@ public sealed class ScoutToolTests : IDisposable
     }
 
     [Fact]
-    public async Task Background_start_poll_fetch_matches_the_digest_only_result_shape()
+    public async Task Background_fetch_result_is_the_complete_report()
     {
         var run = NewRun();
         var registry = new JobRegistry();
-        var started = await StartScout(registry, run, VendorWith("background", "session"));
+        var source = new string('a', 397) + ":42";
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(LargeReport(source), "session");
+        var started = await StartScout(registry, run, vendor);
         var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace,
             run.RunId, started.JobId, CancellationToken.None))!;
         var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
@@ -245,9 +249,19 @@ public sealed class ScoutToolTests : IDisposable
 
         Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
-        using var digest = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
-        Assert.True(digest.RootElement.TryGetProperty("truncated", out _));
-        Assert.False(digest.RootElement.TryGetProperty("scout", out _));
+        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
+        var root = report.RootElement;
+        var facts = root.GetProperty("confirmedFacts").EnumerateArray().ToArray();
+        Assert.Equal(2000, root.GetProperty("summary").GetString()!.Length);
+        Assert.Equal(5, facts.Length);
+        Assert.All(facts, fact =>
+        {
+            Assert.Equal(1000, fact.GetProperty("text").GetString()!.Length);
+            Assert.Equal(source, fact.GetProperty("source").GetString());
+        });
+        Assert.True(root.TryGetProperty("dependentsAndPinnedBehaviour", out _));
+        Assert.False(root.TryGetProperty("truncated", out _));
+        Assert.False(root.TryGetProperty("scout", out _));
     }
 
     [Fact]
@@ -387,7 +401,7 @@ public sealed class ScoutToolTests : IDisposable
     }
 
     [Fact]
-    public async Task Background_result_job_file_and_tool_result_log_contain_the_digest_not_the_report()
+    public async Task Background_result_job_file_and_tool_result_log_contain_the_report_json()
     {
         var run = NewRun();
         var registry = new JobRegistry();
@@ -399,10 +413,11 @@ public sealed class ScoutToolTests : IDisposable
 
         var job = AtomicFile.Read(run.JobFilePath(started.JobId));
         var log = AtomicFile.Read(run.DiagnosticLogPath);
-        Assert.Contains("truncated", job, StringComparison.Ordinal);
-        Assert.Contains("truncated", log, StringComparison.Ordinal);
+        Assert.Contains("dependentsAndPinnedBehaviour", job, StringComparison.Ordinal);
+        Assert.Contains("dependentsAndPinnedBehaviour", log, StringComparison.Ordinal);
         Assert.DoesNotContain("SCOUT.md", job, StringComparison.Ordinal);
-        Assert.True(JsonDocument.Parse(fetch["result"]!.GetValue<string>()).RootElement.TryGetProperty("truncated", out _));
+        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
+        Assert.False(report.RootElement.TryGetProperty("truncated", out _));
     }
 
     [Fact]
@@ -504,8 +519,24 @@ public sealed class ScoutToolTests : IDisposable
         MaterialAssumptions = [Item("assumption", "src/PlanForge/Acts/Scout.cs#Scout.RunAsync")],
         OpenDecisions = [Item("decision", "https://example.com/reference", "external")],
         LikelyChangeSurface = [Item("surface", "src/PlanForge/Run/RunDirectory.cs:1")],
-        VerificationEvidence = [Item("verification", "src/PlanForge/Vendors/Contracts.cs#ScoutReport")]
+        VerificationEvidence = [Item("verification", "src/PlanForge/Vendors/Contracts.cs#ScoutReport")],
+        DependentsAndPinnedBehaviour = [Item("dependent", "src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun")]
     };
+
+    private static ScoutReport LargeReport(string source)
+    {
+        var report = ValidReport(new string('s', 2000));
+        return new ScoutReport
+        {
+            Summary = report.Summary,
+            ConfirmedFacts = Enumerable.Range(0, 5).Select(_ => Item(new string('x', 1000), source)).ToArray(),
+            MaterialAssumptions = report.MaterialAssumptions,
+            OpenDecisions = report.OpenDecisions,
+            LikelyChangeSurface = report.LikelyChangeSurface,
+            VerificationEvidence = report.VerificationEvidence,
+            DependentsAndPinnedBehaviour = report.DependentsAndPinnedBehaviour
+        };
+    }
 
     private static ScoutItem Item(string text, string source, string kind = "repository") =>
         new() { Text = text, SourceKind = kind, Source = source };

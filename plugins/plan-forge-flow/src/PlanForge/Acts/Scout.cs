@@ -8,16 +8,12 @@ using PlanForge.Vendors;
 namespace PlanForge.Acts;
 
 /// <summary>
-/// One bounded, read-only reconnaissance turn. The full answer is kept as the latest run document;
-/// only the bounded digest crosses back to the orchestrator.
+/// One bounded, read-only reconnaissance turn. The complete answer is returned to the orchestrator
+/// and appended to the run's Scout report.
 /// </summary>
 internal sealed class Scout
 {
-    internal const int MaxQuestionLength = 4000;
-    internal const int DigestSummaryLength = 800;
-    internal const int DigestItemsPerCategory = 3;
-    internal const int DigestItemTextLength = 400;
-    internal const int DigestSourceLength = 300;
+    internal const int MaxQuestionLength = 8000;
 
     private readonly IVendor _vendor;
     private readonly PromptLibrary _prompts;
@@ -31,7 +27,7 @@ internal sealed class Scout
     /// <summary>Set when the question's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
-    public async Task<ScoutDigest> RunAsync(RunDirectory run,
+    public async Task<ScoutReport> RunAsync(RunDirectory run,
                                             string question,
                                             string sessionMode,
                                             CancellationToken ct)
@@ -73,8 +69,8 @@ internal sealed class Scout
             SpeedWarning = started.SpeedWarning;
             var rendered = Render(report);
 
-            // The complete report is guarded before the atomic replacement, so the previous
-            // snapshot survives a sensitive Vendor answer.
+            // The complete report is guarded before the atomic append, so the previous
+            // report survives a sensitive Vendor answer.
             try
             {
                 SensitiveInput.Guard(rendered, "the Scout response");
@@ -84,20 +80,22 @@ internal sealed class Scout
                 throw new ScoutSensitiveOutputException();
             }
 
-            run.WriteScoutReport(rendered);
-
             var anchor = ResumeAnchor(started, suppliedToken, sessionMode);
-            run.WriteState(state with
+            var number = state.ScoutAnswers + 1;
+            state = state with
             {
-                Scout = selected with { SessionId = anchor, LastFailure = null }
-            });
+                Scout = selected with { SessionId = anchor, LastFailure = null },
+                ScoutAnswers = number
+            };
+            run.WriteState(state);
+            run.AppendScoutAnswer(number, question, rendered);
             run.AppendFlowScoutOutcome("completed", question);
             run.Log.Write("info", "scout", "scout.completed",
                 ("vendor", _vendor.Id), ("model", selected.Model), ("effort", selected.Effort),
                 ("fast", selected.Fast ? "true" : "false"),
                 ("sessionMode", ActualSessionMode(resumeToken)), ("report", run.ScoutReportPath));
 
-            return ToDigest(report);
+            return report;
         }
         catch (OperationCanceledException)
         {
@@ -131,74 +129,6 @@ internal sealed class Scout
             ? selected
             : throw new ArgumentRejectedException("Scout is not enabled for this run; select an exact Scout Vendor and model first");
 
-    internal static ScoutDigest ToDigest(ScoutReport report)
-    {
-        var clipped = false;
-
-        var summary = Clip(report.Summary, DigestSummaryLength, ref clipped);
-        var confirmedFacts = Clip(report.ConfirmedFacts, ref clipped);
-        var materialAssumptions = Clip(report.MaterialAssumptions, ref clipped);
-        var openDecisions = Clip(report.OpenDecisions, ref clipped);
-        var likelyChangeSurface = Clip(report.LikelyChangeSurface, ref clipped);
-        var verificationEvidence = Clip(report.VerificationEvidence, ref clipped);
-
-        return new ScoutDigest(summary, confirmedFacts, materialAssumptions, openDecisions,
-                               likelyChangeSurface, verificationEvidence, clipped);
-    }
-
-    private static IReadOnlyList<ScoutItem> Clip(IReadOnlyList<ScoutItem> items, ref bool clipped)
-    {
-        var count = Math.Min(items.Count, DigestItemsPerCategory);
-        if (count != items.Count) clipped = true;
-
-        var result = new ScoutItem[count];
-        for (var index = 0; index < count; index++)
-        {
-            var item = items[index];
-            var text = Clip(item.Text, DigestItemTextLength, ref clipped);
-            var source = ClipSource(item.SourceKind, item.Source, ref clipped);
-            result[index] = new ScoutItem { Text = text, SourceKind = item.SourceKind, Source = source };
-        }
-
-        return result;
-    }
-
-    private static string Clip(string text, int length, ref bool clipped)
-    {
-        if (text.Length <= length) return text;
-        clipped = true;
-        return text[..length];
-    }
-
-    private static string ClipSource(string kind, string source, ref bool clipped)
-    {
-        if (source.Length <= DigestSourceLength) return source;
-        clipped = true;
-
-        if (kind is "repository")
-        {
-            var separator = source.LastIndexOfAny([':', '#']);
-            if (separator > 0)
-            {
-                var suffix = source[separator..];
-                if (IsLocatorSuffix(suffix))
-                {
-                    var pathLength = DigestSourceLength - suffix.Length - 1;
-                    return pathLength >= 0
-                        ? source[..Math.Min(separator, pathLength)] + "…" + suffix
-                        : "[truncated]";
-                }
-            }
-        }
-
-        return source[..(DigestSourceLength - 1)] + "…";
-    }
-
-    private static bool IsLocatorSuffix(string suffix) =>
-        suffix.Length > 1 &&
-        (suffix[0] == '#' ||
-         (suffix[0] == ':' && suffix[1] is >= '1' and <= '9' && suffix[2..].All(char.IsDigit)));
-
     private static string Compose(string question, string workspaceRoot) =>
         new StringBuilder()
             .AppendLine("# Current bounded Scout question")
@@ -213,8 +143,6 @@ internal sealed class Scout
     private static string Render(ScoutReport report)
     {
         var text = new StringBuilder()
-            .AppendLine("# Scout report")
-            .AppendLine()
             .AppendLine("## Summary")
             .AppendLine()
             .AppendLine(report.Summary)
@@ -225,6 +153,7 @@ internal sealed class Scout
         Section(text, "Open decisions", report.OpenDecisions);
         Section(text, "Likely change surface", report.LikelyChangeSurface);
         Section(text, "Verification evidence", report.VerificationEvidence);
+        Section(text, "Dependents and pinned behaviour", report.DependentsAndPinnedBehaviour);
 
         return text.ToString();
 

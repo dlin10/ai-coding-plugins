@@ -100,7 +100,7 @@ public sealed class ScoutPromptTests : IDisposable
         var runId = Guid.NewGuid().ToString("N");
         var run = RunDirectory.Create(_workspace, runId);
         run.WritePlan("## Approach\n\n1. Build tracked.cs.\n");
-        run.WriteScoutReport($"# Latest Scout report\n\n{ScoutRoleText}\n\n{ReportText}\n");
+        run.AppendScoutAnswer(1, "scout question", $"{ScoutRoleText}\n\n{ReportText}\n");
         run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.UtcNow, 0, 5,
                                     BaselineHead: "base", Approved: approved, CodeReviewRoundCap: 3));
         return run;

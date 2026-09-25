@@ -154,11 +154,11 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question with a small sourced digest and atomically replaces the run's latest `SCOUT.md` report. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure preserves the prior report and leaves a fixed safe failure in status.")]
+    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question and returns the complete sourced answer under `scout`, unclipped, which is also appended as a numbered section to the run's `SCOUT.md`. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure before the answer is appended leaves `SCOUT.md` as it was, and the call returns a fixed safe failure.")]
     public static Task<string> ScoutRun(SessionRoots roots,
                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                         [Description("Run id from forge.begin.")] string runId,
-                                        [Description("One bounded reconnaissance question, from 1 to 4,000 characters.")] string question,
+                                        [Description("One bounded reconnaissance question, from 1 to 8,000 characters.")] string question,
                                         [Description("Session mode: exactly `continue` or `fresh`. `continue` supplies the persisted anchor; `fresh` clears it first.")] string sessionMode,
                                         CancellationToken ct) =>
         ScoutRun(roots, workspaceRoot, runId, question, sessionMode, ct,
@@ -844,7 +844,7 @@ internal sealed class ForgeTools
                 : null,
             includeScout && File.Exists(run.ScoutReportPath)
                 ? new RunDocument(run.ScoutReportPath,
-                                  "show the latest Scout report to the user now, and show it again only after a later successful Scout call replaces it.")
+                                  "show the Scout report to the user now, and show it again after each later successful Scout call appends its answer.")
                 : null);
 
     private static string StateName(JobState state) => state switch
@@ -1018,7 +1018,7 @@ internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedF
 
 internal sealed record ScoutSelectionResult(ScoutState Scout, string SessionState);
 
-internal sealed record ScoutRunResult(ScoutDigest Scout, RunDocuments Documents);
+internal sealed record ScoutRunResult(ScoutReport Scout, RunDocuments Documents);
 
 internal sealed record ActiveJob(string JobId,
                                  string Act,
@@ -1129,7 +1129,7 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(StatusResult))]
 [JsonSerializable(typeof(ScoutSelectionResult))]
 [JsonSerializable(typeof(ScoutRunResult))]
-[JsonSerializable(typeof(ScoutDigest))]
+[JsonSerializable(typeof(ScoutReport))]
 [JsonSerializable(typeof(ActiveJob))]
 [JsonSerializable(typeof(BuildOutcome))]
 [JsonSerializable(typeof(RunDocument))]

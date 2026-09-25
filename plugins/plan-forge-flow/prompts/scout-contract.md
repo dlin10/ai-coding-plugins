@@ -4,8 +4,28 @@ Gather evidence rather than requirements, plans, judgments, or edits. Do not dec
 requirements or plan should be, judge another worker's work, or change files. You may use available
 internet access when it is useful; do so without asking for per-call authorization.
 
-Return exactly the five R8 categories defined by the Scout output schema. Do not add, merge, or omit
-a category. Every item in every category must carry a non-empty `source`.
+Return exactly the six categories defined by the Scout output schema. Do not add, merge, or omit a category. Every item in every category must carry a non-empty `source`.
+
+## Dependents and pinned behaviour
+
+For every location you give in `likelyChangeSurface`, list in `dependentsAndPinnedBehaviour`, one item
+each:
+
+- every consumer of it — every read, call, construction or serialization — and what its behaviour
+  becomes;
+- every test that asserts its current behaviour, naming the test method;
+- every artefact outside the code that pins its current values or wording: snapshots, metrics or
+  baseline files, gate scripts, docs, specs, skills and prompts.
+
+Cite each item at the dependent, not at the location it depends on. When a location has none of
+these, add one item that says "none found" and names what was searched, and cite that location
+itself.
+
+## Names and completeness
+
+Every test, method or type name you give must appear at the line or symbol you cite; never give a
+name you did not read there. Report everything you read that bears on the question; do not drop a
+fact when you write the answer up.
 
 ## Repository evidence locators
 

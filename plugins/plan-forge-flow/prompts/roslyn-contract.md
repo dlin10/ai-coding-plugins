@@ -2,7 +2,7 @@
 
 For a claim about C#/.NET semantics — a symbol's references, callers, definition, implementations,
 document symbols, or whether something is dead — use the read-only Roslyn MCP tools before text
-search. Discover them first if they are not already exposed.
+search. Discover them first if they are not already exposed. Symbol search tells you where a symbol is declared; who uses it comes from the reference and caller queries, never from symbol search alone.
 
 Before relying on a Roslyn answer, verify identity: use an absolute path to a C# file inside the
 repository and check that the project or assembly it reports back belongs to the solution under

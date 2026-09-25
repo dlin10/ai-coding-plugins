@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.36.0
+# Plan Forge Flow 0.37.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -19,7 +19,7 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
-| `forge.scout.run` | Runs one bounded Scout question and returns its bounded digest plus document metadata; the full report is written only to `SCOUT.md` |
+| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `SCOUT.md` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
@@ -190,7 +190,7 @@ instead.
     state.json
     decision-ledger.json    # authoritative current finding state and idempotency records
     PLAN.md               # the plan as it currently stands, rewritten before every review round
-    SCOUT.md              # the latest successful Scout report, replaced atomically
+    SCOUT.md              # every successful Scout answer of the run, appended as numbered sections
     flow_log.md           # the user-facing audit; never Worker input
     forge.log
     telemetry.json        # per-Worker timing and provider-reported token counters
