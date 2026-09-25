@@ -200,6 +200,31 @@ public sealed class ToolSurfaceTests
         Assert.DoesNotContain("sessionMode", required);
     }
 
+    /// <summary>
+    /// Speed is a third axis beside model and effort (docs/adr/0023), so every tool that takes an
+    /// effort takes an optional `fast` beside it, and none is left without one.
+    /// </summary>
+    [Fact]
+    public void Every_tool_that_takes_an_effort_takes_an_optional_fast_beside_it()
+    {
+        var withEffort = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(method => method.GetCustomAttribute<McpServerToolAttribute>() is not null
+                             && method.GetParameters().Any(parameter => parameter.Name == "effort"))
+            .Select(method => method.Name)
+            .ToList();
+
+        Assert.Equal([nameof(ForgeTools.SelectScout), nameof(ForgeTools.ReviewPlan), nameof(ForgeTools.BuildNext),
+                      nameof(ForgeTools.ReviewCode), nameof(ForgeTools.ReviewFix), nameof(ForgeTools.StartWork)],
+                     withEffort);
+        foreach (var name in withEffort)
+        {
+            var schema = SchemaFor(name);
+            Assert.True(schema.GetProperty("properties").TryGetProperty("fast", out var fast), $"{name} is missing fast");
+            Assert.Contains("boolean", fast.GetRawText(), StringComparison.Ordinal);
+            Assert.DoesNotContain("fast", schema.GetProperty("required").EnumerateArray().Select(entry => entry.GetString()));
+        }
+    }
+
     [Fact]
     public void Work_start_description_names_all_five_acts_and_status_names_scout_state()
     {
@@ -240,6 +265,7 @@ public sealed class ToolSurfaceTests
         var services = new ServiceCollection()
             .AddSingleton(SessionRoots.None)
             .AddSingleton(new JobRegistry())
+            .AddSingleton(new CatalogCache())
             .BuildServiceProvider();
         var method = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(candidate => candidate.Name == methodName

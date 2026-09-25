@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.35.4
+# Plan Forge Flow 0.37.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -17,9 +17,9 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 | Tool | What it does |
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
-| `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable |
-| `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort selection or an explicit decision to continue without Scout |
-| `forge.scout.run` | Runs one bounded Scout question and returns its bounded digest plus document metadata; the full report is written only to `SCOUT.md` |
+| `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
+| `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
+| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `SCOUT.md` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
@@ -99,14 +99,24 @@ independent:
 | Vendor | Reached through | Structured output | Catalogue |
 |---|---|---|---|
 | `claude` | Claude Code CLI | `--json-schema`, natively | resolved, aliases through `init` |
-| `codex` | Codex App Server over stdio | schema in the prompt, validated here | live, `model/list` |
+| `codex` | Codex CLI, `codex exec` | `--output-schema`, natively | live, `codex debug models` |
 | `cursor` | `cursor-agent` CLI | schema in the prompt, validated here | live, `--list-models` |
 
 Structured output is a hard requirement of the vendor interface, so a vendor without native support
 gets the schema in its prompt and one retry against our own validation. The catalogues feed the
 interview: `forge.models` serves them so the model question offers what the vendor actually serves,
 newest first, rather than the orchestrator's memory of the line-up. They remain advisory for
-validation — the vendor CLI decides, and an unfamiliar model is a warning rather than a refusal.
+model and effort — the vendor CLI decides, and an unfamiliar model is a warning rather than a
+refusal.
+
+Speed is the exception. Each worker can run at its vendor's Fast tier — quicker, at a higher usage
+price — where the catalogue lists it for that model and effort: codex's `priority` tier with its
+price hint, cursor's `-fast` ids, and claude's fast mode where both the model and the account allow
+it. A `fast` request the catalogue does not confirm is refused before any worker starts, and every
+turn names its speed, so a Fast toggle in the vendor's own configuration never reaches a run.
+Claude also refuses at the start of its session when the account will not serve Fast. When a Claude
+turn falls back to standard speed part-way, the result carries `speedWarning`. See
+[docs/adr/0023](docs/adr/0023-refuse-a-fast-request-nothing-confirmed.md).
 
 Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited without rebuilding
 the binary — in a checkout. An installed plugin keeps them under its plugin root, where an edit
@@ -180,7 +190,7 @@ instead.
     state.json
     decision-ledger.json    # authoritative current finding state and idempotency records
     PLAN.md               # the plan as it currently stands, rewritten before every review round
-    SCOUT.md              # the latest successful Scout report, replaced atomically
+    SCOUT.md              # every successful Scout answer of the run, appended as numbered sections
     flow_log.md           # the user-facing audit; never Worker input
     forge.log
     telemetry.json        # per-Worker timing and provider-reported token counters

@@ -9,7 +9,11 @@ namespace PlanForge.Vendors.Claude;
 internal sealed class ClaudeCliSession : IVendorSession
 {
     private const string STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
-    private const string SELF_PLUGIN_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
+    // One payload, because the speed rides beside the self-plugin disable: `fastMode` is the opt-in a
+    // non-interactive session otherwise reports as `sdk_opt_in_required`, and standard speed is named
+    // as explicitly as Fast. See docs/adr/0023.
+    private const string STANDARD_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":false}""";
+    private const string FAST_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":true}""";
 
     // The Bash tool's own ceiling on a foreground command, ten minutes unless raised. Thirty covers
     // any gate the host would run (twenty) and leaves the rest of the host's hour for the gate that
@@ -41,6 +45,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     private JsonElement? _terminalUsage;
     private JsonElement? _terminalCost;
     private string? _attemptSessionId;
+    private string? _servedFastState;
 
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
@@ -76,6 +81,14 @@ internal sealed class ClaudeCliSession : IVendorSession
     /// </summary>
     public IReadOnlyList<string> KilledBackgroundTasks => _turnEnded ? [.. _openTasks.Values] : [];
 
+    public string? SpeedWarning =>
+        _selection.Fast && _turnEnded && _servedFastState is { } state and not "on"
+            ? $"claude fell back to standard speed during the turn (fast_mode_state {state})"
+            : null;
+
+    /// <summary>The last <c>fast_mode_state</c> this turn reported: at <c>init</c>, then on <c>result</c>.</summary>
+    internal string? ServedFastState => _servedFastState;
+
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
         _turnEnded = false;
@@ -83,6 +96,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         _terminalUsage = null;
         _terminalCost = null;
         _attemptSessionId = null;
+        _servedFastState = null;
         var resumeToken = _sessionId;
         var executable = ClaudeCliVendor.Executable;
         var spec = new ProcessSpec(executable, BuildArguments(schema.Json), _workingDirectory, prompt, BuildEnvironment());
@@ -144,7 +158,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
         finally
         {
-            attempt.Finish(ObservedUsage, _attemptSessionId);
+            attempt.Finish(ObservedUsage, _attemptSessionId, _servedFastState);
         }
     }
 
@@ -176,6 +190,22 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
         if (!root.TryGetProperty("type", out var type)) return null;
 
+        // `init` names the speed this session will be served before any API call, so a Fast request
+        // it will not serve is refused here: the exception ends the stream, and that kills the
+        // process while the refusal still costs nothing. See docs/adr/0023.
+        if (ClaudeCliVendor.InitFast(root) is { } initFast)
+        {
+            _servedFastState = initFast.State;
+            if (_selection.Fast && initFast.State is not "on")
+            {
+                var model = TryRead(root, "model", out var initModel) && initModel.ValueKind is JsonValueKind.String
+                    ? initModel.GetString()
+                    : _selection.Model;
+                throw new VendorException(
+                    $"claude will not serve Fast for {model}: {initFast.Reason ?? initFast.State}. Ask again without fast.");
+            }
+        }
+
         // Neither carries a `message`, so both used to end at the check below, unlogged — which is
         // how a killed background task left no trace in a run whose process exited 0 (issue #91).
         if (type.GetString() is "result")
@@ -184,6 +214,9 @@ internal sealed class ClaudeCliSession : IVendorSession
             if (root.TryGetProperty("usage", out var usage)) _terminalUsage = usage.Clone();
             if (root.TryGetProperty("total_cost_usd", out var cost)) _terminalCost = cost.Clone();
             _turnFailed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind is JsonValueKind.True;
+            if (TryRead(root, "fast_mode_state", out var served) && served.ValueKind is JsonValueKind.String)
+                _servedFastState = served.GetString();
+            if (SpeedWarning is { } warning) RunLog.Current?.Write("warn", "claude", "vendor.speed-fell-back", ("text", warning));
             return null;
         }
 
@@ -436,7 +469,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         // A worker may inherit every other host capability, but never this plugin: disabling the
         // whole plugin keeps its skill, hooks and MCP server out of both worker roles.
         arguments.Add("--settings");
-        arguments.Add(SELF_PLUGIN_SETTINGS);
+        arguments.Add(_selection.Fast ? FAST_SETTINGS : STANDARD_SETTINGS);
 
         // A headless worker asks nobody, so anything its rules do not cover is refused (issue #90).
         // Only a builder gets the shell: a blanket rule is what lifts claude's safety checks as well,

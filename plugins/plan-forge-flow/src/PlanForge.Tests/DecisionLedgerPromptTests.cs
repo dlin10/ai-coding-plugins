@@ -38,7 +38,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
             "{\"status\":\"done\",\"filesChanged\":[],\"verification\":{\"outcome\":\"passed\",\"evidence\":\"ok\"},\"summary\":\"done\",\"extra\":1}",
             ContractJson.Default.BuildResult);
         var scout = JsonSerializer.Deserialize(
-            "{\"summary\":\"done\",\"confirmedFacts\":[],\"materialAssumptions\":[],\"openDecisions\":[],\"likelyChangeSurface\":[],\"verificationEvidence\":[],\"extra\":1}",
+            "{\"summary\":\"done\",\"confirmedFacts\":[],\"materialAssumptions\":[],\"openDecisions\":[],\"likelyChangeSurface\":[],\"verificationEvidence\":[],\"dependentsAndPinnedBehaviour\":[],\"extra\":1}",
             ContractJson.Default.ScoutReport);
 
         Assert.NotNull(build);

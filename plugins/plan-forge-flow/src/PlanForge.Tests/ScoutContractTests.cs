@@ -31,7 +31,7 @@ public sealed class ScoutContractTests
     {
         var prompt = Prompts().Load("codex", VendorRole.Scout);
 
-        Assert.Contains("Return exactly the five R8 categories", prompt, StringComparison.Ordinal);
+        Assert.Contains("Return exactly the six categories", prompt, StringComparison.Ordinal);
         Assert.Contains("Roslyn-first review", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("structured output tool", prompt, StringComparison.Ordinal);
     }
@@ -52,15 +52,49 @@ public sealed class ScoutContractTests
     }
 
     [Fact]
-    public void Scout_contract_requires_exactly_the_five_R8_categories()
+    public void Scout_contract_requires_exactly_the_six_categories()
     {
         var prompt = Prompts().Load("cursor", VendorRole.Scout);
 
-        Assert.Contains("Return exactly the five R8 categories defined by the Scout output schema.", prompt,
+        Assert.Contains("Return exactly the six categories defined by the Scout output schema.", prompt,
                          StringComparison.Ordinal);
         Assert.Contains("Do not add, merge, or omit", prompt, StringComparison.Ordinal);
         Assert.Contains("Every item in every category must carry a non-empty `source`.", prompt,
                          StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scout_contract_defines_dependents_and_pinned_behaviour()
+    {
+        var prompt = Prompts().Load("codex", VendorRole.Scout);
+
+        Assert.Contains("dependentsAndPinnedBehaviour", prompt, StringComparison.Ordinal);
+        Assert.Contains("naming the test method", prompt, StringComparison.Ordinal);
+        Assert.Contains("\"none found\"", prompt, StringComparison.Ordinal);
+        Assert.Contains("names what was searched", prompt, StringComparison.Ordinal);
+        Assert.Contains("cite that location", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scout_contract_requires_verifiable_names_and_complete_reporting()
+    {
+        var prompt = Prompts().Load("codex", VendorRole.Scout);
+
+        Assert.Contains("must appear at the line or symbol you cite", prompt, StringComparison.Ordinal);
+        Assert.Contains("do not drop a", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Roslyn_contract_takes_dependents_from_reference_and_caller_queries()
+    {
+        var prompts = Prompts();
+        var scout = prompts.Load("codex", VendorRole.Scout);
+        var critic = prompts.Load("codex", VendorRole.Critic);
+
+        Assert.Contains("who uses it comes from the reference and caller queries", scout,
+                        StringComparison.Ordinal);
+        Assert.Contains("who uses it comes from the reference and caller queries", critic,
+                        StringComparison.Ordinal);
     }
 
     [Fact]

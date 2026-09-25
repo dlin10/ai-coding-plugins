@@ -295,6 +295,15 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($parameter in @('vendor', 'model', 'effort')) {
             if (@($scoutSelect.inputSchema.required) -contains $parameter) { throw "forge.scout.select schema incorrectly requires $parameter" }
         }
+        # Speed is a third axis beside model and effort (docs/adr/0023): every tool that takes an effort
+        # takes an optional boolean `fast` beside it.
+        foreach ($tool in @($tools | Where-Object { @($_.inputSchema.properties.PSObject.Properties.Name) -contains 'effort' })) {
+            if (@($tool.inputSchema.properties.PSObject.Properties.Name) -notcontains 'fast') { throw "$($tool.name) takes effort but not fast" }
+            if (@($tool.inputSchema.required) -contains 'fast') { throw "$($tool.name) schema incorrectly requires fast" }
+            if (($tool.inputSchema.properties.fast | ConvertTo-Json -Compress) -notmatch 'boolean') {
+                throw "$($tool.name) publishes fast as something other than a boolean"
+            }
+        }
         $scoutRun = $tools | Where-Object { $_.name -eq 'forge.scout.run' } | Select-Object -First 1
         $scoutRunProperties = @($scoutRun.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('workspaceRoot', 'runId', 'question', 'sessionMode')) {

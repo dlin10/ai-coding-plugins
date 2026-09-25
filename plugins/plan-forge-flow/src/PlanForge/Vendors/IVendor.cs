@@ -12,6 +12,32 @@ internal interface IVendor
 
     Task<VendorReadiness> ProbeAsync(CancellationToken ct);
 
+    /// <summary>
+    /// The selection in this vendor's canonical spelling, before anything records or confirms it:
+    /// cursor reads a <c>-fast</c> written into the model or effort as a Fast request.
+    /// </summary>
+    Selection Normalize(Selection selection) => selection;
+
+    /// <summary>
+    /// Why the catalogue does not confirm this Fast request, or null when it does: the model is
+    /// listed — by its id, or by the model id it resolved to — with Fast at the requested effort, and
+    /// nothing says the account refuses it. Cursor confirms by joined id instead.
+    /// </summary>
+    string? RefuseFast(Selection selection, VendorCatalog catalog)
+    {
+        var model = catalog.Models.FirstOrDefault(entry =>
+            string.Equals(entry.Id, selection.Model, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(entry.DisplayName, selection.Model, StringComparison.OrdinalIgnoreCase));
+
+        if (model is null) return "the catalogue does not list this model";
+        if (model.FastEfforts.Count == 0) return "the catalogue offers no Fast tier for this model";
+        if (model.FastUnavailable is { } reason) return $"the account will not serve its Fast tier ({reason})";
+
+        return selection.Effort is null || model.FastEfforts.Contains(selection.Effort, StringComparer.OrdinalIgnoreCase)
+            ? null
+            : $"the catalogue offers no Fast tier at effort \"{selection.Effort}\"";
+    }
+
     /// <param name="selection"></param>
     /// <param name="resumeToken">
     /// A token from an earlier session of the same role. The MCP surface is stateless, so a
@@ -48,9 +74,11 @@ internal sealed record RoleSpec(VendorRole Role,
 
 /// <summary>
 /// Model and effort are kept apart because vendors express effort differently — a flag for Claude,
-/// a model property for Codex, part of the model string for Cursor. The vendor joins them.
+/// a model property for Codex, part of the model string for Cursor. The vendor joins them. Fast is
+/// kept apart for the same reason — a settings key for Claude, a service tier for Codex, a suffix
+/// for Cursor — and is asked for out loud either way; see docs/adr/0023.
 /// </summary>
-internal sealed record Selection(string Model, string? Effort);
+internal sealed record Selection(string Model, string? Effort, bool Fast = false);
 
 internal sealed record VendorReadiness(bool Available, string Detail);
 
@@ -76,7 +104,20 @@ internal sealed record VendorModel(string Id,
                                    string? DisplayName = null,
                                    string? Description = null,
                                    string? DefaultEffort = null,
-                                   bool IsDefault = false);
+                                   bool IsDefault = false)
+{
+    /// <summary>The efforts this model is offered at with a Fast tier; empty when it has none.</summary>
+    public IReadOnlyList<string> FastEfforts { get; init; } = [];
+
+    /// <summary>What the vendor says Fast costs, where it says: codex's tier description.</summary>
+    public string? FastHint { get; init; }
+
+    /// <summary>
+    /// Why the account will not serve a Fast tier the model itself offers, where the vendor says:
+    /// claude's <c>fast_mode_disabled_reason</c>, such as <c>extra_usage_disabled</c>.
+    /// </summary>
+    public string? FastUnavailable { get; init; }
+}
 
 internal enum VendorEventKind
 {

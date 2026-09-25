@@ -6,6 +6,7 @@ using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
 using PlanForge.Run;
+using PlanForge.Vendors;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -284,6 +285,7 @@ public sealed class DecisionLedgerSkillTests
         var services = new ServiceCollection()
             .AddSingleton(SessionRoots.None)
             .AddSingleton(new JobRegistry())
+            .AddSingleton(new CatalogCache())
             .BuildServiceProvider();
         var method = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(candidate => candidate.Name == methodName

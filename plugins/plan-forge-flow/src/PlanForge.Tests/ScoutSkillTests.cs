@@ -166,9 +166,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Documents_repeat_scout_report_only_after_successful_replacement()
+    public void Documents_repeat_scout_report_after_each_appended_answer()
     {
-        Contains("show the latest Scout report to the user now, and show it again only after a later successful Scout call replaces it", Skill());
+        Contains("show the Scout report to the user now, and show it again after each later successful Scout call appends its answer", Skill());
     }
 
     [Fact]
@@ -187,15 +187,77 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Result_key_names_the_direct_scout_digest()
+    public void Result_key_names_the_complete_scout_answer()
     {
-        Contains("bounded Scout digest under `scout`", Skill());
+        Contains("the complete Scout answer under `scout`", Skill());
     }
 
     [Fact]
-    public void Budget_has_four_plus_two_and_one_scout_round_without_domain_cap()
+    public void Tool_table_says_scout_run_returns_the_complete_answer()
     {
-        Contains("at most four questions total: two Vendor questions and two model/effort questions", "two instruction questions of step 3 as one round", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
+        Contains("It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`", Skill());
+    }
+
+    [Fact]
+    public void No_skill_text_describes_a_bounded_scout_digest()
+    {
+        var skill = Skill();
+        Assert.DoesNotContain("bounded Scout digest", skill, StringComparison.Ordinal);
+        Assert.DoesNotContain("bounded `scout` digest", skill, StringComparison.Ordinal);
+        Assert.DoesNotContain("never the full report", skill, StringComparison.Ordinal);
+        Assert.DoesNotContain("digest JSON only", skill, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Impact_pass_runs_for_every_plan_before_the_first_plan_write()
+    {
+        Contains("before the first `forge.plan.write`, ask the Scout one Impact pass",
+                 "Every plan gets one", "It is a Scout need", Skill());
+    }
+
+    [Fact]
+    public void Impact_pass_session_is_fresh_first_and_continue_for_new_change_points()
+    {
+        Contains("Run the first Impact pass with `sessionMode: fresh`",
+                 "ask again with `sessionMode: continue` about the new Change points only", Skill());
+    }
+
+    [Fact]
+    public void Impact_pass_without_scout_is_made_by_the_orchestrator()
+    {
+        Contains("When the Run continues without Scout, make the same check yourself", Skill());
+    }
+
+    [Fact]
+    public void Scout_question_template_names_goal_tooling_subquestions_and_scope()
+    {
+        Contains("**Goal**", "**Workspace and tooling**", "**Numbered, narrow sub-questions.**",
+                 "**Search scope**", "8,000 characters", Skill());
+    }
+
+    [Fact]
+    public void Evidence_check_records_departures_in_the_log_and_the_plan()
+    {
+        Contains("every answer of the Run, not only the last", "either used by the plan or departed from on purpose",
+                 "the Critic never reads the Run log", Skill());
+    }
+
+    [Fact]
+    public void Scout_recommendation_is_the_strongest_catalogue_combination_at_high_effort()
+    {
+        Contains("Recommend the strongest combination the catalogue offers at high effort", Skill());
+    }
+
+    [Fact]
+    public void Revision_with_a_new_change_point_gets_its_own_impact_pass()
+    {
+        Contains("A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check", Skill());
+    }
+
+    [Fact]
+    public void Budget_has_six_plus_two_and_one_scout_round_without_domain_cap()
+    {
+        Contains("at most six questions total: two Vendor questions, two model/effort questions, and one Fast question for each role whose choice offers it", "two instruction questions of step 4 as one round", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
     }
 
     [Fact]

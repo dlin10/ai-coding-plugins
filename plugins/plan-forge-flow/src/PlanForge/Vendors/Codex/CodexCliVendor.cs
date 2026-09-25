@@ -217,14 +217,39 @@ internal sealed class CodexCliVendor : IVendor
         }
 
         return [.. entries.OrderBy(item => item.Priority)
-                          .Select((item, index) => new VendorModel(
-                              item.Slug,
-                              Efforts(item.Entry),
-                              DisplayName: OptionalString(item.Entry, "display_name"),
-                              Description: OptionalString(item.Entry, "description"),
-                              DefaultEffort: OptionalString(item.Entry, "default_reasoning_level"),
-                              IsDefault: index == 0))];
+                          .Select((item, index) =>
+                          {
+                              var efforts = Efforts(item.Entry);
+                              var fast = OffersFast(item.Entry);
+                              return new VendorModel(item.Slug,
+                                                     efforts,
+                                                     DisplayName: OptionalString(item.Entry, "display_name"),
+                                                     Description: OptionalString(item.Entry, "description"),
+                                                     DefaultEffort: OptionalString(item.Entry, "default_reasoning_level"),
+                                                     IsDefault: index == 0)
+                              {
+                                  FastEfforts = fast ? efforts : [],
+                                  FastHint = fast ? FastHint(item.Entry) : null
+                              };
+                          })];
     }
+
+    /// <summary>
+    /// `service_tier="fast"` asks for the tier `additional_speed_tiers` lists as `fast`; codex does
+    /// not validate the value, so a model without it would silently run at standard speed.
+    /// </summary>
+    private static bool OffersFast(JsonElement entry) =>
+        entry.TryGetProperty("additional_speed_tiers", out var tiers) && tiers.ValueKind is JsonValueKind.Array
+        && tiers.EnumerateArray().Any(tier => tier.ValueKind is JsonValueKind.String && tier.GetString() is "fast");
+
+    /// <summary>The description of the tier codex names "Fast": "2x speed, increased usage" and the like.</summary>
+    private static string? FastHint(JsonElement entry) =>
+        entry.TryGetProperty("service_tiers", out var tiers) && tiers.ValueKind is JsonValueKind.Array
+            ? tiers.EnumerateArray()
+                   .Where(tier => tier.ValueKind is JsonValueKind.Object && OptionalString(tier, "name") is "Fast")
+                   .Select(tier => OptionalString(tier, "description"))
+                   .FirstOrDefault()
+            : null;
 
     private static string[] Efforts(JsonElement entry) =>
         entry.TryGetProperty("supported_reasoning_levels", out var levels) && levels.ValueKind is JsonValueKind.Array

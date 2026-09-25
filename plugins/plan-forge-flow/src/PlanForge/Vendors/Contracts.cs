@@ -64,7 +64,7 @@ internal sealed record ReopeningProposal([property: JsonRequired] string Finding
 
 /// <summary>
 /// One sourced piece of evidence in a Scout report. The Vendor schema deliberately has no size
-/// limits; the host clips only the digest it returns to the orchestrator.
+/// limits, and the host clips nothing it returns.
 /// </summary>
 internal sealed class ScoutItem : IJsonOnDeserialized
 {
@@ -126,7 +126,7 @@ internal sealed class ScoutItem : IJsonOnDeserialized
 
 /// <summary>
 /// The complete, deliberately flat structured answer returned by a Scout Vendor. These are the
-/// five R8 evidence categories; every member is required even when a category is empty.
+/// six evidence categories; every member is required even when a category is empty.
 /// </summary>
 internal sealed class ScoutReport : IJsonOnDeserialized
 {
@@ -148,6 +148,9 @@ internal sealed class ScoutReport : IJsonOnDeserialized
     [JsonRequired]
     public required IReadOnlyList<ScoutItem> VerificationEvidence { get; init; } = null!;
 
+    [JsonRequired]
+    public required IReadOnlyList<ScoutItem> DependentsAndPinnedBehaviour { get; init; } = null!;
+
     public void OnDeserialized()
     {
         if (Summary is null)
@@ -158,6 +161,7 @@ internal sealed class ScoutReport : IJsonOnDeserialized
         ValidateCategory(OpenDecisions, "openDecisions");
         ValidateCategory(LikelyChangeSurface, "likelyChangeSurface");
         ValidateCategory(VerificationEvidence, "verificationEvidence");
+        ValidateCategory(DependentsAndPinnedBehaviour, "dependentsAndPinnedBehaviour");
     }
 
     private static void ValidateCategory(IReadOnlyList<ScoutItem>? items, string name)
@@ -169,15 +173,6 @@ internal sealed class ScoutReport : IJsonOnDeserialized
             throw new JsonException($"Scout {name} cannot contain null items.");
     }
 }
-
-/// <summary>The bounded host-side view of a complete Scout report.</summary>
-internal sealed record ScoutDigest(string Summary,
-                                   IReadOnlyList<ScoutItem> ConfirmedFacts,
-                                   IReadOnlyList<ScoutItem> MaterialAssumptions,
-                                   IReadOnlyList<ScoutItem> OpenDecisions,
-                                   IReadOnlyList<ScoutItem> LikelyChangeSurface,
-                                   IReadOnlyList<ScoutItem> VerificationEvidence,
-                                   bool Truncated);
 
 internal sealed record ScoutFailure(string Code, string Summary);
 
@@ -237,7 +232,6 @@ internal sealed record GateRun(string Outcome,
 [JsonSerializable(typeof(BuildResult))]
 [JsonSerializable(typeof(ScoutReport))]
 [JsonSerializable(typeof(ScoutItem))]
-[JsonSerializable(typeof(ScoutDigest))]
 [JsonSerializable(typeof(ScoutFailure))]
 internal sealed partial class ContractJson : JsonSerializerContext;
 
@@ -337,9 +331,10 @@ internal static class Schemas
             "materialAssumptions": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
             "openDecisions": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
             "likelyChangeSurface": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
-            "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } }
+            "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } },
+            "dependentsAndPinnedBehaviour": { "type": "array", "items": { "$ref": "#/$defs/scoutItem" } }
           },
-          "required": ["summary", "confirmedFacts", "materialAssumptions", "openDecisions", "likelyChangeSurface", "verificationEvidence"],
+          "required": ["summary", "confirmedFacts", "materialAssumptions", "openDecisions", "likelyChangeSurface", "verificationEvidence", "dependentsAndPinnedBehaviour"],
           "additionalProperties": false,
           "$defs": {
             "scoutItem": {

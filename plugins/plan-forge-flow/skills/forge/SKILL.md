@@ -27,7 +27,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
 | `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
-| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the bounded `scout` digest and documents, never the full report. |
+| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
@@ -47,7 +47,8 @@ act — including Scout — goes through `forge.work.start` → `forge.work.poll
 do not call a one-call worker tool there. On non-Cursor hosts, call `forge.scout.run` directly
 for Scout, and use the one-call worker tools — `forge.plan.review`, `forge.build.next`,
 `forge.review.code`, `forge.review.fix` — for the other acts. Those legacy tools take `model`, an
-optional `effort`, and an optional `vendor`: `claude`, `codex`, or `cursor`, defaulting to `claude`.
+optional `effort`, an optional `fast`, and an optional `vendor`: `claude`, `codex`, or `cursor`,
+defaulting to `claude`. `forge.work.start` takes the same `fast` for every act but Scout.
 The critic's selection goes to the two review tools, the builder's to `forge.build.next` and
 `forge.review.fix`, and Scout always reuses its persisted selection. Direct and Cursor-background
 forms have the same decision contract; a decisions-only `review.fix` has no `fixFindingIds` or
@@ -55,14 +56,14 @@ forms have the same decision contract; a decisions-only `review.fix` has no `fix
 If `forge.work.start` returns `started: false`, rejoin its active job with poll → fetch.
 
 Every worker act answers with its own result beside a `documents` object — the critique under
-`critique`, the build under `build`, the fix under `fix`, and the bounded Scout digest under `scout`.
+`critique`, the build under `build`, the fix under `fix`, and the complete Scout answer under `scout`.
 On Cursor the act's own payload is the `result` string of `forge.work.fetch`; Scout's result string
-is digest JSON only. `forge.plan.write` answers with `documents` and nothing else, and on Cursor
+is the answer JSON only. `forge.plan.write` answers with `documents` and nothing else, and on Cursor
 `forge.work.start` and every `forge.work.poll` carry it too. `documents` always holds `flowLog` and
 `plan`, each with a `path` and what to do with it, and each `null` until its file exists. Only a
 successful direct Scout call or a successful completed Scout fetch also carries `documents.scout`,
-whose instruction is exactly: “show the latest Scout report to the user now, and show it again only
-after a later successful Scout call replaces it.” Non-Scout results omit it even after a report
+whose instruction is exactly: “show the Scout report to the user now, and show it again after each
+later successful Scout call appends its answer.” Non-Scout results omit it even after a report
 exists. What to do with the documents is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
@@ -149,19 +150,21 @@ write a plan: multi-module exploration, caller/writer discovery, dependency trac
 orientation. These are the broad triggers. Keep one or two targeted semantic lookups in the
 Orchestrator: they remain cheaper and clearer there. Use the local Roslyn or repository tools when
 the question has a narrow file, symbol, or caller boundary. Do not turn every local lookup into a
-Scout call.
+Scout call. Scout has a second use point, the Impact pass below, which every plan gets.
 
 Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
 make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
 Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
-the choice **continue without Scout**. Do not silently select a Vendor or silently continue a session.
+the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
 A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
 an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
 after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
 is still just-in-time and separate from the final refresh below.
 When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
 the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
-question as well and offer the resolved Cursor choices directly.
+question as well and offer the resolved Cursor choices directly. Offer the Fast tier for Scout by
+the same rule as for the other roles below, as its own yes/no after the combination is chosen, and
+pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
 
 For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
@@ -173,6 +176,64 @@ repository citations (path plus positive line or non-empty symbol) and external 
 absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
 Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
 the Orchestrator deliberately puts into a plan or task may reach those Workers.
+
+### The Scout question
+
+Write every Scout question — orientation or impact — with these parts:
+
+- **Goal** — what is going to change and why, in one or two sentences.
+- **Workspace and tooling** — which Roslyn MCP server and port serves this code, the absolute path
+  to use with it, and that its reference and caller queries answer "who uses". A Scout left to
+  guess falls back to text search.
+- **Numbered, narrow sub-questions.**
+- **Search scope** — named beyond `src/`: the test projects, `build/`, `skills/`, `docs/`,
+  `prompts/`, and whatever else in the repository pins behaviour.
+
+A question may run to 8,000 characters. When an Impact pass's Change points do not fit, split it
+by area into several questions.
+
+### The Impact pass
+
+After you have drafted the plan's approach, and before the first `forge.plan.write`, ask the Scout
+one Impact pass. Every plan gets one. It is a Scout need, so it starts the Scout selection round
+when none has been made. Name every Change point the approach introduces — symbols, contracts, wire
+and persisted formats, counters, prompts and skill text — and ask, for each one:
+
+- every consumer, and what its behaviour becomes;
+- every test that asserts today's behaviour, with file:line and test method name;
+- every artefact outside the code that pins current values or wording: snapshots, metrics and
+  baselines, gate scripts, docs, specs, skills and prompts.
+
+```text
+Impact check for a drafted approach. Do not redesign or judge it; find everything it breaks or must also touch.
+
+Planned change:
+1) <change point, named by symbol or contract>
+2) ...
+
+For each of 1–N, list:
+a. Every consumer of what changes and what its behaviour becomes.
+b. Every test that asserts today's behaviour and would fail or need updating (file:line and test method name).
+c. Every artefact outside the code that pins current values or definitions: recorded snapshots, metrics or baseline files, gate scripts, docs, spec or skill text.
+
+Search <the scope, beyond src/>.
+```
+
+Run the first Impact pass with `sessionMode: fresh`, so the orientation framing cannot anchor the
+enumeration. Its result carries the complete answer: fold it into the plan — tasks for affected
+consumers, tests to update, artefacts to re-record — before the plan is written. When a revision
+introduces a Change point no Impact pass has checked, ask again with `sessionMode: continue` about
+the new Change points only, before that revision is written. When the Run continues without Scout,
+make the same check yourself with reference and caller queries and text search, and record what
+you searched with `forge.log.append`.
+
+### The Evidence check
+
+After each Impact pass, and before the review that follows it, check the plan against every fact in
+`SCOUT.md` — every answer of the Run, not only the last — that bears on a Change point. Each such
+fact is either used by the plan or departed from on purpose. Record a deliberate departure with
+`forge.log.append`, and state it in the plan as well — in the exclusions or the task text — wherever
+a Critic would otherwise raise it: the Critic never reads the Run log.
 
 ## Act 1: the interview
 
@@ -320,7 +381,10 @@ vendor's own catalogue — the position in its newest-first list and the chosen 
 remembered model name.
 
 State the builder's selection at the top of the plan, above `## Requirements`, in one line — vendor,
-model, effort. The critic judges the plan's depth against the builder named there.
+model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
+builder named there.
+
+The draft is not ready for its first `forge.plan.write` until the Impact pass and the Evidence check described under "Scout reconnaissance" have run against it.
 
 ## Rounds, revision, and caps
 
@@ -329,6 +393,8 @@ one round and returns a verdict of `approve` or `revise` plus findings. On `revi
 findings in the plan yourself and run the next round. The Critic is a fresh process each round and
 receives only the current plan-phase ledger projection, so it converges on current findings without
 being anchored by the transcript.
+
+A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before it is written.
 
 Every round after the first carries your answer to the one before it. The tool refuses the call
 without `revision`:
@@ -570,8 +636,9 @@ only reason they were not fixed here, and they are candidates for the next run.
 This happens at the end of Act 1, after the last interview question and before the first plan
 draft — the depth rule above reads the builder's selection.
 
-Critic/Builder selection remains at most four questions total: two Vendor questions and two
-model/effort questions. Then ask the two instruction questions of step 3 as one round. A single
+Critic/Builder selection remains at most six questions total: two Vendor questions, two
+model/effort questions, and one Fast question for each role whose choice offers it. Then ask the two
+instruction questions of step 4 as one round. A single
 just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
@@ -604,14 +671,27 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
 
    For the `cursor` vendor, the catalogue has already collapsed the ~200 raw ids into families:
    the model id is the family (`gpt-5.3-codex`) and `efforts` are the variants the CLI actually
-   listed (`low`, `high`, `high-fast`, …, plus `default` when the bare id is itself listed). Pass
-   the family id as `model` and the chosen variant as `effort` — or leave `effort` unset for the
-   `default` variant — and the server joins them back into an id the CLI listed. Never build an id
-   yourself, never offer an effort the catalogue does not list for that family, and never use the
-   bracket-override syntax the CLI's own tip advertises (`model[effort=high]`): measured on
-   2026-08-19, cursor-agent rejects even the tip's own example.
+   listed (`low`, `high`, …, plus `default` when the bare id is itself listed), with the ones it
+   also listed as a `-fast` id under `fastEfforts`. Pass the family id as `model` and the chosen
+   variant as `effort` — or leave `effort` unset for the `default` variant — and the server joins
+   them back into an id the CLI listed, adding `-fast` when `fast` is true. Never build an id
+   yourself, never write `-fast` into a model or an effort, never offer an effort the catalogue does
+   not list for that family, and never use the bracket-override syntax the CLI's own tip advertises
+   (`model[effort=high]`): measured on 2026-08-19, cursor-agent rejects even the tip's own example.
 
-3. Ask, as one round of two questions, whether the user wants to tell either worker anything for
+3. For each role whose chosen model lists the chosen effort under `fastEfforts` — `default` for a
+   cursor family chosen without an effort, any entry at all for claude or codex without one — with
+   `fastUnavailable` null, ask whether it should run at the vendor's Fast tier: quicker, at a higher
+   usage price. Ask both roles in one round, offer "standard speed" first, and name `fastHint`
+   beside Fast where the catalogue gives one — it is the vendor's own word on the price. Pass
+   `fast: true` to that role's tools only on a yes. A model whose `fastUnavailable` is set offers
+   Fast but this account will not serve it: do not ask, and say why when the user asks for Fast
+   anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has it
+   off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
+   again at the start of the worker's session; a turn claude served at standard speed for part of
+   the way still counts, and its result carries `speedWarning` — tell the user.
+
+4. Ask, as one round of two questions, whether the user wants to tell either worker anything for
    this run — one question for the critic, one for the builder, each offering "no instructions"
    first. This is their only channel to a worker besides the plan: a language to answer in, a class
    of finding this repository does not want raised, a skill the builder should use, a house style.
@@ -626,8 +706,9 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    assume it landed. The builder's text is also shown to the code-review critic as context, so that
    critic does not raise findings for a choice the user asked for.
 
-The catalogue is advisory: an unfamiliar model arriving as free text is worth mentioning, not
-refusing, because the vendor CLI decides. The roles are not interchangeable in strength. The
+The catalogue is advisory for model and effort: an unfamiliar model arriving as free text is worth
+mentioning, not refusing, because the vendor CLI decides. Fast is the exception — the server
+refuses what the catalogue does not confirm. The roles are not interchangeable in strength. The
 builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
 nearer the strong end.
 

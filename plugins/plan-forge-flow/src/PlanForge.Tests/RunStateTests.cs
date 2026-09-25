@@ -45,6 +45,7 @@ public sealed class RunStateTests : IDisposable
 
         Assert.Equal(0, state.GrantedReviewRounds);
         Assert.Equal(0, state.GrantedCodeReviewRounds);
+        Assert.Equal(0, state.ScoutAnswers);
         Assert.Equal(5, state.ReviewRoundCap);
         Assert.Equal(3, state.CodeReviewRoundCap);
 

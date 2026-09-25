@@ -49,36 +49,38 @@ internal sealed class WorkAct
         switch (act)
         {
             case "plan.review":
-                var critique = await new PlanReview(_vendor, _prompts)
-                    .ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
-                                 orchestratorDecisions: decisions)
-                    .ConfigureAwait(false);
-                return JsonSerializer.Serialize(critique, ContractJson.Default.Critique);
+                var planReview = new PlanReview(_vendor, _prompts);
+                var critique = await planReview.ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
+                                                            orchestratorDecisions: decisions)
+                                               .ConfigureAwait(false);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                                            planReview.SpeedWarning);
 
             case "build.next":
-                var build = await new Build(_vendor, _prompts)
-                    .NextAsync(run, selection!, ct)
-                    .ConfigureAwait(false);
-                return JsonSerializer.Serialize(build, ForgeToolJson.Default.BuildOutcome);
+                var buildAct = new Build(_vendor, _prompts);
+                var build = await buildAct.NextAsync(run, selection!, ct).ConfigureAwait(false);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(build, ForgeToolJson.Default.BuildOutcome),
+                                            buildAct.SpeedWarning);
 
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
-                var codeReview = await new CodeReview(_vendor, _prompts, git)
-                    .ReviewAsync(run, selection!, userGrantedRound, ct)
-                    .ConfigureAwait(false);
-                return JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique);
+                var codeReviewAct = new CodeReview(_vendor, _prompts, git);
+                var codeReview = await codeReviewAct.ReviewAsync(run, selection!, userGrantedRound, ct).ConfigureAwait(false);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique),
+                                            codeReviewAct.SpeedWarning);
 
             case "review.fix":
                 var fixAct = new ReviewFix(_vendor, _prompts);
                 var fix = await fixAct.FixAsync(run, selection!, decisions, fixAttemptId,
                                                 fixFindingIds, ct).ConfigureAwait(false);
-                return JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult),
+                                            fixAct.SpeedWarning);
 
             case "scout":
-                var scout = await new Scout(_vendor, _prompts)
-                    .RunAsync(run, question!, sessionMode!, ct)
-                    .ConfigureAwait(false);
-                return JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutDigest);
+                var scoutAct = new Scout(_vendor, _prompts);
+                var scout = await scoutAct.RunAsync(run, question!, sessionMode!, ct).ConfigureAwait(false);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutReport),
+                                            scoutAct.SpeedWarning);
 
             default:
                 throw new ArgumentRejectedException($"unknown work act '{act}'");

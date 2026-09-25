@@ -85,7 +85,9 @@ internal sealed class RunDirectory
     /// </summary>
     public string PlanPath => System.IO.Path.Combine(Path, PLAN_FILE_NAME);
 
-    /// <summary>The complete structured answer to the most recent Scout question.</summary>
+    /// <summary>
+    /// The run's cumulative Scout report: every successful answer, appended as a numbered section.
+    /// </summary>
     public string ScoutReportPath => System.IO.Path.Combine(Path, SCOUT_REPORT_FILE_NAME);
 
     internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DECISION_LEDGER_FILE_NAME);
@@ -197,8 +199,23 @@ internal sealed class RunDirectory
 
     public string ReadPlan() => AtomicFile.Read(PlanPath);
 
-    /// <summary>Atomically replaces the latest Scout snapshot.</summary>
-    public void WriteScoutReport(string report) => AtomicFile.Write(ScoutReportPath, report);
+    /// <summary>
+    /// Appends one successful Scout answer to the run's Scout report as its own numbered section; the
+    /// whole file is replaced atomically, so a reader never sees half a section.
+    /// </summary>
+    public void AppendScoutAnswer(int number, string question, string answer)
+    {
+        var section = new StringBuilder().Append("# Scout answer ").AppendLine(number.ToString())
+                                         .AppendLine()
+                                         .Append("Question: ").AppendLine(question.ReplaceLineEndings(" "))
+                                         .AppendLine()
+                                         .Append(answer)
+                                         .ToString();
+        var report = File.Exists(ScoutReportPath)
+            ? AtomicFile.Read(ScoutReportPath).TrimEnd() + Environment.NewLine + Environment.NewLine + section
+            : section;
+        AtomicFile.Write(ScoutReportPath, report);
+    }
 
     /// <summary>
     /// The user-facing timeline of the delegated acts, one file for the orchestrator to surface in
@@ -368,6 +385,8 @@ internal sealed class RunDirectory
 
             if (scout.Effort is not null)
                 entry.Append("Effort: ").AppendLine(scout.Effort);
+            if (scout.Fast)
+                entry.AppendLine("Speed: Fast");
         }
         else
         {
@@ -382,9 +401,9 @@ internal sealed class RunDirectory
         var entry = new StringBuilder().Append("## Scout ").AppendLine(outcome)
                                        .AppendLine()
                                        .Append("Question: ").AppendLine(question.ReplaceLineEndings(" "));
-        if (failure is null)
-            entry.AppendLine("The latest Scout report was replaced.");
-        else
+        if (failure is null && outcome == "completed")
+            entry.AppendLine("The answer was appended to the Scout report.");
+        else if (failure is not null)
             entry.Append("Failure: ").Append(failure.Code).Append(" — ").AppendLine(failure.Summary);
 
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
@@ -446,6 +465,14 @@ internal sealed class RunDirectory
 
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
+
+    /// <summary>A Fast turn served at standard speed for part of it: the work counts, the speed did not hold.</summary>
+    public void AppendFlowSpeedWarning(string warning) =>
+        AtomicFile.Append(FlowLogPath, new StringBuilder().AppendLine("## Speed")
+                                                          .AppendLine()
+                                                          .AppendLine(warning)
+                                                          .AppendLine()
+                                                          .ToString());
 
     public void AppendFlowBuild(int number, int total, BuildResult result)
     {
@@ -668,14 +695,16 @@ internal sealed record RunState(string RunId,
                                 IReadOnlyList<string>? WorkerTools = null,
                                 string? CriticInstructions = null,
                                 string? BuilderInstructions = null,
-                                ScoutState? Scout = null);
+                                ScoutState? Scout = null,
+                                int ScoutAnswers = 0);
 
 internal sealed record ScoutState(bool Enabled,
                                   string? Vendor = null,
                                   string? Model = null,
                                   string? Effort = null,
                                   string? SessionId = null,
-                                  ScoutFailure? LastFailure = null);
+                                  ScoutFailure? LastFailure = null,
+                                  bool Fast = false);
 
 internal sealed class RunNotFoundException(string runId) : Exception($"run {runId} was not found");
 

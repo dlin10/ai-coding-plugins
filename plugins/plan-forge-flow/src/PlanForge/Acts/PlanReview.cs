@@ -29,6 +29,9 @@ internal sealed class PlanReview
         _prompts = prompts;
     }
 
+    /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
+    internal string? SpeedWarning { get; private set; }
+
     /// <param name="planDraft">
     /// The draft to review, written to <c>PLAN.md</c> on the way past. Omitted when
     /// <see cref="Write"/> already put it there, which is the flow the skill asks for.
@@ -145,6 +148,7 @@ internal sealed class PlanReview
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
         run.AppendFlowCritique("Plan review", round, critique);
         run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
+        SpeedWarning = session.SpeedWarning;
         run.WriteState(granted
             ? state with { ReviewRounds = round, ReviewRoundCap = state.ReviewRoundCap + 1,
                            GrantedReviewRounds = state.GrantedReviewRounds + 1 }

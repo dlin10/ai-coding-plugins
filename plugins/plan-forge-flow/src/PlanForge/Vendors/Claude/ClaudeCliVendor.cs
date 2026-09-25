@@ -17,6 +17,9 @@ internal sealed class ClaudeCliVendor : IVendor
     /// <summary>Never reaches a model: `--print` will not start without a prompt, and that is all this is for.</summary>
     private const string RESOLVE_PROMPT = "model check";
 
+    /// <summary>The opt-in whose answer `init` reports as <c>fast_mode_state</c>.</summary>
+    private const string FAST_OPT_IN = """{"fastMode":true}""";
+
     // Five levels, verified against the CLI. The old code carried six, including a "none" that
     // does not exist.
     private static readonly string[] EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -76,6 +79,12 @@ internal sealed class ClaudeCliVendor : IVendor
 
         var discovering = DiscoverAsync(executable, ct);
         var remembered = await ResolveAllAsync(executable, RememberedAliases, ct).ConfigureAwait(false);
+
+        // The account is asked once, through a model that offers Fast, while discovery still runs.
+        var fastAlias = remembered.FirstOrDefault(entry => entry.Fast).Alias;
+        var checkingAccount = fastAlias is null
+            ? Task.FromResult<string?>(null)
+            : AccountFastRefusalAsync(executable, fastAlias, ct);
         var discovery = await discovering.ConfigureAwait(false);
 
         if (discovery.SignedOut) return new VendorReadiness(false, discovery.Detail);
@@ -88,7 +97,14 @@ internal sealed class ClaudeCliVendor : IVendor
         if (resolved.Count == 0)
             return new VendorReadiness(false, $"{COMMAND} resolved none of its model aliases");
 
-        Catalog = new VendorCatalog(BuildModels(resolved, discovery.DefaultModel), CatalogSource.Resolved);
+        var fastAliases = resolved.Where(entry => entry.Fast).Select(entry => entry.Alias).ToHashSet(StringComparer.Ordinal);
+        var accountRefusal = await checkingAccount.ConfigureAwait(false);
+        if (fastAlias is null && fastAliases.FirstOrDefault() is { } discoveredFastAlias)
+            accountRefusal = await AccountFastRefusalAsync(executable, discoveredFastAlias, ct).ConfigureAwait(false);
+
+        var models = BuildModels([.. resolved.Select(entry => (entry.Alias, entry.Id))], discovery.DefaultModel,
+                                 fastAliases, accountRefusal);
+        Catalog = new VendorCatalog(models, CatalogSource.Resolved);
 
         var unresolved = RememberedAliases.Length + extra.Count - resolved.Count;
         var detail = $"{resolved.Count} models resolved";
@@ -164,6 +180,34 @@ internal sealed class ClaudeCliVendor : IVendor
         }
     }
 
+    /// <summary>The fast state of a stream-json `init` line; null for every other line.</summary>
+    internal static (string State, string? Reason)? ReadInitFast(string line)
+    {
+        if (!TryParseObject(line, out var document)) return null;
+        using (document) return InitFast(document.RootElement);
+    }
+
+    /// <summary>
+    /// `fast_mode_state` and, when it is off, `fast_mode_disabled_reason` of an `init` message: what
+    /// the session will be served before any API call. Measured against Claude Code 2.1.282 on
+    /// 2026-09-25 — `sdk_opt_in_required` without `"fastMode": true` in `--settings`,
+    /// `extra_usage_disabled` for an account without overage, no reason at all for a model without
+    /// Fast under `--bare`.
+    /// </summary>
+    internal static (string State, string? Reason)? InitFast(JsonElement root)
+    {
+        if (root.ValueKind is not JsonValueKind.Object
+            || !root.TryGetProperty("subtype", out var subtype) || subtype.ValueKind is not JsonValueKind.String
+            || subtype.GetString() is not "init"
+            || !root.TryGetProperty("fast_mode_state", out var state) || state.ValueKind is not JsonValueKind.String)
+            return null;
+
+        var reason = root.TryGetProperty("fast_mode_disabled_reason", out var why) && why.ValueKind is JsonValueKind.String
+            ? why.GetString()
+            : null;
+        return (state.GetString()!, reason);
+    }
+
     /// <summary>The families the discovery call reported; null when the line is not its answer.</summary>
     internal static List<string>? ReadFamilies(string line)
     {
@@ -224,11 +268,22 @@ internal sealed class ClaudeCliVendor : IVendor
     /// sorted; the sort is stable, so a tie keeps the remembered order and `fable` stays ahead of
     /// `opus`. Ids without a version go to the tail.
     /// </summary>
-    internal static List<VendorModel> BuildModels(IReadOnlyList<(string Alias, string Id)> resolved, string? defaultModel)
+    internal static List<VendorModel> BuildModels(IReadOnlyList<(string Alias, string Id)> resolved,
+                                                  string? defaultModel,
+                                                  IReadOnlySet<string>? fastAliases = null,
+                                                  string? fastUnavailable = null)
     {
         var defaultId = NormalizeId(defaultModel);
-        var models = resolved.Select(entry => new VendorModel(entry.Alias, EFFORTS, entry.Id,
-                                                              IsDefault: defaultId is not null && NormalizeId(entry.Id) == defaultId))
+        var models = resolved.Select(entry =>
+                                     {
+                                         var fast = fastAliases?.Contains(entry.Alias) is true;
+                                         return new VendorModel(entry.Alias, EFFORTS, entry.Id,
+                                                                IsDefault: defaultId is not null && NormalizeId(entry.Id) == defaultId)
+                                         {
+                                             FastEfforts = fast ? EFFORTS : [],
+                                             FastUnavailable = fast ? fastUnavailable : null
+                                         };
+                                     })
                              .ToList();
 
         return
@@ -252,21 +307,22 @@ internal sealed class ClaudeCliVendor : IVendor
         return trimmed.Length == 0 ? null : trimmed;
     }
 
-    private async Task<List<(string Alias, string Id)>> ResolveAllAsync(string executable,
-                                                                       IReadOnlyList<string> aliases,
-                                                                       CancellationToken ct)
+    private async Task<List<(string Alias, string Id, bool Fast)>> ResolveAllAsync(string executable,
+                                                                                  IReadOnlyList<string> aliases,
+                                                                                  CancellationToken ct)
     {
         var resolved = await Task.WhenAll(aliases.Select(alias => ResolveAsync(executable, alias, ct)))
                                  .ConfigureAwait(false);
 
-        return [.. resolved.Where(entry => entry.Id is not null).Select(entry => (entry.Alias, entry.Id!))];
+        return [.. resolved.Where(entry => entry.Id is not null).Select(entry => (entry.Alias, entry.Id!, entry.Fast))];
     }
 
-    private async Task<(string Alias, string? Id)> ResolveAsync(string executable, string alias, CancellationToken ct)
+    private async Task<(string Alias, string? Id, bool Fast)> ResolveAsync(string executable, string alias, CancellationToken ct)
     {
         // --bare skips hooks, MCP servers and the keychain. The prompt exists only because --print
         // refuses to start without one; it is never sent, because the process is killed as soon as
-        // init names the model, and init precedes any API call.
+        // init names the model, and init precedes any API call. The Fast opt-in rides along because
+        // a session that cannot see the account judges the model alone.
         var spec = new ProcessSpec(executable,
                                    [
                                        "--print",
@@ -274,6 +330,7 @@ internal sealed class ClaudeCliVendor : IVendor
                                        "--verbose",
                                        "--bare",
                                        "--no-session-persistence",
+                                       "--settings", FAST_OPT_IN,
                                        "--model", alias
                                    ],
                                    _workingDirectory,
@@ -285,12 +342,14 @@ internal sealed class ClaudeCliVendor : IVendor
             {
                 if (ReadInitModel(line) is not { } model) continue;
 
+                var fast = ReadInitFast(line)?.State is "on";
+
                 // The kill that follows is logged as an abandoned process; this line says it was
                 // the point, so the warning beside it does not read as a failure.
                 RunLog.Current?.Write("info", COMMAND, "vendor.alias-resolved",
-                    ("alias", alias), ("model", model), ("stopping", "init seen"));
+                    ("alias", alias), ("model", model), ("fast", fast ? "true" : "false"), ("stopping", "init seen"));
 
-                return (alias, ResolvedId(alias, model));
+                return (alias, ResolvedId(alias, model), fast);
             }
         }
         catch (Exception error) when (error is VendorException or OperationCanceledException)
@@ -299,7 +358,50 @@ internal sealed class ClaudeCliVendor : IVendor
                 ("alias", alias), ("reason", error.Message));
         }
 
-        return (alias, null);
+        return (alias, null, false);
+    }
+
+    /// <summary>
+    /// Why the account will not serve a Fast tier its models offer, or null when it will: one
+    /// `init` with the account visible, killed before any API call like the resolve wave — about
+    /// 3.4 s against 0.7 s under `--bare`, measured 2026-09-25. A cooldown is a moment rather than a
+    /// refusal, so it is not held against a catalogue that lives as long as the server; a check that
+    /// could not be made is, because a Fast request nothing confirmed is refused (docs/adr/0023).
+    /// </summary>
+    private async Task<string?> AccountFastRefusalAsync(string executable, string alias, CancellationToken ct)
+    {
+        var spec = new ProcessSpec(executable,
+                                   [
+                                       "--print",
+                                       "--output-format", "stream-json",
+                                       "--verbose",
+                                       "--strict-mcp-config",
+                                       "--no-session-persistence",
+                                       "--settings", FAST_OPT_IN,
+                                       "--model", alias
+                                   ],
+                                   _workingDirectory,
+                                   RESOLVE_PROMPT);
+
+        try
+        {
+            await foreach (var line in StreamingProcess.RunAsync(spec, RESOLVE_TIMEOUT, ct).ConfigureAwait(false))
+            {
+                if (ReadInitFast(line) is not { } fast) continue;
+
+                RunLog.Current?.Write("info", COMMAND, "vendor.fast-checked",
+                    ("alias", alias), ("state", fast.State), ("reason", fast.Reason), ("stopping", "init seen"));
+
+                return fast.State is "off" ? fast.Reason ?? "off" : null;
+            }
+        }
+        catch (Exception error) when (error is VendorException or OperationCanceledException)
+        {
+            RunLog.Current?.Write("warn", COMMAND, "vendor.fast-unchecked", ("alias", alias), ("reason", error.Message));
+            return $"not confirmed: {error.Message}";
+        }
+
+        return "not confirmed: init reported no fast_mode_state";
     }
 
     /// <summary>

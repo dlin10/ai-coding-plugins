@@ -25,8 +25,9 @@ public sealed class CursorAgentTests
 
     /// <summary>
     /// The raw list names every effort and speed variant on its own line; the interview wants
-    /// families. Collapsed efforts must stay joinable — every one of them appended to its family
-    /// base (except "default", which appends nothing) is an id the list actually contained.
+    /// families, with speed as its own axis. Collapsed efforts must stay joinable — every one of
+    /// them appended to its family base (except "default", which appends nothing) is an id the list
+    /// actually contained, and so is every fast effort with "-fast" after it.
     /// </summary>
     [Fact]
     public void Collapses_the_live_list_into_families_newest_first()
@@ -53,12 +54,14 @@ public sealed class CursorAgentTests
                      models.Select(m => m.Id));
 
         var codex = models.Single(m => m.Id == "gpt-5.3-codex");
-        Assert.Equal(["low", "low-fast", "default", "fast", "high", "xhigh-fast"], codex.Efforts);
+        Assert.Equal(["low", "default", "high", "xhigh"], codex.Efforts);
+        Assert.Equal(["low", "default", "xhigh"], codex.FastEfforts);
         Assert.Equal("Codex 5.3", codex.DisplayName);
         Assert.Equal("default", codex.DefaultEffort);
 
         var sol = models.Single(m => m.Id == "gpt-5.6-sol");
         Assert.Equal(["high", "xhigh"], sol.Efforts);
+        Assert.Empty(sol.FastEfforts);
         Assert.Null(sol.DisplayName);
         Assert.Null(sol.DefaultEffort);
 
@@ -156,7 +159,36 @@ public sealed class CursorAgentTests
         Assert.Equal("gpt-5.6-sol-xhigh", Session(new Selection("gpt-5.6-sol-xhigh", null)).ModelWithEffort());
         // "default" names a family's bare variant in the catalogue, so it joins to nothing.
         Assert.Equal("gpt-5.3-codex", Session(new Selection("gpt-5.3-codex", "default")).ModelWithEffort());
-        Assert.Equal("gpt-5.3-codex-high-fast", Session(new Selection("gpt-5.3-codex", "high-fast")).ModelWithEffort());
+    }
+
+    /// <summary>
+    /// Fast is the id's last suffix, after the effort where there is one and after the bare id
+    /// where there is not — `gpt-5.3-codex-high-fast`, `gpt-5.3-codex-fast` — and a Cursor-hosted
+    /// orchestrator's full id takes it the same way.
+    /// </summary>
+    [Fact]
+    public void Joins_fast_after_the_effort_or_after_the_bare_id()
+    {
+        Assert.Equal("gpt-5.3-codex-high-fast", Session(new Selection("gpt-5.3-codex", "high", Fast: true)).ModelWithEffort());
+        Assert.Equal("gpt-5.3-codex-fast", Session(new Selection("gpt-5.3-codex", null, Fast: true)).ModelWithEffort());
+        Assert.Equal("gpt-5.3-codex-fast", Session(new Selection("gpt-5.3-codex", "default", Fast: true)).ModelWithEffort());
+        Assert.Equal("gpt-5.6-sol-xhigh-fast", Session(new Selection("gpt-5.6-sol-xhigh", null, Fast: true)).ModelWithEffort());
+    }
+
+    /// <summary>
+    /// A `-fast` written into the model or the effort is a Fast request in the old spelling. Read
+    /// as one, so the requested selection never says standard while a fast id runs — see
+    /// docs/adr/0023.
+    /// </summary>
+    [Fact]
+    public void A_fast_suffix_in_the_model_or_the_effort_is_read_as_a_fast_request()
+    {
+        var vendor = new CursorAgentVendor();
+
+        Assert.Equal(new Selection("gpt-5.3-codex", "high", Fast: true), vendor.Normalize(new Selection("gpt-5.3-codex", "high-fast")));
+        Assert.Equal(new Selection("gpt-5.3-codex", null, Fast: true), vendor.Normalize(new Selection("gpt-5.3-codex", "fast")));
+        Assert.Equal(new Selection("gpt-5.3-codex-high", null, Fast: true), vendor.Normalize(new Selection("gpt-5.3-codex-high-fast", null)));
+        Assert.Equal(new Selection("gpt-5.6-sol", "xhigh"), vendor.Normalize(new Selection("gpt-5.6-sol", "xhigh")));
     }
 
     /// <summary>
@@ -170,6 +202,8 @@ public sealed class CursorAgentTests
                      Session(new Selection("gpt-5.6-sol", "xhigh")).DescribeSelection());
         Assert.Equal("model \"gpt-5.6-sol-xhigh\" with no effort",
                      Session(new Selection("gpt-5.6-sol-xhigh", null)).DescribeSelection());
+        Assert.Equal("model \"gpt-5.3-codex\" with effort \"high\" at Fast speed, sent as \"gpt-5.3-codex-high-fast\"",
+                     Session(new Selection("gpt-5.3-codex", "high", Fast: true)).DescribeSelection());
     }
 
     /// <summary>

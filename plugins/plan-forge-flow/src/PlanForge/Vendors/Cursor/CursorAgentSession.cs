@@ -272,25 +272,34 @@ internal sealed class CursorAgentSession : IVendorSession
         };
 
     /// <summary>
-    /// Cursor carries effort inside the model id, so the join happens here, not in the core.
-    /// "default" is the catalogue's name for a family's bare variant, so it joins to nothing.
+    /// Cursor carries effort and speed inside the model id, so the join happens here, not in the
+    /// core. "default" is the catalogue's name for a family's bare variant, so it joins to nothing;
+    /// Fast is the last suffix either way.
     /// </summary>
-    internal string ModelWithEffort() =>
-        string.IsNullOrWhiteSpace(_selection.Effort)
-        || _selection.Effort.Equals("default", StringComparison.OrdinalIgnoreCase)
-        || _selection.Model.EndsWith(_selection.Effort, StringComparison.OrdinalIgnoreCase)
-            ? _selection.Model
-            : $"{_selection.Model}-{_selection.Effort}";
+    internal string ModelWithEffort() => Join(_selection);
+
+    /// <summary>The id a selection is sent as; static so the vendor can confirm Fast by the same join.</summary>
+    internal static string Join(Selection selection)
+    {
+        var joined = string.IsNullOrWhiteSpace(selection.Effort)
+                     || selection.Effort.Equals("default", StringComparison.OrdinalIgnoreCase)
+                     || selection.Model.EndsWith(selection.Effort, StringComparison.OrdinalIgnoreCase)
+            ? selection.Model
+            : $"{selection.Model}-{selection.Effort}";
+
+        return selection.Fast ? joined + CursorAgentVendor.FastSuffix : joined;
+    }
 
     /// <summary>
-    /// Names what was asked — model, effort, and the joined id when it differs — so a run the
+    /// Names what was asked — model, effort, speed, and the joined id when it differs — so a run the
     /// vendor rejects reads as a bad request to correct, not as infrastructure to retry.
     /// </summary>
     internal string DescribeSelection()
     {
         var effort = string.IsNullOrWhiteSpace(_selection.Effort) ? "no effort" : $"effort \"{_selection.Effort}\"";
+        var speed = _selection.Fast ? " at Fast speed" : string.Empty;
         var joined = ModelWithEffort();
         var sent = joined == _selection.Model ? string.Empty : $", sent as \"{joined}\"";
-        return $"model \"{_selection.Model}\" with {effort}{sent}";
+        return $"model \"{_selection.Model}\" with {effort}{speed}{sent}";
     }
 }
