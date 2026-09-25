@@ -1,5 +1,18 @@
 # Plan Forge Flow releases
 
+## 0.35.4
+
+A decision can be the user's whatever its action (issue #113).
+
+- `by: "user"` is accepted on `addressedByRevision`, `duplicateOf`, `hostVerified` and `accept`, as
+  it already was on `defer`, `reject` and `decline`, in every tool that takes decisions. `by` names
+  who made the choice; the Orchestrator is still the only one that sends it, and the server still
+  refuses any value but `user` and `orchestrator`.
+- A reopening the user accepted is stored and loaded with `user`, and the next Critic reads it that
+  way. Ledgers written by 0.35.3 load unchanged.
+- The skill says when a decision is the user's: when their answer settled that finding or how it
+  was addressed. Approving the plan as a whole does not count.
+
 ## 0.35.3
 
 Worker telemetry records what a Claude attempt cost.

@@ -110,6 +110,12 @@ identity-keyed and has `findingId`, `action`, asserted `by`, and non-empty `reas
 - `accept` or `decline` answers a displayed reopening proposal; `accept` also carries the proposal's
   concrete evidence.
 
+`by` names who made the choice, not who sends it, and `user` is valid for every action. Write `user`
+when the user's answer settled that particular finding or how it was addressed — they picked one of
+the options you offered or dictated one — and `orchestrator` otherwise. Approving the plan as a whole
+settles no finding, so it does not make the closures in the final batch the user's. The server
+records `by` as you assert it and checks only that it is one of those two values.
+
 Apply plan decisions through the next `forge.plan.review` or, for the final revised plan, through
 `forge.plan.confirm(approved: true)`. Both accept the same complete decision shape, including
 duplicate closures and reopening answers. Confirmation checks that no unresolved

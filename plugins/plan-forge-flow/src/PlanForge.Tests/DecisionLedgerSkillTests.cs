@@ -13,6 +13,12 @@ namespace PlanForge.Tests;
 public sealed class DecisionLedgerSkillTests
 {
     [Fact]
+    public void The_user_may_be_the_decision_maker_for_every_action()
+    {
+        Contains("`user` is valid for every action", "Approving the plan as a whole", "settles no finding", Skill());
+    }
+
+    [Fact]
     public void Plan_review_and_confirm_share_the_plan_decision_matrix()
     {
         Contains("Apply plan decisions through the next `forge.plan.review`", "through `forge.plan.confirm(approved: true)`", Skill());
