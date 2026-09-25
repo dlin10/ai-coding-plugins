@@ -44,6 +44,37 @@ internal sealed class CursorAgentVendor : IVendor
         }
     }
 
+    /// <summary>
+    /// A <c>-fast</c> in the effort ("high-fast", or a bare "fast") or at the end of a full id is the
+    /// spelling the catalogue used before speed became its own axis. Read as a Fast request, so the
+    /// requested selection never says standard while a fast id runs — see docs/adr/0023.
+    /// </summary>
+    public Selection Normalize(Selection selection)
+    {
+        if (selection.Effort is "fast") return selection with { Effort = null, Fast = true };
+
+        if (selection.Effort?.EndsWith(FastSuffix, StringComparison.Ordinal) is true)
+            return selection with { Effort = selection.Effort[..^FastSuffix.Length], Fast = true };
+
+        return selection.Model.EndsWith(FastSuffix, StringComparison.Ordinal)
+            ? selection with { Model = selection.Model[..^FastSuffix.Length], Fast = true }
+            : selection;
+    }
+
+    /// <summary>
+    /// Confirmed when the id the join would send is one the list contained: a family's fast effort
+    /// joined back. A full id that already carries its effort is confirmed the same way, although
+    /// no family in the catalogue is named after it.
+    /// </summary>
+    public string? RefuseFast(Selection selection, VendorCatalog catalog)
+    {
+        var sent = CursorAgentSession.Join(selection);
+        return catalog.Models.Any(model => model.FastEfforts.Any(effort =>
+                   CursorAgentSession.Join(new Selection(model.Id, effort, Fast: true)) == sent))
+            ? null
+            : $"cursor-agent listed no \"{sent}\"";
+    }
+
     public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
     {
         WorkerTools.RecordBlanket(Id, role, "--approve-mcps grants every server cursor-agent loads");
@@ -54,8 +85,10 @@ internal sealed class CursorAgentVendor : IVendor
     // separate flag, which is why joining model and effort is the vendor's job. The raw list names
     // every effort and speed variant on its own line (~200 of them); the interview wants families,
     // so the ids are collapsed: strip "-fast", then a known effort suffix, and group what is left.
-    // Every effort a family advertises is a variant the list actually contained, which is what
-    // keeps the suffix join in CursorAgentSession honest — it can only rebuild observed ids. The
+    // Speed stays its own axis: an effort is listed once, and again among the fast efforts when its
+    // "-fast" id was listed too. Every effort a family advertises, at either speed, is a variant the
+    // list actually contained, which is what keeps the suffix join in CursorAgentSession honest —
+    // it can only rebuild observed ids. The
     // CLI's bracket-override syntax ("model[effort=high]") is not an alternative: measured on
     // 2026-08-19, it rejects even its own documented example with "Cannot use this model".
     internal static List<VendorModel> ParseModels(IEnumerable<string> lines)
@@ -72,7 +105,7 @@ internal sealed class CursorAgentVendor : IVendor
             var id = trimmed[..separator].Trim();
             if (id.Length == 0 || id.Contains(' ', StringComparison.Ordinal)) continue;
 
-            var (baseId, effort) = SplitEffort(id);
+            var (baseId, effort, fast) = SplitEffort(id);
             if (!byBase.TryGetValue(baseId, out var family))
             {
                 family = new Family(baseId);
@@ -80,8 +113,9 @@ internal sealed class CursorAgentVendor : IVendor
                 families.Add(family);
             }
 
-            family.Efforts.Add(effort);
-            if (effort == DefaultVariant) family.DisplayName = trimmed[(separator + 3)..].Trim();
+            if (!family.Efforts.Contains(effort)) family.Efforts.Add(effort);
+            if (fast) family.FastEfforts.Add(effort);
+            else if (effort == DefaultVariant) family.DisplayName = trimmed[(separator + 3)..].Trim();
         }
 
         // Newest family first; the vendor's own order is not recency. Ids without a version keep
@@ -97,24 +131,26 @@ internal sealed class CursorAgentVendor : IVendor
 
     private const string DefaultVariant = "default";
 
+    internal const string FastSuffix = "-fast";
+
     private static readonly string[] _effortLevels = ["low", "medium", "high", "xhigh", "max", "ultra"];
 
     /// <summary>
-    /// "gpt-5.3-codex-xhigh-fast" → base "gpt-5.3-codex", effort "xhigh-fast". A bare id is the
+    /// "gpt-5.3-codex-xhigh-fast" → base "gpt-5.3-codex", effort "xhigh", fast. A bare id is the
     /// family's "default" variant, picked by leaving the effort unset.
     /// </summary>
-    private static (string BaseId, string Effort) SplitEffort(string id)
+    private static (string BaseId, string Effort, bool Fast) SplitEffort(string id)
     {
-        var fast = id.EndsWith("-fast", StringComparison.Ordinal);
-        var trimmed = fast ? id[..^"-fast".Length] : id;
+        var fast = id.EndsWith(FastSuffix, StringComparison.Ordinal);
+        var trimmed = fast ? id[..^FastSuffix.Length] : id;
 
         foreach (var level in _effortLevels)
         {
             if (!trimmed.EndsWith($"-{level}", StringComparison.Ordinal)) continue;
-            return (trimmed[..^(level.Length + 1)], fast ? $"{level}-fast" : level);
+            return (trimmed[..^(level.Length + 1)], level, fast);
         }
 
-        return (trimmed, fast ? "fast" : DefaultVariant);
+        return (trimmed, DefaultVariant, fast);
     }
 
     private sealed class Family(string id)
@@ -122,12 +158,16 @@ internal sealed class CursorAgentVendor : IVendor
         public string Id { get; } = id;
         public int[] Version { get; } = ModelVersion.Segments(id);
         public List<string> Efforts { get; } = [];
+        public List<string> FastEfforts { get; } = [];
         public string? DisplayName { get; set; }
 
         public VendorModel ToModel() =>
             new(Id, Efforts, DisplayName,
                 DefaultEffort: Efforts.Contains(DefaultVariant) ? DefaultVariant : null,
-                IsDefault: DisplayName?.Contains("default", StringComparison.OrdinalIgnoreCase) is true);
+                IsDefault: DisplayName?.Contains("default", StringComparison.OrdinalIgnoreCase) is true)
+            {
+                FastEfforts = FastEfforts
+            };
     }
 
     private static string[] FallbackDirectories()

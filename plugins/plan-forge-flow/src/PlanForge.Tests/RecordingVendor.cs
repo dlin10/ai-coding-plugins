@@ -9,12 +9,15 @@ internal sealed class RecordingVendor(string id) : IVendor
 
     public string Id { get; } = id;
 
-    public VendorCatalog Catalog { get; } = new([], CatalogSource.Resolved);
+    public VendorCatalog Catalog { get; init; } = new([], CatalogSource.Resolved);
 
     public List<RecordingVendorSession> Sessions { get; } = [];
 
-    public void Enqueue(object response, string? resumeToken = null, IReadOnlyList<string>? killedBackgroundTasks = null) =>
-        _scripts.Enqueue(new Script(response, resumeToken, killedBackgroundTasks ?? []));
+    public void Enqueue(object response,
+                        string? resumeToken = null,
+                        IReadOnlyList<string>? killedBackgroundTasks = null,
+                        string? speedWarning = null) =>
+        _scripts.Enqueue(new Script(response, resumeToken, killedBackgroundTasks ?? [], speedWarning));
 
     public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
         Task.FromResult(new VendorReadiness(true, "recording vendor"));
@@ -28,12 +31,18 @@ internal sealed class RecordingVendor(string id) : IVendor
 
         var script = _scripts.Dequeue();
         var session = new RecordingVendorSession(role, selection, resumeToken, script.Response,
-                                                 script.ResumeToken, script.KilledBackgroundTasks);
+                                                 script.ResumeToken, script.KilledBackgroundTasks)
+        {
+            SpeedWarning = script.SpeedWarning
+        };
         Sessions.Add(session);
         return Task.FromResult<IVendorSession>(session);
     }
 
-    private sealed record Script(object Response, string? ResumeToken, IReadOnlyList<string> KilledBackgroundTasks);
+    private sealed record Script(object Response,
+                                 string? ResumeToken,
+                                 IReadOnlyList<string> KilledBackgroundTasks,
+                                 string? SpeedWarning);
 }
 
 internal sealed class RecordingVendorSession : IVendorSession
@@ -70,6 +79,8 @@ internal sealed class RecordingVendorSession : IVendorSession
     public string? ResumeToken { get; }
 
     public IReadOnlyList<string> KilledBackgroundTasks { get; }
+
+    public string? SpeedWarning { get; init; }
 
     public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {

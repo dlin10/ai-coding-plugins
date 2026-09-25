@@ -14,6 +14,9 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 {
+    /// <summary>Set when the fix's Fast turn was served at standard speed for part of it.</summary>
+    internal string? SpeedWarning { get; private set; }
+
     internal async Task<BuildResult> FixAsync(RunDirectory run,
                                               Selection selection,
                                               OrchestratorDecisionBatch? decisionBatch,
@@ -121,6 +124,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         var plan = run.ReadPlan();
         var killed = builder.KilledBackgroundTasks;
+        SpeedWarning = builder.SpeedWarning;
         var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan),
                                                  PlanGates.HasRunWideGates(plan), killed, state, ct);
         var closes = result.Gate?.Outcome == "passed"

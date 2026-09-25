@@ -26,6 +26,11 @@ internal sealed class ForgeTools
     private const int WORK_POLL_TIMEOUT_SECONDS = 45;
     private const string SOURCE = "server";
 
+    private const string FAST_DESCRIPTION =
+        "Run the worker at the vendor's Fast tier: quicker, at a higher usage price. Only for a model and effort forge.models " +
+        "lists under fastEfforts, and only when the user chose it; the server refuses a request the catalogue does not " +
+        "confirm, and claude refuses one its account will not serve. Omitted means standard speed, asked for explicitly.";
+
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic, builder, and Scout of the run may call without being asked; omit it for the Roslyn servers alone.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
@@ -83,7 +88,7 @@ internal sealed class ForgeTools
     /// <param name="runId">The run to read.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="vendor">The vendor to return, or <see langword="null"/> for every vendor.</param>
-    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it.")]
+    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it. `fastEfforts` lists the efforts a model is offered at with the vendor's Fast tier, `fastHint` what the vendor says it costs, and `fastUnavailable` why the account will not serve it; offer Fast only where fastEfforts holds the effort and fastUnavailable is null.")]
     public static async Task<string> Models(CatalogCache catalogs,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -110,37 +115,42 @@ internal sealed class ForgeTools
             report.Detail,
             [
                 .. report.Catalog.Models.Select(model => new CatalogModel(model.Id, model.DisplayName,
-                    model.Description, model.Efforts, model.DefaultEffort, model.IsDefault))
+                    model.Description, model.Efforts, model.DefaultEffort, model.IsDefault,
+                    model.FastEfforts, model.FastHint, model.FastUnavailable))
             ]);
 
     [McpServerTool(Name = "forge.scout.select"), Description("Records the lazy Scout decision for this run. Pass enabled:false with no vendor, model or effort to continue without Scout; pass enabled:true with a vendor and model to select it. The vendor id is checked now, while model and effort are stored exactly for the Vendor CLI to interpret. Repeating a healthy choice keeps its session anchor; changing it or selecting after a failure starts the next Scout call fresh.")]
-    public static async Task<string> SelectScout(SessionRoots roots,
+    public static async Task<string> SelectScout(CatalogCache catalogs,
+                                                 SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
                                                  [Description("Whether this run should use Scout. This decision is required; there is no silent default.")] bool enabled,
                                                  CancellationToken ct,
                                                  [Description("Vendor id, required when enabled is true and forbidden otherwise.")] string? vendor = null,
                                                  [Description("Model string, required when enabled is true and forbidden otherwise. Stored exactly; the Vendor CLI is authoritative.")] string? model = null,
-                                                 [Description("Optional effort string, forbidden when enabled is false. Stored exactly; the Vendor CLI is authoritative.")] string? effort = null)
+                                                 [Description("Optional effort string, forbidden when enabled is false. Stored exactly; the Vendor CLI is authoritative.")] string? effort = null,
+                                                 [Description(FAST_DESCRIPTION + " Confirmed now and kept with the selection; forbidden when enabled is false.")] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.scout.select",
-            [("enabled", enabled ? "true" : "false"), ("vendor", vendor), ("model", model), ("effort", effort)],
-            () =>
+            [("enabled", enabled ? "true" : "false"), ("vendor", vendor), ("model", model), ("effort", effort),
+             ("fast", Flag(fast))],
+            async () =>
             {
                 var state = run.ReadState();
-                var outcome = SelectScoutState(state.Scout, enabled, vendor, model, effort, workspaceRoot);
+                var outcome = await SelectScoutStateAsync(catalogs, state.Scout, enabled, vendor, model, effort, fast,
+                                                          workspaceRoot, ct);
 
                 run.WriteState(state with { Scout = outcome.State });
                 run.AppendFlowScoutSelection(outcome.Action, outcome.State);
                 run.Log.Write("info", SOURCE, $"scout.{outcome.Action}",
                     ("enabled", outcome.State.Enabled ? "true" : "false"),
                     ("vendor", outcome.State.Vendor), ("model", outcome.State.Model),
-                    ("effort", outcome.State.Effort), ("sessionState", outcome.SessionState));
+                    ("effort", outcome.State.Effort), ("fast", Flag(outcome.State.Fast)),
+                    ("sessionState", outcome.SessionState));
 
-                return Task.FromResult(JsonSerializer.Serialize(
-                    new ScoutSelectionResult(outcome.State, outcome.SessionState),
-                    ForgeToolJson.Default.ScoutSelectionResult));
+                return JsonSerializer.Serialize(new ScoutSelectionResult(outcome.State, outcome.SessionState),
+                                                ForgeToolJson.Default.ScoutSelectionResult);
             });
     }
 
@@ -175,9 +185,9 @@ internal sealed class ForgeTools
                 var act = new Scout(vendorFactory(selected.Vendor!), prompts ?? new PromptLibrary());
                 var outcome = await act.RunAsync(run, question, sessionMode, ct).ConfigureAwait(false);
 
-                return JsonSerializer.Serialize(
-                    new ScoutRunResult(outcome, Documents(run, includeScout: true)),
-                    ForgeToolJson.Default.ScoutRunResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new ScoutRunResult(outcome, Documents(run, includeScout: true)),
+                                                                          ForgeToolJson.Default.ScoutRunResult),
+                                            act.SpeedWarning);
             });
     }
 
@@ -260,7 +270,8 @@ internal sealed class ForgeTools
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     /// <param name="decisions">Typed authoritative ledger decisions to apply before this critic round.</param>
     [McpServerTool(Name = "forge.plan.review"), Description("Applies one typed plan decision batch, then runs one Critic round against the active plan-phase ledger projection. Use one decisionBatchId per logical set and repeat the exact batch when retrying an invalid Critic response. Plan closures use addressedByRevision or duplicateOf here. The result includes the critique, Flow audit and plan under `documents`.")]
-    public static async Task<string> ReviewPlan(SessionRoots roots,
+    public static async Task<string> ReviewPlan(CatalogCache catalogs,
+                                                SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                 [Description("Run id from forge.begin.")] string runId,
                                                 [Description("Model for the critic.")] string model,
@@ -271,25 +282,29 @@ internal sealed class ForgeTools
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
                                                 [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log; typed ledger decisions are what the next round's critic treats as settled.")] string? deferred = null,
                                                 [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
-                                                [Description("Optional typed authoritative decisions applied before the critic runs. Reuse the same decisionBatchId and identical decisions when retrying this call.")] OrchestratorDecisionBatch? decisions = null)
+                                                [Description("Optional typed authoritative decisions applied before the critic runs. Reuse the same decisionBatchId and identical decisions when retrying this call.")] OrchestratorDecisionBatch? decisions = null,
+                                                [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.plan.review",
-            [("vendor", vendor), ("model", model), ("effort", effort), ("planDraft", planDraft),
+            [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)), ("planDraft", planDraft),
              ("revision", revision), ("deferred", deferred),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
              ("decisionBatchId", decisions?.DecisionBatchId)],
             async () =>
             {
-                var act = new PlanReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-                var critique = await act.ReviewAsync(run, planDraft, new Selection(model, effort),
+                var critic = VendorFactory.Create(vendor, workspaceRoot);
+                var selection = await FastTier.ConfirmAsync(catalogs, critic, new Selection(model, effort, fast), workspaceRoot, ct);
+                var act = new PlanReview(critic, new PromptLibrary());
+                var critique = await act.ReviewAsync(run, planDraft, selection,
                                                      revision, deferred, userGrantedRound, ct,
                                                      orchestratorDecisions: decisions);
 
-                return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                ForgeToolJson.Default.CritiqueResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                          ForgeToolJson.Default.CritiqueResult),
+                                            act.SpeedWarning);
             });
     }
 
@@ -420,24 +435,29 @@ internal sealed class ForgeTools
     }
 
     [McpServerTool(Name = "forge.build.next"), Description("Builds the next unfinished task of the approved plan, then runs the task's gate command on the host and reports it under `build.result.gate`. A task whose gate exits non-zero comes back with status `gate_failed`, is not counted, and is retried by the next call with the gate's output in front of the builder. The gate runs for a builder that reports `blocked` with a verification of `unavailable` too — it did the work and could not prove it — and a gate that passes then rewrites the status to `done` and counts the task; read `build.result.verification` for what the builder itself could not check. A gate that is a condition rather than a command is `not_executable`, and the builder's own verification is all there is. A turn that ended with a command still running in the background comes back as `background_killed` with the gate `not_run`: the session killed the command, the task is not counted, and the next call retries it.")]
-    public static async Task<string> BuildNext(SessionRoots roots,
+    public static async Task<string> BuildNext(CatalogCache catalogs,
+                                               SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
                                                [Description("Model for the builder.")] string model,
                                                CancellationToken ct,
                                                [Description("Optional effort level.")] string? effort = null,
-                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null)
+                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                               [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.build.next",
-            [("vendor", vendor), ("model", model), ("effort", effort)],
+            [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast))],
             async () =>
             {
-                var act = new Build(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-                var outcome = await act.NextAsync(run, new Selection(model, effort), ct);
+                var builder = VendorFactory.Create(vendor, workspaceRoot);
+                var selection = await FastTier.ConfirmAsync(catalogs, builder, new Selection(model, effort, fast), workspaceRoot, ct);
+                var act = new Build(builder, new PromptLibrary());
+                var outcome = await act.NextAsync(run, selection, ct);
 
-                return JsonSerializer.Serialize(new BuildNextResult(outcome, Documents(run)),
-                                                ForgeToolJson.Default.BuildNextResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new BuildNextResult(outcome, Documents(run)),
+                                                                          ForgeToolJson.Default.BuildNextResult),
+                                            act.SpeedWarning);
             });
     }
 
@@ -456,32 +476,37 @@ internal sealed class ForgeTools
     /// <param name="vendor">The critic vendor, defaulting to Claude.</param>
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix.")]
-    public static async Task<string> ReviewCode(SessionRoots roots,
+    public static async Task<string> ReviewCode(CatalogCache catalogs,
+                                                SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                 [Description("Run id from forge.begin.")] string runId,
                                                 [Description("Model for the critic.")] string model,
                                                 CancellationToken ct,
                                                 [Description("Optional effort level.")] string? effort = null,
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-                                                [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false)
+                                                [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
+                                                [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.code",
-            [("vendor", vendor), ("model", model), ("effort", effort),
+            [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("userGrantedRound", userGrantedRound ? "true" : "false")],
             async () =>
             {
-                var act = new CodeReview(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary(),
-                    new GitClient(workspaceRoot));
-                var critique = await act.ReviewAsync(run, new Selection(model, effort), userGrantedRound, ct);
+                var critic = VendorFactory.Create(vendor, workspaceRoot);
+                var selection = await FastTier.ConfirmAsync(catalogs, critic, new Selection(model, effort, fast), workspaceRoot, ct);
+                var act = new CodeReview(critic, new PromptLibrary(), new GitClient(workspaceRoot));
+                var critique = await act.ReviewAsync(run, selection, userGrantedRound, ct);
 
-                return JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                ForgeToolJson.Default.CritiqueResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                          ForgeToolJson.Default.CritiqueResult),
+                                            act.SpeedWarning);
             });
     }
 
     [McpServerTool(Name = "forge.review.fix"), Description("Applies typed code-review decisions, including duplicate and host-verified closures, then independently fixes exactly fixFindingIds under fixAttemptId. Decisions-only calls start no Builder or gate. Retry retained or cut-short work with the same attempt and exact ID set; a conflicting set is refused and a saved terminal attempt returns its result without another Builder or gate.")]
-    public static async Task<string> ReviewFix(SessionRoots roots,
+    public static async Task<string> ReviewFix(CatalogCache catalogs,
+                                               SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
                                                [Description("Model for the builder.")] string model,
@@ -490,26 +515,31 @@ internal sealed class ForgeTools
                                                [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                                [Description("Optional complete typed code-review decision batch.")] OrchestratorDecisionBatch? decisions = null,
                                                [Description("Required when fixFindingIds is non-empty; identifies the retryable fix attempt.")] string? fixAttemptId = null,
-                                               [Description("Exact ledger finding IDs to fix. The Builder receives only their verbatim ledger findings.")] string[]? fixFindingIds = null)
+                                               [Description("Exact ledger finding IDs to fix. The Builder receives only their verbatim ledger findings.")] string[]? fixFindingIds = null,
+                                               [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.fix",
-            [("vendor", vendor), ("model", model), ("effort", effort),
+            [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("decisionBatchId", decisions?.DecisionBatchId), ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null)],
             async () =>
             {
-                var act = new ReviewFix(VendorFactory.Create(vendor, workspaceRoot), new PromptLibrary());
-                var result = await act.FixAsync(run, new Selection(model, effort), decisions, fixAttemptId,
+                var builder = VendorFactory.Create(vendor, workspaceRoot);
+                var selection = await FastTier.ConfirmAsync(catalogs, builder, new Selection(model, effort, fast), workspaceRoot, ct);
+                var act = new ReviewFix(builder, new PromptLibrary());
+                var result = await act.FixAsync(run, selection, decisions, fixAttemptId,
                                                 fixFindingIds, ct);
 
-                return JsonSerializer.Serialize(new ReviewFixResult(result, Documents(run)),
-                                                ForgeToolJson.Default.ReviewFixResult);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new ReviewFixResult(result, Documents(run)),
+                                                                          ForgeToolJson.Default.ReviewFixResult),
+                                            act.SpeedWarning);
             });
     }
 
     [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background. plan.review and review.fix use the same typed decisions, decisionBatchId and fix-attempt rules as their direct tools; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. Poll until terminal, then fetch. If started is false, rejoin the returned active job. Scout uses only its persisted selection plus question and explicit sessionMode.")]
     public static Task<string> StartWork(JobRegistry registry,
+                                         CatalogCache catalogs,
                                          SessionRoots roots,
                                          [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                          [Description("Run id from forge.begin.")] string runId,
@@ -526,13 +556,14 @@ internal sealed class ForgeTools
                                          [Description("For scout only: exactly `continue` or `fresh`.")] string? sessionMode = null,
                                          [Description("Optional typed decision batch accepted only by plan.review and review.fix.")] OrchestratorDecisionBatch? decisions = null,
                                          [Description("Required by review.fix when fixFindingIds is non-empty.")] string? fixAttemptId = null,
-                                         [Description("Exact ledger finding IDs for review.fix. Empty means decisions-only.")] string[]? fixFindingIds = null)
+                                         [Description("Exact ledger finding IDs for review.fix. Empty means decisions-only.")] string[]? fixFindingIds = null,
+                                         [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, null,
                          deferred, revision, userGrantedRound, question, sessionMode, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds);
+                         fixFindingIds, catalogs, fast);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -577,12 +608,14 @@ internal sealed class ForgeTools
                                                  PromptLibrary? prompts = null,
                                                  OrchestratorDecisionBatch? decisions = null,
                                                  string? fixAttemptId = null,
-                                                 string[]? fixFindingIds = null)
+                                                 string[]? fixFindingIds = null,
+                                                 CatalogCache? catalogs = null,
+                                                 bool fast = false)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.work.start",
-            [("act", act), ("vendor", vendor), ("model", model), ("effort", effort),
+            [("act", act), ("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
              ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false"),
              ("sessionMode", sessionMode), ("decisionBatchId", decisions?.DecisionBatchId),
@@ -590,14 +623,14 @@ internal sealed class ForgeTools
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null)],
             async () =>
             {
-                var selection = model is null ? null : new Selection(model, effort);
+                var selection = model is null ? null : new Selection(model, effort, fast);
                 WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
                                           userGrantedRound, question, sessionMode, decisions, fixAttemptId,
                                           fixFindingIds);
                 if (act == "scout")
                 {
-                    if (vendor is not null || effort is not null)
-                        throw new ArgumentRejectedException("scout takes Vendor and effort only from the persisted selection");
+                    if (vendor is not null || effort is not null || fast)
+                        throw new ArgumentRejectedException("scout takes Vendor, effort and fast only from the persisted selection");
                     SensitiveInput.Guard(question!, "the Scout question");
                 }
 
@@ -625,6 +658,9 @@ internal sealed class ForgeTools
                 var vendorForAct = vendorFactory(act == "scout"
                     ? Scout.RequireSelection(run.ReadState()).Vendor!
                     : vendor ?? VendorFactory.DefaultId);
+                if (selection is not null)
+                    selection = await FastTier.ConfirmAsync(catalogs ?? new CatalogCache((id, _) => vendorFactory(id!)),
+                                                            vendorForAct, selection, workspaceRoot, ct);
                 var workAct = new WorkAct(vendorForAct, prompts ?? new PromptLibrary());
                 var started = registry.Start(run.Path, act,
                     jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
@@ -856,17 +892,22 @@ internal sealed class ForgeTools
                                                       _ => "info"
                                                   };
 
-    private static (ScoutState State, string Action, string SessionState) SelectScoutState(ScoutState? current,
-                                                                                           bool enabled,
-                                                                                           string? vendor,
-                                                                                           string? model,
-                                                                                           string? effort,
-                                                                                           string workspaceRoot)
+    private static string Flag(bool value) => value ? "true" : "false";
+
+    private static async Task<(ScoutState State, string Action, string SessionState)> SelectScoutStateAsync(CatalogCache catalogs,
+                                                                                                           ScoutState? current,
+                                                                                                           bool enabled,
+                                                                                                           string? vendor,
+                                                                                                           string? model,
+                                                                                                           string? effort,
+                                                                                                           bool fast,
+                                                                                                           string workspaceRoot,
+                                                                                                           CancellationToken ct)
     {
         if (!enabled)
         {
-            if (vendor is not null || model is not null || effort is not null)
-                throw new ArgumentRejectedException("forge.scout.select rejects vendor, model and effort when enabled is false");
+            if (vendor is not null || model is not null || effort is not null || fast)
+                throw new ArgumentRejectedException("forge.scout.select rejects vendor, model, effort and fast when enabled is false");
 
             return (new ScoutState(false), "declined", "disabled");
         }
@@ -877,13 +918,16 @@ internal sealed class ForgeTools
             throw new ArgumentRejectedException("forge.scout.select requires model when enabled is true");
 
         var resolved = VendorFactory.Create(vendor, workspaceRoot);
+        var selection = await FastTier.ConfirmAsync(catalogs, resolved, new Selection(model, effort, fast), workspaceRoot, ct);
         if (current is { Enabled: true, LastFailure: null }
             && string.Equals(current.Vendor, resolved.Id, StringComparison.Ordinal)
-            && string.Equals(current.Model, model, StringComparison.Ordinal)
-            && string.Equals(current.Effort, effort, StringComparison.Ordinal))
+            && string.Equals(current.Model, selection.Model, StringComparison.Ordinal)
+            && string.Equals(current.Effort, selection.Effort, StringComparison.Ordinal)
+            && current.Fast == selection.Fast)
             return (current, "selected", current.SessionId is { Length: > 0 } ? "resumed" : "fresh");
 
-        return (new ScoutState(true, resolved.Id, model, effort), current is null ? "selected" : "reselected", "fresh");
+        return (new ScoutState(true, resolved.Id, selection.Model, selection.Effort, Fast: selection.Fast),
+                current is null ? "selected" : "reselected", "fresh");
     }
 
     /// <summary>
@@ -1032,12 +1076,18 @@ internal sealed record VendorCatalogResult(string Vendor,
                                            string Detail,
                                            IReadOnlyList<CatalogModel> Models);
 
+/// <param name="FastEfforts">The efforts this model is offered at with a Fast tier; empty when it has none.</param>
+/// <param name="FastHint">The vendor's own word on what Fast costs, where it gives one.</param>
+/// <param name="FastUnavailable">Why the account will not serve a Fast tier the model offers.</param>
 internal sealed record CatalogModel(string Id,
                                     string? DisplayName,
                                     string? Description,
                                     IReadOnlyList<string> Efforts,
                                     string? DefaultEffort,
-                                    bool IsDefault);
+                                    bool IsDefault,
+                                    IReadOnlyList<string> FastEfforts,
+                                    string? FastHint,
+                                    string? FastUnavailable);
 
 /// <summary>
 /// The structured tool <em>arguments</em>, as opposed to the results above. The SDK marshals scalar

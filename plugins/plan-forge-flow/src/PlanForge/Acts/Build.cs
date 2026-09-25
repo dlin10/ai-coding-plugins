@@ -16,6 +16,9 @@ internal sealed class Build
     private readonly IVendor _vendor;
     private readonly PromptLibrary _prompts;
 
+    /// <summary>Set when the task's Fast turn was served at standard speed for part of it.</summary>
+    internal string? SpeedWarning { get; private set; }
+
     public Build(IVendor vendor, PromptLibrary prompts)
     {
         _vendor = vendor;
@@ -78,6 +81,7 @@ internal sealed class Build
         // — not the builder's account of the checks it ran. See docs/adr/0015.
         var gate = PlanGates.TaskGate(task.Text);
         var killed = session.KilledBackgroundTasks;
+        SpeedWarning = session.SpeedWarning;
         var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), killed, state, ct);
 
         // A task the builder could not do, or whose gate failed, stays the next task, so the

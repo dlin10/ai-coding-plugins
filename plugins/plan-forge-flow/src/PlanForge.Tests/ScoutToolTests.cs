@@ -486,6 +486,7 @@ public sealed class ScoutToolTests : IDisposable
         var services = new ServiceCollection()
             .AddSingleton(SessionRoots.None)
             .AddSingleton(new JobRegistry())
+            .AddSingleton(new CatalogCache())
             .BuildServiceProvider();
         var method = typeof(ForgeTools).GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)!;
         var tool = McpServerTool.Create(method, options: new McpServerToolCreateOptions

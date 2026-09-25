@@ -27,9 +27,15 @@ public sealed class CatalogTests : IDisposable
         {
             "claude" => new CatalogVendor("claude", available: true, new VendorCatalog([
                 new VendorModel("opus", ["low", "high"], "claude-opus-5")
+                {
+                    FastEfforts = ["low", "high"], FastUnavailable = "extra_usage_disabled"
+                }
             ], CatalogSource.Resolved)),
             "codex" => new CatalogVendor("codex", available: true, new VendorCatalog([
                 new VendorModel("gpt-5.6-sol", ["low", "ultra"], "GPT-5.6-Sol", "Latest.", "low", IsDefault: true)
+                {
+                    FastEfforts = ["low", "ultra"], FastHint = "1.5x speed, increased usage"
+                }
             ], CatalogSource.Live)),
             _ => new CatalogVendor("cursor", available: false, new VendorCatalog([], CatalogSource.Live),
                 detail: "cursor-agent was not found on PATH")
@@ -48,6 +54,12 @@ public sealed class CatalogTests : IDisposable
         Assert.Equal(["low", "ultra"], sol["efforts"]!.AsArray().Select(e => e!.GetValue<string>()));
         Assert.Equal("low", sol["defaultEffort"]!.GetValue<string>());
         Assert.True(sol["isDefault"]!.GetValue<bool>());
+        Assert.Equal(["low", "ultra"], sol["fastEfforts"]!.AsArray().Select(e => e!.GetValue<string>()));
+        Assert.Equal("1.5x speed, increased usage", sol["fastHint"]!.GetValue<string>());
+        Assert.Null(sol["fastUnavailable"]);
+
+        var opus = vendors[0]!["models"]!.AsArray().Single()!;
+        Assert.Equal("extra_usage_disabled", opus["fastUnavailable"]!.GetValue<string>());
 
         var cursor = vendors[2]!;
         Assert.Equal("cursor-agent was not found on PATH", cursor["detail"]!.GetValue<string>());

@@ -140,6 +140,51 @@ public sealed class ClaudeCatalogTests
         Assert.Equal(["low", "medium", "high", "xhigh", "max"], models.Single().Efforts);
     }
 
+    /// <summary>
+    /// `init` reports whether this session will run at Fast speed before any API call, and why not
+    /// when it will not. Measured against Claude Code 2.1.282 on 2026-09-25, with `"fastMode": true`
+    /// in `--settings`.
+    /// </summary>
+    [Fact]
+    public void Reads_the_fast_state_out_of_the_init_line()
+    {
+        const string off =
+            """
+            {"type":"system","subtype":"init","session_id":"abc","model":"claude-opus-5-5","fast_mode_state":"off","fast_mode_disabled_reason":"extra_usage_disabled"}
+            """;
+        const string on =
+            """
+            {"type":"system","subtype":"init","session_id":"abc","model":"claude-opus-5-5","fast_mode_state":"on","fast_mode_disabled_reason":null}
+            """;
+
+        Assert.Equal(("off", "extra_usage_disabled"), ClaudeCliVendor.ReadInitFast(off));
+        Assert.Equal(("on", (string?)null), ClaudeCliVendor.ReadInitFast(on));
+        Assert.Null(ClaudeCliVendor.ReadInitFast(InitLine));
+    }
+
+    /// <summary>
+    /// Under `--bare` the session cannot see the account, so its `init` judges the model alone —
+    /// `opus` on, `haiku` and `fable` off, measured 2026-09-25 — and one `init` with the account
+    /// visible names why the account will not serve it (`extra_usage_disabled` on this box). A model
+    /// the account refuses still says it has Fast, so the interview can say why it is not offered.
+    /// </summary>
+    [Fact]
+    public void Offers_fast_on_every_effort_of_a_model_its_bare_init_served_and_names_the_account_refusal()
+    {
+        var models = ClaudeCliVendor.BuildModels([("opus", "claude-opus-5-5"), ("haiku", "claude-haiku-4-5-20251001")],
+                                                 defaultModel: null,
+                                                 fastAliases: new HashSet<string> { "opus" },
+                                                 fastUnavailable: "extra_usage_disabled");
+
+        var opus = models.Single(model => model.Id == "opus");
+        Assert.Equal(["low", "medium", "high", "xhigh", "max"], opus.FastEfforts);
+        Assert.Equal("extra_usage_disabled", opus.FastUnavailable);
+
+        var haiku = models.Single(model => model.Id == "haiku");
+        Assert.Empty(haiku.FastEfforts);
+        Assert.Null(haiku.FastUnavailable);
+    }
+
     [Fact]
     public void Claudes_catalogue_is_resolved_rather_than_live()
     {

@@ -201,6 +201,12 @@ internal sealed class CodexCliSession : IVendorSession
             arguments.Add("model_reasoning_effort=" + TomlValue.String(selection.Effort));
         }
 
+        // Standard speed is named as explicitly as Fast: without it a worker would inherit the tier
+        // `~/.codex/config.toml` holds, which the Codex desktop app rewrites from its Fast toggle.
+        // See docs/adr/0023.
+        arguments.Add("-c");
+        arguments.Add("service_tier=" + TomlValue.String(selection.Fast ? "fast" : "default"));
+
         // A worker may inherit every other host capability, but never this plugin: exposing forge
         // inside forge lets either role start a run within its parent run. Disable the whole plugin
         // rather than only its MCP server so its skill and instructions are absent as well.

@@ -28,6 +28,9 @@ internal sealed class Scout
         _prompts = prompts;
     }
 
+    /// <summary>Set when the question's Fast turn was served at standard speed for part of it.</summary>
+    internal string? SpeedWarning { get; private set; }
+
     public async Task<ScoutDigest> RunAsync(RunDirectory run,
                                             string question,
                                             string sessionMode,
@@ -63,10 +66,11 @@ internal sealed class Scout
                              _prompts.Load(_vendor.Id, VendorRole.Scout),
                              WorkerTools: WorkerTools.Effective(state.WorkerTools),
                              Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log, "scout")),
-                new Selection(selected.Model!, selected.Effort), resumeToken, ct).ConfigureAwait(false);
+                new Selection(selected.Model!, selected.Effort, selected.Fast), resumeToken, ct).ConfigureAwait(false);
             session = started;
 
             var report = await started.RunAsync(prompt, Schemas.ScoutReport, ct).ConfigureAwait(false);
+            SpeedWarning = started.SpeedWarning;
             var rendered = Render(report);
 
             // The complete report is guarded before the atomic replacement, so the previous
@@ -90,6 +94,7 @@ internal sealed class Scout
             run.AppendFlowScoutOutcome("completed", question);
             run.Log.Write("info", "scout", "scout.completed",
                 ("vendor", _vendor.Id), ("model", selected.Model), ("effort", selected.Effort),
+                ("fast", selected.Fast ? "true" : "false"),
                 ("sessionMode", ActualSessionMode(resumeToken)), ("report", run.ScoutReportPath));
 
             return ToDigest(report);
@@ -327,6 +332,7 @@ internal sealed class Scout
             run.AppendFlowScoutOutcome("failed", question, failure);
             run.Log.Write("error", "scout", "scout.failed",
                 ("vendor", _vendor.Id), ("model", selected.Model), ("effort", selected.Effort),
+                ("fast", selected.Fast ? "true" : "false"),
                 ("sessionMode", ActualSessionMode(suppliedToken)), ("code", failure.Code),
                 ("summary", failure.Summary));
         }

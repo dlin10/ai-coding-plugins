@@ -104,12 +104,18 @@ offers what the vendor actually serves — see
 [docs/adr/0007](docs/adr/0007-serve-live-catalogues-to-the-interview.md). A catalogue is `live`
 where the vendor publishes a list (codex, cursor) and `resolved` for claude, whose probe turns each
 remembered alias into the model id the CLI would send and drops any it does not resolve — see
-[docs/adr/0010](docs/adr/0010-resolve-claude-aliases-through-the-cli.md). For validation they stay
-**advisory**: the vendor CLI decides, and an unrecognised model is a warning, not a refusal.
+[docs/adr/0010](docs/adr/0010-resolve-claude-aliases-through-the-cli.md). For model and effort
+they stay **advisory**: the vendor CLI decides, and an unrecognised model is a warning, not a
+refusal.
 
 Effort is kept separate from model in `Selection` because each vendor expresses it differently —
 a flag for Claude, a model property for Codex, a suffix inside the model id for Cursor. The join
-belongs in the vendor, never in the core.
+belongs in the vendor, never in the core. `Fast` is the third axis for the same reason — a
+`--settings` key for Claude, a `service_tier` for Codex, the `-fast` suffix for Cursor — and the one
+exception to advisory validation: `Vendors/FastTier.cs` refuses a Fast request the catalogue does not
+confirm before any worker starts, every turn names its speed rather than inheriting the vendor's own
+configuration, and Claude refuses once more at its session's `init`. See
+[docs/adr/0023](docs/adr/0023-refuse-a-fast-request-nothing-confirmed.md).
 
 `VendorFactory` is a deliberate switch rather than DI: a vendor is constructed around
 `workspaceRoot`, which arrives as a per-call tool argument, so there is no container lifetime that

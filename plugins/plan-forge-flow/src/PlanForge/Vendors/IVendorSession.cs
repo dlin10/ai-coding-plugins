@@ -35,4 +35,11 @@ internal interface IVendorSession : IAsyncDisposable
     /// does not report it — every vendor but claude — see docs/adr/0018.
     /// </summary>
     IReadOnlyList<string> KilledBackgroundTasks => [];
+
+    /// <summary>
+    /// Set when a Fast turn was served at standard speed for part of it and the work still counts.
+    /// Null where the vendor does not report the speed it served — every vendor but claude — see
+    /// docs/adr/0023.
+    /// </summary>
+    string? SpeedWarning => null;
 }

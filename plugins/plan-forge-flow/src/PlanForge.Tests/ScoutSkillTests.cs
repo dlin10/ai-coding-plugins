@@ -193,9 +193,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Budget_has_four_plus_two_and_one_scout_round_without_domain_cap()
+    public void Budget_has_six_plus_two_and_one_scout_round_without_domain_cap()
     {
-        Contains("at most four questions total: two Vendor questions and two model/effort questions", "two instruction questions of step 3 as one round", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
+        Contains("at most six questions total: two Vendor questions, two model/effort questions, and one Fast question for each role whose choice offers it", "two instruction questions of step 4 as one round", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
     }
 
     [Fact]

@@ -15,6 +15,9 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewGit git)
 {
+    /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
+    internal string? SpeedWarning { get; private set; }
+
     /// <param name="userGrantedRound">
     /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
     /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
@@ -76,6 +79,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
                 throw;
             }
             killed = critic.KilledBackgroundTasks;
+            SpeedWarning = critic.SpeedWarning;
         }
 
         if (granted) run.AppendFlowGrantedRound("Code review", round);

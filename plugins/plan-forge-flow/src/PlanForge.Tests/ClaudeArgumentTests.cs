@@ -8,7 +8,7 @@ namespace PlanForge.Tests;
 public sealed class ClaudeArgumentTests
 {
     private const string SelfPluginSettings =
-        """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false}}""";
+        """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":false}""";
 
     [Fact]
     public void Critic_disables_the_self_plugin_and_does_not_persist_its_session()
@@ -94,6 +94,29 @@ public sealed class ClaudeArgumentTests
     public void Every_worker_may_run_a_foreground_command_for_thirty_minutes()
     {
         Assert.Equal("1800000", ClaudeCliSession.BuildEnvironment()["BASH_MAX_TIMEOUT_MS"]);
+    }
+
+    /// <summary>
+    /// Fast is asked for in the same `--settings` payload that disables this plugin, and standard
+    /// speed is named as explicitly, so neither depends on the user's own settings — see
+    /// docs/adr/0023. Measured against Claude Code 2.1.282 on 2026-09-25: `"fastMode": true` there
+    /// is the opt-in a non-interactive session otherwise reports as `sdk_opt_in_required`.
+    /// </summary>
+    [Fact]
+    public void Speed_rides_in_the_one_settings_payload_either_way()
+    {
+        foreach (var fast in new[] { true, false })
+        {
+            var arguments = new ClaudeCliSession(new RoleSpec(VendorRole.Builder, "build"),
+                                                 new Selection("opus", null, Fast: fast), null)
+                            .BuildArguments("schema.json");
+
+            Assert.Single(arguments, argument => argument == "--settings");
+            using var document = JsonDocument.Parse(arguments[arguments.IndexOf("--settings") + 1]);
+            Assert.Equal(fast, document.RootElement.GetProperty("fastMode").GetBoolean());
+            Assert.False(document.RootElement.GetProperty("enabledPlugins")
+                                 .GetProperty("plan-forge-flow@dlin10-ai-coding-plugins").GetBoolean());
+        }
     }
 
     [Fact]

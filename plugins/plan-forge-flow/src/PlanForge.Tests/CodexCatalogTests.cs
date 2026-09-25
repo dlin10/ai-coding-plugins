@@ -45,6 +45,36 @@ public sealed class CodexCatalogTests
         Assert.Equal("low", models[0].DefaultEffort);
     }
 
+    /// <summary>
+    /// `codex debug models` names the speed tiers a model offers. `service_tier="fast"` asks for the
+    /// one `additional_speed_tiers` calls `fast`, and the tier's description is the only price hint
+    /// the user gets — it differs by model. Measured against codex-cli 0.157.0 on 2026-09-25.
+    /// </summary>
+    [Fact]
+    public void A_model_offers_fast_on_every_effort_only_where_codex_lists_the_tier()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "models": [
+                { "slug": "gpt-6-astra", "visibility": "list", "priority": 1,
+                  "supported_reasoning_levels": [ { "effort": "low" }, { "effort": "high" } ],
+                  "service_tiers": [ { "id": "priority", "name": "Fast", "description": "2x speed, increased usage" } ],
+                  "additional_speed_tiers": [ "fast" ] },
+                { "slug": "gpt-5.2", "visibility": "list", "priority": 2,
+                  "supported_reasoning_levels": [ { "effort": "low" } ] }
+              ]
+            }
+            """);
+
+        var models = CodexCliVendor.ParseModels(document.RootElement);
+
+        Assert.Equal(["low", "high"], models[0].FastEfforts);
+        Assert.Equal("2x speed, increased usage", models[0].FastHint);
+        Assert.Empty(models[1].FastEfforts);
+        Assert.Null(models[1].FastHint);
+    }
+
     [Fact]
     public void A_document_with_no_models_array_throws()
     {
