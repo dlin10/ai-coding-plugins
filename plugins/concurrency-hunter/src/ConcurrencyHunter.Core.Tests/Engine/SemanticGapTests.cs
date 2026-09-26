@@ -159,11 +159,10 @@ public sealed class SemanticGapTests
         var run = Run("var items = new System.Collections.Generic.List<Other>(); items.Add(new Other()); _state.Box.Value = items; " +
                       "System.Console.WriteLine(_state.Box);");
 
-        // The box, whose Value field the program names, and the list it holds are shared through the singleton; the object in the
-        // list's cell counts only once ownership sees it shared, and a collection's cells are no escape edge yet (open question 30),
-        // so it stays one execution's.
+        // The box, whose Value field the program names, the list it holds and the object in the list's cell are shared through the
+        // singleton: a collection's cells are an escape edge as an array's are (ADR 0010, phase 5b second run).
         var gap = Assert.Single(Gaps(run), gap => gap.Callee == "System.Console.WriteLine(object)");
-        Assert.Equal(2, gap.Regions);
+        Assert.Equal(3, gap.Regions);
     }
 
     // ---- the other unresolved calls ----

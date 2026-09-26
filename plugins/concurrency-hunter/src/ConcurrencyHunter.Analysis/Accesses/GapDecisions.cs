@@ -52,7 +52,10 @@ internal sealed class GapOrigins
         _stores = new(() => heap.Instances.Values.SelectMany(instance => instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)
                                                                                  .Select(store => (instance, store)))
                                 .ToLookup(item => FieldSlot.Key(item.store.Field), StringComparer.Ordinal));
-        _elementStores = new(() => heap.Instances.Values.SelectMany(instance => instance.Summary.Elements.Where(element => element.Kind == ElementOperationKind.Store)
+        // A cell read gives back what went into the cells and a key read what went into the keys, each apart; never the list a node
+        // was added to.
+        _elementStores = new(() => heap.Instances.Values.SelectMany(instance => instance.Summary.Elements.Where(element => element.Kind == ElementOperationKind.Store &&
+                                                                                                                           PathValue.IsStorage(element.Slot))
                                                                                          .Concat(instance.Summary.ReferenceElementStores)
                                                                                          .Select(element => (instance, element)))
                                        .ToArray());
@@ -129,13 +132,15 @@ internal sealed class GapOrigins
                 }
             }
 
-            // A cell read gives back what any store put into a cell of the arrays it reads.
-            foreach (var arrays in from.Elements)
+            // A cell read gives back what any store put into a cell of the arrays it reads, and a key read what any member filed as a
+            // key of the dictionaries or pairs it reads.
+            foreach (var (holders, slot) in from.Elements.Select(arrays => (arrays, PathValue.ELEMENT))
+                                               .Concat(from.Keys.Select(keys => (keys, PathValue.KEYS))))
             {
-                var targets = arrays.SelectMany(value => _heap.Resolve(current.Id, value)).ToHashSet(StringComparer.Ordinal);
-                if (!visited.Add($"element|{string.Join(",", targets.Order(StringComparer.Ordinal))}"))
+                var targets = holders.SelectMany(value => _heap.Resolve(current.Id, value)).ToHashSet(StringComparer.Ordinal);
+                if (!visited.Add($"{slot}|{string.Join(",", targets.Order(StringComparer.Ordinal))}"))
                     continue;
-                foreach (var (storing, store) in _elementStores.Value)
+                foreach (var (storing, store) in _elementStores.Value.Where(item => item.Store.Slot == slot))
                 {
                     if (store.Arrays.SelectMany(value => _heap.Resolve(storing.Id, value)).Any(targets.Contains))
                         pending.Enqueue((storing, store.Producers, depth + 1));

@@ -75,6 +75,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>What each <c>foreach</c> of the body enumerates, by its enumeration id: the receiver of its <c>GetEnumerator</c>.</summary>
         private readonly Dictionary<int, int> _enumerated = [];
+
+        /// <summary>The <c>GetEnumerator</c> call of each <c>foreach</c> of the body, by its enumeration id.</summary>
+        private readonly Dictionary<int, IrCallOperation> _enumerators = [];
         private Dictionary<int, int>? _blockOf;
         private Dictionary<int, HashSet<int>>? _dominators;
 
@@ -113,8 +116,9 @@ public static class MethodSummaryBuilder
                     case IrWhenAllOperation whenAll:
                         ModelCall(whenAll.ResultValue);
                         break;
-                    case IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, EnumerationId: int enumeration, ReceiverValue: int enumerated }:
+                    case IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, EnumerationId: int enumeration, ReceiverValue: int enumerated } call:
                         _enumerated[enumeration] = enumerated;
+                        _enumerators[enumeration] = call;
                         break;
                 }
             }
@@ -176,7 +180,8 @@ public static class MethodSummaryBuilder
                                                        load.Provenance, locks, null, Final(Points(load.ResultValue), delegates),
                                                        new HashSet<ValueDependency>())
                         {
-                            Atomic = atomic.TryGetValue(load.Id, out var loadMark) ? loadMark.Effect : null
+                            Atomic = atomic.TryGetValue(load.Id, out var loadMark) ? loadMark.Effect : null,
+                            IsFresh = load.ReceiverValue is int loadReceiver && IsFresh(loadReceiver)
                         });
                         break;
                     case IrStoreFieldOperation store:
@@ -187,7 +192,8 @@ public static class MethodSummaryBuilder
                         {
                             Atomic = atomic.TryGetValue(store.Id, out var storeMark) ? storeMark.Effect : null,
                             ComparandLoad = Comparand(atomic, store.Id),
-                            StoredTerm = Term(store.Value)
+                            StoredTerm = Term(store.Value),
+                            IsFresh = store.ReceiverValue is int storeReceiver && IsFresh(storeReceiver)
                         });
                         if (!IsValueType(store.Field.Type))
                             stores.Add(new StoreTransfer(store.Id, store.Field, bases, stored) { Producers = Producers(store.Value) });
@@ -291,6 +297,8 @@ public static class MethodSummaryBuilder
                                                                                     }));
                         }
 
+                        if (call is { Collection: { } member, ReceiverValue: int collection })
+                            elements.AddRange(CollectionStores(call, member, collection, delegates));
                         break;
                     case IrCallOperation call:
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
@@ -329,6 +337,34 @@ public static class MethodSummaryBuilder
                     argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, enumeration.Id, Final(Points(enumerated), delegates),
                                                                   Collection(enumerated), SpanTypes.Names(_values[enumerated].Type),
                                                                   enumeration.Provenance, locks));
+                }
+
+                // A copy enumerates its source as a `foreach` does, and every pair, view and copy holds what it was filled with (ADR 0010,
+                // phase 5b second run).
+                if (operation is IrCallOperation copying)
+                {
+                    if (copying is { Collection.Source: int ordinal } && copying.ArgumentAt(ordinal) is int source)
+                    {
+                        argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, copying.Id, Final(Points(source), delegates),
+                                                                      Collection(source), SpanTypes.Names(_values[source].Type),
+                                                                      copying.Provenance, locks));
+                    }
+
+                    elements.AddRange(CopyStores(copying, delegates));
+                }
+
+                // A member of a node or a live view no field of this body names — a node added to its list elsewhere, a view a caller
+                // handed over, either one a call returned — makes its accesses on the collection the heap says the receiver stands for
+                // (ADR 0010, phase 5b second run).
+                if (operation is IrCallOperation { Collection: { } standing, ReceiverValue: int stands } standingCall &&
+                    (standing.Member.StartsWith(VIEW_MEMBER, StringComparison.Ordinal) || standing.Member.StartsWith(NODE_MEMBER, StringComparison.Ordinal)) &&
+                    (standing.Structure != IrCollectionEffect.None || standing.Element != IrCollectionEffect.None) && HolderLoad(stands) is null)
+                {
+                    argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, standingCall.Id, Final(Points(stands), delegates),
+                                                                  null, false, standingCall.Provenance, locks)
+                    {
+                        Member = standing
+                    });
                 }
             }
 
@@ -453,6 +489,182 @@ public static class MethodSummaryBuilder
             return stores;
         }
 
+        /// <summary>What a collection member puts into the collection it is called on, as an element store puts a value into an array's
+        /// cells: each argument it holds, into the storage that argument goes to (ADR 0010, phase 5b second run). A node handed to a
+        /// list is no element of it: what the node holds goes into the list's cells, and the node becomes a cell of that list.</summary>
+        private IEnumerable<ElementTransfer> CollectionStores(IrCallOperation call, IrCollectionCall member, int collection,
+                                                              IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            var targets = Final(Points(collection), delegates);
+            for (var position = 0; position < call.ArgumentValues.Count; position++)
+            {
+                var ordinal = position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position;
+                if (!InterproceduralAccesses.IsHeldArgument(member, ordinal))
+                    continue;
+
+                var value = call.ArgumentValues[position];
+                if (member.Member.StartsWith(LINKED_LIST, StringComparison.Ordinal) && _values[value].Type.StartsWith(LINKED_LIST_NODE, StringComparison.Ordinal))
+                {
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, targets, Final(Extend(_points[value], PathValue.ELEMENT), delegates))
+                    {
+                        IsCollection = true
+                    };
+                    // Once added, the node and the list's cells are one storage, as there is one per collection: what either is given,
+                    // through the node or through a node the list hands out, is what both hold.
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, Final(Points(value), delegates),
+                                                     Final(Extend(targets, PathValue.ELEMENT), delegates))
+                    {
+                        IsCollection = true
+                    };
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, Final(Points(value), delegates), targets)
+                    {
+                        Slot = PathValue.NODE_LIST,
+                        IsCollection = true
+                    };
+                    continue;
+                }
+
+                yield return new ElementTransfer(call.Id, ElementOperationKind.Store, targets, Final(Points(value), delegates))
+                {
+                    Producers = Producers(value),
+                    Slot = InterproceduralAccesses.HeldSlot(member, ordinal),
+                    IsCollection = true
+                };
+            }
+        }
+
+        /// <summary>What a view, a pair a dictionary's enumeration hands out, and a copy from a collection put into the collection
+        /// they fill: a view holds the storage of its dictionary it hands out, a pair the key and the value it yields, and a copy
+        /// what enumerating its source yields, keys and values apart where both ends are dictionaries, as the heap decides for each
+        /// object the source may be (ADR 0010, phase 5b second run).</summary>
+        private IEnumerable<ElementTransfer> CopyStores(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            if (call is { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration, ResultValue: int pair } &&
+                EnumeratesDictionary(enumeration) && _enumerated.TryGetValue(enumeration, out var enumerated))
+                return PairStores(call, Synthesized(call, _values[pair].Type), enumerated, delegates);
+            if (call is { Collection.View: { } slot, ResultValue: int view, ReceiverValue: int dictionary })
+            {
+                var region = Synthesized(call, ViewType(call, _values[view].Type));
+                var held = Copy(call, [region], dictionary, [slot], PathValue.ELEMENT, delegates);
+                // A live view stands for its dictionary wherever it is kept or handed, as a node stands for its list.
+                return IsLiveView(call)
+                    ? [held, new ElementTransfer(call.Id, ElementOperationKind.Store, Final([region], delegates), Final(Points(dictionary), delegates))
+                    {
+                        Slot = PathValue.VIEWED,
+                        IsCollection = true
+                    }]
+                    : [held];
+            }
+            if (call is not { Collection: { Source: int ordinal } member, ReceiverValue: int target } || call.ArgumentAt(ordinal) is not int source)
+                return [];
+
+            // Whether the source is a dictionary is a question about the objects it may be, whatever type the argument is declared as:
+            // the heap answers it for each of them (ElementTransfer.CopiedFrom). A dictionary copied from a dictionary keeps its keys
+            // and values apart and one built from pairs takes each pair's own; a collection copied from a dictionary holds its pairs.
+            var targets = Final(Points(target), delegates);
+            var sources = Final(Points(source), delegates);
+            var holders = _points[source].ToHashSet();
+            var origin = new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []);
+            if (IsDictionaryMember(member))
+            {
+                return new[] { PathValue.KEYS, PathValue.ELEMENT }.Select(slot => new ElementTransfer(
+                    call.Id, ElementOperationKind.Store, targets,
+                    Final(Extend(holders, slot).Concat(Extend(Extend(holders, PathValue.ELEMENT), slot)), delegates))
+                {
+                    Producers = slot == PathValue.KEYS ? origin with { Keys = [holders] } : origin with { Elements = [holders] },
+                    Slot = slot,
+                    IsCollection = true,
+                    CopiedFrom = sources
+                }).ToArray();
+            }
+
+            var pairs = Synthesized(call, PairTypeOf(_values[Origin(source)].Type));
+            return
+            [
+                new ElementTransfer(call.Id, ElementOperationKind.Store, targets, Final(Extend(holders, PathValue.ELEMENT), delegates))
+                {
+                    Producers = origin with { Elements = [holders] },
+                    IsCollection = true,
+                    CopiedFrom = sources,
+                    Pair = pairs
+                }
+            ];
+        }
+
+        /// <summary>A pair's two storages, filled from those of the dictionary it is enumerated out of.</summary>
+        private IEnumerable<ElementTransfer> PairStores(IrCallOperation call, AllocationValue pair, int dictionary,
+                                                        IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+        [
+            Copy(call, [pair], dictionary, [PathValue.KEYS], PathValue.KEYS, delegates),
+            Copy(call, [pair], dictionary, [PathValue.ELEMENT], PathValue.ELEMENT, delegates)
+        ];
+
+        /// <summary>A transfer into one storage of <paramref name="targets"/> of what <paramref name="source"/> holds along
+        /// <paramref name="path"/>; its origin is the storage it was read from, so a gap's result is followed through it.</summary>
+        private ElementTransfer Copy(IrCallOperation call, IEnumerable<AbstractValue> targets, int source, string[] path, string slot,
+                                     IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            var holders = path[..^1].Aggregate((IEnumerable<AbstractValue>)_points[source], (values, segment) => Extend(values, segment)).ToHashSet();
+            var origin = new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []);
+            return new ElementTransfer(call.Id, ElementOperationKind.Store, Final(targets, delegates), Final(Extend(holders, path[^1]), delegates))
+            {
+                Producers = path[^1] == PathValue.KEYS ? origin with { Keys = [holders] } : origin with { Elements = [holders] },
+                Slot = slot,
+                IsCollection = true
+            };
+        }
+
+        /// <summary>An object a collection member makes at its own call: a pair, a view, or the pairs a copy enumerates out of a
+        /// dictionary. It is one per call site, as an allocation is.</summary>
+        private AllocationValue Synthesized(IrCallOperation call, string type) => new(new CreationSite(_body.BodyId, call.Id, type, 1));
+
+        /// <summary>Whether a <c>foreach</c> enumerates a dictionary through the dictionary's own enumerator, which hands out pairs.</summary>
+        private bool EnumeratesDictionary(int enumeration) =>
+            _enumerators.TryGetValue(enumeration, out var call) && call.Collection is { } member && IsDictionaryMember(member);
+
+        private static bool IsDictionaryMember(IrCollectionCall member) =>
+            member.Member.StartsWith(DICTIONARY, StringComparison.Ordinal) || member.Member.StartsWith(CONCURRENT_DICTIONARY, StringComparison.Ordinal);
+
+        private static bool IsDictionaryType(string type) =>
+            type.StartsWith("System.Collections.Generic.Dictionary<", StringComparison.Ordinal) &&
+            !type.EndsWith(".KeyCollection", StringComparison.Ordinal) && !type.EndsWith(".ValueCollection", StringComparison.Ordinal) ||
+            type.StartsWith("System.Collections.Concurrent.ConcurrentDictionary<", StringComparison.Ordinal) ||
+            type.StartsWith("System.Collections.Generic.IDictionary<", StringComparison.Ordinal) ||
+            type.StartsWith("System.Collections.Generic.IReadOnlyDictionary<", StringComparison.Ordinal);
+
+        /// <summary>The type of the collection a view is: the view type of a live one, a list of what it holds for a snapshot.</summary>
+        private static string ViewType(IrCallOperation call, string resultType) =>
+            call.Collection is { IsAtomic: true } ? $"System.Collections.Generic.List<{TypeArguments(resultType)}>" : resultType;
+
+        /// <summary>The pair type a sequence declared as <paramref name="type"/> yields when it is a dictionary: that of a dictionary type,
+        /// the element type of a sequence of pairs, and a pair of objects where the declaration names neither.</summary>
+        private static string PairTypeOf(string type) =>
+            IsDictionaryType(type) ? $"System.Collections.Generic.KeyValuePair<{TypeArguments(type)}>"
+            : TypeArguments(type) is var element && element.StartsWith("System.Collections.Generic.KeyValuePair<", StringComparison.Ordinal) ? element
+            : "System.Collections.Generic.KeyValuePair<object, object>";
+
+        private static string TypeArguments(string type) =>
+            type.IndexOf('<') is var open and >= 0 && type.LastIndexOf('>') is var close && close > open ? type[(open + 1)..close] : "object";
+
+        /// <summary>The storage an element of a deconstructed pair comes from: its key for the first, its value for the second; null for
+        /// any other operation.</summary>
+        private string? PairElement(IrComputeOperation compute, int pair) =>
+            _values[pair].Type.StartsWith("System.Collections.Generic.KeyValuePair<", StringComparison.Ordinal)
+                ? compute.Operator switch
+                {
+                    "tuple-element:Item1" => PathValue.KEYS,
+                    "tuple-element:Item2" => PathValue.ELEMENT,
+                    _ => null
+                }
+                : null;
+
+        private const string DICTIONARY = "System.Collections.Generic.Dictionary`2.";
+        private const string VIEW_MEMBER = "System.Collections.Generic.Dictionary`2+";
+        private const string NODE_MEMBER = "System.Collections.Generic.LinkedListNode`1.";
+        private const string CONCURRENT_DICTIONARY = "System.Collections.Concurrent.ConcurrentDictionary`2.";
+        private const string LINKED_LIST = "System.Collections.Generic.LinkedList`1.";
+        private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode<";
+
         /// <summary>The stores through a reference into a field of the objects the reference names.</summary>
         private List<StoreTransfer> ReferenceStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             _operations.OfType<IrStoreReferenceOperation>()
@@ -485,6 +697,7 @@ public static class MethodSummaryBuilder
             var fields = new List<FieldOrigin>();
             var captured = new HashSet<string>(StringComparer.Ordinal);
             var elements = new List<IReadOnlySet<AbstractValue>>();
+            var keys = new List<IReadOnlySet<AbstractValue>>();
             var visited = new HashSet<int>();
             var pending = new Stack<int>([value]);
             while (pending.TryPop(out var current))
@@ -510,6 +723,19 @@ public static class MethodSummaryBuilder
                 {
                     case IrLoadElementOperation load:
                         elements.Add(_points[load.ReceiverValue].ToHashSet());
+                        break;
+                    // What a collection member hands out is what any store put into its collection's cells, as an element load's is.
+                    case IrCallOperation { Collection: { } member, ReceiverValue: int held } call
+                        when call.ResultValue == current ? InterproceduralAccesses.HandsOutHeld(member).Result
+                            : InterproceduralAccesses.HandsOutHeld(member).Out && call.RefResults.Any(pair => pair.Value == current):
+                        var handedOut = call.ResultValue == current
+                            ? InterproceduralAccesses.HandedOutSlot(member, null)
+                            : InterproceduralAccesses.HandedOutSlot(member, call.RefResults.First(pair => pair.Value == current).Key);
+                        (handedOut == PathValue.KEYS ? keys : elements).Add(_points[held].ToHashSet());
+                        break;
+                    // An element of a deconstructed pair is read from the pair's key or value storage.
+                    case IrComputeOperation { OperandValues: [var deconstructed] } compute when PairElement(compute, deconstructed) is { } slot:
+                        (slot == PathValue.KEYS ? keys : elements).Add(_points[deconstructed].ToHashSet());
                         break;
                     // A read through a reference reads the field it names, or a cell of the arrays that field holds.
                     case IrLoadReferenceOperation load:
@@ -550,7 +776,7 @@ public static class MethodSummaryBuilder
                 }
             }
 
-            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements };
+            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements, Keys = keys };
             return origin.IsNone ? ValueOrigin.None : origin;
         }
 
@@ -613,9 +839,50 @@ public static class MethodSummaryBuilder
                     CreatedElements = call.CreatedArrayArguments.Contains(position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position)
                         ? Final(CreatedElements(value), delegates)
                         : null,
-                    Producers = Producers(value)
+                    Producers = Producers(value),
+                    IsFresh = IsFresh(value)
                 })
                 .ToArray();
+
+        /// <summary>Whether every definition of a value, through assignments, phis and conversions, is an allocation of this body: an
+        /// object two invocations of the body never share (R12). A parameter, a capture, the receiver and anything loaded or returned
+        /// are not.</summary>
+        private bool IsFresh(int value)
+        {
+            var visited = new HashSet<int>();
+            var pending = new Stack<int>([value]);
+            while (pending.TryPop(out var current))
+            {
+                if (!visited.Add(current))
+                    continue;
+                var irValue = _values[current];
+                if (irValue.Kind == IrValueKind.Receiver || irValue.SymbolKey is { } key && _capturedKeys.Contains(key) ||
+                    _parameterOrdinals.ContainsKey(current) || !_definitions.TryGetValue(current, out var definition))
+                {
+                    return false;
+                }
+
+                switch (definition)
+                {
+                    case IrAllocateOperation:
+                        break;
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        break;
+                    case IrPhiOperation phi:
+                        foreach (var input in phi.Inputs)
+                            pending.Push(input.Value);
+                        break;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            return true;
+        }
 
         /// <summary>The elements of an array or collection expression created in an argument's place: the values stored into the
         /// allocated array, or the operands of the collection expression.</summary>
@@ -764,12 +1031,34 @@ public static class MethodSummaryBuilder
                 IrLoadElementOperation load => Extend(_points[load.ReceiverValue], PathValue.ELEMENT),
                 // The object a `foreach` is at is one the storage it enumerates holds, whichever enumerator hands it out; a slice is
                 // the storage it is cut from (ADR 0010, TD-043).
+                // A dictionary's enumeration hands out pairs, each an object of its own holding a key and a value apart (ADR 0010,
+                // phase 5b second run).
+                IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
+                    when call.ResultValue == value.Id && EnumeratesDictionary(enumeration) =>
+                    [new CallResultValue(call.Id), Synthesized(call, value.Type)],
                 IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
                     when call.ResultValue == value.Id && _enumerated.TryGetValue(enumeration, out var enumerated) =>
                     [new CallResultValue(call.Id), .. Extend(_points[Slice(enumerated).Array], PathValue.ELEMENT)],
+                // A view of a dictionary is a collection holding its keys or its values: a live one what the dictionary holds, a
+                // snapshot what it held when taken.
+                IrCallOperation { Collection.View: not null } call when call.ResultValue == value.Id =>
+                    [new CallResultValue(call.Id), Synthesized(call, ViewType(call, value.Type))],
                 // A node a linked list hands out is a cell of that list, so it stands for the list (ADR 0010, phase 5b).
                 IrCallOperation { Collection.HandsOutCell: true, ReceiverValue: int list } call when call.ResultValue == value.Id =>
                     [new CallResultValue(call.Id), .. _points[list]],
+                // What a collection member hands out is what the collection's cells hold, as an element load's is, and a pair's key
+                // what its key storage holds (ADR 0010, phase 5b second run).
+                IrCallOperation { Collection: { } member, ReceiverValue: int held } call
+                    when call.ResultValue == value.Id && InterproceduralAccesses.HandsOutHeld(member).Result =>
+                    [new CallResultValue(call.Id), .. Extend(_points[held], InterproceduralAccesses.HandedOutSlot(member, null))],
+                IrCallOperation { Collection: { } member, ReceiverValue: int held } call
+                    when InterproceduralAccesses.HandsOutHeld(member).Out && call.RefResults.Any(pair => pair.Value == value.Id) =>
+                    [.. call.RefResults.Where(pair => pair.Value == value.Id).Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key)),
+                     .. call.RefResults.Where(pair => pair.Value == value.Id)
+                            .SelectMany(pair => Extend(_points[held], InterproceduralAccesses.HandedOutSlot(member, pair.Key)))],
+                // Deconstructing a pair hands out its key and its value, each from its own storage.
+                IrComputeOperation { OperandValues: [var pair] } compute when PairElement(compute, pair) is { } slot =>
+                    Extend(_points[pair], slot),
                 IrCallOperation call when call.ResultValue == value.Id => [new CallResultValue(call.Id)],
                 IrCallOperation call => call.RefResults.Where(pair => pair.Value == value.Id)
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))
@@ -800,6 +1089,8 @@ public static class MethodSummaryBuilder
                 IrUnknownOperation unknown => unknown.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrLoadFieldOperation load => [new LoadDependency(load.Id)],
                 IrLoadReferenceOperation load => [new LoadDependency(load.Id)],
+                // A read of the element itself feeds a write of it as a read through any reference to it does (R1).
+                IrLoadElementOperation load => [new LoadDependency(load.Id)],
                 // What a collection member returns is what it read from the collection, so the member itself is the dependency:
                 // that is what makes a change decided by an earlier read of the same collection one compound operation.
                 IrCallOperation { Collection: not null } collection when collection.ResultValue == value.Id ||
@@ -958,6 +1249,8 @@ public static class MethodSummaryBuilder
         private ArgumentCollection? Collection(int value)
         {
             var slice = Slice(value);
+            if (Definition(slice.Array) is IrCallOperation { ReceiverValue: int dictionary } view && IsLiveView(view) && view.ResultValue == slice.Array)
+                return Collection(dictionary);
             if (Definition(slice.Array) is IrLoadFieldOperation load)
                 return new ArgumentCollection(new ReferenceCell(load.Field, AccessBases(Points(load.ReceiverValue ?? slice.Array)), null, null, true),
                                               slice.Shift, slice.Length);
@@ -1193,6 +1486,10 @@ public static class MethodSummaryBuilder
                     case IrCallOperation { Collection.HandsOutCell: true, ReceiverValue: int list } call when call.ResultValue == Origin(receiver):
                         receiver = list;
                         break;
+                    // A live view of a dictionary stands for the dictionary it views (ADR 0010, phase 5b second run).
+                    case IrCallOperation { ReceiverValue: int dictionary } call when IsLiveView(call) && call.ResultValue == Origin(receiver):
+                        receiver = dictionary;
+                        break;
                     // A node created in the body is a cell of the list the body adds it to.
                     case IrAllocateOperation when AddedTo(Origin(receiver)) is int list:
                         receiver = list;
@@ -1204,6 +1501,10 @@ public static class MethodSummaryBuilder
 
             return null;
         }
+
+        /// <summary>Whether a call takes a live view of a <c>Dictionary</c>: a snapshot of a <c>ConcurrentDictionary</c> is a collection of
+        /// its own.</summary>
+        private static bool IsLiveView(IrCallOperation call) => call.Collection is { View: not null, IsAtomic: false };
 
         /// <summary>The list a linked list member of the body adds a node to, where the body adds it to one.</summary>
         private int? AddedTo(int node) =>

@@ -64,6 +64,41 @@ public static class UnknownCalls
                                                           Conditions = call.Conditions
                                                       }));
             }
+            // A factory of `GetOrAdd` or `AddOrUpdate` whose body the heap has not runs as a call of the delegate would: an unresolved
+            // dispatch, which sees what the factories that ran no body are handed — the key, the overload's argument, and, for an update
+            // factory alone, the value the dictionary holds (R11).
+            foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection) &&
+                                                                   heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
+            {
+                var member = call.Collection!;
+                var inputs = heap.UnresolvedFactoryInputs.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<IrFactoryInput>();
+                var handed = call.Arguments.Where(argument => !member.Factories.Contains(argument.ParameterOrdinal) &&
+                                                              (argument.ParameterOrdinal == member.KeyArgument && inputs.Contains(IrFactoryInput.Key) ||
+                                                               argument.ParameterOrdinal == member.FactoryArgument && inputs.Contains(IrFactoryInput.Argument)))
+                                 .ToList();
+                if (inputs.Contains(IrFactoryInput.Held))
+                {
+                    handed.Add(new CallArgument(-1, call.Receivers.Select(receiver => (AbstractValue)(receiver is PathValue { IsWildcard: true }
+                                                                              ? receiver
+                                                                              : receiver is PathValue path
+                                                                                  ? new PathValue(path.Base, [.. path.Segments, PathValue.ELEMENT])
+                                                                                  : new PathValue(receiver, [PathValue.ELEMENT])))
+                                                             .ToHashSet()));
+                }
+                var receivers = heap.UnresolvedDispatchReceivers.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<(string, string?)>();
+                calls.AddRange(receivers.GroupBy(receiver => receiver.DeclaringTypeKey)
+                                        .Select(group => (Receivers: (IReadOnlySet<AbstractValue>)group.Select(receiver => (AbstractValue)new RegionValue(receiver.Region))
+                                                                                                          .ToHashSet(),
+                                                          DeclaringTypeKey: group.Key))
+                                        .DefaultIfEmpty((new HashSet<AbstractValue>(), null))
+                                        .Select(group => new UnknownCall(instance, call.OperationId, call.Callee, SemanticGapKinds.UNRESOLVED_DISPATCH,
+                                                                         group.Receivers, group.DeclaringTypeKey, handed, [])
+                                        {
+                                            Provenance = call.Provenance,
+                                            Conditions = call.Conditions
+                                        }));
+            }
+
             // A `dynamic` receiver is seen whole, like the arguments and the value assigned: all of them are the operation's operands.
             calls.AddRange(summary.DynamicOperations.Select(operation => new UnknownCall(instance, operation.OperationId, operation.Callee, SemanticGapKinds.DYNAMIC,
                                                                                             new HashSet<AbstractValue>(), null,
@@ -126,8 +161,6 @@ public static class UnknownCalls
     /// </summary>
     public sealed class Reach(ScopeProgram scope, HeapSolution heap)
     {
-        private readonly Lazy<IReadOnlyDictionary<string, IReadOnlyList<(MethodInstance Instance, SummaryOpaqueCall Call)>>> _insertions =
-            new(() => InterproceduralAccesses.Insertions(heap));
         private readonly Lazy<IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>>> _libraryFields = new(() => LibraryFields(scope, heap));
 
         /// <summary>The fields of an object an unknown effect may see: those its type of the run's own declares, and the fields of types
@@ -159,19 +192,22 @@ public static class UnknownCalls
             }
 
             foreach (var argument in call.Arguments)
-                yield return argument.CreatedElements is { } elements ? new Start(elements, null, null) : new Start(argument.Values, argument.Collection, null);
+                yield return argument.CreatedElements is { } elements
+                    ? new Start(elements, null, null)
+                    : new Start(argument.Values, argument.Collection, null) { IsFresh = argument.IsFresh };
             foreach (var created in call.Delegates)
                 yield return new Start(new HashSet<AbstractValue> { created }, null, null);
         }
 
-        /// <summary>The delegate regions the call is handed, directly or in an array it is handed: each runs in an unknown execution of
-        /// its own (R3).</summary>
+        /// <summary>The delegate regions the call is handed, directly or in an array or a collection it is handed: each runs in an
+        /// unknown execution of its own (R3).</summary>
         public IEnumerable<string> Delegates(UnknownCall call)
         {
             var handed = Starts(call).SelectMany(start => start.Values).SelectMany(value => heap.Resolve(call.Instance.Id, value))
                                      .ToHashSet(StringComparer.Ordinal);
-            return handed.Concat(handed.Where(region => heap.Regions[region].TypeKey?.EndsWith(']') == true)
-                                       .SelectMany(array => heap.PointsTo(array, PathValue.ELEMENT)))
+            return handed.Concat(handed.Where(region => InterproceduralAccesses.IsCollectionType(scope.Program, heap.Regions[region].TypeKey))
+                                       .SelectMany(collection => heap.PointsTo(collection, PathValue.ELEMENT)
+                                                                     .Concat(heap.PointsTo(collection, PathValue.KEYS))))
                          .Where(region => heap.Regions[region].Kind == HeapRegionKind.Delegate)
                          .Distinct(StringComparer.Ordinal);
         }
@@ -218,7 +254,9 @@ public static class UnknownCalls
                 if (!visited.Add(isRestrictedStart ? $"{regionId}|{declaringTypeKey}" : regionId))
                     continue;
                 var region = heap.Regions[regionId];
-                if (region.TypeKey is { } key && scope.Program.ImmutableTypeKeys.Contains(key))
+                var isCollection = InterproceduralAccesses.CollectionKindOf(heap, scope.Program, regionId).IsCollection;
+                // An immutable pair still holds its key and value, which the effect reaches as it reaches a collection's.
+                if (!isCollection && region.TypeKey is { } key && scope.Program.ImmutableTypeKeys.Contains(key))
                     continue;
                 if (region.Kind == HeapRegionKind.Delegate)
                 {
@@ -231,21 +269,13 @@ public static class UnknownCalls
                 var restricted = isRestrictedStart
                     ? Seen(FieldsOf(regionId), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
                     : null;
-                var isCollection = InterproceduralAccesses.CollectionKindOf(heap, scope.Program, regionId).IsCollection;
                 if (isCollection || restricted?.Count > 0 || restricted is null && (IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0))
                     reached.Add(regionId);
-                foreach (var target in heap.FieldsOf(regionId).Where(slot => restricted is null || restricted.Contains(slot))
+                // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second run).
+                foreach (var target in heap.FieldsOf(regionId).Where(slot => restricted is null || restricted.Contains(slot) ||
+                                                                             isCollection && PathValue.IsStorage(slot))
                                            .SelectMany(slot => heap.PointsTo(regionId, slot)))
                     pending.Push(target);
-                if (!isCollection)
-                    continue;
-                foreach (var (inserter, insertion) in _insertions.Value.GetValueOrDefault(regionId) ?? [])
-                {
-                    foreach (var held in insertion.Arguments.Where(argument => InterproceduralAccesses.IsHeldArgument(insertion.Collection, argument.ParameterOrdinal))
-                                                  .SelectMany(argument => argument.Values)
-                                                  .SelectMany(value => heap.Resolve(inserter.Id, value)))
-                        pending.Push(held);
-                }
             }
         }
 
@@ -281,5 +311,10 @@ public static class UnknownCalls
 
     /// <summary>Where an unknown effect starts: the values, the collection an argument is where the body names one, and, for a
     /// receiver, the type of the run's own declaring the member, whose state alone it sees.</summary>
-    public sealed record Start(IReadOnlySet<AbstractValue> Values, ArgumentCollection? Collection, string? DeclaringTypeKey);
+    public sealed record Start(IReadOnlySet<AbstractValue> Values, ArgumentCollection? Collection, string? DeclaringTypeKey)
+    {
+        /// <summary>Whether the start is an argument holding only objects the calling body created: the effect's accesses of their
+        /// own fields are accesses to fresh objects (R12).</summary>
+        public bool IsFresh { get; init; }
+    }
 }

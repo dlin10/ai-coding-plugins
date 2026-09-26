@@ -217,6 +217,7 @@ public static class EngineFixture
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? InterproceduralPairing.SKIP_UNSATISFIABLE_PATH
                 : InterproceduralPairing.IsDisjointIteration(first, second) ? InterproceduralPairing.SKIP_DISJOINT_ITERATION
+                : first.IsFresh && second.IsFresh ? InterproceduralPairing.SKIP_FRESH_OBJECT
                 : null;
             if (skip is not null)
             {

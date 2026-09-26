@@ -38,6 +38,7 @@ using Demo.Web.Cases.DiSingletonControllerVsWorker;
 using Demo.Web.Cases.DiSingletonSameLockOnInstance;
 using Demo.Web.Cases.DiTransient;
 using Demo.Web.Cases.DictionaryDisjointKeysStructural;
+using Demo.Web.Cases.DictionaryPairKeyAndValue;
 using Demo.Web.Cases.DisposeAsyncConfigureAwait;
 using Demo.Web.Cases.DistinctAllocationSites;
 using Demo.Web.Cases.EfAddSharedEntity;
@@ -53,6 +54,7 @@ using Demo.Web.Cases.FactoryResolvesOtherService;
 using Demo.Web.Cases.FactoryReturnsSharedStatic;
 using Demo.Web.Cases.FactoryScopedPerRequest;
 using Demo.Web.Cases.FireAndForgetVsAwaited;
+using Demo.Web.Cases.ForeachOverListElementWrite;
 using Demo.Web.Cases.FromServicesActionParameter;
 using Demo.Web.Cases.GapMaterialityOrder;
 using Demo.Web.Cases.GenericSingletonPerTypeArgument;
@@ -76,6 +78,7 @@ using Demo.Web.Cases.JsonSerializeReadsDeep;
 using Demo.Web.Cases.KeyEqualityComparer;
 using Demo.Web.Cases.LambdaAndLocalFunction;
 using Demo.Web.Cases.LibraryTableNoGap;
+using Demo.Web.Cases.ListElementFieldWrite;
 using Demo.Web.Cases.LocatorScopedViaCreateScope;
 using Demo.Web.Cases.LocatorSingletonVsWorker;
 using Demo.Web.Cases.LocatorTransientDistinct;
@@ -107,6 +110,7 @@ using Demo.Web.Cases.PrimaryConstructorInjection;
 using Demo.Web.Cases.ReaderWriterLockSlim;
 using Demo.Web.Cases.ReceiverSensitivity;
 using Demo.Web.Cases.RecursiveSummary;
+using Demo.Web.Cases.RefLocalSplitReadModifyWrite;
 using Demo.Web.Cases.RefLocalWrite;
 using Demo.Web.Cases.ReflectionPrimitiveArgsNoGap;
 using Demo.Web.Cases.RefReturnWrite;
@@ -306,7 +310,11 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddMixedSourceTimer()
                 .AddUnknownCallModelNotNoop()
                 .AddChannelHandoff()
-                .AddUnknownLibraryCapturesDelegate();
+                .AddUnknownLibraryCapturesDelegate()
+                .AddRefLocalSplitReadModifyWrite()
+                .AddListElementFieldWrite()
+                .AddForeachOverListElementWrite()
+                .AddDictionaryPairKeyAndValue();
 
 var app = builder.Build();
 

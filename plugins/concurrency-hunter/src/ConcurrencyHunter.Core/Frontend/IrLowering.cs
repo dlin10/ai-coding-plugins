@@ -490,6 +490,10 @@ public static class IrLowering
         private readonly Dictionary<IOperation, IReadOnlyList<int>> _listedElements = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<int, int> _configuredTasks = [];
 
+        /// <summary>The values that are the snapshot a <c>ConcurrentDictionary</c> view handed out, whichever block uses them: counted
+        /// and enumerated as a list is (ADR 0010, phase 5b second run).</summary>
+        private readonly Dictionary<int, bool> _snapshots = [];
+
         /// <summary>The scope each <c>EnterScope</c> handed back, by its value: disposing it leaves the lock.</summary>
         private readonly Dictionary<int, LockScope> _lockScopes = [];
 
@@ -1561,6 +1565,8 @@ public static class IrLowering
                 _pendingEntries[targetValue] = pending;
             if (_configuredTasks.TryGetValue(sourceValue, out var task))
                 _configuredTasks[targetValue] = task;
+            if (_snapshots.ContainsKey(sourceValue))
+                _snapshots[targetValue] = true;
         }
 
         /// <summary>The same for a value merged from several paths: it means what they all mean, and means nothing where they
@@ -1576,6 +1582,8 @@ public static class IrLowering
                 _pendingEntries[targetValue] = pending;
             if (Same(sources, _configuredTasks, out var task))
                 _configuredTasks[targetValue] = task;
+            if (Same(sources, _snapshots, out _))
+                _snapshots[targetValue] = true;
         }
 
         /// <summary>Whether every one of these values carries the same meaning, and what it is. A meaning is a value type as
@@ -2109,13 +2117,17 @@ public static class IrLowering
                                      IrProvenance provenance)
         {
             var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
+            var collection = Collections.Of(method) ?? (Collections.OfSnapshot(method) is { } snapshot && IsSnapshot(receiver) ? snapshot : null);
+            // What a ConcurrentDictionary view hands out is a snapshot wherever the body goes on to use it.
+            if (Collections.IsSnapshot(collection) && result is int taken)
+                _snapshots[taken] = true;
             return new IrCallOperation(
                 NextOperation(), result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
                 provenance)
             {
                 ArgumentParameterOrdinals = arguments.Ordinals,
                 RefResults = arguments.RefResults,
-                Collection = Collections.Of(method),
+                Collection = collection,
                 Library = nestedId is null ? LibraryCalls.Of(method) : null,
                 IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
@@ -2123,6 +2135,10 @@ public static class IrLowering
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
             };
         }
+
+        /// <summary>Whether a value is the snapshot a <c>ConcurrentDictionary</c> view handed out in this body: through conversions,
+        /// assignments and flow captures in any block, and through a merge whose every input is one.</summary>
+        private bool IsSnapshot(int? value) => value is int snapshot && _snapshots.ContainsKey(snapshot);
 
         /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
         /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor.</summary>
@@ -3230,7 +3246,7 @@ public static class IrLowering
     /// a <c>Queue</c>, a <c>Stack</c> and a <c>LinkedList</c> perform none of them so.
     /// Every other type, and every member not listed here, stays an ordinary call.
     /// </summary>
-    private static class Collections
+    internal static class Collections
     {
         private const string LIST = "System.Collections.Generic.List`1";
         private const string DICTIONARY = "System.Collections.Generic.Dictionary`2";
@@ -3243,14 +3259,60 @@ public static class IrLowering
         private const string STACK = "System.Collections.Generic.Stack`1";
         private const string LINKED_LIST = "System.Collections.Generic.LinkedList`1";
         private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode`1";
+        private const string KEY_VALUE_PAIR = "System.Collections.Generic.KeyValuePair`2";
+        private const string KEY_COLLECTION = "System.Collections.Generic.Dictionary`2+KeyCollection";
+        private const string VALUE_COLLECTION = "System.Collections.Generic.Dictionary`2+ValueCollection";
+        private const string KEYS = "[keys]";
+        private const string ELEMENT = "[]";
 
         internal static IrCollectionCall? Of(IMethodSymbol method)
         {
+            // A live view of a dictionary is enumerated and counted as the dictionary's own members are; any other member of it stays
+            // an ordinary call, which no name branch below may claim (ADR 0010, phase 5b second run).
+            if (ViewOf(method) is { } view)
+            {
+                return method.Name switch
+                {
+                    "GetEnumerator" => Effects(method, view, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                    "get_Count" => Effects(method, view, false, IrCollectionEffect.Read, IrCollectionEffect.None),
+                    _ => null
+                };
+            }
+
             if (Bcl.TypeOf(method) is not { } type || !IsModelled(type))
                 return null;
+            // A pair is a copy of a key and a value: reading either touches no collection.
+            if (type == KEY_VALUE_PAIR)
+            {
+                return method.Name is ".ctor" or "get_Key" or "get_Value" or "Deconstruct"
+                    ? Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None)
+                    : null;
+            }
+
             var keyed = type is DICTIONARY or CONCURRENT_DICTIONARY || type == LIST && method.Name is "get_Item" or "set_Item";
             return (type, method.Name) switch
             {
+                // A view of a `Dictionary` is live: taking one touches nothing. One of a `ConcurrentDictionary` is a snapshot taken
+                // atomically, which reads the structure and every cell.
+                (DICTIONARY, "get_Keys" or "get_Values") => Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None) with
+                {
+                    View = method.Name == "get_Keys" ? KEYS : ELEMENT
+                },
+                (CONCURRENT_DICTIONARY, "get_Keys" or "get_Values") => Effects(method, type, false, IrCollectionEffect.Read,
+                                                                               IrCollectionEffect.Read) with
+                {
+                    View = method.Name == "get_Keys" ? KEYS : ELEMENT
+                },
+                // A copy from a collection: `AddRange` is an insertion at an index nobody names, and a constructor makes a collection
+                // nothing touches yet. Each enumerates its source; a constructor without one copies nothing.
+                (LIST, "AddRange") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write) with
+                {
+                    Source = SourceOf(method)
+                },
+                (not LINKED_LIST_NODE, ".ctor") => Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None) with
+                {
+                    Source = SourceOf(method)
+                },
                 // A node is a cell of its list: its value is that cell, and moving to a neighbour reads the list's structure, which
                 // setting a value leaves alone (ADR 0010, phase 5b).
                 // A node created on its own holds its value, and touches no list until one is handed it.
@@ -3330,11 +3392,64 @@ public static class IrLowering
         private static IrCollectionCall Effects(IMethodSymbol method, string type, bool keyed, IrCollectionEffect structure,
                                                 IrCollectionEffect element) =>
             new($"{type}.{method.Name}", structure, element, keyed && method.Parameters.Length != 0 ? 0 : null,
-                type is CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG);
+                type is CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG)
+            {
+                Factories = method.OriginalDefinition.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate)
+                                  .Select(parameter => parameter.Ordinal)
+                                  .ToArray(),
+                // A factory's parameter of the dictionary's first type parameter is the key, of its second the value the dictionary
+                // holds, and of the method's own the argument the overload hands it.
+                FactoryInputs = method.OriginalDefinition.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate)
+                                      .Select(parameter => (IReadOnlyList<IrFactoryInput>)(((INamedTypeSymbol)parameter.Type).DelegateInvokeMethod?.Parameters ?? [])
+                                                  .Select(input => input.Type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Type, Ordinal: var ordinal }
+                                                              ? ordinal == 0 ? IrFactoryInput.Key : IrFactoryInput.Held
+                                                              : IrFactoryInput.Argument)
+                                                  .ToArray())
+                                      .ToArray(),
+                FactoryArgument = method.OriginalDefinition.Parameters
+                                        .FirstOrDefault(parameter => parameter.Type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Method })?.Ordinal
+            };
 
         private static bool IsModelled(string type) =>
             type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG or HASH_SET or QUEUE or
-                STACK or LINKED_LIST or LINKED_LIST_NODE;
+                STACK or LINKED_LIST or LINKED_LIST_NODE or KEY_VALUE_PAIR;
+
+        /// <summary>The view type declaring a member, <c>KeyCollection</c> or <c>ValueCollection</c> of a <c>Dictionary</c>; null for
+        /// every other type, the views' own enumerators among them.</summary>
+        private static string? ViewOf(IMethodSymbol method) =>
+            method.ContainingType?.OriginalDefinition is { ContainingType: { } outer } view && Bcl.TypeName(outer) == DICTIONARY
+                ? view.Name switch
+                {
+                    "KeyCollection" => KEY_COLLECTION,
+                    "ValueCollection" => VALUE_COLLECTION,
+                    _ => null
+                }
+                : null;
+
+        /// <summary>The ordinal of the parameter an overload takes a collection by, which it copies; null for an overload that takes
+        /// none, such as a capacity or a comparer alone.</summary>
+        private static int? SourceOf(IMethodSymbol method) =>
+            method.OriginalDefinition.Parameters.FirstOrDefault(parameter => IsSequence(parameter.Type))?.Ordinal;
+
+        private static bool IsSequence(ITypeSymbol type) =>
+            type.SpecialType != SpecialType.System_String &&
+            (type.SpecialType == SpecialType.System_Collections_IEnumerable ||
+             type.AllInterfaces.Any(@interface => @interface.SpecialType == SpecialType.System_Collections_IEnumerable));
+
+        /// <summary>A member of the collection a <c>ConcurrentDictionary</c> view hands out, which is a snapshot of its own: counted and
+        /// enumerated as a list is, through whatever interface the call names. Any other member of it stays an ordinary call.</summary>
+        internal static IrCollectionCall? OfSnapshot(IMethodSymbol method) =>
+            method.ContainingType?.TypeKind == TypeKind.Interface
+                ? method.Name switch
+                {
+                    "GetEnumerator" => new IrCollectionCall($"{LIST}.GetEnumerator", IrCollectionEffect.Read, IrCollectionEffect.Read, null, false),
+                    "get_Count" => new IrCollectionCall($"{LIST}.get_Count", IrCollectionEffect.Read, IrCollectionEffect.None, null, false),
+                    _ => null
+                }
+                : null;
+
+        /// <summary>Whether a member takes the snapshot a <c>ConcurrentDictionary</c> view is.</summary>
+        internal static bool IsSnapshot(IrCollectionCall? member) => member is { View: not null, IsAtomic: true };
     }
 
     /// <summary>The library semantics table's word on a called member without a source declaration (TD-034a), with each effect

@@ -4,7 +4,7 @@
   "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
   "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-26T02:45:00.7363950\u002B00:00",
+  "recordedAt": "2026-09-26T13:15:24.6906617\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,39 +18,39 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 10.416
+        "seconds": 10.611
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.646
+        "seconds": 4.718
       },
       {
         "step": "program-index",
-        "seconds": 6.762
+        "seconds": 6.681
       },
       {
         "step": "lowering",
-        "seconds": 3.151
+        "seconds": 3.228
       },
       {
         "step": "reachable-set",
-        "seconds": 0.121
+        "seconds": 0.137
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.745
+        "seconds": 0.872
       },
       {
         "step": "executions",
-        "seconds": 0.156
+        "seconds": 0.192
       },
       {
         "step": "accesses",
-        "seconds": 1.086
+        "seconds": 1.283
       },
       {
         "step": "pairing",
-        "seconds": 0.038
+        "seconds": 0.044
       },
       {
         "step": "solver",
@@ -58,16 +58,16 @@
       },
       {
         "step": "findings",
-        "seconds": 0.031
+        "seconds": 0.033
       },
       {
         "step": "render",
-        "seconds": 0.065
+        "seconds": 0.122
       }
     ],
-    "totalSeconds": 30.096
+    "totalSeconds": 30.889
   },
-  "peakWorkingSetMb": 475,
+  "peakWorkingSetMb": 470.4,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -88,9 +88,10 @@
       "largestBucket": 13,
       "buckets": 1086,
       "skips": {
-        "confined": 1462,
+        "confined": 1456,
+        "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1662
+        "read-read": 1659
       },
       "suppressed": 0,
       "candidates": 14
@@ -678,7 +679,7 @@
         "out-of-range-call": 0,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 0,
+        "semantic-gap": 1,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 0,
@@ -692,7 +693,9 @@
         "timers-periodic": 0,
         "unproven-joins": 4
       },
-      "semanticGaps": []
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object)"
+      ]
     },
     {
       "scopeId": "Webhooks.API",
@@ -736,12 +739,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 30.096,
+      "actual": 30.889,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.464,
+      "actual": 0.459,
       "met": true
     }
   }

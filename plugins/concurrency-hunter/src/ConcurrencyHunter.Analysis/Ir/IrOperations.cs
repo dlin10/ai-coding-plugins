@@ -230,6 +230,35 @@ public sealed record IrCollectionCall(string Member, IrCollectionEffect Structur
     /// <summary>Whether the member hands out a <c>LinkedListNode&lt;T&gt;</c> of its list: a node is a cell of that list, so what is
     /// done to the node is done to the list the call was made on (ADR 0010, phase 5b).</summary>
     public bool HandsOutCell { get; init; }
+
+    /// <summary>The ordinals of the parameters of this overload that take a delegate, such as the factory of <c>GetOrAdd</c>: what a
+    /// factory makes is held, the delegate never is (ADR 0010, phase 5b second run). A value of a delegate type the collection
+    /// holds is a type argument of its own, and no such parameter.</summary>
+    public IReadOnlyList<int> Factories { get; init; } = [];
+
+    /// <summary>What each factory of <see cref="Factories"/>, in the same order, is handed for each of its parameters: the key, the
+    /// value the dictionary holds, or the argument of an overload that takes one (R11).</summary>
+    public IReadOnlyList<IReadOnlyList<IrFactoryInput>> FactoryInputs { get; init; } = [];
+
+    /// <summary>The ordinal of the parameter whose argument an overload hands its factories, null where it takes none.</summary>
+    public int? FactoryArgument { get; init; }
+
+    /// <summary>The storage a <c>Keys</c> or <c>Values</c> view of a dictionary hands out, <c>[keys]</c> or <c>[]</c>; null for every
+    /// other member. A view of a <c>Dictionary</c> is live and stands for the dictionary; one of a <c>ConcurrentDictionary</c>
+    /// (<see cref="IsAtomic"/>) is a snapshot, a collection of its own (ADR 0010, phase 5b second run).</summary>
+    public string? View { get; init; }
+
+    /// <summary>The ordinal of the parameter whose collection the member copies, <c>AddRange</c> and a constructor from a collection:
+    /// it enumerates that argument and holds what the enumeration yields. Null for every other member and overload.</summary>
+    public int? Source { get; init; }
+}
+
+/// <summary>What a factory of a <c>ConcurrentDictionary</c> member is handed for one of its parameters (R11).</summary>
+public enum IrFactoryInput
+{
+    Key,
+    Held,
+    Argument
 }
 
 /// <summary>A member the library semantics table describes (TD-034a): its documentation id, whether the assembly it was found in

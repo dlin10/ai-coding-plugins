@@ -138,10 +138,26 @@ storage of any element. Two mutations of one collection conflict on its structur
 their keys are proven to be.
 _Avoid_: the collection, the container, bucket (the candidate index's cell)
 
+**Element storage**:
+The cells of an array or a collection, as a resource separate from its **Collection structure**, each
+cell named by a selector; and the objects they hold — whatever an insertion, a copy from another
+collection or an element write put there. Reading a cell yields what the storage holds, so an element
+reaches as far as the collection holding it. A dictionary holds its keys apart from its values: a key
+is held, and escapes with its dictionary, but it is never a cell.
+_Avoid_: contents, items, elements (bare)
+
 **Ownership**:
 What the analysis proved about who can reach a region: `Owned`, `ThreadConfined`, `Escaped`, `Shared`
 or `Unknown`, each with its evidence chain.
 _Avoid_: scope, lifetime (a DI lifetime is evidence for ownership, never the same thing)
+
+**Fresh object**:
+An object an access reaches directly through a value that holds only objects created by the same
+invocation of the body the access is in. Two invocations never reach each other's fresh objects that
+way, and the accesses of one invocation follow one another, so two accesses to fresh objects never make
+a candidate, however far the object has escaped. An access that reaches the same object any other way —
+through a holder, a capture, a parameter or a field of it — is not one, and still pairs.
+_Avoid_: new object, local object, unpublished object (it may already be published; what counts is how the access reaches it)
 
 ### Conflicts
 

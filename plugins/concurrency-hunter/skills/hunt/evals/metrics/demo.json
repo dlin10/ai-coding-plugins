@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
   "target": "demo/Demo.slnx",
-  "revision": "ad8c02debc3e45d866cc224bbcbd36a70d2d4417",
+  "revision": "15f0c3ce483ed660924851602e50f58430f0114a",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-26T02:44:29.5600938\u002B00:00",
+  "recordedAt": "2026-09-26T13:15:35.9354751\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,91 +18,91 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.204
+        "seconds": 3.218
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.754
+        "seconds": 1.703
       },
       {
         "step": "program-index",
-        "seconds": 1.018
+        "seconds": 1.04
       },
       {
         "step": "lowering",
-        "seconds": 1.08
+        "seconds": 1.124
       },
       {
         "step": "reachable-set",
-        "seconds": 0.063
+        "seconds": 0.067
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.458
+        "seconds": 0.461
       },
       {
         "step": "executions",
-        "seconds": 0.184
+        "seconds": 0.203
       },
       {
         "step": "accesses",
-        "seconds": 0.514
+        "seconds": 0.585
       },
       {
         "step": "pairing",
-        "seconds": 0.044
+        "seconds": 0.051
       },
       {
         "step": "solver",
-        "seconds": 0.143
+        "seconds": 0.149
       },
       {
         "step": "findings",
-        "seconds": 0.034
+        "seconds": 0.04
       },
       {
         "step": "render",
-        "seconds": 0.146
+        "seconds": 0.098
       }
     ],
-    "totalSeconds": 10.81
+    "totalSeconds": 10.942
   },
-  "peakWorkingSetMb": 304.4,
+  "peakWorkingSetMb": 305.4,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 253,
+    "roots": 261,
     "rootsPerProvider": {
-      "aspnetcore": 100,
-      "hosting": 153
+      "aspnetcore": 104,
+      "hosting": 157
     },
-    "reachableBodies": 974,
-    "summaries": 974,
-    "regions": 626,
-    "instances": 1020,
-    "accesses": 1191,
+    "reachableBodies": 1003,
+    "summaries": 1003,
+    "regions": 649,
+    "instances": 1049,
+    "accesses": 1238,
     "pairs": {
-      "comparisons": 1328,
-      "cartesianBound": 363379,
+      "comparisons": 1369,
+      "cartesianBound": 389404,
       "largestBucket": 8,
-      "buckets": 521,
+      "buckets": 540,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 275,
+        "no-overlap": 279,
         "ordered": 21,
-        "read-read": 761,
+        "read-read": 788,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 172
+      "candidates": 182
     },
-    "findings": 160,
-    "occurrences": 169,
-    "groups": 134,
+    "findings": 170,
+    "occurrences": 179,
+    "groups": 139,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
@@ -126,6 +126,7 @@
       "23027766c83eb5c9",
       "243e5f431bb28527",
       "27b0533faa174d90",
+      "2a86c82078c0775c",
       "2bdeb4f5cc9954f1",
       "2c8cd1cfcda5645d",
       "2cb16b8a1acdc46b",
@@ -137,6 +138,7 @@
       "3730bda85a8cc9a7",
       "386b91364073a8cc",
       "39e862e1c3353646",
+      "39e9198b61d74724",
       "3b3cb21a0be99d2a",
       "3b8ef83bb3f43421",
       "48f2eedc42c0769b",
@@ -145,7 +147,10 @@
       "4cd6a654b167162b",
       "4f5246a74669365c",
       "4f57af00bb2141df",
+      "507361914edf3ef9",
+      "5214fa68e44db28e",
       "528080baef57275e",
+      "549748b167bad21f",
       "55c51ca5dfba701a",
       "55f9fcf2f60118e2",
       "5652fb67b5bc11a6",
@@ -179,6 +184,7 @@
       "7c01557e3a6041af",
       "7c58babcede86c11",
       "7c968dbe5ed393ec",
+      "7cd08d7f68d4e172",
       "7ee04391e659cd20",
       "7faca75deac3abf7",
       "7fc339d9738a95d7",
@@ -191,6 +197,7 @@
       "89f506f876385f53",
       "8c63cabb09990496",
       "901a6f7ff986900e",
+      "914b4f529557f822",
       "91eb8facff869387",
       "927e2ca1ff50a0a7",
       "92e17f2f8c241563",
@@ -205,6 +212,7 @@
       "a0a00611df8f4181",
       "a4c002cee80ba7b4",
       "a4e7febde68abeaa",
+      "a53a75e49104e339",
       "a560ec199fe59856",
       "a56f6581531e1c11",
       "a604518aa7f05508",
@@ -227,6 +235,7 @@
       "b7202c887ed7d777",
       "b7781a14e16807d3",
       "b9060ca5ce16cf5b",
+      "bc9d90e7f9fff06e",
       "bda8f12f8f43d6a4",
       "bdb16ea449cce859",
       "c4ee66fcea6d4204",
@@ -238,6 +247,7 @@
       "d00a11e359b52125",
       "d3da03e778857633",
       "d4732743119bbd54",
+      "d4ce6f8d939429b0",
       "d510164a9aa69fdb",
       "d5aa902d6448057f",
       "d855fe88c8d455ad",
@@ -270,19 +280,19 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 100,
-        "hosting": 152
+        "aspnetcore": 104,
+        "hosting": 156
       },
-      "accesses": 852,
+      "accesses": 882,
       "counters": {
-        "delegate-to-opaque": 8,
+        "delegate-to-opaque": 7,
         "element-operation": 24,
-        "known-call": 185,
+        "known-call": 193,
         "merged-context": 0,
-        "no-receiver-object": 9,
-        "opaque-call": 843,
+        "no-receiver-object": 13,
+        "opaque-call": 883,
         "out-of-range-call": 0,
-        "reachable-bodies": 971,
+        "reachable-bodies": 1000,
         "scc-budget-exceeded": 0,
         "semantic-gap": 9,
         "solver-available": 1,
@@ -350,12 +360,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 10.81,
+      "actual": 10.942,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.297,
+      "actual": 0.298,
       "met": true
     }
   }

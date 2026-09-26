@@ -140,9 +140,10 @@ public sealed class UnknownEffectTests
         var effects = UnknownEffects(run, "Worker.");
         Assert.Contains(effects, access => access.Resource.CollectionId is not null && access.Resource.Selector is null && Path(access) == "Items");
         Assert.Contains(effects, access => access.Resource.CollectionId is not null && access.Resource.Selector is not null && Path(access) == "Items.[?]");
-        // The element is reached through the cell; a collection's cells are no escape edge yet (open question 30), so ownership keeps
-        // the element to its construction and the effect on it is a read (R1).
-        Assert.Contains(run.Of("Value"), access => access.Symbol.StartsWith("Worker.", StringComparison.Ordinal) && access.Operation == AccessOperation.Read &&
+        // The element is reached through the cell, and a collection's cells are an escape edge as an array's are (ADR 0010, phase 5b
+        // second run): the element of the singleton's list is shared, so the effect on it reads and writes (R1).
+        Assert.Contains(run.Of("Value"), access => access.Symbol.StartsWith("Worker.", StringComparison.Ordinal) &&
+                                                   access.Operation == AccessOperation.UnknownEffect &&
                                                    access.Source.StartLine == Line("Opaque.Lib.Touch(_state.Items);"));
     }
 

@@ -12,11 +12,10 @@ Two things must hold. Every case the rewrite lost must be paired with a case the
 same test renamed - the same class, and a method name that carries the lost one's own name from the start, in whole
 words. Any new case in the class is not that: it lets a deleted test hide behind an unrelated arrival, which is what this
 exists to catch. Where two gained cases carry the name equally well, nothing says which one is the rename, and the
-pairing is refused rather than decided alphabetically. And exactly one of the lost cases must carry phase_5a_expectation in
-its name: the demo matcher, which this phase renames when it switches from the phase 5a expectations to the phase 5b ones.
-The marker is longer than the phase alone because -match ignores case, and phase_5a_ would also catch
-DemoCaseRuleTests.Phase_5a_cases_make_no_gap_calls and LibrarySemanticsTableTests.Table_is_exactly_the_phase_5a_list,
-which stay.
+pairing is refused rather than decided alphabetically. And none of the lost cases may carry phase_5b_expectation in its
+name: the demo matcher of phase 5b, which the first run of the phase renamed from its phase 5a name and the second run keeps.
+The marker is longer than the phase alone because -match ignores case, and phase_5b_ would also catch other tests that name
+the phase and are free to be renamed.
 
 The plan wrote the first rule as "exactly one case may be lost", counting only that matcher. Four further renames had
 already landed by then, each with a replacement asserting the new truth: Lock_on_a_per_request_object_is_a_different_
@@ -30,7 +29,7 @@ lets an honest rename through.
 $ErrorActionPreference = 'Stop'
 
 $COMMITTED = 'HEAD:plugins/concurrency-hunter/build/test-baseline.txt'
-$RENAMED_MATCHER = 'phase_5a_expectation'
+$KEPT_MATCHER = 'phase_5b_expectation'
 
 # How much of its name a replacement has to carry for the pairing to say "renamed" rather than "something else arrived". The
 # five renames of the phase carry 18 characters and more; a pair of unrelated tests in one class carries a word or none.
@@ -131,9 +130,9 @@ foreach ($case in $lost) {
     $pairings.Add("$case -> $($replacement.Case) (on '$($replacement.Stem)')")
 }
 
-$matcher = @($lost | Where-Object { $_ -match $RENAMED_MATCHER })
-if ($matcher.Count -ne 1) {
-    $problems.Add("exactly one lost case must be the renamed demo matcher carrying $RENAMED_MATCHER; $($matcher.Count) were lost")
+$matcher = @($lost | Where-Object { $_ -match $KEPT_MATCHER })
+if ($matcher.Count -ne 0) {
+    $problems.Add("the demo matcher carrying $KEPT_MATCHER is not renamed in this run; lost: $($matcher -join ', ')")
 }
 
 if ($problems.Count -gt 0) {

@@ -19,9 +19,10 @@
       "largestBucket": 13,
       "buckets": 1086,
       "skips": {
-        "confined": 1462,
+        "confined": 1456,
+        "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1662
+        "read-read": 1659
       },
       "suppressed": 0,
       "candidates": 14
@@ -609,7 +610,7 @@
         "out-of-range-call": 0,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 0,
+        "semantic-gap": 1,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 0,
@@ -623,7 +624,9 @@
         "timers-periodic": 0,
         "unproven-joins": 4
       },
-      "semanticGaps": []
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object)"
+      ]
     },
     {
       "scopeId": "Webhooks.API",

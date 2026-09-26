@@ -266,8 +266,8 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
         <span class="fact">сервер <b>Windows x64</b></span>
         <span class="fact"><b>MCP</b>-сервер + skill хоста</span>
         <span class="fact">~<b>26 тыс.</b> строк движка</span>
-        <span class="fact"><b>1 813</b> тестов в baseline</span>
-        <span class="fact"><b>244</b> ожидания demo</span>
+        <span class="fact"><b>2 401</b> тестов в baseline</span>
+        <span class="fact"><b>254</b> ожидания demo</span>
         <span class="fact">текущая фаза <b>5b</b></span>
       </div>
       <details class="toc-mobile">
@@ -614,29 +614,29 @@ return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
   <ul>
     <li><strong>Ленивое опускание в IR.</strong> <code>ReachableSet</code> строит граф вызовов по иерархии классов и опускает в IR тело метода в момент, когда впервые до него доходит. Тело вне reachable set не анализируется и не считается против coverage. Ошибка опускания одного тела превращается в диагностику <code>lowering:</code> и пустое тело, а не в падение run.</li>
     <li><strong>Слой <code>Analysis</code> не знает Roslyn.</strong> Всё после IR (куча, исполнения, пары, находки, отчёт) живёт в проекте <code>ConcurrencyHunter.Analysis</code>, у которого нет ни одной ссылки на пакеты или проекты. Это проверяют тесты <code>AnalysisBoundaryTests</code>. Roslyn, Z3 и провайдеры — в <code>ConcurrencyHunter.Core</code>.</li>
-    <li><strong>Никакого декартова произведения.</strong> Пары перебираются только внутри buckets. На demo это 1 328 сравнений вместо 363 379 возможных пар.</li>
+    <li><strong>Никакого декартова произведения.</strong> Пары перебираются только внутри buckets. На demo это 1 369 сравнений вместо 389 404 возможных пар.</li>
     <li><strong>Детерминизм.</strong> Порядок обхода, нумерация значений, порядок вопросов к решателю — стабильны. Demo-гейт трижды анализирует demo и требует побайтно одинаковый <code>findings.json</code>.</li>
   </ul>
   </div>
 
   <h3>Куда уходят пары на demo</h3>
   <div class="prose">
-  <p>Реальные счётчики из снапшота <code>ConcurrencyHunter.Cli.Tests/Snapshots/demo.json</code>: 1 191 доступ, из которых bucket-индекс составил 1 328 сравнений. Каждая строка — причина, по которой пару отбросили (в порядке проверки), длина полосы пропорциональна числу пар:</p>
+  <p>Реальные счётчики из снапшота <code>ConcurrencyHunter.Cli.Tests/Snapshots/demo.json</code>: 1 238 доступов, из которых bucket-индекс составил 1 369 сравнений. Каждая строка — причина, по которой пару отбросили (в порядке проверки), длина полосы пропорциональна числу пар:</p>
   </div>
   <div class="table-wrap">
     <table class="bars">
-      <thead><tr><th>Фильтр (счётчик в коде)</th><th>Что доказано</th><th class="num">Пар</th><th style="width:34%">Доля от 1 328</th></tr></thead>
+      <thead><tr><th>Фильтр (счётчик в коде)</th><th>Что доказано</th><th class="num">Пар</th><th style="width:34%">Доля от 1 369</th></tr></thead>
       <tbody>
-        <tr><td><code>read-read</code></td><td>обе стороны только читают</td><td class="num">761</td><td><span class="bar" style="width:57.3%"></span></td></tr>
-        <tr><td><code>no-conflicting-operation</code></td><td>ни одна сторона не пишет неатомарно</td><td class="num">67</td><td><span class="bar" style="width:5.0%"></span></td></tr>
-        <tr><td><code>no-overlap</code></td><td>разные scope или исполнения не пересекаются</td><td class="num">275</td><td><span class="bar" style="width:20.7%"></span></td></tr>
-        <tr><td><code>ordered</code></td><td>happens-before в одну из сторон</td><td class="num">21</td><td><span class="bar" style="width:1.6%"></span></td></tr>
+        <tr><td><code>read-read</code></td><td>обе стороны только читают</td><td class="num">788</td><td><span class="bar" style="width:57.6%"></span></td></tr>
+        <tr><td><code>no-conflicting-operation</code></td><td>ни одна сторона не пишет неатомарно</td><td class="num">67</td><td><span class="bar" style="width:4.9%"></span></td></tr>
+        <tr><td><code>no-overlap</code></td><td>разные scope или исполнения не пересекаются</td><td class="num">279</td><td><span class="bar" style="width:20.4%"></span></td></tr>
+        <tr><td><code>ordered</code></td><td>happens-before в одну из сторон</td><td class="num">21</td><td><span class="bar" style="width:1.5%"></span></td></tr>
         <tr><td><code>confined</code></td><td>регион принадлежит одному исполнению</td><td class="num">8</td><td><span class="bar" style="width:0.6%"></span></td></tr>
         <tr><td><code>unsatisfiable-path</code></td><td>дешёвое противоречие guard-ов</td><td class="num">2</td><td><span class="bar" style="width:0.15%"></span></td></tr>
-        <tr><td><code>disjoint-iteration</code></td><td>разные итерации <code>Parallel.For</code> по своему индексу</td><td class="num">1</td><td><span class="bar" style="width:0.08%"></span></td></tr>
-        <tr><td><code>suppressed</code></td><td>защита <code>sufficient</code></td><td class="num">17</td><td><span class="bar" style="width:1.3%"></span></td></tr>
+        <tr><td><code>disjoint-iteration</code></td><td>разные итерации <code>Parallel.For</code> по своему индексу</td><td class="num">1</td><td><span class="bar" style="width:0.07%"></span></td></tr>
+        <tr><td><code>suppressed</code></td><td>защита <code>sufficient</code></td><td class="num">17</td><td><span class="bar" style="width:1.2%"></span></td></tr>
         <tr><td><code>unsatisfiable-query</code></td><td>Z3 ответил UNSAT</td><td class="num">4</td><td><span class="bar" style="width:0.3%"></span></td></tr>
-        <tr class="row-strong"><td><strong>кандидаты</strong></td><td>стали находками: 160 находок, 169 occurrences, 134 группы</td><td class="num"><strong>172</strong></td><td><span class="bar bar-strong" style="width:13.0%"></span></td></tr>
+        <tr class="row-strong"><td><strong>кандидаты</strong></td><td>стали находками: 170 находок, 179 occurrences, 139 групп</td><td class="num"><strong>182</strong></td><td><span class="bar bar-strong" style="width:13.3%"></span></td></tr>
       </tbody>
     </table>
   </div>
@@ -1732,7 +1732,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <div class="table-wrap"><table>
     <thead><tr><th>Гейт</th><th>Что проверяет</th></tr></thead>
     <tbody>
-      <tr><td><strong>Test baseline</strong><br><code>build/test-baseline.txt</code></td><td>Список из 1 813 тестовых случаев, каждый <code>Passed</code>. Гейт падает, если случай из списка пропал, пропущен или упал. Перезапись охраняет <code>check-baseline-rerecord.ps1</code>: потерянный случай должен сопоставиться с переименованным в том же классе. Baseline — это список тестов, а не снапшот находок.</td></tr>
+      <tr><td><strong>Test baseline</strong><br><code>build/test-baseline.txt</code></td><td>Список из 2 401 тестовых случаев, каждый <code>Passed</code>. Гейт падает, если случай из списка пропал, пропущен или упал. Перезапись охраняет <code>check-baseline-rerecord.ps1</code>: потерянный случай должен сопоставиться с переименованным в том же классе. Baseline — это список тестов, а не снапшот находок.</td></tr>
       <tr><td><strong>Demo-гейт</strong><br><code>DemoExpectationTests</code></td><td>xunit-тест <code>Demo_matches_every_phase_5b_expectation_on_three_runs</code>: трижды анализирует <code>demo/Demo.slnx</code>, требует побайтно одинаковый результат и точное совпадение с <code>expected-findings.json</code> для записей фаз ≤ текущей. Любая находка, не совпавшая ни с одной записью, — false positive.</td></tr>
       <tr><td><strong>Статика ожиданий</strong><br><code>check-demo-expectations.ps1</code></td><td>У каждой записи текущей фазы есть файл кейса с правильным namespace; записи завершённых фаз не изменены относительно <code>HEAD</code>; с <code>-Complete</code> — у каждого кейса таблицы фазы в <code>SCENARIOS.md</code> есть файл и запись.</td></tr>
       <tr><td><strong>Снапшоты</strong><br><code>Cli.Tests/Snapshots</code></td><td><code>demo.json</code> и <code>eshop.json</code> — счётчики и coverage прогона <code>metrics</code>. eShop читается из checkout-а по переменной <code>CH_ESHOP_ROOT</code>.</td></tr>
@@ -1762,7 +1762,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <p>Две одинаковые стороны — это self-pair action-а. Запись в <code>notDefects</code> без <code>accesses</code> запрещает любую находку на ресурсе, с <code>accesses</code> — только на этой паре. Ячейка коллекции пишется отдельным сегментом пути: <code>["_cells", "[0]"]</code>, <code>["Items", "[?]"]</code>. Поле <code>phase</code> говорит, с гейта какой фазы запись проверяется; её содержимое — окончательный ответ первой версии и при смене фаз не переписывается.</p>
   <div class="note warn">
     <div class="note-title">Что учесть на Linux и при смене фазы</div>
-    <p>CLI-проект собирается под <code>win-x64</code>, <code>LauncherTests</code> требуют <code>cmd.exe</code>, а <code>EShopSnapshotTests</code> без <code>CH_ESHOP_ROOT</code> пропускается — но в baseline записан как <code>Passed</code>, поэтому гейт baseline проходит только на Windows с checkout-ом eShop. При переходе на следующую фазу нужно поднять три жёстко заданных маркера: <code>$PHASE = '5b'</code> в <code>check-demo-expectations.ps1</code>, <code>"5b"</code> в <code>DemoExpectationTests</code> и <code>phase_5a_expectation</code> в <code>check-baseline-rerecord.ps1</code>.</p>
+    <p>CLI-проект собирается под <code>win-x64</code>, <code>LauncherTests</code> требуют <code>cmd.exe</code>, а <code>EShopSnapshotTests</code> без <code>CH_ESHOP_ROOT</code> пропускается — но в baseline записан как <code>Passed</code>, поэтому гейт baseline проходит только на Windows с checkout-ом eShop. При переходе на следующую фазу нужно поднять три жёстко заданных маркера: <code>$PHASE = '5b'</code> в <code>check-demo-expectations.ps1</code>, <code>"5b"</code> в <code>DemoExpectationTests</code> и <code>phase_5b_expectation</code> в <code>check-baseline-rerecord.ps1</code>.</p>
   </div>
   </div>
 </section>
@@ -1836,7 +1836,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
 <section id="status">
   <h2>Состояние разработки</h2>
   <div class="prose">
-  <p>Разработка идёт фазами из SPEC §14.3. Каждая фаза заканчивается работающим плагином, зелёными гейтами и, начиная с 2b, записанным прогоном <code>metrics</code>. Текущая ветка — первая половина фазы 5b.</p>
+  <p>Разработка идёт фазами из SPEC §14.3. Каждая фаза заканчивается работающим плагином, зелёными гейтами и, начиная с 2b, записанным прогоном <code>metrics</code>. Текущая ветка — фаза 5b, оба рана.</p>
   </div>
   <div class="table-wrap"><table>
     <thead><tr><th>Фаза</th><th>Содержание</th><th>Статус</th></tr></thead>
@@ -1846,7 +1846,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
       <tr><td>3</td><td>Все spawn sites, happens-before, таймеры, gRPC</td><td><span class="status done">готово</span></td></tr>
       <tr><td>4 и 4b</td><td>Все примитивы, коллекции, DCA1003/1004, селекторы, guard-ы, Z3; guard-ы по путям, доступы через ссылки, итераторы</td><td><span class="status done">готово</span></td></tr>
       <tr><td>5a</td><td>Known calls: таблица семантики библиотек</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>5b</td><td>Неизвестные вызовы без AI: <code>UnknownEffect</code>, gaps, materiality, делегаты в unknown execution, <code>HashSet</code>/<code>Queue</code>/<code>Stack</code>/<code>LinkedList</code>. Второй ран — вопросы 25 и 30</td><td><span class="status part">первый ран готов</span></td></tr>
+      <tr><td>5b</td><td>Неизвестные вызовы без AI: <code>UnknownEffect</code>, gaps, materiality, делегаты в unknown execution, <code>HashSet</code>/<code>Queue</code>/<code>Stack</code>/<code>LinkedList</code>. Второй ран: RMW через ссылку по ресурсу, хранилища коллекций в куче с ключами словаря отдельно, фабрики <code>GetOrAdd</code>/<code>AddOrUpdate</code> в месте вызова, свежие объекты; вопросы 25 и 30 закрыты</td><td><span class="status done">готово</span></td></tr>
       <tr><td>5c</td><td>Проверка AI-фактов без MCP: gap packets, валидация inferred facts, повторный fixpoint, <code>AI-Assisted</code>, потолок Medium</td><td><span class="status todo">впереди</span></td></tr>
       <tr><td>5d</td><td>Протокол resolver: <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code>, <code>run_cancel</code>, статус <code>Cancelled</code>, два раунда</td><td><span class="status todo">впереди</span></td></tr>
       <tr><td>5e</td><td>LINQ с делегатами, MediatR, AutoMapper, FluentValidation, Polly, entity tracking EF Core, <code>[ThreadStatic]</code>/<code>ThreadLocal</code>/<code>AsyncLocal</code>, keyed services</td><td><span class="status todo">впереди</span></td></tr>
@@ -1859,8 +1859,6 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <h3>Открытые вопросы</h3>
   <p>Нумерация — из <code>demo/SCENARIOS.md</code>; каждый решается в плане указанной фазы до написания кейса.</p>
   <ul>
-    <li><strong>25 (5b)</strong> — RMW через одну ссылку в раздельных операторах (<code>ref int r = ref s.Value; var old = r; r = old + 1;</code>) сейчас классифицируется как DCA1001, а не DCA1002.</li>
-    <li><strong>30 (5b)</strong> — куча не хранит элементы <code>List&lt;T&gt;</code> и <code>Dictionary</code>: <code>_state.Items[0].Value = 1</code> не даёт доступа, а тот же код над массивом даёт.</li>
     <li><strong>21 (5c)</strong> — снимает ли принятый AI-факт консервативную модель того же opaque-вызова.</li>
     <li><strong>20, 29 (5e)</strong> — имя региона для keyed-регистраций; эффект <code>returns-arg</code> у LINQ-операторов, сохраняющих элементы.</li>
     <li><strong>9, 13 (6)</strong> — корень репозитория для <code>suppressions.json</code>; что именно redaction убирает из сниппетов.</li>
@@ -1941,7 +1939,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
 </section>
 </div>
     <footer class="end">
-      <p>Составлено по <code>docs/PRD.md</code>, <code>docs/SPEC.md</code>, <code>CONTEXT.md</code>, ADR 0001–0011, кейсам <code>demo/</code> и исходному коду ветки <code>feature/race-hunter</code> на коммите <code>904c715</code> (первый ран фазы 5b). Номера фаз, счётчики demo и число тестов относятся к этому состоянию.</p>
+      <p>Составлено по <code>docs/PRD.md</code>, <code>docs/SPEC.md</code>, <code>CONTEXT.md</code>, ADR 0001–0011, кейсам <code>demo/</code> и исходному коду плагина.</p>
     </footer>
   </main>
 </div>

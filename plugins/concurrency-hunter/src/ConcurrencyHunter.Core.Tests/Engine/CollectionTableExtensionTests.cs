@@ -121,11 +121,13 @@ public sealed class CollectionTableExtensionTests
     }
 
     [Fact]
-    public void Result_of_Dequeue_points_to_nothing()
+    public void Result_of_Dequeue_points_to_the_object_the_queue_holds()
     {
         var run = Run("var item = _state.Queue.Dequeue(); item.Value = 3;", "");
 
-        Assert.DoesNotContain(run.Of("Value"), access => access.Operation == AccessOperation.Write);
+        // The queue holds First, put in at construction, so the write lands on it as a write through an array cell would.
+        var write = Assert.Single(run.Of("Value"), access => access.Operation == AccessOperation.Write);
+        Assert.Equal("alloc:State..ctor()#Item", write.Resource.Region);
     }
 
     // ---- the nodes of a linked list ----

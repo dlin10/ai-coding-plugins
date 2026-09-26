@@ -87,3 +87,45 @@ that list's cell without touching the structure, because setting it moves no ver
 removal or `Peek` returns points to no object yet, like a `List<T>` indexer, until the heap stores
 collection elements (open question 30).
 
+## Amendment, phase 5b second run: the heap holds what a collection holds
+
+Until this run the heap knew a collection's elements only through the insertions a deep read
+collected. What an indexer, an enumerator or a removal returned pointed to no object, and a
+collection's cells were no path by which an element escaped, so `_state.Items[0].Value = 1` made no
+access at all while the same code over an array did (open question 30).
+
+The element storage now holds objects in the heap exactly as an array's cells do. Every member of
+the table that puts a value in — the insertions, `set_Item`, `GetOrAdd`, `AddOrUpdate`, a node created
+with its value — stores it there, and every member that hands a held value out points to it: the
+indexer, an enumerator's `Current`, the value `TryGetValue` yields, `Peek`, `Dequeue`, `Pop` and their
+`Try` forms, the nodes of a `LinkedList<T>`, and the result of `GetOrAdd` and `AddOrUpdate`. A copy
+carries the storage over: `AddRange`, a constructor from a collection, and the `Values` and `Keys`
+views. Escape follows the cells as it follows an array's, so an element of a shared collection is no
+longer owned by whoever created it. The deep read and the argument writes of phase 5a read the same
+storage; the separate record of insertions they used goes. The operators of LINQ are not members of
+this table and stay with open question 29.
+
+The members this adds follow the rules above. `AddRange` is an insertion at an index nobody names: it
+writes the structure and the unknown cell, enumerates its argument with the effects enumeration has on
+it, and holds what that enumeration yields. A constructor from a collection enumerates its argument
+the same way and makes a collection of its own that holds what it yielded. `Keys` and `Values` of a
+`Dictionary` are live views of it: taking one touches nothing, enumerating it reads the dictionary's
+structure and every cell, and its `Count` reads the structure. Those of a `ConcurrentDictionary` are
+snapshots: taking one is an atomic read of the structure and every cell, and it returns a collection of
+its own holding the keys or the values. Any other member of a view stays unresolved.
+
+The factories of `GetOrAdd` and `AddOrUpdate` run where the call stands, in the calling execution, as
+a call of the delegate would: the key parameter is the key argument, the current value an update
+factory is given is what the value storage holds, and the argument of the overloads that take one is
+that argument. What a factory returns is held and handed out; the delegate itself never is. What the
+factory's body does is its own and not atomic, because the dictionary runs a factory outside its lock.
+Until this run no factory ran at all, so neither its accesses nor what it made were seen.
+
+A dictionary holds its keys apart from its values. A key is held, so a key object escapes with its
+dictionary and a deep read reaches it, but it is not a cell: no selector names it, and a key lookup
+still reads only the structure. A pair's `Key` and `Value`, their deconstruction, and the `Keys` and
+`Values` views each point to their own storage. Rejected: one storage for keys and values. It loses no
+access and is simpler, since a key of a string, a number, a `Guid` or an enum is no region at all, but
+a value read would then yield every key object and a key read every value, which puts accesses on the
+wrong objects for a dictionary keyed by objects from source.
+

@@ -101,6 +101,10 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     /// iterations of one run never share (TD-068).</summary>
     public bool IsIterationIndexed { get; init; }
 
+    /// <summary>Whether the access touches a field of a fresh object, reached directly through a value holding only objects the
+    /// same invocation created: two such accesses never pair, however far the object has escaped (R12).</summary>
+    public bool IsFresh { get; init; }
+
     /// <summary>The expression naming this access's cell, in the width of its own type, for the solver to compare with another
     /// candidate's (TD-092). Null where the access touches no cell or the expression is not one the analysis reads.</summary>
     public ValueTerm? SelectorTerm { get; init; }

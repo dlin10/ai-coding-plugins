@@ -194,6 +194,11 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<(string Region, string? DeclaringTypeKey)>> UnresolvedDispatchReceivers { get; init; } =
         new Dictionary<(string, int), IReadOnlySet<(string, string?)>>();
 
+    /// <summary>For each <c>GetOrAdd</c> or <c>AddOrUpdate</c> a factory of which ran no body, what those factories are handed: the key,
+    /// the value the dictionary holds, the overload's argument (R11). Only an update factory is handed the value.</summary>
+    public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<IrFactoryInput>> UnresolvedFactoryInputs { get; init; } =
+        new Dictionary<(string, int), IReadOnlySet<IrFactoryInput>>();
+
     /// <summary>The delegates handed to unresolved calls, each run in an unknown execution of its own (R3), by region.</summary>
     public IReadOnlyList<DelegateHandoff> DelegateHandoffs { get; init; } = [];
 
@@ -387,6 +392,7 @@ public static class WholeProgram
         private readonly HashSet<(string BodyId, int OperationId)> _noReceiver = [];
         private readonly HashSet<(string Instance, int Operation)> _unresolvedDispatches = [];
         private readonly Dictionary<(string Instance, int Operation), HashSet<(string Region, string? DeclaringTypeKey)>> _unresolvedReceivers = [];
+        private readonly Dictionary<(string Instance, int Operation), HashSet<IrFactoryInput>> _unresolvedFactoryInputs = [];
         private readonly Dictionary<string, (HashSet<(string Caller, int Operation)> Sites, HashSet<string> Callees)> _handoffs = new(StringComparer.Ordinal);
         private UnknownCalls.Modelled? _modelled;
         private readonly Dictionary<string, int> _counters = new(StringComparer.Ordinal);
@@ -449,6 +455,7 @@ public static class WholeProgram
                 _noReceiver.Clear();
                 _unresolvedDispatches.Clear();
                 _unresolvedReceivers.Clear();
+                _unresolvedFactoryInputs.Clear();
                 _handoffs.Clear();
                 for (var index = 0; index < _instanceOrder.Count; index++)
                 {
@@ -590,6 +597,7 @@ public static class WholeProgram
                 UnresolvedDispatches = _unresolvedDispatches.ToHashSet(),
                 UnresolvedDispatchReceivers = _unresolvedReceivers.ToDictionary(pair => pair.Key,
                                                                                 pair => (IReadOnlySet<(string, string?)>)pair.Value.ToHashSet()),
+                UnresolvedFactoryInputs = _unresolvedFactoryInputs.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToHashSet()),
                 DelegateHandoffs = _handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                             .Select(pair => new DelegateHandoff(pair.Key,
                                                                                pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
@@ -1154,9 +1162,15 @@ public static class WholeProgram
 
             foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
             {
+                if (element.CopiedFrom is not null)
+                {
+                    Copy(instance, element);
+                    continue;
+                }
+
                 var values = Eval(instance, element.Values);
                 foreach (var array in Eval(instance, element.Arrays))
-                    Add(Field(array, PathValue.ELEMENT), values);
+                    Add(Field(array, element.Slot), values);
             }
 
             foreach (var @return in summary.Returns)
@@ -1193,6 +1207,8 @@ public static class WholeProgram
                 Call(instance, call);
             foreach (var call in summary.OpaqueCalls)
                 Locate(instance, call);
+            foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection)))
+                RunFactories(instance, call);
 
             foreach (var threadWork in summary.ThreadWorks)
             {
@@ -1582,10 +1598,12 @@ public static class WholeProgram
         /// execution of its own (R3, ADR 0011). A delegate handed to two such calls is one execution, which both sites started.</summary>
         private void Handoff(InstanceState caller, int operationId, IEnumerable<AbstractValue> values)
         {
-            // An array handed over hands over what it holds: a params array, one created in the argument's place, or any other (R1).
+            // An array handed over hands over what it holds: a params array, one created in the argument's place, or any other (R1). A
+            // collection hands over what its storages hold, as an array does (ADR 0010, phase 5b second run).
             var handed = Eval(caller, values);
-            handed.UnionWith(handed.Where(region => _regions[region].TypeKey?.EndsWith(']') == true)
-                                   .SelectMany(array => Load(array, PathValue.ELEMENT)).ToArray());
+            handed.UnionWith(handed.Where(region => InterproceduralAccesses.IsCollectionType(_program, _regions[region].TypeKey))
+                                   .SelectMany(collection => Load(collection, PathValue.ELEMENT).Concat(Load(collection, PathValue.KEYS)))
+                                   .ToArray());
             foreach (var region in handed.Where(_delegates.ContainsKey))
             {
                 if (!_handoffs.TryGetValue(region, out var handoff))
@@ -1602,7 +1620,7 @@ public static class WholeProgram
         /// <summary>A delegate invocation runs the delegate's target: its nested body with the creating instance's cells and captured
         /// receiver, a static method at the invocation site, or an instance method on each captured receiver region, resolved
         /// through the program index when the method is virtual.</summary>
-        private void CallDelegate(InstanceState caller, CallTransfer call, DelegateState state)
+        private List<InstanceState> CallDelegate(InstanceState caller, CallTransfer call, DelegateState state)
         {
             var callees = DelegateCallees(caller, call.OperationId, state, () => NoReceiver(caller, call));
             foreach (var callee in callees)
@@ -1612,6 +1630,108 @@ public static class WholeProgram
             {
                 var declaring = _program.Method(state.Target)?.ContainingTypeKey;
                 Unresolved(caller, call, state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
+            }
+
+            return callees;
+        }
+
+        /// <summary>
+        /// What a copy from a collection holds, decided for each object the source may be, whatever type the argument was declared
+        /// as (ADR 0010, phase 5b second run): a dictionary yields its keys and its values apart, which a dictionary copy keeps apart
+        /// and any other copy holds as pairs; anything else yields what its cells hold, and a dictionary built from pairs takes each
+        /// pair's key and value.
+        /// </summary>
+        private void Copy(InstanceState instance, ElementTransfer copy)
+        {
+            var targets = Eval(instance, copy.Arrays);
+            foreach (var source in Eval(instance, copy.CopiedFrom!))
+            {
+                var isDictionary = InterproceduralAccesses.IsDictionaryType(_program, _regions[source].TypeKey);
+                HashSet<string> held;
+                if (copy.Pair is null)
+                {
+                    held = isDictionary
+                        ? Load(source, copy.Slot)
+                        : Load(source, PathValue.ELEMENT).SelectMany(pair => Load(pair, copy.Slot)).ToHashSet(StringComparer.Ordinal);
+                }
+                else if (isDictionary)
+                {
+                    held = Eval(instance, copy.Pair);
+                    foreach (var pair in held)
+                    {
+                        Add(Field(pair, PathValue.KEYS), Load(source, PathValue.KEYS));
+                        Add(Field(pair, PathValue.ELEMENT), Load(source, PathValue.ELEMENT));
+                    }
+                }
+                else
+                    held = Load(source, PathValue.ELEMENT);
+
+                foreach (var target in targets)
+                    Add(Field(target, copy.Slot), held);
+            }
+        }
+
+        /// <summary>
+        /// The factories of <c>GetOrAdd</c> and <c>AddOrUpdate</c> run where the call stands, as a call of the delegate there would
+        /// (R11): each is handed the key argument, the value the dictionary holds, or the overload's own argument, as its parameters
+        /// ask; what it returns is held by the dictionary and is what the call returns. The delegate itself is held by nothing.
+        /// </summary>
+        private void RunFactories(InstanceState caller, SummaryOpaqueCall call)
+        {
+            var member = call.Collection!;
+            IReadOnlySet<AbstractValue> Argument(int? ordinal) =>
+                call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new HashSet<AbstractValue>();
+            var key = Argument(member.KeyArgument);
+            var handed = Argument(member.FactoryArgument);
+            var held = call.Receivers.Select(receiver => receiver is PathValue { IsWildcard: true } ? receiver
+                                                          : receiver is PathValue path ? new PathValue(path.Base, [.. path.Segments, PathValue.ELEMENT])
+                                                          : new PathValue(receiver, [PathValue.ELEMENT]))
+                                     .ToHashSet();
+            var dictionaries = Eval(caller, call.Receivers);
+            for (var index = 0; index < member.Factories.Count && index < member.FactoryInputs.Count; index++)
+            {
+                var inputs = member.FactoryInputs[index];
+                var factory = Argument(member.Factories[index]);
+                var invocation = new CallTransfer(call.OperationId, call.Callee, IrCallKind.Delegate, factory,
+                                                  inputs.Select((input, ordinal) => new CallArgument(ordinal, input switch
+                                                        {
+                                                            IrFactoryInput.Key => key,
+                                                            IrFactoryInput.Held => held,
+                                                            _ => handed
+                                                        }))
+                                                        .ToArray(),
+                                                  []);
+                // As a call of the delegate would: a factory with no body at hand is an unresolved dispatch there, and so is one no
+                // delegate object is known for, such as one an opaque call handed back (R1).
+                var regions = Eval(caller, factory).Where(_delegates.ContainsKey).ToArray();
+                if (regions.Length == 0)
+                {
+                    NoReceiver(caller, invocation);
+                    Unresolved(caller, invocation, []);
+                    Seen(inputs);
+                }
+
+                foreach (var region in regions)
+                {
+                    var state = _delegates[region];
+                    var callees = CallDelegate(caller, invocation, state);
+                    foreach (var callee in callees)
+                    {
+                        foreach (var dictionary in dictionaries)
+                            Add(Field(dictionary, PathValue.ELEMENT), callee.Returns);
+                    }
+
+                    if (callees.Count == 0 && !state.IsNestedBody)
+                        Seen(inputs);
+                }
+            }
+
+            // The unresolved dispatch sees what the factories left unresolved are handed and nothing another factory of the call is.
+            void Seen(IEnumerable<IrFactoryInput> inputs)
+            {
+                if (!_unresolvedFactoryInputs.TryGetValue((caller.Id, call.OperationId), out var seen))
+                    _unresolvedFactoryInputs.Add((caller.Id, call.OperationId), seen = []);
+                seen.UnionWith(inputs);
             }
         }
 
@@ -1924,7 +2044,7 @@ public static class WholeProgram
         /// <summary>A field slot of a region, or, for a bare field name, every declaring type's slot of that name.</summary>
         private HashSet<string> LoadAny(string regionId, string field)
         {
-            if (field.Contains('.', StringComparison.Ordinal) || field == PathValue.ELEMENT)
+            if (field.Contains('.', StringComparison.Ordinal) || PathValue.IsStorage(field) || field is PathValue.NODE_LIST or PathValue.VIEWED)
                 return Load(regionId, field);
 
             var result = Load(regionId, field);

@@ -907,7 +907,7 @@ internal sealed class HappensBefore
     private bool FieldStoreDominates(string execution, MethodInstance instance, SummaryValue handle, string region, int joinOperation)
     {
         var paths = handle.Values.OfType<PathValue>().ToArray();
-        if (paths.Length == 0 || paths.Any(path => path.Segments.Count != 1 || path.Segments[0] is PathValue.ELEMENT or PathValue.WILDCARD))
+        if (paths.Length == 0 || paths.Any(path => path.Segments.Count != 1 || PathValue.IsStorage(path.Segments[0]) || path.Segments[0] == PathValue.WILDCARD))
             return false;
 
         var join = new PointKey(instance.Id, joinOperation, false);

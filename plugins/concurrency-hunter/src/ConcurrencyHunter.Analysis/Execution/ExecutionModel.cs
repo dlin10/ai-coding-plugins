@@ -1294,7 +1294,7 @@ public static class ExecutionModel
                                                      Targets(instance, store).Contains(source))
                                      .Select(store => store.OperationId)
                                      .Concat(instance.Summary.Elements
-                                                     .Where(element => field == PathValue.ELEMENT && element.Kind == ElementOperationKind.Store &&
+                                                     .Where(element => field == element.Slot && element.Kind == ElementOperationKind.Store &&
                                                                        Resolve(instance, element.Values).Contains(target) &&
                                                                        Resolve(instance, element.Arrays).Contains(source))
                                                      .Select(element => element.OperationId));

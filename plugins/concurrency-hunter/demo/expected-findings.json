@@ -1705,6 +1705,116 @@
         { "symbol": "Demo.Web.Cases.UnknownLibraryCapturesDelegate.ShutdownController.Get()", "operation": "read" },
         { "symbol": "Demo.Web.Cases.UnknownLibraryCapturesDelegate.ShutdownWatcher.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "ref-local-split-read-modify-write",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefLocalSplitReadModifyWrite.Counter@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefLocalSplitReadModifyWrite.CounterController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RefLocalSplitReadModifyWrite.CounterWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "ref-local-split-read-modify-write/self-pair",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefLocalSplitReadModifyWrite.Counter@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefLocalSplitReadModifyWrite.CounterController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RefLocalSplitReadModifyWrite.CounterController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "list-element-field-write",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ListElementFieldWrite.Board..ctor()#Demo.Web.Cases.ListElementFieldWrite.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ListElementFieldWrite.BoardController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ListElementFieldWrite.BoardWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "list-element-field-write/self-pair",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ListElementFieldWrite.Board..ctor()#Demo.Web.Cases.ListElementFieldWrite.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ListElementFieldWrite.BoardController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ListElementFieldWrite.BoardController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "foreach-over-list-element-write",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ForeachOverListElementWrite.Ledger..ctor()#Demo.Web.Cases.ForeachOverListElementWrite.Tally", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ForeachOverListElementWrite.LedgerController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ForeachOverListElementWrite.LedgerWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "foreach-over-list-element-write/self-pair",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ForeachOverListElementWrite.Ledger..ctor()#Demo.Web.Cases.ForeachOverListElementWrite.Tally", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ForeachOverListElementWrite.LedgerController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ForeachOverListElementWrite.LedgerController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "dictionary-pair-key-and-value/key",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DictionaryPairKeyAndValue.Roster..ctor()#Demo.Web.Cases.DictionaryPairKeyAndValue.Badge", "accessPath": ["Mark"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-pair-key-and-value/key-self-pair",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DictionaryPairKeyAndValue.Roster..ctor()#Demo.Web.Cases.DictionaryPairKeyAndValue.Badge", "accessPath": ["Mark"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-pair-key-and-value/value",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DictionaryPairKeyAndValue.Roster..ctor()#Demo.Web.Cases.DictionaryPairKeyAndValue.Score", "accessPath": ["Points"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "dictionary-pair-key-and-value/value-self-pair",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DictionaryPairKeyAndValue.Roster..ctor()#Demo.Web.Cases.DictionaryPairKeyAndValue.Score", "accessPath": ["Points"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [

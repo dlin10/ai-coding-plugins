@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Roots;
@@ -440,6 +441,20 @@ public static class ReachableSet
                             RecordOpaque(bodyId, call, definitions, work.GetValueOrDefault(call.Id) ?? []);
                             ReachFactory(bodyId, call, definitions, reason);
                             Locate(bodyId, call);
+                            // The factories of `GetOrAdd` and `AddOrUpdate` run where the call stands (R11): one created in the body is
+                            // reached by its target, and one read from a field or a parameter as a call of a delegate of its type is.
+                            if (InterproceduralAccesses.RunsFactories(call.Collection))
+                            {
+                                foreach (var ordinal in call.Collection!.Factories)
+                                {
+                                    if (call.ArgumentAt(ordinal) is not int factory)
+                                        continue;
+                                    if (DelegateCreation(factory, definitions) is { } creation)
+                                        ReachDelegateTargets(creation, reason);
+                                    else if (values.TryGetValue(factory, out var factoryValue))
+                                        AddDelegateInvocation(factoryValue.Type, $"delegate:{bodyId}:{call.Id}");
+                                }
+                            }
                         }
 
                         // A delegate handed to a call the heap may leave unresolved runs in an unknown execution (R3): an opaque call no

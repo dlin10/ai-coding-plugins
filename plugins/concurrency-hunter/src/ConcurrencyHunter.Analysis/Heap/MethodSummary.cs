@@ -118,12 +118,24 @@ public sealed record RegionValue(string RegionId) : AbstractValue
     public override string ToString() => $"region:{RegionId}";
 }
 
-/// <summary>The object reached from <see cref="Base"/> through field segments; <c>[]</c> is an array element, and a path longer
-/// than the depth limit is the single segment <c>*</c>.</summary>
+/// <summary>The object reached from <see cref="Base"/> through field segments; <c>[]</c> is an element of an array or of a collection,
+/// <c>[keys]</c> a key of a dictionary, and a path longer than the depth limit is the single segment <c>*</c>.</summary>
 public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segments) : AbstractValue
 {
     public const string WILDCARD = "*";
     public const string ELEMENT = "[]";
+
+    /// <summary>The keys a dictionary holds apart from its values: held, never a cell (ADR 0010, phase 5b second run).</summary>
+    public const string KEYS = "[keys]";
+
+    /// <summary>The list a <c>LinkedListNode&lt;T&gt;</c> created on its own was added to, of which it is a cell.</summary>
+    public const string NODE_LIST = "[list]";
+
+    /// <summary>The dictionary a live <c>Keys</c> or <c>Values</c> view of a <c>Dictionary</c> is of, for which it stands wherever it goes.</summary>
+    public const string VIEWED = "[view]";
+
+    /// <summary>Whether a slot is one of the storages of an array or a collection, which hold objects and name no field.</summary>
+    public static bool IsStorage(string slot) => slot is ELEMENT or KEYS;
 
     public bool IsWildcard => Segments is [WILDCARD];
 
@@ -226,6 +238,10 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// <summary>The collections the access is on, where the collection of accesses already knows them: those the field holds, or
     /// those held in the cells of what it holds. Null where every collection the field may hold is.</summary>
     public IReadOnlySet<string>? CollectionRegions { get; init; }
+
+    /// <summary>Whether the access touches a field of a fresh object: one it reaches directly through a value whose every
+    /// definition is an allocation of the same body, which two invocations never share (R12).</summary>
+    public bool IsFresh { get; init; }
 }
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
@@ -248,7 +264,11 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
     /// <summary>The arrays the value is read from a cell of: what any store put into their cells.</summary>
     public IReadOnlyList<IReadOnlySet<AbstractValue>> Elements { get; init; } = [];
 
-    public bool IsNone => Calls.Count == 0 && Parameters.Count == 0 && Fields.Count == 0 && Captured.Count == 0 && Elements.Count == 0;
+    /// <summary>The dictionaries and pairs the value is read from the key storage of: what any member filed there as a key.</summary>
+    public IReadOnlyList<IReadOnlySet<AbstractValue>> Keys { get; init; } = [];
+
+    public bool IsNone => Calls.Count == 0 && Parameters.Count == 0 && Fields.Count == 0 && Captured.Count == 0 && Elements.Count == 0 &&
+                          Keys.Count == 0;
 
     /// <summary>Every origin of several values at once.</summary>
     public static ValueOrigin Union(IEnumerable<ValueOrigin> origins)
@@ -262,7 +282,8 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
                                  all.SelectMany(origin => origin.Fields).ToArray())
             {
                 Captured = all.SelectMany(origin => origin.Captured).ToHashSet(StringComparer.Ordinal),
-                Elements = all.SelectMany(origin => origin.Elements).ToArray()
+                Elements = all.SelectMany(origin => origin.Elements).ToArray(),
+                Keys = all.SelectMany(origin => origin.Keys).ToArray()
             }
         };
     }
@@ -277,12 +298,31 @@ public enum ElementOperationKind
     Store
 }
 
-/// <summary>An array element load or store: points-to only, never an access.</summary>
+/// <summary>An array element load or store, or what a member of a collection ADR 0010 models puts into it: points-to only, never an
+/// access.</summary>
 public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind, IReadOnlySet<AbstractValue> Arrays,
                                      IReadOnlySet<AbstractValue> Values)
 {
     /// <inheritdoc cref="SummaryValue.Producers"/>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+
+    /// <summary>The storage the values go to: the cells, a dictionary's keys, or the list a node was added to.</summary>
+    public string Slot { get; init; } = PathValue.ELEMENT;
+
+    /// <summary>Whether a collection member made this transfer, rather than an element operation on an array (ADR 0010, phase 5b
+    /// second run).</summary>
+    public bool IsCollection { get; init; }
+
+    /// <summary>The collection a copy enumerates, where what it yields depends on whether that collection is a dictionary, which only
+    /// the objects it may be say: a dictionary yields its keys and values apart, anything else what its cells hold, the pairs of a
+    /// sequence of pairs among them. The heap decides it for each object and puts into <see cref="Slot"/> of <see cref="Arrays"/>
+    /// what that object yields there; <see cref="Values"/> is then only every object the copy may hold. Null for any other
+    /// transfer.</summary>
+    public IReadOnlySet<AbstractValue>? CopiedFrom { get; init; }
+
+    /// <summary>The pair a copy into a collection that is no dictionary holds for each key and value a dictionary it enumerates holds;
+    /// null for a copy into a dictionary, which holds keys and values apart itself.</summary>
+    public AbstractValue? Pair { get; init; }
 }
 
 public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
@@ -328,6 +368,10 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
 
     /// <inheritdoc cref="SummaryValue.Producers"/>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+
+    /// <summary>Whether every definition of the argument's value is an allocation of the calling body: an unknown effect then
+    /// touches the fields of a fresh object (R12).</summary>
+    public bool IsFresh { get; init; }
 }
 
 /// <summary>A collection handed over by value: <see cref="Collection"/> is a <see cref="ReferenceCell"/> of the field it was read
@@ -482,6 +526,11 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
 
     /// <summary>Whether the argument is a sequence of the objects the effect is on (<see cref="IrLibraryArgument.IsSequence"/>).</summary>
     public bool IsSequence { get; init; }
+
+    /// <summary>The member of a node or a live view whose receiver no field of the calling body names: the effect is that member's own
+    /// accesses, made on the collection the receiver stands for in the heap — the list a node was added to, the dictionary a view is
+    /// of — where a field holds it (ADR 0010, phase 5b second run). Null for every other effect.</summary>
+    public IrCollectionCall? Member { get; init; }
 }
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>

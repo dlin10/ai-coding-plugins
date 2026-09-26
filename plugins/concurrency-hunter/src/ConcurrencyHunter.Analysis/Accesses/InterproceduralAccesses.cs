@@ -90,9 +90,9 @@ public static class InterproceduralAccesses
     {
         var accesses = new List<Access>();
         var unproven = new HashSet<(string Body, int Operation)>();
+        var folded = new HashSet<(string Body, int Operation)>();
         var graph = new WalkGraph(input);
         var discoveries = Discoveries(input, graph);
-        var insertions = new Lazy<IReadOnlyDictionary<string, IReadOnlyList<(MethodInstance Instance, SummaryOpaqueCall Call)>>>(() => Insertions(input.Heap));
         var holders = new Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>>(() => Holders(input));
         // The gaps come first: a lock whose identity is a gap's result is a check that gap decides on every access holding it (R6).
         var gaps = SemanticGaps.Find(input);
@@ -106,17 +106,19 @@ public static class InterproceduralAccesses
         {
             if (!input.Executions.Entries.TryGetValue(execution.Id, out var entries))
                 continue;
-            var collector = new ExecutionCollector(input, execution, entries, graph, discoveries, insertions, holders, origins, unknownCalls, reach);
+            var collector = new ExecutionCollector(input, execution, entries, graph, discoveries, holders, origins, unknownCalls, reach);
             accesses.AddRange(collector.Collect());
             unproven.UnionWith(collector.UnprovenReferences);
+            folded.UnionWith(collector.FoldedReferences);
         }
 
         // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
-        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, SemanticGaps.Find(input, accesses)));
+        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, SemanticGaps.Find(input, accesses)));
     }
 
     private static InterproceduralCoverage Coverage(InterproceduralInput input, IReadOnlyList<Access> accesses,
-                                                    IReadOnlySet<(string Body, int Operation)> unproven, IReadOnlyList<SemanticGap> gaps)
+                                                    IReadOnlySet<(string Body, int Operation)> unproven,
+                                                    IReadOnlySet<(string Body, int Operation)> folded, IReadOnlyList<SemanticGap> gaps)
     {
         var heap = input.Heap;
         var summaries = heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal)
@@ -142,12 +144,15 @@ public static class InterproceduralAccesses
             [CoverageCounters.OPAQUE_CALL] = opaque.Length,
             [CoverageCounters.KNOWN_CALL] = known,
             [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false }),
-            // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate.
-            [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.Where(item => !factorySites.Contains((memberOf.GetValueOrDefault(item.BodyId) ?? item.BodyId, item.Call.OperationId)))
+            // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate. A factory
+            // `GetOrAdd` or `AddOrUpdate` runs where it is called is handed to no opaque call (R11).
+            [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.Where(item => !factorySites.Contains((memberOf.GetValueOrDefault(item.BodyId) ?? item.BodyId, item.Call.OperationId)) &&
+                                                                         !RunsFactories(item.Call.Collection))
                                                           .SelectMany(item => item.Call.Delegates.Select(delegateValue => (item.BodyId, delegateValue)))
                                                           .Distinct()
                                                           .Count(),
-            [CoverageCounters.ELEMENT_OPERATION] = summaries.Sum(summary => summary.Elements.Count),
+            // What a collection member puts into its collection is no element operation: this counts those on arrays alone.
+            [CoverageCounters.ELEMENT_OPERATION] = summaries.Sum(summary => summary.Elements.Count(element => !element.IsCollection)),
             // Unsupported registrations whose holding member the reachable set reaches.
             [CoverageCounters.UNANALYSED_REGISTRATION] = input.Scope.DiIndex.Registrations
                                                               .Count(registration => !registration.IsSupported && registration.BodyId is { } member &&
@@ -155,11 +160,13 @@ public static class InterproceduralAccesses
             [CoverageCounters.UNRESOLVED_LOCATOR] = heap.UnresolvedLocators.Count,
             // A reference operation counts once one place it may reach is unproven, whatever else it reaches; one that reaches
             // nothing at all counts too. The read a read-modify-write through the reference folds into its write is that write's,
-            // and an element operation on a collection no caller reads from a field is on no resource at all.
+            // as is a read through any route folded into a write that depends on it (R1), and an element operation on a collection
+            // no caller reads from a field is on no resource at all.
             [CoverageCounters.UNPROVEN_REFERENCE] = summaries.Sum(summary =>
                 summary.ReferenceAccesses.Count(reference => unproven.Contains((summary.BodyId, reference.OperationId)) ||
                                                              !reference.IsCollectionElement &&
                                                              !summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == reference.OperationId) &&
+                                                             !folded.Contains((summary.BodyId, reference.OperationId)) &&
                                                              !accesses.Any(access => access.BodyId == summary.BodyId &&
                                                                                      access.OperationId == reference.OperationId)) +
                 summary.OpaqueCalls.Where(call => !call.IsKnown).Sum(call => call.Arguments.Count(argument => argument.References.Count != 0)) +
@@ -365,28 +372,6 @@ public static class InterproceduralAccesses
     private static bool IsStartupOnly(InterproceduralInput input, string instanceId) =>
         input.Executions.InstanceExecutions.TryGetValue(instanceId, out var executions) && executions.Count == 1 && executions.Contains(ExecutionModel.STARTUP);
 
-    /// <summary>The calls of the collection members that put values into a collection (ADR 0010), by the collections their receivers
-    /// may be. Points-to does not follow values into a collection, so a deep read of one asks what these calls handed it (R3); the
-    /// values themselves are resolved only for a collection a deep read reaches.</summary>
-    internal static IReadOnlyDictionary<string, IReadOnlyList<(MethodInstance Instance, SummaryOpaqueCall Call)>> Insertions(HeapSolution heap)
-    {
-        var calls = new Dictionary<string, List<(MethodInstance Instance, SummaryOpaqueCall Call)>>(StringComparer.Ordinal);
-        foreach (var instance in heap.Instances.Values)
-        {
-            foreach (var call in instance.Summary.OpaqueCalls.Where(call => call.Arguments.Any(argument => IsHeldArgument(call.Collection, argument.ParameterOrdinal))))
-            {
-                foreach (var collection in call.Receivers.SelectMany(receiver => heap.Resolve(instance.Id, receiver)).Distinct(StringComparer.Ordinal))
-                {
-                    if (!calls.TryGetValue(collection, out var list))
-                        calls.Add(collection, list = []);
-                    list.Add((instance, call));
-                }
-            }
-        }
-
-        return calls.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<(MethodInstance, SummaryOpaqueCall)>)pair.Value, StringComparer.Ordinal);
-    }
-
     /// <summary>A field that holds each collection some field of the solved heap points to: an instance field of an object of the
     /// run's own, the first by region and field order, and otherwise a static field or a field of an object from metadata, as the
     /// bodies that load and store it name it. A collection a known call is handed through a local, a parameter or the cells of
@@ -424,29 +409,88 @@ public static class InterproceduralAccesses
 
     /// <summary>Whether the argument with this ordinal is something the collection holds after the member ran: the value a member puts
     /// in and the key it files it under. What a member removes is not held, nor the value <c>TryUpdate</c> compares against, nor the
-    /// argument <c>GetOrAdd</c> or <c>AddOrUpdate</c> hands its factory.</summary>
+    /// argument <c>GetOrAdd</c> or <c>AddOrUpdate</c> hands its factory, nor a factory itself: what it makes is held, never it.</summary>
     private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode`1";
+    private const string KEY_VALUE_PAIR = "System.Collections.Generic.KeyValuePair`2";
 
     internal static bool IsHeldArgument(IrCollectionCall? member, int ordinal) =>
-        member?.Member[(member.Member.LastIndexOf('.') + 1)..] switch
+        member is not null && !member.Factories.Contains(ordinal) &&
+        member.Member[(member.Member.LastIndexOf('.') + 1)..] switch
         {
             "Add" or "TryAdd" or "Enqueue" or "Push" or "Insert" or "set_Item" or "AddFirst" or "AddLast" or "set_Value" => true,
             // The value put next to a node, never the node it is put next to.
             "AddBefore" or "AddAfter" => ordinal == 1,
-            // A node created with its value holds it, and is a cell of the list it is added to (ADR 0010, phase 5b).
-            "ctor" => member.Member.StartsWith(LINKED_LIST_NODE, StringComparison.Ordinal),
-            // The key and the value, or the factory making it; not the argument a generic overload hands its factory, nor the
-            // factory that updates.
+            // A node created with its value holds it, and is a cell of the list it is added to (ADR 0010, phase 5b); a pair holds its
+            // key and its value.
+            "ctor" => member.Member.StartsWith(LINKED_LIST_NODE, StringComparison.Ordinal) ||
+                      member.Member.StartsWith(KEY_VALUE_PAIR, StringComparison.Ordinal),
+            // The key and the value; not the argument a generic overload hands its factory, nor the factory that updates.
             "GetOrAdd" or "AddOrUpdate" or "TryUpdate" => ordinal < 2,
             _ => false
         };
 
+    /// <summary>Whether a member runs the factories it is handed where it is called: <c>GetOrAdd</c> and <c>AddOrUpdate</c> of a
+    /// <c>ConcurrentDictionary</c>, and no other recognized call (R11).</summary>
+    internal static bool RunsFactories(IrCollectionCall? member) =>
+        member is { Factories.Count: > 0 } &&
+        (member.Member.EndsWith(".GetOrAdd", StringComparison.Ordinal) || member.Member.EndsWith(".AddOrUpdate", StringComparison.Ordinal));
+
+    /// <summary>The storage a held argument goes to: a dictionary files its key apart from its values, and every other held
+    /// argument is a value in the cells (ADR 0010, phase 5b second run).</summary>
+    internal static string HeldSlot(IrCollectionCall member, int ordinal) =>
+        ordinal == member.KeyArgument && member.Member.Contains("Dictionary`2.", StringComparison.Ordinal) ||
+        ordinal == 0 && member.Member.StartsWith(KEY_VALUE_PAIR, StringComparison.Ordinal)
+            ? PathValue.KEYS
+            : PathValue.ELEMENT;
+
+    /// <summary>Whether a member hands out a value its collection holds: through its result, or through every <c>out</c> argument it
+    /// fills. A node's value is the value of its list's cell; <c>GetOrAdd</c> and <c>AddOrUpdate</c> return what the cell holds
+    /// once they ran (ADR 0010, phase 5b second run); a pair hands out its key and its value.</summary>
+    internal static (bool Result, bool Out) HandsOutHeld(IrCollectionCall? member) =>
+        member?.Member[(member.Member.LastIndexOf('.') + 1)..] switch
+        {
+            "get_Item" or "Peek" or "Dequeue" or "Pop" or "get_Value" or "get_Key" or "GetOrAdd" or "AddOrUpdate" => (true, false),
+            "TryGetValue" or "TryPeek" or "TryDequeue" or "TryPop" or "TryTake" or "Remove" or "TryRemove" or "Deconstruct" => (false, true),
+            _ => (false, false)
+        };
+
+    /// <summary>The storage a member hands a held value out of, for its result or for the <c>out</c> parameter with this ordinal: a
+    /// pair's key is in its key storage, and everything else any member hands out is in the cells.</summary>
+    internal static string HandedOutSlot(IrCollectionCall member, int? ordinal) =>
+        member.Member.StartsWith(KEY_VALUE_PAIR, StringComparison.Ordinal) &&
+        (member.Member.EndsWith(".get_Key", StringComparison.Ordinal) || member.Member.EndsWith(".Deconstruct", StringComparison.Ordinal) && ordinal == 0)
+            ? PathValue.KEYS
+            : PathValue.ELEMENT;
+
     /// <summary>Whether a region is a collection ADR 0010 models or an array, and whether it is a thread-safe one. A type of the
     /// run's own that derives from such a collection is one: the members it inherits are the collection's.</summary>
-    internal static (bool IsCollection, bool IsConcurrent) CollectionKindOf(HeapSolution heap, ProgramIndex program, string regionId)
+    internal static (bool IsCollection, bool IsConcurrent) CollectionKindOf(HeapSolution heap, ProgramIndex program, string regionId) =>
+        CollectionKindOf(program, heap.Regions[regionId].TypeKey);
+
+    /// <summary>Whether objects of a type are a <c>Dictionary</c> or a <c>ConcurrentDictionary</c>, or a type of the run's own deriving
+    /// from one: what they hold is keys and values apart.</summary>
+    internal static bool IsDictionaryType(ProgramIndex program, string? typeKey)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
-        for (var key = heap.Regions[regionId].TypeKey; key is not null && visited.Add(key); key = program.Type(key)?.BaseTypeKey)
+        for (var key = typeKey; key is not null && visited.Add(key); key = program.Type(key)?.BaseTypeKey)
+        {
+            if (FieldSlot.WithoutTypeArguments(key[(key.IndexOf(':') + 1)..]) is "System.Collections.Generic.Dictionary" or
+                "System.Collections.Concurrent.ConcurrentDictionary")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether objects of a type are an array or a collection ADR 0010 models, which hold what their storages hold.</summary>
+    internal static bool IsCollectionType(ProgramIndex program, string? typeKey) => CollectionKindOf(program, typeKey).IsCollection;
+
+    private static (bool IsCollection, bool IsConcurrent) CollectionKindOf(ProgramIndex program, string? typeKey)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        for (var key = typeKey; key is not null && visited.Add(key); key = program.Type(key)?.BaseTypeKey)
         {
             if (key.EndsWith(']'))
                 return (true, false);
@@ -455,6 +499,10 @@ public static class InterproceduralAccesses
                 "System.Collections.Generic.List" or "System.Collections.Generic.Dictionary" or "System.Collections.Generic.HashSet" or
                     "System.Collections.Generic.Queue" or "System.Collections.Generic.Stack" or "System.Collections.Generic.LinkedList" or
                     "System.Collections.Generic.LinkedListNode" => (true, false),
+                // A pair holds a key and a value, and a live view of a dictionary what the dictionary holds; neither is any field's
+                // resource, only a holder of objects (ADR 0010, phase 5b second run).
+                "System.Collections.Generic.KeyValuePair" or "System.Collections.Generic.Dictionary.KeyCollection" or
+                    "System.Collections.Generic.Dictionary.ValueCollection" => (true, false),
                 "System.Collections.Concurrent.ConcurrentDictionary" or "System.Collections.Concurrent.ConcurrentQueue" or
                     "System.Collections.Concurrent.ConcurrentStack" or "System.Collections.Concurrent.ConcurrentBag" => (true, true),
                 _ => (false, false)
@@ -468,7 +516,6 @@ public static class InterproceduralAccesses
 
     private sealed class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
-                                            Lazy<IReadOnlyDictionary<string, IReadOnlyList<(MethodInstance Instance, SummaryOpaqueCall Call)>>> insertions,
                                             Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>> holders, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach)
     {
@@ -494,8 +541,11 @@ public static class InterproceduralAccesses
         /// <summary>The reference operations, by body, with a place nothing proves among those they may reach (R3).</summary>
         internal HashSet<(string Body, int Operation)> UnprovenReferences { get; } = [];
 
+        /// <summary>The reference loads, by body, folded into a write that depends on them: that write's, with no access of their
+        /// own (R1).</summary>
+        internal HashSet<(string Body, int Operation)> FoldedReferences { get; } = [];
+
         private HashSet<string>? _writtenOutsideConstruction;
-        private Dictionary<string, List<string>>? _nodeLists;
         private readonly HashSet<(string Region, string Field)> _constructingFields = [];
         private Dictionary<string, int>? _iterationParameters;
         private readonly HashSet<string> _liftingInProgress = new(StringComparer.Ordinal);
@@ -1249,10 +1299,26 @@ public static class InterproceduralAccesses
             // The stores whose compare-and-swap checks the cell against what the value it writes was read from. That, and not
             // the name of the member called, is what makes the sequence around it as atomic as the call itself (R1).
             var verified = new HashSet<(string Instance, int Operation, string Resource)>();
+            // The reference loads folded into a write: the place nothing proves among theirs is the write's to count, as it is for
+            // `r += 1` (R1, R3).
+            var foldedReferences = new HashSet<(string Instance, int Operation)>();
+            var visits = _visits.ToLookup(visit => visit.Node.State.Instance, visit => visit.Node, StringComparer.Ordinal);
+            var referenceResources = new Dictionary<(string Instance, int Operation), IReadOnlyList<AccessResource>>();
             foreach (var instanceId in VisitedInstances())
             {
                 var instance = _heap.Instances[instanceId];
-                foreach (var store in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store))
+                // A write through a reference is fed by its reads as a field write is, at every place the reference resolves to. One
+                // that reads its place itself already is a read-modify-write, and is still fed by any other read of that place: an
+                // `old` read before `r += old` is folded into it too, and its span starts there (R1).
+                var stores = instance.Summary.Accesses
+                                     .Where(access => access.Kind == SummaryAccessKind.Store)
+                                     .Select(store => (store.OperationId, store.Dependencies, store.ComparandLoad, store.IsCompound,
+                                                       Resources: Resources(instance, store)))
+                                     .Concat(instance.Summary.ReferenceAccesses
+                                                     .Where(access => access.Kind == SummaryAccessKind.Store)
+                                                     .Select(store => (store.OperationId, store.Dependencies, ComparandLoad: (int?)null,
+                                                                       IsCompound: false, Resources: ReferenceResources(instance, store))));
+                foreach (var store in stores)
                 {
                     var loads = Loads(instance, store.Dependencies);
                     // The comparand has to be the value those reads produced, not a value computed from them: a swap that checks
@@ -1261,7 +1327,7 @@ public static class InterproceduralAccesses
                                    loads.Count != 0 &&
                                    loads.All(load => load.Operation == checkedLoad &&
                                                      string.Equals(load.Instance, instanceId, StringComparison.Ordinal));
-                    foreach (var resource in Resources(instance, store))
+                    foreach (var resource in store.Resources)
                     {
                         if (observed)
                             verified.Add((instanceId, store.OperationId, resource.Identity));
@@ -1270,10 +1336,15 @@ public static class InterproceduralAccesses
                         {
                             var loadInstance = _heap.Instances[loadInstanceId];
                             // A compound operation reaches over the whole collection: its check may read the structure while its
-                            // change writes a cell, so the two meet on the collection rather than on one resource (ADR 0010).
+                            // change writes a cell, so the two meet on the collection rather than on one resource (ADR 0010). A read
+                            // is matched by the resource it reaches, whatever route it took there: a field, or any reference to it.
+                            var loadReferences = loadInstance.Summary.ReferenceAccesses
+                                                             .Where(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
+                                                             .ToArray();
                             var reads = loadInstance.Summary.Accesses
                                                     .Where(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
                                                     .SelectMany(load => Resources(loadInstance, load))
+                                                    .Concat(loadReferences.SelectMany(load => ReferenceResources(loadInstance, load)))
                                                     .Where(candidate => candidate.Identity == resource.Identity ||
                                                                         store.IsCompound && candidate.StructuralIdentity == resource.StructuralIdentity)
                                                     .ToArray();
@@ -1288,7 +1359,14 @@ public static class InterproceduralAccesses
                             // Only a read of the very resource the change is on is folded into it; a check of another resource
                             // stays an access of its own.
                             if (reads.Any(candidate => candidate.Identity == resource.Identity))
+                            {
                                 dropped.Add((loadInstance.Id, loadOperation, resource.Identity));
+                                if (loadReferences.Length != 0)
+                                {
+                                    foldedReferences.Add((loadInstance.Id, loadOperation));
+                                    FoldedReferences.Add((loadInstance.BodyId, loadOperation));
+                                }
+                            }
                         }
                     }
                 }
@@ -1308,25 +1386,14 @@ public static class InterproceduralAccesses
                                               !instance.Summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == access.OperationId)))
                 foreach (var target in ResolveReferences(access.Targets, instance, node))
                 {
-                    if (target.Cell is not { } cell)
+                    if (target.Cell is null)
                     {
-                        if (!access.IsCollectionElement)
+                        if (!access.IsCollectionElement && !foldedReferences.Contains((instance.Id, access.OperationId)))
                             UnprovenReferences.Add((instance.BodyId, access.OperationId));
                         continue;
                     }
 
-                    // A reference's term is bound where the cell was named, and never again below.
-                    references.Add((new SummaryAccess(access.OperationId, access.Kind, cell.Field, cell.Bases, access.Provenance,
-                                                      access.HeldLocks, access.ReadModifyWriteOf, new HashSet<AbstractValue>(),
-                                                      access.Dependencies)
-                                    {
-                                        Selector = cell.Selector,
-                                        SelectorTerm = cell.SelectorTerm is { } named && !cell.IsTermBound
-                                            ? Bind(named, target.Instance, target.Node)
-                                            : cell.SelectorTerm,
-                                        IsOnCollection = cell.IsOnCollection,
-                                        Conditions = access.Conditions
-                                    }, target.Instance, target.Node, true));
+                    references.Add((ReferenceAccess(access, target), target.Instance, target.Node, true));
                 }
                 // A known call's effects are reads and writes of the fields they reach, made where the call stands (R3).
                 var deepReads = instance.Summary.ArgumentEffects
@@ -1336,6 +1403,7 @@ public static class InterproceduralAccesses
                                             call.SelectMany(effect => effect.Kind switch
                                                 {
                                                     IrLibraryEffectKind.DeepRead => DeepReadAccesses(effect, instance, node),
+                                                    IrLibraryEffectKind.Enumerate when effect.Member is not null => StandingMemberAccesses(effect, instance),
                                                     IrLibraryEffectKind.Enumerate => EnumerationAccesses(effect, instance, node),
                                                     _ => ArgumentWriteAccesses(effect, instance)
                                                 })
@@ -1385,10 +1453,10 @@ public static class InterproceduralAccesses
                         var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
                         // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
                         // an occurrence keeps can be the least protected one (R5).
-                        // A write through a reference that reads it first spans that read, which stands in this very body; only a
-                        // section held over both protects it (R2).
+                        // A write through a reference that reads it first spans that read, which stands in this very body, and every
+                        // other read that feeds it; only a section held over all of them protects it (R2).
                         var held = HeldOverSpan(instance.Id, access.OperationId, operation,
-                                                isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read)] : sources);
+                                                isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
                         var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")
@@ -1436,7 +1504,7 @@ public static class InterproceduralAccesses
                                 OwnershipEvidence = ownership?.Evidence ?? [],
                                 IsConstructionLocal = local,
                                 IsReferenceAccess = isReference,
-                                ReadSources = (sources ?? []).Select(ReadSourceOf).ToArray(),
+                                ReadSources = (sources ?? []).Select(load => ReadSourceOf(load, access.Field)).ToArray(),
                                 BodyId = instance.BodyId,
                                 OperationId = access.OperationId,
                                 InstanceId = instance.Id,
@@ -1447,6 +1515,7 @@ public static class InterproceduralAccesses
                                 IsIterationIndexed = access.SelectorParameter is { } ordinal &&
                                                      IterationParameters.GetValueOrDefault(instance.BodyId, -1) == ordinal &&
                                                      (access.SelectorWidth ?? ITERATION_WIDTH) >= ITERATION_WIDTH,
+                                IsFresh = access.IsFresh,
                                 // Values of independent executions are independent unknowns, whatever they are called in the
                                 // body they come from (TD-092).
                                 SelectorTerm = term,
@@ -1468,6 +1537,47 @@ public static class InterproceduralAccesses
             }
 
             return accesses;
+
+            // The resources a reference access reaches, at every place it resolves to on every visit of its instance: the places the
+            // emission gives it, so a read and a write meet there however each got to it (R1).
+            IReadOnlyList<AccessResource> ReferenceResources(MethodInstance instance, SummaryReferenceAccess access)
+            {
+                if (referenceResources.TryGetValue((instance.Id, access.OperationId), out var cached))
+                    return cached;
+
+                var resources = new List<AccessResource>();
+                foreach (var node in visits[instance.Id].Where(node => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId)))
+                foreach (var target in ResolveReferences(access.Targets, instance, node))
+                {
+                    if (target.Cell is null)
+                        continue;
+                    foreach (var resource in Resources(target.Instance, ReferenceAccess(access, target)))
+                    {
+                        if (!resources.Any(candidate => candidate.Identity == resource.Identity))
+                            resources.Add(resource);
+                    }
+                }
+
+                referenceResources.Add((instance.Id, access.OperationId), resources);
+                return resources;
+            }
+        }
+
+        /// <summary>A reference access at one place it resolves to, as an access of that cell. A reference's term is bound where the
+        /// cell was named, and never again below.</summary>
+        private SummaryAccess ReferenceAccess(SummaryReferenceAccess access, ResolvedReference target)
+        {
+            var cell = target.Cell!;
+            return new SummaryAccess(access.OperationId, access.Kind, cell.Field, cell.Bases, access.Provenance, access.HeldLocks,
+                                     access.ReadModifyWriteOf, new HashSet<AbstractValue>(), access.Dependencies)
+            {
+                Selector = cell.Selector,
+                SelectorTerm = cell.SelectorTerm is { } named && !cell.IsTermBound
+                    ? Bind(named, target.Instance, target.Node)
+                    : cell.SelectorTerm,
+                IsOnCollection = cell.IsOnCollection,
+                Conditions = access.Conditions
+            };
         }
 
         /// <summary>Whether an access is on a readonly field of the object it touches, which nothing outside that object's construction
@@ -1487,7 +1597,8 @@ public static class InterproceduralAccesses
         /// </summary>
         private IEnumerable<SummaryAccess> UnknownEffectAccesses(UnknownCall call, MethodInstance instance, PathNode node)
         {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            var accesses = new List<SummaryAccess>();
             foreach (var start in reach.Starts(call))
             {
                 var effect = new SummaryArgumentEffect(IrLibraryEffectKind.DeepRead, call.OperationId, start.Values, start.Collection, false,
@@ -1495,14 +1606,31 @@ public static class InterproceduralAccesses
                 {
                     Conditions = call.Conditions
                 };
-                foreach (var access in DeepReadAccesses(effect, instance, node, unknownEffect: true, start.DeclaringTypeKey))
+                // Only the fields of the objects an argument of the calling body's own creation holds are fields of fresh objects;
+                // what those fields point to is reached through them (R12).
+                var fresh = start.IsFresh
+                    ? start.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal)
+                    : [];
+                foreach (var found in DeepReadAccesses(effect, instance, node, unknownEffect: true, start.DeclaringTypeKey))
                 {
+                    var access = found is { IsOnCollection: false, Selector: null, Bases.Count: 1 } &&
+                                 found.Bases.Single() is RegionValue region && fresh.Contains(region.RegionId)
+                        ? found with { IsFresh = true }
+                        : found;
                     var key = $"{FieldSlot.Key(access.Field)}|{string.Join(",", access.Bases)}|{access.Selector?.Text}|{access.IsOnCollection}|" +
                               string.Join(",", (access.CollectionRegions ?? new HashSet<string>()).Order(StringComparer.Ordinal));
-                    if (seen.Add(key))
-                        yield return access;
+                    // The same field reached another way is not reached as a fresh object's, and keeps pairing.
+                    if (!seen.TryGetValue(key, out var index))
+                    {
+                        seen.Add(key, accesses.Count);
+                        accesses.Add(access);
+                    }
+                    else if (accesses[index].IsFresh && !access.IsFresh)
+                        accesses[index] = access;
                 }
             }
+
+            return accesses;
         }
 
         /// <summary>
@@ -1571,7 +1699,7 @@ public static class InterproceduralAccesses
                     var by = holder ?? (holders.Value.TryGetValue(regionId, out var found) ? found : null);
                     if (by is { } named && structureRead.Add(regionId))
                         accesses.AddRange(CollectionReads(read, named.Parent, named.Field, [regionId], ElementSelector.Unknown, withStructure: true, kind));
-                    foreach (var element in ElementsOf(regionId))
+                    foreach (var element in HeldBy(regionId))
                         pending.Enqueue((element, depth + 1, by));
                     // A library collection has no state of its own that is a resource; a type of the run's own deriving from one
                     // has its own fields.
@@ -1634,14 +1762,54 @@ public static class InterproceduralAccesses
                 return accesses;
             }
 
-            // A collection the value does not name by where it came from is still read by a field that holds it, as a deep read's is.
-            foreach (var collection in objects.Where(region => !held.Contains(region) && CollectionKind(region).IsCollection).Order(StringComparer.Ordinal))
+            // A collection the value does not name by where it came from is still read by a field that holds it, as a deep read's is;
+            // a live view is read where its dictionary is held.
+            foreach (var collection in objects.Where(region => CollectionKind(region).IsCollection).SelectMany(StandsFor)
+                                              .Where(region => !held.Contains(region)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             {
                 if (holders.Value.TryGetValue(collection, out var holder))
                     accesses.AddRange(CollectionReads(read, holder.Parent, holder.Field, [collection], ElementSelector.Unknown, withStructure: true));
             }
 
             return accesses;
+        }
+
+        /// <summary>The accesses a member of a node or a live view makes when no field of its body names the receiver: its own effects on
+        /// the structure and on every cell of the collection each object it may be stands for in the heap, the list a node was added to
+        /// or the dictionary a view is of, named by the field holding that collection (ADR 0010, phase 5b second run).</summary>
+        private IEnumerable<SummaryAccess> StandingMemberAccesses(SummaryArgumentEffect call, MethodInstance instance)
+        {
+            var member = call.Member!;
+            var collections = call.Values.SelectMany(value => _heap.Resolve(instance.Id, value))
+                                  .SelectMany(StandsFor)
+                                  .Where(region => CollectionKind(region).IsCollection)
+                                  .Distinct(StringComparer.Ordinal)
+                                  .Order(StringComparer.Ordinal);
+            foreach (var collection in collections)
+            {
+                if (!holders.Value.TryGetValue(collection, out var holder))
+                    continue;
+                foreach (var (effect, selector) in new[] { (member.Structure, (ElementSelector?)null), (member.Element, ElementSelector.Unknown) })
+                {
+                    if (effect == IrCollectionEffect.None)
+                        continue;
+                    yield return Access(call, effect == IrCollectionEffect.Read ? SummaryAccessKind.Load : SummaryAccessKind.Store, holder.Field,
+                                        new RegionValue(holder.Parent)) with
+                    {
+                        IsOnCollection = true,
+                        CollectionRegions = new HashSet<string>(StringComparer.Ordinal) { collection },
+                        Selector = selector,
+                        Atomic = member.IsAtomic
+                            ? effect switch
+                            {
+                                IrCollectionEffect.Read => IrAtomicEffect.Read,
+                                IrCollectionEffect.Write => IrAtomicEffect.Write,
+                                _ => IrAtomicEffect.ReadModifyWrite
+                            }
+                            : null
+                    };
+                }
+            }
         }
 
         /// <summary>The collections a value names by where it came from, each with the field that holds it, the object holding that
@@ -1672,6 +1840,8 @@ public static class InterproceduralAccesses
                 {
                     var collections = _heap.PointsTo(parent, FieldSlot.Key(storage.Field))
                                            .Where(region => read.IsSlice || CollectionKind(region).IsCollection)
+                                           .SelectMany(StandsFor)
+                                           .Distinct(StringComparer.Ordinal)
                                            .ToArray();
                     if (collections.Length != 0)
                         yield return (parent, storage.Field, collections, cells);
@@ -1771,7 +1941,7 @@ public static class InterproceduralAccesses
         private IEnumerable<string> SequenceElements(string region)
         {
             if (CollectionKind(region).IsCollection)
-                return ElementsOf(region);
+                return HeldBy(region);
             var program = input.Scope.Program;
             if (_heap.Regions[region].TypeKey is not { } key || program.Type(key) is not { IsSource: true })
                 return [];
@@ -1798,23 +1968,18 @@ public static class InterproceduralAccesses
 
             // What an object holds: the objects in a collection's cells, and what every field of it points to.
             IEnumerable<string> Reached(string holder) =>
-                (CollectionKind(holder).IsCollection ? ElementsOf(holder) : [])
-                    .Concat(_heap.FieldsOf(holder).Where(slot => slot != PathValue.ELEMENT).SelectMany(slot => _heap.PointsTo(holder, slot)))
+                (CollectionKind(holder).IsCollection ? HeldBy(holder) : [])
+                    .Concat(_heap.FieldsOf(holder).Where(slot => !PathValue.IsStorage(slot)).SelectMany(slot => _heap.PointsTo(holder, slot)))
                     .Where(target => _heap.Regions[target].Kind != HeapRegionKind.Delegate);
 
             static string TypeName(string typeKey) => FieldSlot.WithoutTypeArguments(typeKey[(typeKey.IndexOf(':') + 1)..]);
         }
 
-        /// <summary>The objects a collection or an array may hold: what its cells point to and what its members were handed.</summary>
-        private IEnumerable<string> ElementsOf(string collection) =>
+        /// <summary>The objects a collection or an array may hold: what the heap holds in its cells and, for a dictionary, its keys (ADR
+        /// 0010, phase 5b second run).</summary>
+        private IEnumerable<string> HeldBy(string collection) =>
             _heap.PointsTo(collection, PathValue.ELEMENT)
-                 .Concat((insertions.Value.GetValueOrDefault(collection) ?? [])
-                         .SelectMany(insertion => insertion.Call.Arguments.Where(argument => IsHeldArgument(insertion.Call.Collection, argument.ParameterOrdinal))
-                                                           .SelectMany(argument => argument.Values)
-                                                           .SelectMany(value => _heap.Resolve(insertion.Instance.Id, value))
-                                                           // A factory makes the value the collection holds; the delegate itself is not held,
-                                                           // whether it is created at the call or read from where it is kept.
-                                                           .Where(region => _heap.Regions[region].Kind != HeapRegionKind.Delegate)))
+                 .Concat(_heap.PointsTo(collection, PathValue.KEYS))
                  .Distinct(StringComparer.Ordinal)
                  .Order(StringComparer.Ordinal);
 
@@ -1846,14 +2011,18 @@ public static class InterproceduralAccesses
             _ => isReadModifyWrite ? AccessOperation.ReadModifyWrite : AccessOperation.Write
         };
 
-        private ReadSource ReadSourceOf((string Instance, int Operation) load)
+        /// <summary>A read folded into a write. One through a reference names no field of its own: it reads the field the write is on,
+        /// which is what folded it (R1).</summary>
+        private ReadSource ReadSourceOf((string Instance, int Operation) load, IrFieldRef written)
         {
             var instance = _heap.Instances[load.Instance];
-            var access = instance.Summary.Accesses.First(candidate => candidate.OperationId == load.Operation);
+            var access = instance.Summary.Accesses.FirstOrDefault(candidate => candidate.OperationId == load.Operation);
+            var field = access?.Field ?? written;
+            var span = access?.Provenance.Span ??
+                       instance.Summary.ReferenceAccesses.First(candidate => candidate.OperationId == load.Operation).Provenance.Span;
             var (entry, node) = _firstPaths[load.Instance];
-            var held = HeldLocks(instance.Id, access.OperationId);
-            return new ReadSource(Symbol(instance), access.Provenance.Span,
-                                  CodeFlow(entry, node, held, $"read {access.Field.ContainingType}.{access.Field.Name}", access.Provenance.Span));
+            var held = HeldLocks(instance.Id, load.Operation);
+            return new ReadSource(Symbol(instance), span, CodeFlow(entry, node, held, $"read {field.ContainingType}.{field.Name}", span));
         }
 
         /// <summary>What protects an operation that spans a read and the write depending on it: only a lock section that covers the
@@ -1924,6 +2093,12 @@ public static class InterproceduralAccesses
                     callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
                 {
                     conditions.AddRange(Predicates(callerInstance, transfer.Conditions, caller));
+                }
+                // A factory runs where its `GetOrAdd` or `AddOrUpdate` stands, under that call's guards (R11).
+                else if (callerInstance?.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } factoryCall &&
+                         RunsFactories(factoryCall.Collection))
+                {
+                    conditions.AddRange(Predicates(callerInstance, factoryCall.Conditions, caller));
                 }
 
                 // An iterator's body runs with the arguments its creation bound, so the guards that call stood under hold of those
@@ -2476,37 +2651,22 @@ public static class InterproceduralAccesses
                 return [null];
 
             // A known call's read names its collections, which may be held in the cells of the one the field holds. A node a list
-            // was handed is a cell of that list, whichever field holds it (ADR 0010, phase 5b).
+            // was handed is a cell of that list, and a live view of a dictionary is that dictionary, whichever field holds it (ADR
+            // 0010, phase 5b).
             var targets = (access.CollectionRegions?.ToArray() ?? _heap.PointsTo(regionId, FieldSlot.Key(access.Field)).ToArray())
-                          .SelectMany(target => NodeLists().GetValueOrDefault(target) ?? [target])
+                          .SelectMany(StandsFor)
                           .Distinct(StringComparer.Ordinal)
                           .ToArray();
             return targets.Length == 0 ? [null] : targets.Order(StringComparer.Ordinal).Select(target => (string?)target).ToArray();
         }
 
-        /// <summary>The lists each <c>LinkedListNode</c> was handed to, by the node.</summary>
-        private Dictionary<string, List<string>> NodeLists()
-        {
-            if (_nodeLists is not null)
-                return _nodeLists;
-            _nodeLists = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-            foreach (var (list, calls) in insertions.Value)
-            {
-                foreach (var node in calls.SelectMany(insertion => insertion.Call.Arguments.Where(argument => IsHeldArgument(insertion.Call.Collection, argument.ParameterOrdinal))
-                                                                         .SelectMany(argument => argument.Values)
-                                                                         .SelectMany(value => _heap.Resolve(insertion.Instance.Id, value)))
-                                          .Where(region => region != list && _heap.Regions[region].TypeKey is { } key &&
-                                                           FieldSlot.WithoutTypeArguments(key[(key.IndexOf(':') + 1)..]) == "System.Collections.Generic.LinkedListNode")
-                                          .Distinct(StringComparer.Ordinal))
-                {
-                    if (!_nodeLists.TryGetValue(node, out var lists))
-                        _nodeLists.Add(node, lists = []);
-                    lists.Add(list);
-                }
-            }
-
-            return _nodeLists;
-        }
+        /// <summary>The collections a region stands for as the heap holds them: the lists a <c>LinkedListNode</c> created on its own was
+        /// handed to, and the dictionary a live view is of; any other region stands for itself.</summary>
+        private IEnumerable<string> StandsFor(string target) =>
+            _heap.PointsTo(target, PathValue.NODE_LIST).Concat(_heap.PointsTo(target, PathValue.VIEWED)).Where(collection => collection != target)
+                 .Distinct(StringComparer.Ordinal).ToArray() is { Length: > 0 } collections
+                ? collections
+                : [target];
 
         private AccessResource Resource(string regionId, IrFieldRef field, bool wildcard, ElementSelector? selector,
                                         string? collectionId = null)
@@ -2605,8 +2765,8 @@ public static class InterproceduralAccesses
 /// <summary>
 /// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never a pair neither of whose sides
 /// is a conflicting operation (TD-072), never construction-local, never on a
-/// thread-confined region, only across executions that overlap, and never
-/// where the happens-before graph orders the two accesses. The candidates come from <see cref="CandidateIndex"/>, each unordered
+/// thread-confined region, only across executions that overlap, never
+/// where the happens-before graph orders the two accesses, and never two accesses to fresh objects (R12). The candidates come from <see cref="CandidateIndex"/>, each unordered
 /// pair once.
 /// </summary>
 public static class InterproceduralPairing
@@ -2618,6 +2778,7 @@ public static class InterproceduralPairing
     public const string SKIP_ORDERED = "ordered";
     public const string SKIP_UNSATISFIABLE_PATH = "unsatisfiable-path";
     public const string SKIP_DISJOINT_ITERATION = "disjoint-iteration";
+    public const string SKIP_FRESH_OBJECT = "fresh-object";
 
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
@@ -2638,6 +2799,8 @@ public static class InterproceduralPairing
                 : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? SKIP_UNSATISFIABLE_PATH
                 : IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION
+                // Two invocations touch two fresh objects, and the accesses of one invocation follow one another (R12).
+                : first.IsFresh && second.IsFresh ? SKIP_FRESH_OBJECT
                 : null;
             if (skip is not null)
             {
