@@ -62,9 +62,11 @@ _Avoid_: unawaited call, dropped task, background task
 An execution the analysis knows will run some code without knowing which root or spawn runs it —
 the enumeration of an iterator that escaped to where the analysis cannot follow it, or the
 invocation of a delegate handed to an **Opaque call**. It may overlap every execution of its
-process scope, itself included, and nothing orders it. The one exception is a delegate handed at
-one site by an execution that runs once and runs that site once: the call may run it many times,
-but one at a time, as a spawn from such a site does not overlap itself.
+process scope, itself included, and nothing orders it but the end of startup, and that only when
+every execution that hands the delegate over, or creates the iterator, starts after startup. The
+one exception to the overlap is a delegate handed at one site by an execution that runs once and
+runs that site once: the call may run it many times, but one at a time, as a spawn from such a site
+does not overlap itself.
 _Avoid_: background execution, anonymous thread, somewhere
 
 **Join**:

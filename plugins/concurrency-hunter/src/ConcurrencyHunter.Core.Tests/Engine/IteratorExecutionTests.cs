@@ -109,6 +109,30 @@ public sealed class IteratorExecutionTests
     }
 
     [Fact]
+    public void Iterator_created_in_startup_and_escaped_meets_a_startup_write()
+    {
+        // Whoever holds the escaped iterator may enumerate it as soon as it exists, while startup is still running (issue #123).
+        var run = Analyze(StartupCase("", "Totals.Escaped = Totals.Walk(); Totals.Value = 2;"));
+
+        var pair = Assert.Single(run.PairsOn("Value"), pair => pair.First.ExecutionId == ExecutionModel.STARTUP ||
+                                                               pair.Second.ExecutionId == ExecutionModel.STARTUP);
+        var other = pair.First.ExecutionId == ExecutionModel.STARTUP ? pair.Second : pair.First;
+        Assert.Equal(ExecutionKind.UnknownEnumeration, run.Execution.Analysis.Execution(other.ExecutionId).Kind);
+    }
+
+    [Fact]
+    public void Iterator_created_by_a_root_stays_after_startup()
+    {
+        // Its body cannot run before the iterator exists, and the root creates it after startup ends.
+        var run = Analyze(StartupCase("Totals.Escaped = Totals.Walk();", "Totals.Value = 2;"));
+
+        Assert.Contains(run.Accesses("Value"), access => access.ExecutionId == ExecutionModel.STARTUP);
+        Assert.Contains(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.DoesNotContain(run.PairsOn("Value"), pair => pair.First.ExecutionId == ExecutionModel.STARTUP ||
+                                                            pair.Second.ExecutionId == ExecutionModel.STARTUP);
+    }
+
+    [Fact]
     public void Opaque_consumer_adds_unknown_enumeration()
     {
         var run = Analyze(Case("System.Linq.Enumerable.ToList(_state.Walk());", "", "_state.Value = 2;"));
@@ -543,4 +567,25 @@ public sealed class IteratorExecutionTests
             }
         }
         """ + Startup("services.AddSingleton<State>(); services.AddHostedService<First>(); services.AddHostedService<Second>();");
+
+    /// <summary>A static iterator and the field it can escape to; a worker runs <paramref name="first"/> and startup runs
+    /// <paramref name="startup"/> in <c>Configure</c>, which a factory registration makes a startup member.</summary>
+    private static string StartupCase(string first, string startup) => Usings + $$"""
+        using System.Collections.Generic;
+        public sealed class Marker { }
+        public static class Totals
+        {
+            public static IEnumerable<int>? Escaped;
+            public static int Value;
+            public static IEnumerable<int> Walk() { Value = 1; yield return 1; }
+        }
+        public sealed class First : BackgroundService
+        {
+            protected override Task ExecuteAsync(CancellationToken stoppingToken)
+            {
+                {{first}}
+                return Task.CompletedTask;
+            }
+        }
+        """ + Startup($"services.AddSingleton<Marker>(_ => new Marker()); services.AddHostedService<First>(); {startup}");
 }

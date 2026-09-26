@@ -39,6 +39,7 @@ internal sealed class HappensBefore
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> _visits;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> _steps;
     private readonly IReadOnlyDictionary<string, string> _tails;
+    private readonly IReadOnlySet<string> _duringStartup;
     private readonly Dictionary<string, List<SpawnAnchor>> _anchors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SpawnAnchor> _anchorOfChild = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
@@ -61,7 +62,7 @@ internal sealed class HappensBefore
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> visits,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps, IReadOnlyList<SpawnAnchor> anchors,
-                           IReadOnlyDictionary<string, string> tails)
+                           IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup)
     {
         _scope = scope;
         _heap = heap;
@@ -71,6 +72,7 @@ internal sealed class HappensBefore
         _visits = visits;
         _steps = steps;
         _tails = tails;
+        _duringStartup = duringStartup;
         _spawnSites = heap.Spawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var asyncSites = heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var timerSites = heap.TimerCallbacks.ToDictionary(site => (site.CallerInstance, site.OperationId));
@@ -332,7 +334,7 @@ internal sealed class HappensBefore
         new(anchor.CallerInstance, anchor.OperationId, anchor.Kind == SpawnAnchorKind.AsyncReturn);
 
     /// <summary>What follows an execution's end: its trusted joins, its trusted continuations, the tail of its async work and, for startup,
-    /// the start of every execution startup did not start.</summary>
+    /// the start of every execution that cannot start before startup ends.</summary>
     private IEnumerable<EventNode> EndEdges(string execution)
     {
         EnsureJoins();
@@ -344,7 +346,7 @@ internal sealed class HappensBefore
             yield return new EventNode(EventKind.Start, tail, -1);
         if (execution == ExecutionModel.STARTUP)
         {
-            foreach (var other in _executions.Values.Where(other => other.TreeRootId != ExecutionModel.STARTUP))
+            foreach (var other in _executions.Values.Where(other => !_duringStartup.Contains(other.Id)))
                 yield return new EventNode(EventKind.Start, other.Id, -1);
         }
     }

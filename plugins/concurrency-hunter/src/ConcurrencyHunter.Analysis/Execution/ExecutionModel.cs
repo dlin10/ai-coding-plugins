@@ -342,8 +342,8 @@ public static class ExecutionModel
                 Entry(id, new ExecutionEntry(iterator.Creation.CalleeInstance, ExecutionEntryKind.UnknownEnumeration, null));
             }
 
-            // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders,
-            // not even startup, and which holds no lock on entry (R3, ADR 0011).
+            // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders
+            // but the end of startup when only executions after startup hand it over, and which holds no lock on entry (R3, ADR 0011).
             foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0))
             {
                 // A lambda has no name of its own: it is named by the member it is written in and its place.
@@ -405,7 +405,7 @@ public static class ExecutionModel
                                                  StringComparer.Ordinal);
             var steps = _steps.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionStep>)pair.Value.ToArray(), StringComparer.Ordinal);
             var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
-                                          visits, steps, _anchors.ToArray(), _tails);
+                                          visits, steps, _anchors.ToArray(), _tails, DuringStartup());
             var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
                                         .OrderBy(site => site.Site.BodyId, StringComparer.Ordinal)
                                         .ThenBy(site => site.Site.OperationId)
@@ -647,6 +647,40 @@ public static class ExecutionModel
                 if (handings is [var (handing, bodyId, operationId)] && RunsOnce(handing) && SiteOnce(handing, bodyId, operationId))
                     _executions[execution.Id] = execution with { Policy = SERIALIZED };
             }
+        }
+
+        /// <summary>The executions that may start before startup ends: startup and what it starts, and an unknown execution with what it
+        /// starts when one of them hands it its delegate or creates its iterator, since the call may run the delegate, and whoever holds
+        /// the iterator may enumerate it, at once. One that no execution hands over or creates may run whenever. Everything else starts
+        /// after startup: a root, a construction or type initializer startup does not run, what they start, and an unknown execution
+        /// only they hand over or create (issue #123).</summary>
+        private HashSet<string> DuringStartup()
+        {
+            var handoffs = heap.DelegateHandoffs.ToDictionary(handoff => handoff.RegionId, StringComparer.Ordinal);
+            var creators = heap.IteratorObjects.ToDictionary(iterator => iterator.RegionId, iterator => iterator.Creation.CallerInstance, StringComparer.Ordinal);
+            var starters = _executions.Values.Where(execution => execution.Kind is ExecutionKind.UnknownDelegateCall or ExecutionKind.UnknownEnumeration)
+                                      .ToDictionary(execution => execution.Id,
+                                                    execution => (execution.Kind == ExecutionKind.UnknownDelegateCall
+                                                                      ? handoffs[execution.Subject!].Sites.Select(site => site.CallerInstance)
+                                                                      : [creators[execution.Subject!]])
+                                                                 .SelectMany(instance => _instanceExecutions.GetValueOrDefault(instance) ?? [])
+                                                                 .ToHashSet(StringComparer.Ordinal),
+                                                    StringComparer.Ordinal);
+
+            var during = _executions.Values.Where(execution => execution.TreeRootId == STARTUP).Select(execution => execution.Id)
+                                    .ToHashSet(StringComparer.Ordinal);
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var execution in _executions.Values.Where(execution => !during.Contains(execution.Id)))
+                {
+                    if (starters.TryGetValue(execution.TreeRootId, out var by) && (by.Count == 0 || by.Overlaps(during)))
+                        changed |= during.Add(execution.Id);
+                }
+            }
+
+            return during;
         }
 
         /// <summary>Whether every site a callback runs for names the timer it runs on: one that may run a timer of unknown origin may have

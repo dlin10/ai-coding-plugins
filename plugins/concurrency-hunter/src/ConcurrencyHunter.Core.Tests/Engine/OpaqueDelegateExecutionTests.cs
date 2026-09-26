@@ -123,6 +123,45 @@ public sealed class OpaqueDelegateExecutionTests
         Assert.Contains(new[] { pair.First, pair.Second }, access => KindOf(run, access) == ExecutionKind.Root);
     }
 
+    [Fact]
+    public void Lambda_handed_to_an_opaque_call_in_startup_meets_a_startup_write()
+    {
+        // The library may run the lambda as soon as it has it, while startup is still running (issue #123).
+        var run = Run("", startup: "Opaque.Lib.Run(() => Totals.Sum = 1); Totals.Sum = 2;", action: "return Ok();");
+
+        Assert.Equal(ExecutionKind.UnknownDelegateCall, KindOf(run, AgainstStartup(run, "Sum")));
+    }
+
+    [Fact]
+    public void Lambda_handed_only_by_a_root_stays_after_startup()
+    {
+        // The root starts after startup ends and hands the lambda over after it starts, so the lambda cannot run during startup.
+        var run = Run("Opaque.Lib.Run(() => Totals.Sum = 1);", startup: "Totals.Sum = 2;", action: "return Ok();");
+
+        Assert.Contains(run.Of("Sum"), access => access.ExecutionId == ExecutionModel.STARTUP);
+        Assert.Contains(run.Of("Sum"), access => KindOf(run, access) == ExecutionKind.UnknownDelegateCall);
+        Assert.Empty(run.PairsOn("Sum"));
+    }
+
+    [Fact]
+    public void Spawn_inside_a_lambda_handed_in_startup_meets_a_startup_write()
+    {
+        var run = Run("", startup: "Opaque.Lib.Run(() => Task.Run(() => Totals.Sum = 1)); Totals.Sum = 2;", action: "return Ok();");
+
+        var spawned = AgainstStartup(run, "Sum");
+        Assert.Equal(ExecutionKind.Spawn, KindOf(run, spawned));
+        Assert.Equal(ExecutionKind.UnknownDelegateCall, run.Execution.Analysis.Execution(run.Execution.Analysis.Execution(spawned.ExecutionId).ParentId!).Kind);
+    }
+
+    [Fact]
+    public void Lambda_handed_inside_a_lambda_startup_handed_over_meets_a_startup_write()
+    {
+        var run = Run("", startup: "Opaque.Lib.Run(() => Opaque.Lib.Later(() => Totals.Sum = 1)); Totals.Sum = 2;", action: "return Ok();");
+
+        Assert.Equal(2, UnknownExecutions(run).Length);
+        Assert.Equal(ExecutionKind.UnknownDelegateCall, KindOf(run, AgainstStartup(run, "Sum")));
+    }
+
     // ---- what is no unknown call of a delegate ----
 
     [Fact]
@@ -214,6 +253,14 @@ public sealed class OpaqueDelegateExecutionTests
         new[] { finding.AccessA.Operation, finding.AccessB.Operation }.Order().SequenceEqual([AccessOperation.Read, AccessOperation.Write]);
 
     private static ExecutionKind KindOf(EngineRun run, Access access) => run.Execution.Analysis.Execution(access.ExecutionId).Kind;
+
+    /// <summary>The access that meets startup's own access in the one pair on a member startup is in.</summary>
+    private static Access AgainstStartup(EngineRun run, string member)
+    {
+        var pair = Assert.Single(run.PairsOn(member), pair => pair.First.ExecutionId == ExecutionModel.STARTUP ||
+                                                              pair.Second.ExecutionId == ExecutionModel.STARTUP);
+        return pair.First.ExecutionId == ExecutionModel.STARTUP ? pair.Second : pair.First;
+    }
 
     private static ExecutionInstance[] UnknownExecutions(EngineRun run) =>
         run.Execution.Analysis.Executions.Where(execution => execution.Kind == ExecutionKind.UnknownDelegateCall).ToArray();

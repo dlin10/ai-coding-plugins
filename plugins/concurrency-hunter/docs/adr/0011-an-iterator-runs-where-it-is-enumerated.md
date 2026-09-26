@@ -18,8 +18,10 @@ held over the loop's body, and whatever the body still holds when it ends is hel
 An iterator that reaches a consumer the analysis cannot follow — an opaque call, a framework
 enumerator such as `ToList`, an explicit `GetEnumerator` it does not model, or a heap location it
 escapes through — is, in addition, enumerated by an **Unknown execution**: one that may overlap
-every execution of its process scope, itself included, that nothing orders, and that holds no lock
-on entry.
+every execution of its process scope, itself included, and that holds no lock on entry. Nothing
+orders it but the end of startup, and that only when every execution that creates the iterator
+starts after startup ends: nobody can enumerate it before it exists, but one created during startup
+may be enumerated while startup is still running.
 
 Rejected: keeping the body at the call and only refusing to lift its locks there. It is simpler and
 closes the semaphore case, but leaves the lock around the creation protecting a body that runs
@@ -41,7 +43,11 @@ source method was never invoked: its body was lowered with its member and reache
 delegate handed to an **Opaque call** is the same unknown as an escaped iterator — code the analysis
 knows will run without knowing who runs it, when, or how often — and it gets the same answer: its
 body runs in an **Unknown execution**, which may overlap every execution of its process scope,
-itself included, that nothing orders, and that holds no lock on entry.
+itself included, and holds no lock on entry. Nothing orders it but the end of startup, and that only
+when every execution that hands the delegate over starts after startup ends: the call cannot run the
+delegate before it has it, but one handed over during startup may run at once, while startup is
+still running. What the unknown execution starts, and a delegate handed over inside it, are ordered
+after startup only when it is.
 
 Rejected: not invoking it and letting the call's unknown effect reach only what the delegate
 captures. It keeps today's counts, but the body's own accesses stay out of every pair, and a lambda
