@@ -1,0 +1,1976 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Руководство для разработчика, который продолжает Concurrency Hunter: какие проблемы решает плагин, общий алгоритм анализа, частные случаи на примерах C#, карта кода и состояние разработки.">
+<title>Путеводитель по Concurrency Hunter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --paper:#f4f5f8;--surface:#ffffff;--sunken:#eceef3;--ink:#1a2130;--muted:#566174;--faint:#8a93a3;--line:#dbe0e8;
+  --accent:#4535a8;--accent-soft:#ebe8f8;--a:#1c6db0;--a-soft:#e3eef8;--b:#bd5410;--b-soft:#f9eadf;
+  --ok:#2b7a4b;--ok-soft:#e2f2e8;--bad:#b3362d;--bad-soft:#f8e4e2;--warn:#8e6206;--warn-soft:#f6eed9;
+  --code-bg:#f0f2f7;--code-ink:#243044;
+  --t-comment:#6b7688;--t-keyword:#5b2fb0;--t-type:#0f6a78;--t-string:#9a4a0c;--t-number:#a2386e;--t-func:#1d5fa8;--t-punct:#56617a;
+  --sans:"Golos Text","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+  --mono:"JetBrains Mono",Consolas,"Cascadia Code","SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --paper:#11141b;--surface:#191e28;--sunken:#151922;--ink:#e2e6ee;--muted:#a0a9b9;--faint:#727c8f;--line:#2b3240;
+    --accent:#aba3f2;--accent-soft:#25223f;--a:#6db1ec;--a-soft:#172a3d;--b:#f09a5c;--b-soft:#3a2517;
+    --ok:#6fc893;--ok-soft:#16301f;--bad:#f08b80;--bad-soft:#3b1d1a;--warn:#e2b75a;--warn-soft:#352a12;
+    --code-bg:#151a23;--code-ink:#dde3ee;
+    --t-comment:#7d879a;--t-keyword:#c3a6ff;--t-type:#6fd0db;--t-string:#f0b27a;--t-number:#f29ac4;--t-func:#8cc2ff;--t-punct:#98a2b6;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#11141b;--surface:#191e28;--sunken:#151922;--ink:#e2e6ee;--muted:#a0a9b9;--faint:#727c8f;--line:#2b3240;
+  --accent:#aba3f2;--accent-soft:#25223f;--a:#6db1ec;--a-soft:#172a3d;--b:#f09a5c;--b-soft:#3a2517;
+  --ok:#6fc893;--ok-soft:#16301f;--bad:#f08b80;--bad-soft:#3b1d1a;--warn:#e2b75a;--warn-soft:#352a12;
+  --code-bg:#151a23;--code-ink:#dde3ee;
+  --t-comment:#7d879a;--t-keyword:#c3a6ff;--t-type:#6fd0db;--t-string:#f0b27a;--t-number:#f29ac4;--t-func:#8cc2ff;--t-punct:#98a2b6;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--paper);color:var(--ink);font:16.5px/1.7 var(--sans);-webkit-text-size-adjust:100%}
+a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+a:focus-visible,summary:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:3px}
+.skip{position:absolute;left:12px;top:-60px;background:var(--surface);color:var(--ink);padding:10px 14px;border:1px solid var(--line);z-index:9}
+.skip:focus{top:12px}
+
+.layout{max-width:1380px;margin:0 auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:56px;padding:32px 40px 96px}
+.sidebar{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;font-size:13.5px;line-height:1.45;padding-right:8px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.2px}
+.brand small{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:2px}
+.nav-part{margin:22px 0 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1.4px;color:var(--faint)}
+.sidebar nav a{display:block;color:var(--muted);text-decoration:none;padding:5px 0 5px 12px;border-left:2px solid var(--line)}
+.sidebar nav a:hover{color:var(--ink);border-left-color:var(--muted)}
+.sidebar nav a.active{color:var(--accent);border-left-color:var(--accent);font-weight:500}
+.toc-mobile{display:none}
+
+main{min-width:0}
+.prose{max-width:780px}
+header.hero{padding:18px 0 34px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(32px,4.2vw,50px);line-height:1.1;letter-spacing:-1.2px;margin:12px 0 18px;text-wrap:balance}
+.lead{font-size:19px;line-height:1.6;color:var(--ink);max-width:760px;margin:0}
+.facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.fact{font-size:12.5px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 11px;color:var(--muted)}
+.fact b{color:var(--ink);font-weight:600}
+
+.part{margin-top:56px;padding-top:10px}
+.part-label{display:flex;align-items:baseline;gap:12px;font-size:13px;font-weight:600;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint);border-top:2px solid var(--ink);padding-top:10px}
+.part-label span{color:var(--ink)}
+section{padding:26px 0 8px}
+h2{font-size:28px;line-height:1.25;letter-spacing:-.5px;margin:6px 0 16px;text-wrap:balance}
+h3{font-size:20px;line-height:1.35;letter-spacing:-.2px;margin:34px 0 10px;text-wrap:balance}
+h4{font-size:16.5px;margin:22px 0 6px}
+p{margin:12px 0}
+ul,ol{padding-left:24px;margin:12px 0}
+li{margin:6px 0}
+li::marker{color:var(--faint)}
+strong{font-weight:600}
+code,kbd{font-family:var(--mono);font-size:.86em}
+:not(pre)>code{background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:.05em .35em;overflow-wrap:anywhere}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+
+/* callouts */
+.note{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:14px 18px;margin:18px 0}
+.note>:first-child{margin-top:0}.note>:last-child{margin-bottom:0}
+.note-title{font-size:12px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:4px}
+.note.rule{border-color:var(--accent);background:var(--accent-soft)}
+.note.rule .note-title{color:var(--accent)}
+.note.warn{border-color:color-mix(in srgb,var(--warn) 45%,var(--line));background:var(--warn-soft)}
+.note.warn .note-title{color:var(--warn)}
+.note.code-map{background:var(--sunken)}
+.note.code-map .note-title{color:var(--muted)}
+
+/* verdict chips */
+.chip{display:inline-block;font:600 11.5px/1.2 var(--mono);letter-spacing:.2px;border-radius:5px;padding:3px 7px;border:1px solid;white-space:nowrap;vertical-align:1px}
+.chip.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,transparent);background:var(--bad-soft)}
+.chip.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,transparent);background:var(--ok-soft)}
+.chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:var(--warn-soft)}
+.chip.neutral{color:var(--muted);border-color:var(--line);background:var(--sunken)}
+
+/* example cards */
+.case{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:22px 0;overflow:hidden}
+.case-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.case-name{font:600 13px/1.3 var(--mono);color:var(--muted)}
+.case-head .chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.case pre{margin:0;border:0;border-radius:0}
+.case-body{padding:4px 18px 10px}
+.case-body>p:first-child{margin-top:10px}
+
+/* code */
+pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;font:13.5px/1.6 var(--mono);tab-size:4;margin:16px 0}
+pre code{font-size:inherit;background:none;border:0;padding:0;color:inherit}
+.token.comment,.token.prolog,.token.doc-comment{color:var(--t-comment);font-style:italic}
+.token.keyword,.token.boolean,.token.null,.token.contextual-keyword{color:var(--t-keyword)}
+.token.class-name,.token.type-expression,.token.return-type,.token.namespace{color:var(--t-type)}
+.token.string,.token.char,.token.interpolation-string{color:var(--t-string)}
+.token.number{color:var(--t-number)}
+.token.function{color:var(--t-func)}
+.token.punctuation,.token.operator{color:var(--t-punct)}
+.token.property{color:var(--t-func)}
+.hl-a{background:var(--a-soft);box-shadow:inset 2px 0 0 var(--a)}
+.hl-b{background:var(--b-soft);box-shadow:inset 2px 0 0 var(--b)}
+
+/* tables */
+.table-wrap{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;line-height:1.5}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font-size:12px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);background:var(--sunken)}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+table.bars td{vertical-align:middle}
+.bars .bar{display:block;height:10px;min-width:2px;border-radius:0 3px 3px 0;background:var(--accent);opacity:.7}
+.bars .bar-strong{background:var(--bad);opacity:1}
+.bars tr.row-strong td{background:var(--bad-soft)}
+
+/* figures */
+figure{margin:22px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:16px 16px 10px}
+figure .svg-wrap{overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:560px;color:var(--ink);font-family:var(--sans)}
+figure.narrow svg{min-width:0;max-width:640px;margin:0 auto}
+figcaption{font-size:13.5px;line-height:1.55;color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px dashed var(--line)}
+figcaption b{color:var(--ink);font-weight:600}
+svg text{fill:currentColor;font-size:12.5px}
+svg .t-small{font-size:11px}
+svg .t-muted{fill:var(--muted)}
+svg .t-bold{font-weight:600}
+svg .t-mono{font-family:var(--mono);font-size:11.5px}
+svg .box{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+svg .box-sunken{fill:var(--sunken);stroke:var(--line);stroke-width:1}
+svg .box-accent{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.3}
+svg .box-a{fill:var(--a-soft);stroke:var(--a);stroke-width:1.3}
+svg .box-b{fill:var(--b-soft);stroke:var(--b);stroke-width:1.3}
+svg .box-ok{fill:var(--ok-soft);stroke:var(--ok);stroke-width:1.3}
+svg .box-bad{fill:var(--bad-soft);stroke:var(--bad);stroke-width:1.3}
+svg .box-warn{fill:var(--warn-soft);stroke:var(--warn);stroke-width:1.3}
+svg .ln{stroke:currentColor;stroke-width:1.4;fill:none}
+svg .ln-muted{stroke:var(--faint);stroke-width:1.2;fill:none}
+svg .ln-dash{stroke-dasharray:5 4}
+svg .ln-a{stroke:var(--a);stroke-width:2;fill:none}
+svg .ln-b{stroke:var(--b);stroke-width:2;fill:none}
+svg .ln-ok{stroke:var(--ok);stroke-width:1.8;fill:none}
+svg .ln-bad{stroke:var(--bad);stroke-width:1.8;fill:none}
+svg .ln-accent{stroke:var(--accent);stroke-width:1.8;fill:none}
+svg .fill-a{fill:var(--a)} svg .fill-b{fill:var(--b)} svg .fill-ok{fill:var(--ok)} svg .fill-bad{fill:var(--bad)}
+svg .fill-accent{fill:var(--accent)} svg .fill-ink{fill:currentColor} svg .fill-muted{fill:var(--faint)} svg .fill-warn{fill:var(--warn)}
+svg .c-a{fill:var(--a)} svg .c-b{fill:var(--b)} svg .c-ok{fill:var(--ok)} svg .c-bad{fill:var(--bad)} svg .c-accent{fill:var(--accent)} svg .c-warn{fill:var(--warn)}
+
+/* definition grid */
+.terms{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:18px 0}
+.term{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:12px 14px}
+.term dt{font-weight:600;margin:0 0 2px}
+.term dt code{font-weight:400}
+.term dd{margin:0;color:var(--muted);font-size:14.5px;line-height:1.55}
+.glossary dt{font-weight:600;margin-top:14px}
+.glossary dd{margin:2px 0 0 0;color:var(--ink)}
+.glossary dd .en{color:var(--muted);font-size:14px}
+
+.steps{counter-reset:step;list-style:none;padding-left:0}
+.steps>li{counter-increment:step;position:relative;padding-left:40px;margin:14px 0}
+.steps>li::before{content:counter(step);position:absolute;left:0;top:1px;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent);font:600 12.5px/23px var(--mono);text-align:center}
+
+.status{font:600 11px/1 var(--mono);padding:4px 7px;border-radius:4px;white-space:nowrap}
+.status.done{color:var(--ok);background:var(--ok-soft)}
+.status.part{color:var(--warn);background:var(--warn-soft)}
+.status.todo{color:var(--muted);background:var(--sunken)}
+
+footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+
+@media (max-width:1060px){
+  .layout{grid-template-columns:minmax(0,1fr);gap:0;padding:20px 20px 72px}
+  .sidebar{display:none}
+  .toc-mobile{display:block;margin:18px 0 0;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:10px 14px;font-size:14px}
+  .toc-mobile summary{cursor:pointer;font-weight:600}
+  .toc-mobile ol{margin:8px 0 4px}
+}
+@media (max-width:520px){
+  .layout{padding:14px 16px 64px}
+  body{font-size:16px}
+  h2{font-size:24px}
+  .lead{font-size:17px}
+  pre{font-size:12.5px;padding:12px}
+  .case-head .chips{margin-left:0}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#content">Перейти к содержанию</a>
+<div class="layout">
+  <aside class="sidebar" aria-label="Оглавление">
+    <div class="brand">Concurrency Hunter<small>руководство разработчика</small></div>
+    <nav>
+      <div class="nav-part">I · Общая картина</div>
+      <a href="#problem">Какую проблему решает</a>
+      <a href="#scope">Что делает и чего нет</a>
+      <a href="#architecture">Skill и server</a>
+      <a href="#vocabulary">Минимальный словарь</a>
+      <div class="nav-part">II · Общий алгоритм</div>
+      <a href="#decision">Решающая процедура</a>
+      <a href="#pipeline">Конвейер анализа</a>
+      <a href="#walkthrough">Сквозной пример</a>
+      <a href="#stage-ir">Frontend и IR</a>
+      <a href="#stage-roots">Roots, DI, reachable set</a>
+      <a href="#stage-heap">Куча и ownership</a>
+      <a href="#stage-exec">Исполнения и порядок</a>
+      <a href="#stage-access">Доступы и защита</a>
+      <a href="#stage-pairs">Buckets и кандидаты</a>
+      <a href="#stage-solver">Селекторы и Z3</a>
+      <a href="#stage-findings">Находки и оценка</a>
+      <a href="#stage-report">Отчёт и run</a>
+      <div class="nav-part">III · Частные случаи</div>
+      <a href="#edge-identity">Один объект или два</a>
+      <a href="#edge-construction">Конструкторы</a>
+      <a href="#edge-ordering">Spawn, join, порядок</a>
+      <a href="#edge-timers">Таймеры</a>
+      <a href="#edge-protection">Защита</a>
+      <a href="#edge-collections">Коллекции</a>
+      <a href="#edge-selectors">Индексы и Z3</a>
+      <a href="#edge-iterators">Итераторы и async</a>
+      <a href="#edge-unknown">Неизвестный код</a>
+      <a href="#edge-findings">Одна гонка — одна находка</a>
+      <div class="nav-part">IV · Сопровождение</div>
+      <a href="#code-map">Карта кода</a>
+      <a href="#testing">Сборка, тесты, гейты</a>
+      <a href="#invariants">Правила</a>
+      <a href="#howto">Частые задачи</a>
+      <a href="#status">Состояние разработки</a>
+      <a href="#discrepancies">Расхождения кода и SPEC</a>
+      <a href="#glossary">Словарь</a>
+    </nav>
+  </aside>
+
+  <main id="content">
+    <header class="hero">
+      <div class="eyebrow">plugins/concurrency-hunter · для разработчика</div>
+      <h1>Путеводитель по Concurrency Hunter</h1>
+      <p class="lead">Статический анализатор гонок и потерянных обновлений в .NET-коде. Этот документ объясняет, какие ошибки он ищет, как устроен его алгоритм, как он ведёт себя в трудных случаях и где что лежит в коде — для того, кто будет его поддерживать и дописывать.</p>
+      <div class="facts">
+        <span class="fact"><b>C#</b> · .NET 8–10</span>
+        <span class="fact">сервер <b>Windows x64</b></span>
+        <span class="fact"><b>MCP</b>-сервер + skill хоста</span>
+        <span class="fact">~<b>26 тыс.</b> строк движка</span>
+        <span class="fact"><b>1 813</b> тестов в baseline</span>
+        <span class="fact"><b>244</b> ожидания demo</span>
+        <span class="fact">текущая фаза <b>5b</b></span>
+      </div>
+      <details class="toc-mobile">
+        <summary>Оглавление</summary>
+        <ol>
+          <li><a href="#part-1">Общая картина</a> — проблема, границы, архитектура, словарь</li>
+          <li><a href="#part-2">Общий алгоритм</a> — процедура, конвейер, стадии</li>
+          <li><a href="#part-3">Частные случаи</a> — примеры C# и вердикты</li>
+          <li><a href="#part-4">Сопровождение</a> — код, тесты, правила, состояние</li>
+        </ol>
+      </details>
+    </header>
+
+    <div class="prose">
+      <p>Документ идёт от общего к частному. <a href="#part-1">Часть I</a> — какую проблему решает плагин и из чего он состоит. <a href="#part-2">Часть II</a> — общий алгоритм: одна решающая процедура и конвейер, который применяет её, не перебирая все пары. <a href="#part-3">Часть III</a> — частные случаи на коде из <code>demo/</code>: где интуиция подводит и что анализатор отвечает. <a href="#part-4">Часть IV</a> — практическое: карта кода, тесты и гейты, правила, которые нельзя нарушать, и что ещё предстоит сделать.</p>
+      <p>Предполагается, что вы знаете, что такое гонка данных, <code>lock</code> и <code>async</code>/<code>await</code>, но ничего не знаете об устройстве плагина. Источники истины — <a href="PRD.md">PRD</a>, <a href="SPEC.md">SPEC</a>, <a href="../CONTEXT.md"><code>CONTEXT.md</code></a> и <a href="adr/">ADR</a>; руководство их не заменяет, а связывает с кодом.</p>
+    </div>
+<div class="part" id="part-1">
+  <div class="part-label">Часть I <span>Общая картина</span></div>
+
+<section id="problem">
+  <h2>Какую проблему решает плагин</h2>
+  <div class="prose">
+  <p>В .NET-бэкенде один и тот же объект в памяти одновременно меняют HTTP-запросы, hosted services, задачи из <code>Task.Run</code>, callbacks таймеров и итерации <code>Parallel.For</code>. Каждый путь по отдельности выглядит правильно. Дефект появляется только при определённом чередовании чтений и записей двух путей, и воспроизвести его руками почти невозможно.</p>
+  <p>Самый короткий пример — счётчик в singleton-сервисе:</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">demo: rmw-singleton-counter</span><span class="chips"><span class="chip bad">DCA1002 · High</span></span></div>
+<pre><code class="language-csharp">public sealed class HitStats
+{
+    public int Hits { get; set; }
+}
+
+[ApiController]
+[Route("cases/rmw-singleton-counter")]
+public sealed class HitsController : ControllerBase
+{
+    private readonly HitStats _stats;
+    public HitsController(HitStats stats) =&gt; _stats = stats;
+
+    [HttpPost]
+    public void Post() =&gt; _stats.Hits++;   // чтение, +1, запись
+}
+
+// Program.cs
+services.AddSingleton&lt;HitStats&gt;();         // один объект на весь процесс</code></pre>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 760 250" role="img" aria-label="Два запроса читают Hits = 5, оба пишут 6; одно увеличение теряется">
+      <defs>
+        <marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+      </defs>
+      <text x="16" y="55" class="t-bold c-a">Запрос A</text>
+      <text x="16" y="195" class="t-bold c-b">Запрос B</text>
+      <text x="16" y="125" class="t-muted">Hits в памяти</text>
+      <line x1="120" y1="50" x2="740" y2="50" class="ln-a" opacity=".35"/>
+      <line x1="120" y1="190" x2="740" y2="190" class="ln-b" opacity=".35"/>
+
+      <rect x="120" y="106" width="340" height="28" rx="5" class="box-sunken"/>
+      <text x="290" y="125" text-anchor="middle" class="t-mono">Hits = 5</text>
+      <rect x="460" y="106" width="140" height="28" rx="5" class="box-sunken"/>
+      <text x="530" y="125" text-anchor="middle" class="t-mono">Hits = 6</text>
+      <rect x="600" y="106" width="140" height="28" rx="5" class="box-bad"/>
+      <text x="670" y="125" text-anchor="middle" class="t-mono">Hits = 6</text>
+
+      <rect x="130" y="34" width="120" height="32" rx="6" class="box-a"/>
+      <text x="190" y="55" text-anchor="middle">читает 5</text>
+      <rect x="400" y="34" width="120" height="32" rx="6" class="box-a"/>
+      <text x="460" y="55" text-anchor="middle">пишет 5+1</text>
+      <rect x="260" y="174" width="120" height="32" rx="6" class="box-b"/>
+      <text x="320" y="195" text-anchor="middle">читает 5</text>
+      <rect x="540" y="174" width="120" height="32" rx="6" class="box-b"/>
+      <text x="600" y="195" text-anchor="middle">пишет 5+1</text>
+
+      <line x1="190" y1="66" x2="190" y2="104" class="ln-muted ln-dash"/>
+      <line x1="460" y1="66" x2="460" y2="104" class="ln-muted ln-dash"/>
+      <line x1="320" y1="174" x2="320" y2="136" class="ln-muted ln-dash"/>
+      <line x1="600" y1="174" x2="600" y2="136" class="ln-muted ln-dash"/>
+
+      <text x="740" y="98" text-anchor="end" class="t-small c-bad t-bold">ожидалось 7: обновление A потеряно</text>
+      <line x1="120" y1="232" x2="740" y2="232" class="ln" marker-end="url(#arr1)"/>
+      <text x="120" y="248" class="t-small t-muted">время</text>
+    </svg>
+    </div>
+    <figcaption><b>Потерянное обновление (lost update).</b> Оба запроса прочитали 5 до того, как любой из них записал результат. Запись B затирает запись A, и одно увеличение исчезает. Никакого исключения нет, просто неверное число.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <p>Code review такие дефекты пропускает по трём причинам, и каждая из них определяет, что должен уметь анализатор.</p>
+  <ol>
+    <li><strong>Какой объект на самом деле общий.</strong> Замените в примере выше <code>AddSingleton</code> на <code>AddScoped</code> — и гонки нет: у каждого запроса свой экземпляр (demo <code>di-scoped-per-request</code>). Код в контроллере не изменился, изменилась регистрация в другом файле. Совпадение имени поля или типа ничего не доказывает: нужен настоящий анализ того, куда указывают ссылки.</li>
+    <li><strong>Какие исполнения на самом деле пересекаются во времени.</strong> Два HTTP-запроса — да. Один <code>BackgroundService.ExecuteAsync</code> сам с собой — нет. Задача из <code>Task.Run</code> с родителем — только до <code>await</code> её handle. Периодический таймер — сам с собой тоже да.</li>
+    <li><strong>Достаточна ли защита.</strong> <code>lock</code> на разных объектах не защищает. <code>volatile</code> не делает <code>x++</code> атомарным. <code>SemaphoreSlim</code> — мьютекс, только если его ёмкость доказанно равна 1. Класс с методами <code>Lock()/Unlock()</code> — не доказательство, пока внутри нет настоящего примитива.</li>
+  </ol>
+  <p>Кроме того, гонка часто пересекает несколько слоёв: запрос приходит в контроллер проекта <code>Web</code>, вызывает сервис из <code>Application</code>, а поле, которое теряет обновление, лежит в <code>Domain</code> (demo <code>rmw-three-layers</code>). Плагин связывает эти слои сам и показывает оба пути от точки старта исполнения до доступа.</p>
+
+  <div class="note rule">
+    <div class="note-title">Определение, на котором стоит весь плагин</div>
+    <p>Два доступа образуют гонку, когда они обращаются к <strong>одному месту в памяти</strong> одного процесса, выполняются в исполнениях, которые <strong>могут пересечься во времени</strong>, хотя бы один из них <strong>пишет</strong>, между ними <strong>нет доказанного порядка</strong> и <strong>нет общей достаточной защиты</strong>. Все остальные главы объясняют, как проверить каждое из этих условий статически, не запуская приложение.</p>
+  </div>
+  </div>
+</section>
+
+<section id="scope">
+  <h2>Что плагин делает и чего не делает</h2>
+  <div class="prose">
+  <p>Пользователь вызывает одну команду <code>/concurrency-hunter [target]</code> в Claude Code, Codex или Cursor. Target — <code>.sln</code>, <code>.slnx</code>, <code>.csproj</code> или каталог. Плагин загружает solution через Roslyn и MSBuild, анализирует его статически, ничего не запуская и не меняя, и оставляет <em>report bundle</em> из трёх файлов: <code>report.md</code>, <code>findings.json</code> и <code>run-metadata.json</code>.</p>
+  </div>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Входит в первую версию</th><th>Не входит</th></tr></thead>
+    <tbody>
+      <tr><td>Общее состояние в управляемой куче <strong>одного процесса</strong></td><td>Гонки в БД, EF Core, Redis, файлах, между процессами и машинами</td></tr>
+      <tr><td>Точки старта исполнения: controller actions, minimal API, gRPC-методы, <code>BackgroundService</code> и <code>IHostedService</code></td><td>Middleware, filters, SignalR, Razor Pages, MassTransit (вторая волна провайдеров)</td></tr>
+      <tr><td>Порождение работы: <code>Task.Run</code>, <code>StartNew</code>, <code>ContinueWith</code>, <code>WhenAll</code>, fire-and-forget, <code>async void</code>, <code>QueueUserWorkItem</code>, <code>Thread</code>, <code>Parallel.*</code>, таймеры, <code>PeriodicTimer</code></td><td>Deadlock, starvation, livelock, производительность</td></tr>
+      <tr><td>Защита: <code>lock</code>/<code>Monitor</code>, <code>System.Threading.Lock</code>, <code>Mutex</code>, <code>SemaphoreSlim(1)</code>, <code>ReaderWriterLockSlim</code>, <code>Interlocked</code>, <code>Volatile</code>, concurrent-коллекции</td><td><code>Channel&lt;T&gt;</code>, <code>ManualResetEvent</code>, <code>Barrier</code>, <code>SpinLock</code> как доказательство порядка или защиты</td></tr>
+      <tr><td>Статический анализ, отчёт с доказательствами и оценкой уверенности</td><td>Запуск приложения, инструментирование, автоматические исправления кода</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Четыре правила</h3>
+  <div class="prose">
+  <p>Каждая находка получает ровно одно правило. Это не четыре разных анализа, а четыре исхода одной процедуры (она описана в главе <a href="#decision">«Решающая процедура»</a>).</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Правило</th><th>Что означает</th><th>Типичная форма</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip bad">DCA1001</span></td><td>Незащищённая запись в общий ресурс: пара запись/запись или чтение/запись без порядка и без защиты</td><td><code>_stats.LastPath = path;</code> в action и в worker-е</td></tr>
+      <tr><td><span class="chip bad">DCA1002</span></td><td>Неатомарное чтение-изменение-запись (read-modify-write), которое может потерять конкурирующее обновление</td><td><code>x++</code>, <code>x += y</code>, <code>Set(Get() + 1)</code>, чтение в локальную переменную и запись позже</td></tr>
+      <tr><td><span class="chip bad">DCA1003</span></td><td>Несогласованная синхронизация: защита есть, но недостаточна — разные замки, защищена только одна сторона, несовместимые режимы</td><td><code>lock (_a)</code> против <code>lock (_b)</code></td></tr>
+      <tr><td><span class="chip bad">DCA1004</span></td><td>Неатомарная последовательность операций, каждая из которых по отдельности атомарна (check-then-act)</td><td><code>if (!dict.ContainsKey(k)) dict[k] = v;</code> на <code>ConcurrentDictionary</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="architecture">
+  <h2>Как устроен запуск: skill и server</h2>
+  <div class="prose">
+  <p>Плагин состоит из двух частей, которые разговаривают по протоколу MCP. Разделение продиктовано тем, что умеют хосты: у Claude Code, Codex и Cursor команда плагина — это skill (инструкция для агента хоста), а единственный программный интерфейс — stdio MCP-сервер. Сервер не может сам запустить AI или отменить субагента (<a href="adr/0001-the-skill-drives-the-run.md">ADR 0001</a>).</p>
+  <ul>
+    <li><strong>Skill</strong> (<code>skills/hunt/SKILL.md</code>) — единственный оркестратор. Он запускает анализ, опрашивает сервер, раздаёт субагентам хоста группы находок для текстового объяснения и просит сервер отрендерить отчёт.</li>
+    <li><strong>Server</strong> (<code>ConcurrencyHunter.Cli</code>, один процесс на run) — детерминированный анализатор и конечный автомат. Он хранит состояние run и дедлайн, проверяет всё, что приносит AI, и сам пишет отчёт.</li>
+  </ul>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 820 400" role="img" aria-label="Skill в хосте вызывает MCP-инструменты сервера; сервер анализирует, валидирует narrative и пишет report bundle">
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+      </defs>
+      <rect x="16" y="20" width="252" height="300" rx="10" class="box-sunken"/>
+      <text x="32" y="44" class="t-bold">Хост</text>
+      <text x="32" y="61" class="t-small t-muted">Claude Code · Codex · Cursor</text>
+      <rect x="36" y="78" width="212" height="118" rx="8" class="box-accent"/>
+      <text x="142" y="112" text-anchor="middle" class="t-bold">Skill hunt</text>
+      <text x="142" y="132" text-anchor="middle" class="t-small t-muted">SKILL.md: порядок вызовов,</text>
+      <text x="142" y="147" text-anchor="middle" class="t-small t-muted">ветки ответов, дедлайн</text>
+      <rect x="36" y="232" width="212" height="68" rx="8" class="box"/>
+      <text x="142" y="256" text-anchor="middle" class="t-bold">Субагенты-композиторы</text>
+      <text x="142" y="274" text-anchor="middle" class="t-small t-muted">пишут narrative групп</text>
+      <text x="142" y="289" text-anchor="middle" class="t-small t-muted">по composing.md</text>
+      <line x1="120" y1="196" x2="120" y2="230" class="ln" marker-end="url(#arr2)"/>
+      <text x="112" y="218" text-anchor="end" class="t-small">≤ 3 группы</text>
+      <line x1="170" y1="232" x2="170" y2="198" class="ln" marker-end="url(#arr2)"/>
+      <text x="178" y="218" class="t-small">текст</text>
+
+      <rect x="468" y="20" width="336" height="300" rx="10" class="box-sunken"/>
+      <text x="484" y="44" class="t-bold">MCP-сервер</text>
+      <text x="484" y="61" class="t-small t-muted">ConcurrencyHunter.Cli, stdio, один процесс на run</text>
+      <rect x="488" y="78" width="296" height="44" rx="7" class="box"/>
+      <text x="636" y="98" text-anchor="middle" class="t-bold">RunRegistry</text>
+      <text x="636" y="114" text-anchor="middle" class="t-small t-muted">состояние, фаза, дедлайн 30 мин</text>
+      <rect x="488" y="136" width="296" height="54" rx="7" class="box-accent"/>
+      <text x="636" y="159" text-anchor="middle" class="t-bold">Детерминированный анализ (job)</text>
+      <text x="636" y="177" text-anchor="middle" class="t-small t-muted">Roslyn → IR → куча → исполнения → находки</text>
+      <rect x="488" y="204" width="140" height="48" rx="7" class="box"/>
+      <text x="558" y="225" text-anchor="middle" class="t-bold t-small">NarrativeValidator</text>
+      <text x="558" y="241" text-anchor="middle" class="t-small t-muted">проверяет текст AI</text>
+      <rect x="644" y="204" width="140" height="48" rx="7" class="box"/>
+      <text x="714" y="225" text-anchor="middle" class="t-bold t-small">ReportRenderer</text>
+      <text x="714" y="241" text-anchor="middle" class="t-small t-muted">skeleton + narrative</text>
+      <line x1="636" y1="190" x2="714" y2="202" class="ln-muted"/>
+      <line x1="628" y1="228" x2="642" y2="228" class="ln-muted" marker-end="url(#arr2)"/>
+      <text x="636" y="290" text-anchor="middle" class="t-small t-muted">AI не создаёт и не удаляет находки:</text>
+      <text x="636" y="305" text-anchor="middle" class="t-small t-muted">он только поясняет готовые</text>
+
+      <line x1="250" y1="92" x2="486" y2="92" class="ln" marker-end="url(#arr2)"/>
+      <text x="368" y="85" text-anchor="middle" class="t-mono">run_start · run_poll</text>
+      <line x1="250" y1="116" x2="486" y2="112" class="ln" marker-end="url(#arr2)"/>
+      <text x="368" y="130" text-anchor="middle" class="t-mono">get_groups</text>
+      <line x1="250" y1="160" x2="486" y2="222" class="ln" marker-end="url(#arr2)"/>
+      <text x="352" y="172" text-anchor="middle" class="t-mono">submit_narrative</text>
+      <path d="M250,184 C360,184 420,300 668,258" class="ln" marker-end="url(#arr2)"/>
+      <text x="304" y="222" text-anchor="middle" class="t-mono">render_report</text>
+
+      <line x1="714" y1="252" x2="714" y2="346" class="ln" marker-end="url(#arr2)"/>
+      <rect x="468" y="348" width="336" height="40" rx="8" class="box-ok"/>
+      <text x="636" y="366" text-anchor="middle" class="t-bold t-small">report bundle</text>
+      <text x="636" y="381" text-anchor="middle" class="t-mono">report.md · findings.json · run-metadata.json</text>
+    </svg>
+    </div>
+    <figcaption><b>Кто за что отвечает.</b> Skill ведёт run, но не принимает решений о находках. Сервер анализирует, хранит дедлайн, принимает от AI только текст, прошедший проверку, и сам рендерит отчёт. Сейчас реализованы пять инструментов с рисунка; <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code> и <code>run_cancel</code> для AI-разрешения semantic gaps запланированы в фазе 5d.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <h3>Почему отчёт пишет сервер, а не AI</h3>
+  <p>Аудит legacy-кода даёт сотни находок. Если отдавать модели всю цепочку доказательств и просить переписать её в отчёт, токены тратятся на текст, который не требует интеллекта, а дедлайн в 30 минут за это платит. Поэтому сервер детерминированно рендерит <em>skeleton</em>: пути, доказательства, анализ защиты, сценарий чередования, fingerprint. AI добавляет только <em>narrative</em> группы — объяснение словами и варианты исправления с пометкой <code>verify manually</code>. Каждый фрагмент проходит <code>NarrativeValidator</code>: все процитированные evidence id существуют, все упомянутые файлы и символы есть в доказательствах группы. Неверный фрагмент отклоняется с причиной, разрешён один повтор (<a href="adr/0003-the-server-renders-the-report-and-the-ai-writes-only-narrative.md">ADR 0003</a>).</p>
+
+  <h3>Чем заканчивается run</h3>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Статус</th><th>Когда</th></tr></thead>
+    <tbody>
+      <tr><td><code>CompleteWithFindings</code></td><td>Все фазы завершены, у всех групп High и Medium есть принятый narrative, находки есть</td></tr>
+      <tr><td><code>CompleteClean</code></td><td>То же, но находок нет. Только этот статус разрешает фразу «в проанализированном scope находок нет»</td></tr>
+      <tr><td><code>Incomplete</code></td><td>Фаза не завершилась: проект не загрузился, сработал дедлайн, обязательная AI-роль не отработала. Отчёт всё равно пишется из skeleton</td></tr>
+      <tr><td><code>Failed</code></td><td>Анализ нельзя начать или получить достоверный частичный результат</td></tr>
+      <tr><td><code>Cancelled</code></td><td>Run отменил пользователь или хост. В коде этого статуса пока нет: он появится вместе с инструментом <code>run_cancel</code> в фазе 5d</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Дедлайн принадлежит серверу: через 30 минут после <code>run_start</code> он перестаёт выдавать работу, а всё, что пришло позже, записывает как <em>late response</em> и не применяет. Отменить уже запущенного субагента сервер не может, и это честно записано в спецификации; гарантия в другом — опоздавший ответ никогда не меняет находки.</p>
+  </div>
+</section>
+
+<section id="vocabulary">
+  <h2>Минимальный словарь</h2>
+  <div class="prose">
+  <p>Словарь плагина живёт в <a href="../CONTEXT.md"><code>CONTEXT.md</code></a>, и код, схемы инструментов и отчёт используют эти слова строго в одном смысле. Некоторые обычные слова там намеренно запрещены: не «поток», а <em>execution instance</em>; не «переменная», а <em>resource</em>. Английские термины в тексте ниже оставлены как есть, потому что именно их вы встретите в коде. Полный словарь — в <a href="#glossary">конце документа</a>.</p>
+  </div>
+  <dl class="terms">
+    <div class="term"><dt>Execution root</dt><dd>Точка, откуда фреймворк или рантайм начинает независимое исполнение: HTTP action, <code>ExecuteAsync</code> hosted service, callback таймера, gRPC-метод.</dd></div>
+    <div class="term"><dt>Spawn site</dt><dd>Вызов в пользовательском коде, который начинает новое исполнение из текущего: <code>Task.Run</code>, <code>Thread.Start</code>, тело <code>Parallel.For</code>, fire-and-forget.</dd></div>
+    <div class="term"><dt>Execution instance</dt><dd>Одно логическое исполнение root-а или spawn-а. Не поток ОС: <code>await</code> внутри его не заканчивает.</dd></div>
+    <div class="term"><dt>Heap region</dt><dd>Идентичность объекта или множества объектов: место аллокации с контекстом, статическое поле, DI-экземпляр, параметр.</dd></div>
+    <div class="term"><dt>Resource</dt><dd>Region плюс access path (поле за полем, с селектором ячейки). Единица, по которой сравниваются доступы.</dd></div>
+    <div class="term"><dt>Ownership</dt><dd>Кто может достать region: <code>Owned</code>, <code>ThreadConfined</code>, <code>Escaped</code>, <code>Shared</code>, <code>Unknown</code> — всегда с цепочкой доказательств.</dd></div>
+    <div class="term"><dt>Access</dt><dd>Одно чтение, запись, RMW, атомарная или составная операция над ресурсом — вместе с исполнением, удерживаемой защитой и guard-ом.</dd></div>
+    <div class="term"><dt>Happens-before</dt><dd>Доказанный порядок двух событий: путь через spawn, join, продолжения и старт хоста. Только удаляет пары, никогда не добавляет.</dd></div>
+    <div class="term"><dt>Protection</dt><dd>Синхронизатор (его region) и режим, который доступ удерживает на <em>всех</em> путях к нему. «Может быть удержан» — не защита.</dd></div>
+    <div class="term"><dt>Candidate → Finding</dt><dd>Пара доступов, прошедшая дешёвые фильтры, — кандидат. Кандидат, переживший уточнение, становится находкой с одним правилом DCA100x.</dd></div>
+    <div class="term"><dt>Occurrence</dt><dd>Один способ достичь пары мест доступа: пара roots с путями вызовов. У находки их может быть много.</dd></div>
+    <div class="term"><dt>Semantic gap</dt><dd>Вызов, который детерминированный анализ не смог разобрать и который трогает общее изменяемое состояние. Честно показывается в отчёте как неопределённость.</dd></div>
+  </dl>
+</section>
+</div>
+<div class="part" id="part-2">
+  <div class="part-label">Часть II <span>Общий алгоритм</span></div>
+
+<section id="decision">
+  <h2>Решающая процедура</h2>
+  <div class="prose">
+  <p>Всё, что делает анализатор, сводится к одной процедуре над парой доступов A и B. Четыре правила DCA — это не четыре анализа, а четыре способа назвать её результат (SPEC §7):</p>
+  </div>
+<pre><code class="language-csharp">Conflict(A, B) =
+       SameProcessScope(A, B)                        // один процесс
+    &amp;&amp; MayResourcesOverlap(A.Resource, B.Resource)   // одно место в памяти
+    &amp;&amp; MayExecutionOverlap(A.Interval, B.Interval)   // могут идти одновременно
+    &amp;&amp; OperationsConflict(A.Operation, B.Operation)  // хотя бы одна неатомарная запись
+    &amp;&amp; !OrderedByHappensBefore(A, B)                 // нет доказанного порядка
+    &amp;&amp; !ProtectedByCommonSufficientPrimitive(A, B)   // нет общей достаточной защиты
+    &amp;&amp; PathPairIsNotUnsatisfiable(A.Guard, B.Guard)  // условия путей совместимы
+
+LostUpdate(A, B) =
+       Conflict(A, B)
+    &amp;&amp; (A или B — неатомарный RMW или составная операция)
+    &amp;&amp; устаревшее чтение может повлиять на последующую запись</code></pre>
+  <div class="prose">
+  <p>Каждая проверка возвращает не просто да/нет, а <code>True</code>, <code>False</code> или <code>Unknown</code> вместе с доказательствами. Отсюда главный принцип плагина:</p>
+  <div class="note rule">
+    <div class="note-title">Неизвестное — не безопасное</div>
+    <p>Пару удаляет только <strong>доказанное</strong> <code>False</code>: доказанно разные ресурсы, доказанная изоляция, доказанный порядок, доказанная защита, UNSAT от решателя. <code>Unknown</code> пару оставляет и снижает уверенность. Ошибки несимметричны: лишняя находка стоит читателю минуту, ложное доказательство безопасности молча прячет настоящую гонку. Когда сомневаетесь при доработке — выбирайте сторону, которая оставляет пару.</p>
+  </div>
+  <h3>Классификация правила</h3>
+  <p>Правило выбирается после того, как пара пережила все фильтры, по видам двух операций и результату защиты (<code>ConflictFindings.OperationRule</code> и <code>Classify</code>):</p>
+  </div>
+<pre><code class="language-csharp">// ConflictFindings.cs
+if (!LosesUpdate(a.Op, b.Op) &amp;&amp; !LosesUpdate(b.Op, a.Op))
+    return CONFLICT_RULE;                                   // DCA1001
+return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
+    ? COMPOUND_RULE                                         // DCA1004
+    : LOST_UPDATE_RULE;                                     // DCA1002
+
+// LosesUpdate(stale, other): stale — RMW или Compound, а other меняет ячейку
+// IsIndivisible(op):         Compound или любой Atomic*
+// Classify: DCA1001 с защитой partial / different-identity / incompatible-mode → DCA1003</code></pre>
+  <div class="prose">
+  <p>Несколько следствий, которые полезно помнить: RMW против простого чтения — DCA1001 (читатель ничего не теряет); RMW против <code>UnknownEffect</code> — DCA1002; составная операция против составной или атомарного RMW — DCA1004. DCA1002 и DCA1004 сохраняют своё правило при любой защите, в DCA1003 переходит только DCA1001.</p>
+  </div>
+</section>
+
+<section id="pipeline">
+  <h2>Конвейер анализа</h2>
+  <div class="prose">
+  <p>Процедура выше применяется не к «всем парам всех доступов» — их слишком много. Анализ устроен как конвейер, где дешёвые шаги идут раньше дорогих, а дорогая точность оплачивается только для пар, у которых уже есть общий ресурс, конфликтующие операции и возможное пересечение. Так он реально выполняется в коде (<code>PhaseOneAnalyzer.AnalyzeAsync</code>):</p>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 800 500" role="img" aria-label="Конвейер: загрузка, process scopes, затем для каждого scope DI и roots, индекс программы, reachable set и IR, куча, исполнения, доступы, пары, gaps, Z3; после цикла находки и отчёт">
+      <line x1="210" y1="28" x2="210" y2="474" class="ln-muted"/>
+      <path d="M58,86 H48 V402 H58" class="ln-accent"/>
+      <text transform="translate(34,244) rotate(-90)" text-anchor="middle" class="t-small c-accent t-bold">для каждого process scope</text>
+
+      <g>
+        <rect x="70" y="14" width="280" height="28" rx="6" class="box"/><text x="82" y="33" class="t-bold">1 · Загрузка solution</text>
+        <text x="370" y="26" class="t-mono">MsBuildSolutionLoader (Common.Roslyn)</text><text x="370" y="40" class="t-small t-muted">Roslyn-компиляции всех проектов</text>
+        <rect x="70" y="50" width="280" height="28" rx="6" class="box"/><text x="82" y="69" class="t-bold">2 · Process scopes</text>
+        <text x="370" y="62" class="t-mono">ProcessScopes.Discover</text><text x="370" y="76" class="t-small t-muted">исполняемый проект + загружаемые им проекты</text>
+        <rect x="70" y="86" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="105" class="t-bold">3 · DI и execution roots</text>
+        <text x="370" y="98" class="t-mono">DiIndexBuilder · AspNetCore/HostingRootProvider</text><text x="370" y="112" class="t-small t-muted">регистрации, roots с кратностью</text>
+        <rect x="70" y="122" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="141" class="t-bold">4 · Индекс программы</text>
+        <text x="370" y="134" class="t-mono">ProgramIndexBuilder · InjectionBindings</text><text x="370" y="148" class="t-small t-muted">типы, override, поля, конструкторы</text>
+        <rect x="70" y="158" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="177" class="t-bold">5 · Reachable set и IR</text>
+        <text x="370" y="170" class="t-mono">ReachableSet · IrLowering (лениво)</text><text x="370" y="184" class="t-small t-muted">только тела, достижимые из roots и spawns</text>
+        <rect x="70" y="194" width="280" height="28" rx="6" class="box-accent"/><text x="82" y="213" class="t-bold">6 · Куча: summaries + points-to</text>
+        <text x="370" y="206" class="t-mono">SummaryCache · WholeProgram.Solve</text><text x="370" y="220" class="t-small t-muted">регионы, граф вызовов, DI, spawns в одном fixpoint</text>
+        <rect x="70" y="230" width="280" height="28" rx="6" class="box-accent"/><text x="82" y="249" class="t-bold">7 · Исполнения и порядок</text>
+        <text x="370" y="242" class="t-mono">ExecutionModel.Build · HappensBefore</text><text x="370" y="256" class="t-small t-muted">instances, ownership, публикация, happens-before</text>
+        <rect x="70" y="266" width="280" height="28" rx="6" class="box-accent"/><text x="82" y="285" class="t-bold">8 · Доступы</text>
+        <text x="370" y="278" class="t-mono">InterproceduralAccesses.Collect</text><text x="370" y="292" class="t-small t-muted">каждый доступ с замками, guard-ами, путём от root</text>
+        <rect x="70" y="302" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="321" class="t-bold">9 · Пары и фильтры</text>
+        <text x="370" y="314" class="t-mono">InterproceduralPairing.Pair · CandidateIndex</text><text x="370" y="328" class="t-small t-muted">buckets, дешёвые фильтры, вердикт защиты</text>
+        <rect x="70" y="338" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="357" class="t-bold">10 · Semantic gaps</text>
+        <text x="370" y="350" class="t-mono">GapDecisions.Mark</text><text x="370" y="364" class="t-small t-muted">какие проверки пары решает неизвестный вызов</text>
+        <rect x="70" y="374" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="393" class="t-bold">11 · Уточнение решателем</text>
+        <text x="370" y="386" class="t-mono">SolverRefinement.Refine · Z3ConstraintSolver</text><text x="370" y="400" class="t-small t-muted">UNSAT снимает пару, бюджет 150 мс / 3 мин</text>
+        <rect x="70" y="410" width="280" height="28" rx="6" class="box"/><text x="82" y="429" class="t-bold">12 · Находки</text>
+        <text x="370" y="422" class="t-mono">ConflictFindings.Create</text><text x="370" y="436" class="t-small t-muted">правило, occurrences, fingerprint, группы, score</text>
+        <rect x="70" y="446" width="280" height="28" rx="6" class="box-ok"/><text x="82" y="465" class="t-bold">13 · Отчёт</text>
+        <text x="370" y="458" class="t-mono">ReportRenderer (по render_report)</text><text x="370" y="472" class="t-small t-muted">report.md · findings.json · run-metadata.json</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption><b>Шаги в том порядке, в каком их выполняет код.</b> Шаги 3–11 выполняются отдельно для каждого process scope: куча строится заново, поэтому статик в двух приложениях — два объекта. Выделенные шаги 6–8 — ядро анализа и самый большой код. Бюджет решателя общий на весь run.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <p>Несколько свойств конвейера, о которых стоит знать заранее:</p>
+  <ul>
+    <li><strong>Ленивое опускание в IR.</strong> <code>ReachableSet</code> строит граф вызовов по иерархии классов и опускает в IR тело метода в момент, когда впервые до него доходит. Тело вне reachable set не анализируется и не считается против coverage. Ошибка опускания одного тела превращается в диагностику <code>lowering:</code> и пустое тело, а не в падение run.</li>
+    <li><strong>Слой <code>Analysis</code> не знает Roslyn.</strong> Всё после IR (куча, исполнения, пары, находки, отчёт) живёт в проекте <code>ConcurrencyHunter.Analysis</code>, у которого нет ни одной ссылки на пакеты или проекты. Это проверяют тесты <code>AnalysisBoundaryTests</code>. Roslyn, Z3 и провайдеры — в <code>ConcurrencyHunter.Core</code>.</li>
+    <li><strong>Никакого декартова произведения.</strong> Пары перебираются только внутри buckets. На demo это 1 328 сравнений вместо 363 379 возможных пар.</li>
+    <li><strong>Детерминизм.</strong> Порядок обхода, нумерация значений, порядок вопросов к решателю — стабильны. Demo-гейт трижды анализирует demo и требует побайтно одинаковый <code>findings.json</code>.</li>
+  </ul>
+  </div>
+
+  <h3>Куда уходят пары на demo</h3>
+  <div class="prose">
+  <p>Реальные счётчики из снапшота <code>ConcurrencyHunter.Cli.Tests/Snapshots/demo.json</code>: 1 191 доступ, из которых bucket-индекс составил 1 328 сравнений. Каждая строка — причина, по которой пару отбросили (в порядке проверки), длина полосы пропорциональна числу пар:</p>
+  </div>
+  <div class="table-wrap">
+    <table class="bars">
+      <thead><tr><th>Фильтр (счётчик в коде)</th><th>Что доказано</th><th class="num">Пар</th><th style="width:34%">Доля от 1 328</th></tr></thead>
+      <tbody>
+        <tr><td><code>read-read</code></td><td>обе стороны только читают</td><td class="num">761</td><td><span class="bar" style="width:57.3%"></span></td></tr>
+        <tr><td><code>no-conflicting-operation</code></td><td>ни одна сторона не пишет неатомарно</td><td class="num">67</td><td><span class="bar" style="width:5.0%"></span></td></tr>
+        <tr><td><code>no-overlap</code></td><td>разные scope или исполнения не пересекаются</td><td class="num">275</td><td><span class="bar" style="width:20.7%"></span></td></tr>
+        <tr><td><code>ordered</code></td><td>happens-before в одну из сторон</td><td class="num">21</td><td><span class="bar" style="width:1.6%"></span></td></tr>
+        <tr><td><code>confined</code></td><td>регион принадлежит одному исполнению</td><td class="num">8</td><td><span class="bar" style="width:0.6%"></span></td></tr>
+        <tr><td><code>unsatisfiable-path</code></td><td>дешёвое противоречие guard-ов</td><td class="num">2</td><td><span class="bar" style="width:0.15%"></span></td></tr>
+        <tr><td><code>disjoint-iteration</code></td><td>разные итерации <code>Parallel.For</code> по своему индексу</td><td class="num">1</td><td><span class="bar" style="width:0.08%"></span></td></tr>
+        <tr><td><code>suppressed</code></td><td>защита <code>sufficient</code></td><td class="num">17</td><td><span class="bar" style="width:1.3%"></span></td></tr>
+        <tr><td><code>unsatisfiable-query</code></td><td>Z3 ответил UNSAT</td><td class="num">4</td><td><span class="bar" style="width:0.3%"></span></td></tr>
+        <tr class="row-strong"><td><strong>кандидаты</strong></td><td>стали находками: 160 находок, 169 occurrences, 134 группы</td><td class="num"><strong>172</strong></td><td><span class="bar bar-strong" style="width:13.0%"></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="walkthrough">
+  <h2>Сквозной пример: одна находка от начала до конца</h2>
+  <div class="prose">
+  <p>Прежде чем разбирать стадии по отдельности, проследим один кейс — <code>rmw-three-layers</code>, где гонка живёт на два проекта ниже точки входа.</p>
+  </div>
+<pre><code class="language-csharp">// Demo.Web
+[HttpPost] public void Post(int quantity) =&gt; _orders.Place(quantity);          // OrdersController
+
+// Demo.Application
+public void Place(int quantity) =&gt; _inventory.Reserve(quantity);             // OrderService
+
+// Demo.Domain
+public void Reserve(int quantity) =&gt; _reserved += quantity;                  // Inventory
+
+// Program.cs
+services.AddSingleton&lt;Inventory&gt;().AddSingleton&lt;OrderService&gt;();</code></pre>
+  <ol class="steps">
+    <li><strong>Process scope.</strong> <code>Demo.Web</code> — исполняемый проект; <code>Demo.Application</code> и <code>Demo.Domain</code> входят в его scope, потому что он на них ссылается.</li>
+    <li><strong>Roots и DI.</strong> <code>AspNetCoreRootProvider</code> находит action <code>OrdersController.Post(int)</code> с политикой <code>Repeated / MayOverlap</code>: запросы могут идти одновременно, в том числе к одному action. <code>DiIndexBuilder</code> видит две singleton-регистрации.</li>
+    <li><strong>IR.</strong> <code>_reserved += quantity</code> опускается в три операции: <code>load-field</code>, <code>compute Add</code> и <code>store-field … rmw=operation:0</code>. Поле <code>ReadModifyWriteOf</code> у записи — это и есть будущий DCA1002.</li>
+    <li><strong>Куча.</strong> Receiver-ы получают регионы <code>di:OrderService@Singleton</code> и <code>di:Inventory@Singleton</code>. Конструктор <code>OrderService</code> сохраняет параметр в <code>_inventory</code>, поэтому поле указывает на регион <code>Inventory</code>. Вызов <code>_inventory.Reserve</code> разрешается в конкретное тело с контекстом «receiver = этот регион».</li>
+    <li><strong>Исполнения и ownership.</strong> Execution instance — сам action. Singleton в контейнере — регион с ownership <code>Shared</code>.</li>
+    <li><strong>Доступ.</strong> <code>ExecutionCollector</code> проходит путь <code>Post → Place → Reserve</code> и выдаёт один доступ: <code>ReadModifyWrite</code> над ресурсом <code>(di:Inventory@Singleton, [_reserved])</code>, замков нет, guard-ов нет, путь вызовов записан.</li>
+    <li><strong>Пара.</strong> В bucket этого ресурса одно место доступа, и оно образует <em>self-pair</em>: root пересекается сам с собой. Порядка нет, регион не изолирован, защита <code>unprotected</code>. Решателю задавать нечего — guard-ов и индексов нет.</li>
+    <li><strong>Находка.</strong> RMW против RMW — <code>LosesUpdate</code>, операции не атомарны: <strong>DCA1002</strong>. Оценка: 25 (ресурс) + 20 (пересечение) + 20 (операция) + 20 (без защиты) + 5 (решатель не спрашивался) = 90, метка High. Одна occurrence: пара roots <code>Post × Post</code>.</li>
+    <li><strong>Отчёт.</strong> Сервер пишет skeleton: оба пути <code>OrdersController.Post → OrderService.Place → Inventory.Reserve</code>, ресурс с доказательством регистрации, сценарий из трёх шагов, fingerprint. Composer-субагент добавляет narrative группы, валидатор проверяет его ссылки.</li>
+  </ol>
+</section>
+
+<section id="stage-ir">
+  <h2>Frontend: от Roslyn к IR</h2>
+  <div class="prose">
+  <p>Frontend (<code>ConcurrencyHunter.Core/Frontend/IrLowering.cs</code>, самый большой файл проекта) берёт у Roslyn <code>IOperation</code> и control-flow graph каждого метода и строит собственное SSA-подобное промежуточное представление. Зачем своё IR, если есть Roslyn: чтобы всё, что ниже, можно было тестировать и развивать без объектной модели компилятора (TD-010, ADR 0002).</p>
+  <ul>
+    <li><strong><code>IrBody</code></strong> — одно на метод, лямбду или локальную функцию. Id тела: <code>body:{Assembly}:{DocCommentId}</code>, у вложенных — суффиксы <code>#lambda{n}</code> и <code>#local:{Name}</code>.</li>
+    <li><strong>Блоки и регионы</strong> копируются из CFG Roslyn один к одному, включая try/catch/finally. <code>EffectiveFlowGraph</code> добавляет рёбра входа и выхода из <code>finally</code> и исключительные рёбра из каждого блока try в обработчики.</li>
+    <li><strong>Значения</strong> пронумерованы в пределах тела: параметры, receiver, локальные, временные, константы. SSA-версии и phi строит <code>SsaPlan</code>.</li>
+    <li><strong>Операции</strong> — 31 вид. У каждой есть <code>IrProvenance</code>: файл, строка, колонка, содержащий символ, вид синтаксиса и тег правила опускания (<code>increment</code>, <code>lock-statement</code>, <code>await</code>…).</li>
+  </ul>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Группа</th><th>Операции IR</th></tr></thead>
+    <tbody>
+      <tr><td>SSA</td><td><code>assign</code>, <code>phi</code></td></tr>
+      <tr><td>Куча</td><td><code>allocate</code>, <code>load-field</code>, <code>store-field</code> (с <code>ReadModifyWriteOf</code>), <code>load-element</code>, <code>store-element</code></td></tr>
+      <tr><td>Ссылки</td><td><code>address-field</code>, <code>address-element</code>, <code>load-reference</code>, <code>store-reference</code></td></tr>
+      <tr><td>Вызовы и замыкания</td><td><code>call</code>, <code>create-delegate</code>, <code>capture</code>, <code>escape</code>, <code>return</code></td></tr>
+      <tr><td>Приостановка</td><td><code>await</code>, <code>yield</code></td></tr>
+      <tr><td>Конкурентность</td><td><code>spawn</code>, <code>thread-work</code>, <code>join</code>, <code>when-all</code>, <code>unwrap</code>, <code>timer</code></td></tr>
+      <tr><td>Синхронизация</td><td><code>acquire</code>, <code>release</code>, <code>atomic</code></td></tr>
+      <tr><td>Чистые вычисления</td><td><code>compute</code>, <code>compare</code>, <code>convert</code></td></tr>
+      <tr><td>Всё остальное</td><td><code>unknown</code> — опускает детей и сохраняет их как операнды</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Так выглядит <code>Value++</code> в формате <code>IrPrinter</code> (упрощённо, без provenance):</p>
+  </div>
+<pre><code class="language-none">body "body:Fixture:M:C.M" Method owner="C.M()" schema="1.2" async=false
+value %0 Receiver  type="C"   name="this"
+value %1 Temporary type="int"
+value %2 Constant  type="int" name="1"
+value %3 Temporary type="int"
+operation 0 load-field  %1 &lt;- %0."C"."Value"
+operation 1 compute     %3 "Add" operands=[%1,%2]
+operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation="increment"</code></pre>
+  <div class="prose">
+  <p>Как опускаются важные для конкурентности конструкции:</p>
+  <ul>
+    <li><strong><code>x++</code>, <code>x += y</code>, <code>??=</code></strong> над полем или auto-property: load → compute → store с <code>ReadModifyWriteOf</code>. Над <code>volatile</code>-полем операции дополнительно помечаются <code>atomic</code>.</li>
+    <li><strong>Свойства.</strong> Автоматическое свойство (невиртуальное, из исходников) читается и пишется как поле-backing field. Остальные — вызовы getter/setter.</li>
+    <li><strong><code>lock</code> над объектом</strong> Roslyn сам переписывает в <code>Monitor.Enter(o, ref taken)</code>/<code>Exit</code> в try/finally — frontend превращает их в <code>acquire</code>/<code>release</code>. <code>lock</code> над <code>System.Threading.Lock</code> компилятор не переписывает и региона не даёт, поэтому секцию frontend восстанавливает по span оператора.</li>
+    <li><strong>Примитивы</strong> <code>Monitor</code>, <code>Lock</code>, <code>Mutex</code>, <code>SemaphoreSlim</code>, <code>ReaderWriterLockSlim</code> распознаёт класс <code>Synchronization</code>. Любая перегрузка с таймаутом — условный захват: замок держится только на ветке, где флаг успеха истинен. <code>WaitAsync</code> ничего не держит, пока его результат не выжидают.</li>
+    <li><strong><code>Interlocked</code> и <code>Volatile</code></strong> над полем или элементом становятся обычным load/store плюс пометка <code>atomic</code>.</li>
+    <li><strong>async и итераторы</strong> опускаются по исходному CFG, без state machine компилятора: <code>await</code> — операция <code>await</code>, <code>yield return</code> — операция <code>yield</code>.</li>
+    <li><strong>Лямбды и локальные функции</strong> — отдельные тела. Захваченные переменные приходят во вложенное тело как входящие SSA-переменные с общим <code>SymbolKey</code>.</li>
+    <li><strong>Вызовы BCL</strong> (<code>Task.Run</code>, <code>Thread.Start</code>, <code>Parallel.*</code>, <code>Timer</code>…) получают после <code>call</code> дополнительные операции <code>spawn</code>, <code>join</code>, <code>when-all</code>, <code>timer</code> (<code>AnnotateBclCall</code>). Распознавание — по имени метаданных, поэтому пользовательский тип с именем BCL-типа не распознаётся никогда.</li>
+    <li><strong>Коллекции, таблица библиотек, DI-locator</strong> — аннотации на <code>call</code>: <code>Collection</code>, <code>Library</code>, <code>ServiceCall</code>.</li>
+  </ul>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p>Точка входа — <code>IrLowering.Lower</code>; выражения — большой <code>switch</code> в <code>LowerValue</code>, операторы — <code>LowerTop</code>; неподдержанное — <code>LowerUnsupported</code>. Модель IR — <code>ConcurrencyHunter.Analysis/Ir/</code> (<code>IrSchema.cs</code>, <code>IrOperations.cs</code>, <code>IrValidator.cs</code>, <code>IrPrinter.cs</code>). Лоуеринг после построения прогоняет <code>IrValidator</code> и бросает исключение на невалидном IR. Тесты: <code>IrLoweringTests</code>, <code>IrConstructionTests</code>, <code>IrSsaAndNestedBodyTests</code>, <code>IrSpawnLoweringTests</code> (golden-строки <code>IrPrinter</code>).</p>
+  </div>
+</section>
+
+<section id="stage-roots">
+  <h2>Roots, DI и reachable set</h2>
+  <div class="prose">
+  <p>Прежде чем строить кучу, анализ должен знать, откуда начинаются исполнения и какие объекты создаёт контейнер.</p>
+  <h3>Root providers</h3>
+  <p>Execution root находит <em>root provider</em> — встроенный класс, реализующий <code>IExecutionRootProvider</code>. Их два: <code>AspNetCoreRootProvider</code> (controller actions, minimal API <code>Map*</code>-обработчики, gRPC-методы) и <code>HostingRootProvider</code> (<code>BackgroundService.ExecuteAsync</code>, члены <code>IHostedService</code> и <code>IHostedLifecycleService</code>). Провайдер возвращает канонический <code>ExecutionRootDescriptor</code>, и downstream-код не знает, из какого фреймворка пришёл root: в ядре нет ни одного <code>if (framework == …)</code>.</p>
+  <p>Главное в descriptor-е — <code>InvocationPolicy</code>, то есть кратность исполнения:</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Root</th><th>Multiplicity</th><th>SelfOverlap</th><th>Следствие</th></tr></thead>
+    <tbody>
+      <tr><td>Controller action, minimal API, gRPC</td><td><code>Repeated</code></td><td><code>MayOverlap</code></td><td>Любая запись в общий объект даёт self-pair</td></tr>
+      <tr><td><code>ExecuteAsync</code>, <code>StartAsync</code>, <code>StopAsync</code> при одном доказанном экземпляре</td><td><code>AtMostOnce</code></td><td><code>Serialized</code></td><td>Сам с собой не пересекается; основа instance tree</td></tr>
+      <tr><td>Hosted service, зарегистрированный неоднозначно</td><td><code>Unknown</code></td><td><code>Unknown</code></td><td>Считается пересекающимся сам с собой</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Поэтому в demo кейсы про защиту и порядок строятся на двух <code>BackgroundService</code>, а action в них только читает: запись в action всегда даёт self-pair и испортила бы негатив.</p>
+
+  <h3>DI-индекс</h3>
+  <p><code>DiIndexBuilder</code> собирает вызовы <code>AddSingleton</code>/<code>AddScoped</code>/<code>AddTransient</code>, <code>TryAdd*</code>, <code>AddHostedService</code> по точным символам и диапазону версий сборки. Каждая регистрация — вид <em>Type</em>, <em>Factory</em> (<code>Func&lt;&gt;</code>) или <em>Instance</em>. Разрешение сервиса (<code>DiIndex.Resolve</code>) даёт один из исходов: нет регистраций, неподдержанная форма (keyed, открытые generics, <code>typeof</code>-формы), неоднозначность (разные реализация или lifetime — ничего не связывает, пишет диагностику) или связь с <em>последней</em> регистрацией. Service locator (<code>GetRequiredService</code>, <code>GetService</code>, <code>GetServices</code>, <code>CreateScope</code>) распознаётся во frontend и разрешается в куче по scope, из которого вызван.</p>
+
+  <h3>Reachable set</h3>
+  <p><code>ReachableSet.Build</code> стартует от <code>Main</code>, методов с регистрациями, конструкторов hosted services и controller-ов, тел roots и конструкторов DI-сервисов и идёт по графу вызовов на основе иерархии классов (CHA): вызов достигает метода и всех его override и реализаций с телом. Делегаты сопоставляются по форме, spawn- и timer-работа, делегаты фабрик и константные locator-вызовы тоже достижимы. Это грубый надмножественный граф; точный строит куча, а тела, до которых CHA дошёл, а куча — нет, считаются в coverage как <code>lowered-not-reached</code>.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p><code>Core/Providers/</code>: <code>IExecutionRootProvider.cs</code>, <code>AspNetCoreRootProvider.cs</code>, <code>HostingRootProvider.cs</code>, <code>ProviderRegistry.cs</code> (единственный composition root — <code>BuiltInProviders.Create()</code>), <code>DiIndexBuilder.cs</code>, <code>InjectionBindings.cs</code>, <code>ProcessScopes.cs</code>. Модель — <code>Analysis/Roots/</code> и <code>Analysis/Di/</code>. Граф — <code>Analysis/CallGraph/ReachableSet.cs</code> и <code>ProgramIndex.cs</code>. Шаблон нового провайдера — <code>SyntheticProviderEndToEndTests.cs</code> (около 40 строк без изменений ядра).</p>
+  </div>
+</section>
+
+<section id="stage-heap">
+  <h2>Куча: регионы, points-to и ownership</h2>
+  <div class="prose">
+  <p>Куча отвечает на первый вопрос процедуры — один ли это объект. Это field-sensitive points-to анализ в стиле Андерсена по местам аллокации, с ограниченной чувствительностью к контексту.</p>
+  <h3>Регионы</h3>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Вид региона</th><th>Отображение в отчёте</th><th>Что это</th></tr></thead>
+    <tbody>
+      <tr><td><code>Static</code></td><td><code>static:Cache&lt;Order&gt;</code></td><td>Статические поля типа; один объект на scope</td></tr>
+      <tr><td><code>Di</code></td><td><code>di:Ledger@Singleton</code>, <code>#2</code> для повторной регистрации</td><td>Объект, созданный контейнером; контекст зависит от lifetime</td></tr>
+      <tr><td><code>Allocation</code></td><td><code>alloc:Holder..ctor()#Box</code></td><td><code>new</code> в методе, с контекстом экземпляра метода</td></tr>
+      <tr><td><code>Receiver</code></td><td><code>receiver:OrdersController</code></td><td>Controller одного запроса</td></tr>
+      <tr><td><code>Delegate</code>, <code>Task</code></td><td><code>delegate:…</code>, <code>task:…</code></td><td>Делегат с захватами; handle задачи (для join)</td></tr>
+      <tr><td><code>Container</code>, <code>Provider</code>, <code>Symbolic</code></td><td><code>container</code>, <code>provider:…</code>, <code>param:…</code></td><td>Служебные: DI-контейнер, <code>IServiceProvider</code>, параметры startup-методов</td></tr>
+    </tbody>
+  </table></div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 760 250" role="img" aria-label="Поля _primary и _mirror singleton-а Holder указывают на один регион Box, поэтому запись и чтение попадают в один ресурс">
+      <defs>
+        <marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+      </defs>
+      <rect x="20" y="20" width="230" height="110" rx="9" class="box"/>
+      <text x="36" y="42" class="t-mono t-bold">di:Holder@Singleton</text>
+      <line x1="20" y1="52" x2="250" y2="52" class="ln-muted"/>
+      <rect x="36" y="64" width="198" height="26" rx="5" class="box-sunken"/><text x="48" y="82" class="t-mono">_primary</text>
+      <rect x="36" y="96" width="198" height="26" rx="5" class="box-sunken"/><text x="48" y="114" class="t-mono">_mirror</text>
+
+      <rect x="430" y="40" width="250" height="74" rx="9" class="box-bad"/>
+      <text x="446" y="62" class="t-mono t-bold">alloc:Holder..ctor()#Box</text>
+      <rect x="446" y="76" width="218" height="26" rx="5" class="box"/><text x="458" y="94" class="t-mono">Value</text>
+
+      <path d="M234,77 C330,77 340,70 428,70" class="ln" marker-end="url(#arr6)"/>
+      <path d="M234,109 C330,109 340,94 428,90" class="ln" marker-end="url(#arr6)"/>
+      <text x="330" y="66" text-anchor="middle" class="t-small t-muted">points-to</text>
+
+      <rect x="20" y="170" width="250" height="34" rx="7" class="box-a"/>
+      <text x="145" y="192" text-anchor="middle" class="t-mono">WritePrimary: _primary.Value =</text>
+      <rect x="490" y="170" width="250" height="34" rx="7" class="box-b"/>
+      <text x="615" y="192" text-anchor="middle" class="t-mono">ReadMirror: … = _mirror.Value</text>
+      <path d="M200,170 C260,140 420,150 505,114" class="ln-a" marker-end="url(#arr6)"/>
+      <path d="M615,170 C615,150 600,130 600,116" class="ln-b" marker-end="url(#arr6)"/>
+      <text x="380" y="232" text-anchor="middle" class="t-small c-bad t-bold">один ресурс (alloc:…#Box, [Value]) → пара запись × чтение, DCA1001</text>
+    </svg>
+    </div>
+    <figcaption><b>Ресурс — это регион плюс путь, а не выражение в коде.</b> Два разных синтаксических пути сходятся в один регион, и сравниваются доступы уже на уровне ресурса. Имя локальной переменной или поля, через которое дошли, в ресурс не входит.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <h3>Контекст: как отличить два объекта одного <code>new</code></h3>
+  <p>Каждый метод анализируется в нескольких <em>экземплярах</em> (<code>{bodyId}@{context}</code>), и аллокации наследуют контекст экземпляра:</p>
+  <ul>
+    <li>instance-метод — контекст это регион receiver-а (receiver-object sensitivity);</li>
+    <li>static-метод — место вызова (1-call-site sensitivity, без контекста вызывающего);</li>
+    <li>лямбда — экземпляры, которым принадлежат её ячейки захвата;</li>
+    <li>DI transient — связка «кто разрешает, кто потребляет, какой параметр»: у каждого потребителя свой объект;</li>
+    <li>scoped — scope разрешения: запрос (<code>invocation:root:…</code>), корневой scope или созданный <code>CreateScope</code>.</li>
+  </ul>
+  <p>Лимиты — в <code>AnalysisLimits(MaxAccessPathDepth = 8, MaxContextsPerMethod = 16, MaxSccIterations = 16)</code> (<code>Heap/MethodSummary.cs</code>). Их можно переопределить переменной окружения <code>CH_ANALYSIS_LIMITS=depth,contexts,scc</code> или ключом <code>metrics --limits</code>; значения выбраны на demo и eShop (<code>skills/hunt/evals/metrics/limits.md</code>).</p>
+
+  <h3>Summaries и fixpoint</h3>
+  <p><code>MethodSummaryBuilder</code> строит для каждого тела summary без контекста: доступы с удерживаемыми замками и guard-ами, записи, возвраты, вызовы, делегаты, spawns и joins, зависимости «эта запись вычислена из этого чтения». <code>SummaryCache</code> строит их лениво. Затем <code>WholeProgram.Solve</code> решает всё вместе — граф вызовов, points-to, разрешение DI, фабрики, type initializers, handles задач и таймеров:</p>
+  </div>
+<pre><code class="language-none">Run():
+    Seed()                      // startup-члены + по экземпляру на каждый root; receiver-ы и параметры связаны
+    do Propagate() while DefaultEmptyRegistrations()
+
+Propagate():
+    loop:
+        before = _changes
+        for instance in порядок создания:
+            Process(instance)   // ячейки, записи, возвраты, делегаты, статики → type init,
+                                // Call / Locate / Spawn / TimerCallback / Handoff / WhenAll / Unwrap
+            if instance что-то изменил: CountRound(instance)
+        ConstructFactory(каждая регистрация)
+        if _changes == before: break      // множества только растут → конечность</code></pre>
+  <div class="prose">
+  <p>Две защиты от взрыва. Когда у тела набирается 16 контекстов, все дальнейшие вызовы этого тела связываются с одним экземпляром <code>@merged</code>. Когда экземпляр меняет что-то в 16 проходах подряд, вычисляется его сильно связная компонента в графе экземпляров, и если она циклическая, все её тела сливаются (счётчик <code>scc-budget-exceeded</code>). Слияние консервативно: эффекты объединяются, регион помечается как merged.</p>
+
+  <h3>Ownership</h3>
+  <p>Ownership вычисляется уже после fixpoint, в <code>ExecutionModel</code>, потому что для него нужно знать исполнения. Первое подходящее правило решает:</p>
+  <ol>
+    <li>регион со слитым контекстом → <code>Unknown</code>;</li>
+    <li>статик → <code>Shared</code>;</li>
+    <li>DI-регион всего контейнера (singleton или корневой scope) → <code>Shared</code>;</li>
+    <li>достижим по полям или захватам из общего корня → <code>Escaped</code>, с цепочкой «X сохранён в F объекта Y в файле:строке»;</li>
+    <li>к нему обращается исполнение, которое его не создавало → <code>Escaped</code>;</li>
+    <li>к нему обращаются только создавшие его исполнения → <code>ThreadConfined</code>;</li>
+    <li>к нему никто не обращается → <code>Owned</code>.</li>
+  </ol>
+  <p>Пара на регионе <code>ThreadConfined</code> отбрасывается фильтром <code>confined</code>. Неизвестный (opaque) вызов ownership не меняет никогда.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p><code>Analysis/Heap/WholeProgram.cs</code> — регионы (<code>HeapRegionKind</code>), решатель, DI-семантика, locator; <code>MethodSummary.cs</code> — лимиты и словарь абстрактных значений; <code>MethodSummaryBuilder.cs</code> — summaries. Ownership, конструирование и публикация — <code>Analysis/Execution/ExecutionModel.cs</code> (<code>Ownership()</code>, <code>AssignRegionExecutions</code>, <code>Published</code>). Тесты: <code>Engine/PointsToTests</code>, <code>MethodSummaryTests</code>, <code>OwnershipAndConstructionTests</code>, <code>DiSemanticsTests</code>.</p>
+  </div>
+  <div class="note warn">
+    <div class="note-title">Осторожно: строки identity</div>
+    <p>Identity регионов — строки вида <code>di|svc|impl@Singleton|singleton</code>, и в нескольких местах их разбирают по формату: <code>Split('|')</code>, <code>Contains("|scope:")</code>, <code>StartsWith("invocation:")</code>, сравнения с <code>"singleton"</code> и <code>"root-scope"</code>. Изменение формата в одном месте молча ломает остальные. Кроме того, у DI два формата id: identity кучи опускает <code>#1</code>, а <code>DiIndex.RegionId</code> всегда пишет <code>#n</code>.</p>
+  </div>
+</section>
+
+<section id="stage-exec">
+  <h2>Исполнения и happens-before</h2>
+  <div class="prose">
+  <p><code>ExecutionModel.Build</code> превращает roots и spawn sites в <em>execution instances</em>. Вид исполнения (<code>ExecutionKind</code>): <code>Root</code>, <code>Spawn</code>, <code>TimerCallback</code>, <code>LazyConstruction</code> (первый resolve singleton-а), <code>TypeInitializer</code>, <code>Startup</code>, <code>UnknownEnumeration</code> (сбежавший итератор) и <code>UnknownDelegateCall</code> (делегат, отданный неизвестному вызову).</p>
+  <p>Пересечение решается просто: <code>Overlaps(a, b) = a != b || OverlapsItself(a)</code>. Два разных исполнения могут пересекаться всегда; одно исполнение пересекается само с собой, только если его политика <code>Repeated + MayOverlap</code> или неизвестна. Вся тонкость — в том, <em>какая</em> политика у порождённого исполнения и <em>какой</em> порядок доказан.</p>
+  <h3>Кратность spawn-а</h3>
+  <p>Spawn выполняется не более одного раза (<code>AT_MOST_ONCE</code>), только если родитель запускается один раз, место spawn-а не стоит в цикле CFG и до тела ведёт не больше одного пути вызовов (<code>SiteOnce</code>). <code>Parallel.*</code>, нераспознанные формы, рекурсивные spawn-ы и периодические таймеры всегда <code>REPEATED</code>. Хвост async-метода после первого <code>await</code> — отдельное исполнение с политикой родителя.</p>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 780 270" role="img" aria-label="Instance tree: spawn из однократного worker-а упорядочен, spawn из HTTP action не упорядочен с другими запросами; startup предшествует всем roots">
+      <defs>
+        <marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+        <marker id="arr7ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ok"/></marker>
+        <marker id="arr7bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-bad"/></marker>
+      </defs>
+      <rect x="300" y="14" width="180" height="40" rx="8" class="box-accent"/>
+      <text x="390" y="32" text-anchor="middle" class="t-bold">startup</text>
+      <text x="390" y="47" text-anchor="middle" class="t-small t-muted">конструкторы hosted, Program</text>
+
+      <rect x="60" y="104" width="260" height="46" rx="8" class="box-a"/>
+      <text x="190" y="124" text-anchor="middle" class="t-bold">Worker.ExecuteAsync</text>
+      <text x="190" y="141" text-anchor="middle" class="t-mono">AtMostOnce · Serialized</text>
+      <rect x="460" y="104" width="260" height="46" rx="8" class="box-b"/>
+      <text x="590" y="124" text-anchor="middle" class="t-bold">OrdersController.Post</text>
+      <text x="590" y="141" text-anchor="middle" class="t-mono">Repeated · MayOverlap</text>
+
+      <path d="M340,54 C300,80 240,80 222,102" class="ln-ok" marker-end="url(#arr7ok)"/>
+      <path d="M440,54 C480,80 540,80 558,102" class="ln-ok" marker-end="url(#arr7ok)"/>
+      <text x="390" y="86" text-anchor="middle" class="t-small c-ok">startup → начало каждого root</text>
+
+      <rect x="60" y="206" width="260" height="46" rx="8" class="box"/>
+      <text x="190" y="226" text-anchor="middle" class="t-bold">Task.Run (не в цикле)</text>
+      <text x="190" y="243" text-anchor="middle" class="t-mono">AT_MOST_ONCE</text>
+      <rect x="460" y="206" width="260" height="46" rx="8" class="box"/>
+      <text x="590" y="226" text-anchor="middle" class="t-bold">Task.Run из запроса</text>
+      <text x="590" y="243" text-anchor="middle" class="t-mono">REPEATED</text>
+
+      <line x1="160" y1="150" x2="160" y2="204" class="ln-ok" marker-end="url(#arr7ok)"/>
+      <line x1="220" y1="204" x2="220" y2="152" class="ln-ok" marker-end="url(#arr7ok)"/>
+      <text x="152" y="182" text-anchor="end" class="t-small c-ok">spawn</text>
+      <text x="228" y="182" class="t-small c-ok">join</text>
+      <text x="336" y="182" class="t-small c-ok t-bold">рёбрам доверяем</text>
+
+      <line x1="560" y1="150" x2="560" y2="204" class="ln-bad ln-dash" marker-end="url(#arr7bad)"/>
+      <line x1="620" y1="204" x2="620" y2="152" class="ln-bad ln-dash" marker-end="url(#arr7bad)"/>
+      <text x="552" y="182" text-anchor="end" class="t-small c-bad">spawn</text>
+      <text x="628" y="182" class="t-small c-bad">join</text>
+      <text x="740" y="182" text-anchor="end" class="t-small c-bad t-bold">не доверяем</text>
+    </svg>
+    </div>
+    <figcaption><b>Instance tree.</b> Ребро spawn или join верно для <em>всех</em> экземпляров, которые оно связывает, только когда порождающее исполнение запускается один раз. Слева так и есть — путь в графе упорядочивает доступы. Справа каждый запрос порождает свою задачу, и соседний запрос с этой задачей ничем не упорядочен, поэтому рёбра не используются для доказательства. Startup запускается один раз до всех roots, его рёбра верны всегда.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <h3>Поиск пути</h3>
+  <p><code>HappensBefore</code> строит граф событий (<code>Point</code>, <code>Start</code>, <code>End</code>, <code>Join</code>) и ищет путь в ширину. <code>Ordered(a, b) = Path(a, b) || Path(b, a)</code>. Внутри исполнения событие x раньше y, если x недостижим из y по межпроцедурному CFG, поэтому цикл ничего не упорядочивает. Рёбра между исполнениями:</p>
+  <ul>
+    <li>spawn → начало задачи (только доверенные, из однократного исполнения);</li>
+    <li>конец задачи → доказанный join. Join доказан, если handle разрешается ровно в один регион одного исполнения того же дерева, этот spawn однократный и ожидание стоит на всех путях. <code>Wait()</code> и <code>Join()</code> могут бросить до завершения, поэтому <code>catch</code> вокруг них ломает join; <code>await</code> бросает только после завершения;</li>
+    <li>конец итераций <code>Parallel.For/ForEach</code> → возврат вызова, даже если итерация бросила;</li>
+    <li>конец antecedent → начало <code>ContinueWith</code>;</li>
+    <li>конец всех аргументов <code>WhenAll</code> → join (если все элементы известны; <code>List&lt;Task&gt;</code> — неизвестны);</li>
+    <li>конец callbacks таймера → доказанное ожидание <code>DisposeAsync</code> или <code>Dispose(WaitHandle)</code>;</li>
+    <li>конец startup → начало каждого исполнения вне дерева startup.</li>
+  </ul>
+  <p>Ожидание в вызываемом методе поднимается к месту вызова, если <em>каждый</em> возможный вызываемый ждёт ту же цель на всех путях (<code>AtCallSites</code>): так работает <code>void Run(Task t) =&gt; t.Wait();</code>.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p><code>Analysis/Execution/ExecutionModel.cs</code> (исполнения, политики, async-сегменты, таймеры, ownership), <code>HappensBefore.cs</code> (граф, доказательство join-ов <code>ProveHandle</code>, <code>EnsureJoins</code>), <code>TimerSteps.cs</code> (вид таймера). Тесты: <code>SpawnExecutionTests</code>, <code>HappensBeforeTests</code>, <code>TimerTests</code>, <code>IteratorExecutionTests</code>, <code>OpaqueDelegateExecutionTests</code>.</p>
+  </div>
+</section>
+
+<section id="stage-access">
+  <h2>Доступы и защита</h2>
+  <div class="prose">
+  <p><code>InterproceduralAccesses.Collect</code> для каждого execution instance запускает <code>ExecutionCollector</code> в четыре шага: <code>Visit</code> → <code>SolveLocks</code> → <code>SolveDependencies</code> → <code>Emit</code>.</p>
+  <ol>
+    <li><strong>Visit</strong> — обход в ширину по рёбрам вызовов, конструирования и первого использования типа. Каждый путь от root несёт свои guard-ы. На одно состояние хранится до 16 путей (<code>MAX_ACCESS_PATHS</code>); семнадцатый сливается, и guard-ы выше слияния теряются.</li>
+    <li><strong>SolveLocks</strong> — must-анализ удерживаемых замков: состояние на входе в тело — пересечение состояний всех мест вызова. Лямбда внутри <code>lock</code> начинает с пустым набором: её может вызвать кто угодно.</li>
+    <li><strong>SolveDependencies</strong> — какие чтения питают какую запись, в том числе через возвраты, аргументы, <code>ref</code>-параметры и ячейки захвата. Так <code>SetLevel(GetLevel() + 1)</code> становится RMW в <code>SetLevel</code>, с «прочитано в <code>GetLevel</code>» в доказательствах.</li>
+    <li><strong>Emit</strong> — выдаёт доступы: ресурс, вид операции, root, путь вызовов, удерживаемые замки, условия, spawn sites.</li>
+  </ol>
+  <h3>Must-held замки</h3>
+  <p>Состояние анализа (<code>MustHeldLocks</code>) — «ключ замка → глубина, объект, место захвата» плюс три флага: <code>CrossesSuspension</code> (между захватом и освобождением есть <code>await</code>/<code>yield</code>), <code>IsReleasedOnAllPaths</code>, <code>IsPaired</code>. При слиянии ветвей ключи пересекаются, берётся меньшая глубина и более слабый режим. Обработчики <code>catch</code>/<code>finally</code> начинают с минимума по защищённой области. Ключ замка включает вид примитива, поэтому <code>Monitor</code> и <code>Lock</code> на одном объекте независимы. Освобождение замка, который не удерживается, очищает всё состояние — консервативно.</p>
+  <p>Identity замка — регион объекта. Замок, который не сводится ровно к одному объекту на процесс (<code>lock (new object())</code>, замок на поле per-request объекта), показывается в отчёте с пометкой «not one object per process» и доказать защиту не может.</p>
+  <p>Вердикт пары (<code>PairProtection.Of</code>) перебирает общие id замков и выбирает самый сильный: одинаковый примитив, исключающие режимы и оба удержания «исключающие» → <code>sufficient</code>; иначе <code>partial</code>; разные механизмы или неисключающие режимы → <code>incompatible-mode</code>. Без общих id: обе стороны что-то держат → <code>different-identity</code>, одна → <code>partial</code>, никто → <code>unprotected</code>. Удержание «исключающее», если для примитива, привязанного к потоку, нет <code>CrossesSuspension</code>, а для <code>SemaphoreSlim</code> — ёмкость 1, освобождение на всех путях и парность permits.</p>
+  <h3>Эффекты вызовов поднимаются к месту вызова</h3>
+  <p>Summary вызываемого несёт его захваты и освобождения (<code>Lifted</code>): что тело оставило открытым на выходе — захват в месте вызова; что тело освобождает на всех путях, не захватив, — освобождение (так <code>Releaser.Dispose</code> отпускает семафор). Это must-эффект: если хоть один возможный вызываемый ничего не несёт, доказательство теряется. Для невыжданного async-вызова поднимается только то, что удержано на каждом <code>await</code> и в конце тела. Итератор отдаёт телу цикла объединение состояний на <code>yield</code>, а коду после цикла — состояние на выходе и на ранних выходах через <code>break</code>.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p><code>Analysis/Accesses/InterproceduralAccesses.cs</code> (сбор, зависимости RMW, эффекты коллекций и библиотек, <code>InterproceduralPairing</code>, <code>CandidateIndex</code>), <code>MustHeldLocks.cs</code> (dataflow), <code>AccessModel.cs</code> (<code>Access</code>, <code>AccessResource</code>, <code>PairProtection</code>). Таблица членов коллекций — <code>IrLowering.Collections.Of</code>, распознавание примитивов — <code>IrLowering.Synchronization</code>. Тесты: <code>InterproceduralAccessTests</code>, <code>MustHeldLockTests</code>, <code>ProtectionVerdictTests</code>, <code>SynchronizationPrimitiveTests</code>, <code>LiftedEffectTests</code>, <code>CollectionResourceTests</code>, <code>AtomicOperationTests</code>.</p>
+  </div>
+</section>
+
+<section id="stage-pairs">
+  <h2>Buckets и кандидаты</h2>
+  <div class="prose">
+  <p><code>CandidateIndex</code> раскладывает доступы по buckets и перебирает пары только там, где они могут встретиться:</p>
+  <ul>
+    <li><strong>внутри bucket-а ресурса</strong> — включая пару места доступа с самим собой (self-pair: root пересекается сам с собой);</li>
+    <li><strong>между ячейками одной коллекции</strong> — только если селекторы могут совпасть (<code>MayOverlap</code>);</li>
+    <li><strong>wildcard-доступы региона</strong> — между собой и с каждым bucket-ом того же региона;</li>
+    <li><strong>открытый generic-регион</strong> (<code>static:Cache&lt;T&gt;</code>) — с закрытыми регионами своей группы по тому же пути.</li>
+  </ul>
+  <p>Затем каждая пара проходит фильтры в порядке таблицы <a href="#pipeline">выше</a>: <code>read-read</code>, <code>no-conflicting-operation</code>, <code>no-overlap</code>, <code>ordered</code>, <code>confined</code>, <code>unsatisfiable-path</code>, <code>disjoint-iteration</code>, и после них — вердикт защиты. Тест <code>Demo_findings_are_identical_with_and_without_the_candidate_index</code> сверяет индекс с наивным перебором всех пар.</p>
+  </div>
+</section>
+
+<section id="stage-solver">
+  <h2>Селекторы, guard-ы и решатель</h2>
+  <div class="prose">
+  <p><strong><code>ElementSelector</code></strong> — ячейка массива или коллекции: <code>Exact</code> (константа), <code>Range</code> [start, end), <code>Symbol</code> (символическое выражение, в отчёте <code>[?]</code>), <code>Key</code> (ключ словаря с учётом компаратора) или <code>Unknown</code>. Сказать «ячейки разные» могут только доказанные значения; любая другая комбинация — «могут совпасть».</p>
+  <p><strong><code>PathPredicate</code></strong> — guard: равенство, неравенство, сравнения, null, проверка типа, с шириной и знаковостью типа. Неподдержанный предикат превращается в запись uncertainty. Дешёвая проверка <code>PathConditions.Contradict</code> ловит очевидные противоречия (null против not-null, разные константы, непересекающиеся диапазоны) — но только для «канонических» значений, которые означают одно и то же в обоих исполнениях.</p>
+  <p><strong><code>SolverRefinement</code></strong> задаёт вопросы Z3 для выживших пар в порядке ожидаемой оценки (сначала те, где ответ сильнее всего изменит отчёт):</p>
+  <ul>
+    <li>лимит 150 мс на запрос и 10% дедлайна (3 минуты) на весь run, общий для всех scope;</li>
+    <li>пустой запрос (меньше двух поддерживаемых предикатов и нет пары индексов) не задаётся, и path feasibility остаётся «not-analyzed»;</li>
+    <li>неканонические переменные переименовываются с префиксом стороны (<code>first|</code>, <code>second|</code>), чтобы <code>i</code> двух исполнений никогда не считались одной переменной;</li>
+    <li>запрос строится только из битовых векторов ширины типа: суммы переполняются, приведения обрезают или расширяют по знаку операнда, неизвестные значения — свежие переменные;</li>
+    <li>UNSAT снимает пару, SAT сохраняет её с моделью, Unknown сохраняет и снижает уверенность;</li>
+    <li>если нативная <code>libz3</code> не загрузилась, каждый запрос отвечает Unknown, coverage это показывает, run продолжается (<code>Z3ConstraintSolver.Create</code>).</li>
+  </ul>
+  </div>
+</section>
+
+<section id="stage-findings">
+  <h2>Находки, occurrences и оценка уверенности</h2>
+  <div class="prose">
+  <p><code>ConflictFindings.Create</code> собирает кандидатов всех scope в находки:</p>
+  <ol>
+    <li>ориентирует стороны A и B детерминированно (по телу, операции, порядку в теле);</li>
+    <li>группирует кандидатов в находку по <em>identity</em>: правило, ресурс и отсортированная пара мест доступа (тело, операция, путь, span). Roots в identity не входят;</li>
+    <li>сворачивает occurrences: по одной на пару roots с путями; внутри occurrence побеждает наименее защищённая пара; в отчёте показываются до трёх, считаются все;</li>
+    <li>классифицирует правило, группирует находки одного правила на одном ресурсе в группу, сортирует группы по оценке и раздаёт run-local id <code>G1…</code>, <code>F1…</code>.</li>
+  </ol>
+  <p><strong>Fingerprint</strong> — первые 16 hex-символов SHA-256 от строки</p>
+  </div>
+<pre><code class="language-none">ch-fp-1|rule|scope|RegionKey|path|member|bodyA#ordinalA|opA|bodyB#ordinalB|opB|protection</code></pre>
+  <div class="prose">
+  <p>где <code>ordinal</code> — порядковый номер доступа среди доступов того же тела к тому же ресурсу той же операцией, а <code>RegionKey</code> — регион без контекста. Поэтому fingerprint переживает сдвиг строк, переименование локальных и новых вызывающих, но меняется при смене правила, места, ресурса или результата защиты (<code>FindingIdentityTests</code>).</p>
+
+  <h3>Оценка уверенности</h3>
+  <p>Confidence — не вероятность, а ранжирование качества доказательств (0–100). Так она считается в коде сейчас:</p>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 760 170" role="img" aria-label="Компоненты оценки: ресурс 25, пересечение 20, операция 20, защита 20, осуществимость пути 10; максимум 95; пороги Medium 55 и High 80">
+      <rect x="30" y="50" width="173" height="40" rx="4" class="box-accent"/>
+      <rect x="207" y="50" width="136" height="40" rx="4" class="box-sunken"/>
+      <rect x="347" y="50" width="136" height="40" rx="4" class="box-accent"/>
+      <rect x="487" y="50" width="136" height="40" rx="4" class="box-sunken"/>
+      <rect x="627" y="50" width="66" height="40" rx="4" class="box-accent"/>
+      <text x="116" y="68" text-anchor="middle" class="t-bold">ресурс 25</text><text x="116" y="83" text-anchor="middle" class="t-small t-muted">wildcard: 10</text>
+      <text x="275" y="68" text-anchor="middle" class="t-bold">пересечение 20</text><text x="275" y="83" text-anchor="middle" class="t-small t-muted">gap: 10</text>
+      <text x="415" y="68" text-anchor="middle" class="t-bold">операция 20</text><text x="415" y="83" text-anchor="middle" class="t-small t-muted">gap: 10</text>
+      <text x="555" y="68" text-anchor="middle" class="t-bold">защита 20</text><text x="555" y="83" text-anchor="middle" class="t-small t-muted">partial…: 12 · gap: 10</text>
+      <text x="660" y="68" text-anchor="middle" class="t-bold">путь 10</text><text x="660" y="83" text-anchor="middle" class="t-small t-muted">5 / 0</text>
+      <line x1="30" y1="112" x2="730" y2="112" class="ln-muted"/>
+      <line x1="30" y1="108" x2="30" y2="116" class="ln-muted"/><text x="30" y="130" text-anchor="middle" class="t-small t-muted">0</text>
+      <line x1="415" y1="94" x2="415" y2="118" class="ln-muted ln-dash"/><text x="415" y="134" text-anchor="middle" class="t-small">55 · Medium</text>
+      <line x1="590" y1="94" x2="590" y2="118" class="ln-muted ln-dash"/><text x="590" y="134" text-anchor="middle" class="t-small">80 · High</text>
+      <line x1="583" y1="32" x2="583" y2="48" class="ln-bad"/><text x="576" y="30" text-anchor="end" class="t-small c-bad">79: потолок, если gap решает проверку</text>
+      <line x1="695" y1="108" x2="695" y2="116" class="ln-muted"/><text x="695" y="130" text-anchor="middle" class="t-small t-muted">95</text>
+      <line x1="730" y1="108" x2="730" y2="116" class="ln-muted"/><text x="730" y="130" text-anchor="middle" class="t-small t-muted">100</text>
+      <text x="30" y="160" class="t-small t-muted">Путь: 10 — SAT, 5 — решатель не спрашивался, 0 — Unknown (таймаут, бюджет, нет Z3).</text>
+    </svg>
+    </div>
+    <figcaption><b>Пять компонентов в масштабе 0–100.</b> Типичные значения: без защиты, без вопросов к решателю — 90 (High); <code>partial</code> без вопросов — 82; <code>partial</code> и Unknown от решателя — 77 (Medium); wildcard без защиты — 75 (Medium). Находка берёт оценку лучшей occurrence, группа — лучшую метку среди своих находок.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <p>Evidence id находки <code>Fk</code>, которые цитирует narrative: <code>Fk.A</code>, <code>Fk.B</code> (доступы), <code>Fk.R</code> (ресурс), <code>Fk.O</code> (пересечение), <code>Fk.P</code> (защита), <code>Fk.S</code> (сценарий), <code>Fk.SP1…</code> (spawn sites и таймеры на пути occurrence).</p>
+  </div>
+</section>
+
+<section id="stage-report">
+  <h2>Отчёт, narrative и жизненный цикл run</h2>
+  <div class="prose">
+  <p><strong>RunRegistry</strong> — конечный автомат run: <code>Running</code> → <code>AwaitingNarrative</code> (или <code>Failed</code>) → <code>Done</code>. Одновременно активен один run; run с истёкшим дедлайном новый не блокирует. Дедлайн — таймер на 30 минут; при его наступлении анализ отменяется, <code>get_groups</code> отвечает <code>deadlineExceeded</code>, а <code>submit_narrative</code> записывает late response. Каждый ответ инструмента — не больше 8 КБ; дайджест группы сжимается до ~1,5 КБ (жёсткий потолок 4 КБ).</p>
+  <p><strong>Статус</strong> решает <code>RunStatusRules.Decide</code>: ошибка загрузки или анализа → <code>Failed</code>; непогруженные проекты, дедлайн, незавершённый анализ или группа High/Medium без принятого narrative → <code>Incomplete</code> с перечислением причин (<code>NarrativeMissing:G3</code>); иначе <code>CompleteWithFindings</code> или <code>CompleteClean</code>.</p>
+  <p><strong>ReportRenderer</strong> пишет три файла в <code>%LOCALAPPDATA%\concurrency-hunter\runs\&lt;sha256 каталога target, 12 символов&gt;\&lt;run-id&gt;\</code> — сначала во временный каталог, затем атомарным переименованием; повторный <code>render_report</code> возвращает тот же результат.</p>
+  <ul>
+    <li><code>report.md</code>: таблица статуса, executive summary, coverage (проекты, счётчики пар и порядка, roots и диагностика по scope, gaps по materiality), находки по секциям High/Medium/Low с группами, narrative и блоком на каждую находку, диагностика.</li>
+    <li><code>findings.json</code> (schema 2.2): находки, группы, принятые narrative — структурированный контракт.</li>
+    <li><code>run-metadata.json</code>: время загрузки и анализа. Потайминговая раскладка по шагам есть только в <code>metrics</code>.</li>
+  </ul>
+  <p><strong>NarrativeValidator</strong> отклоняет текст с одной из причин: пустой, больше 8192 байт, нет ни одной ссылки <code>[E:…]</code>, ссылка на несуществующий evidence, не процитирована находка, показанная в дайджесте, нет раздела <code>Remediation</code>, рекомендация без <code>verify manually</code> или без вложенного <code>Check:</code>, путь <code>.cs</code> вне backticks, выдуманный файл или строка вне span доказательства, выдуманный идентификатор в backticks. Правила для composer-а подробно описаны в <code>skills/hunt/composing.md</code>.</p>
+  </div>
+</section>
+</div>
+<div class="part" id="part-3">
+  <div class="part-label">Часть III <span>Частные случаи</span></div>
+  <div class="prose">
+  <p>Каждый пример ниже — настоящий кейс из <code>demo/</code>, сокращённый до сути (регистрации в DI оставлены, когда они решают исход). Над кодом — имя кейса и вердикт из <code>demo/expected-findings.json</code>: <span class="chip bad">DCA100x</span> — находка ожидается, <span class="chip ok">нет находки</span> — жёсткий негатив, то есть форма, на которой наивный анализатор ошибся бы. Полный каталог с намерением каждого кейса — <a href="../demo/SCENARIOS.md"><code>demo/SCENARIOS.md</code></a>.</p>
+  </div>
+
+<section id="edge-identity">
+  <h2>Один объект или два</h2>
+  <div class="prose">
+  <p>Первый вопрос к любой паре доступов — указывают ли они на один объект. Анализ отвечает на него через points-to (куда может указывать каждая ссылка), а не по именам и типам.</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">alias-two-fields</span><span class="chips"><span class="chip bad">DCA1001</span></span></div>
+<pre><code class="language-csharp">public sealed class Holder                   // AddSingleton&lt;Holder&gt;()
+{
+    private readonly Box _primary;
+    private readonly Box _mirror;
+
+    public Holder()
+    {
+        _primary = new Box();
+        _mirror = _primary;                      // один объект в двух полях
+    }
+
+    public void WritePrimary(string value) =&gt; _primary.Value = value;   // worker
+    public string? ReadMirror() =&gt; _mirror.Value;                       // GET action
+}</code></pre>
+    <div class="case-body">
+    <p>Синтаксически <code>_primary.Value</code> и <code>_mirror.Value</code> — разные выражения. Points-to видит, что оба поля указывают на один region <code>alloc:Holder..ctor()#Box</code>, поэтому ресурс один: <code>(alloc:…#Box, [Value])</code>. Без points-to эта гонка теряется молча — именно этот пример в <a href="adr/0002-points-to-smt-and-a-normalized-ir-are-in-the-first-version.md">ADR 0002</a> решил, что points-to нужен в первой версии.</p>
+    </div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">escape-into-singleton</span><span class="chips"><span class="chip bad">DCA1001 × 2</span></span></div>
+<pre><code class="language-csharp">protected override Task ExecuteAsync(CancellationToken stoppingToken)   // DraftWorker
+{
+    var draft = new Draft();
+    _registry.Current = draft;        // объект опубликован в singleton...
+    draft.Body = "worker";            // ...и только потом заполнен
+    return Task.CompletedTask;
+}
+
+[HttpGet] public string? Get() =&gt; _registry.Current!.Body;          // action</code></pre>
+    <div class="case-body">
+    <p>Локальная переменная <code>draft</code> сама по себе ничего не значит: объект, созданный в методе, <em>сбегает</em> (escape), когда его сохраняют туда, откуда его может достать другое исполнение. Ownership региона становится <code>Escaped</code>, и запись <code>draft.Body</code> встречается с чтением в action. Если бы объект не сбегал (demo <code>owned-local-allocation</code>: создать, заполнить, прочитать в одном запросе), region получил бы ownership <code>ThreadConfined</code>, и все его пары отбросил бы фильтр <code>confined</code>.</p>
+    </div>
+  </div>
+
+  <div class="prose">
+  <h3>Отличить объекты, которые только выглядят одинаково</h3>
+  <p>Обратная сторона — не склеивать разные объекты. Этим занимается <em>context sensitivity</em> кучи:</p>
+  <ul>
+    <li><code>distinct-allocation-sites</code> <span class="chip ok">нет находки</span> — один тип и поле, но два разных <code>new</code>, по worker-у на каждый: два региона.</li>
+    <li><code>receiver-sensitivity</code> <span class="chip ok">нет находки</span> — одно тело метода вызывается на двух разных объектах. Для instance-методов контекст — это абстрактный receiver, поэтому эффекты не смешиваются.</li>
+    <li><code>factory-distinct-call-sites</code> <span class="chip ok">нет находки</span> — один <code>new</code> в статической фабрике, два места вызова. Для статических методов контекст — место вызова (1-call-site).</li>
+    <li><code>factory-returns-shared-static</code> <span class="chip bad">DCA1001</span> — «фабрика» на деле возвращает один статический объект: identity сохраняется, объект общий.</li>
+  </ul>
+  <p>Число контекстов на метод ограничено (сейчас 16). При переполнении контексты сливаются консервативно: эффекты объединяются, ownership становится <code>Unknown</code>, и это видно в uncertainty находки. Слияние никогда не порождает ложной защиты или изоляции.</p>
+
+  <h3>Два приложения — два процесса</h3>
+  <p>Гонка возможна только внутри одного процесса ОС. Solution часто содержит несколько приложений, которые ссылаются на общую библиотеку. <em>Process scope</em> — это исполняемый проект вместе с проектами, которые он загружает (<a href="adr/0005-a-process-scope-is-an-executable-and-the-projects-it-loads.md">ADR 0005</a>). Статическое поле общей библиотеки в двух scope — это два разных объекта.</p>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">shared-library-static</span><span class="chips"><span class="chip bad">/web-self DCA1001</span><span class="chip ok">/worker-vs-web нет</span></span></div>
+<pre><code class="language-csharp">// Demo.Domain (библиотека): public static class LastSync { public static string? Source; }
+
+// Demo.Web
+[HttpPost] public void Post(string source) =&gt; LastSync.Source = source;
+
+// Demo.Worker — другой исполняемый проект, другой процесс
+LastSync.Source = "worker";</code></pre>
+    <div class="case-body"><p>Action в Web пересекается сам с собой — находка. Пара Web × Worker не образуется: это два процесса. Тестовые проекты вообще не являются scope, иначе каждая находка приложения повторялась бы от имени теста.</p></div>
+  </div>
+</section>
+
+<section id="edge-construction">
+  <h2>Конструкторы и публикация объекта</h2>
+  <div class="prose">
+  <p>Почти любой объект получает поля в конструкторе. Если читать конструктор как обычный код, запись в нём «гоняется» со всеми последующими чтениями, хотя до конца конструирования объект никто не видит. Правило <a href="adr/0006-a-construction-belongs-to-the-execution-that-triggers-it.md">ADR 0006</a>: обращения конструктора к <em>собственному</em> объекту и type initializer к статикам <em>своего</em> типа пар не образуют, пока объект не опубликован. Всё остальное, что делает конструирование, принадлежит исполнению, которое его запустило: конструктор controller-а — каждому запросу, конструктор lazy singleton-а — одному исполнению «при первом resolve», конструктор hosted service — старту хоста, который предшествует всем roots.</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">singleton-configured-in-constructor</span><span class="chips"><span class="chip ok">нет находки</span></span></div>
+<pre><code class="language-csharp">public sealed class SiteCatalog              // AddSingleton&lt;SiteCatalog&gt;()
+{
+    public SiteCatalog() =&gt; Title = "Demo";  // пишет только конструктор
+    public string Title { get; set; }
+}
+
+[HttpGet] public string Get() =&gt; _catalog.Title;</code></pre>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">constructor-leaks-this</span><span class="chips"><span class="chip bad">DCA1001 × 2</span></span></div>
+<pre><code class="language-csharp">public sealed class Beacon                   // AddSingleton&lt;Beacon&gt;()
+{
+    public Beacon()
+    {
+        BeaconRegistry.Last = this;          // this опубликован до конца конструктора
+        Status = "starting";                 // теперь эту запись могут увидеть
+    }
+    public string? Status { get; set; }
+}
+
+[HttpGet] public string? Get([FromServices] Beacon beacon) =&gt; BeaconRegistry.Last!.Status;</code></pre>
+    <div class="case-body"><p>Как только конструктор сохранил <code>this</code> в статик, исключение для собственного объекта перестаёт действовать. Ещё два кейса той же главы: <code>controller-constructor-static-counter</code> <span class="chip bad">DCA1002</span> — конструктор controller-а делает <code>_created++</code> своего статика, а он выполняется в каждом запросе; <code>hosted-constructor-before-roots</code> <span class="chip ok">нет находки</span> — конструктор hosted service пишет статик при старте хоста, до всех roots.</p></div>
+  </div>
+</section>
+
+<section id="edge-ordering">
+  <h2>Порядок: spawn, join и happens-before</h2>
+  <div class="prose">
+  <p>Два исполнения могут пересекаться, но конкретная пара доступов в них может быть упорядочена. Классика — родитель, который ждёт свою задачу:</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">task-handle-join-order</span><span class="chips"><span class="chip bad">/before-await DCA1001</span><span class="chip ok">/after-await нет</span></span></div>
+<pre><code class="language-csharp">protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+{
+    var task = Task.Run(() =&gt;
+    {
+        BeforeAwait = "spawned";
+        AfterAwait = "spawned";
+    });
+    BeforeAwait = "parent";     // задача ещё может работать
+    await task;                 // join: handle доказанно принадлежит этой задаче
+    AfterAwait = "parent";      // задача уже завершилась
+}</code></pre>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 780 250" role="img" aria-label="Граф happens-before: spawn ведёт к началу задачи, конец задачи ведёт к await; запись после await упорядочена, запись до await нет">
+      <defs>
+        <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+        <marker id="arr3a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-accent"/></marker>
+      </defs>
+      <text x="14" y="64" class="t-bold c-a">ExecuteAsync</text>
+      <text x="14" y="80" class="t-small t-muted">родитель, 1 раз</text>
+      <text x="14" y="184" class="t-bold c-b">Task.Run</text>
+      <text x="14" y="200" class="t-small t-muted">лямбда</text>
+      <line x1="130" y1="68" x2="760" y2="68" class="ln-a"/>
+      <line x1="250" y1="188" x2="520" y2="188" class="ln-b"/>
+
+      <circle cx="170" cy="68" r="6" class="fill-a"/><text x="170" y="48" text-anchor="middle" class="t-small">spawn</text>
+      <rect x="290" y="52" width="140" height="32" rx="6" class="box-bad"/><text x="360" y="73" text-anchor="middle" class="t-mono">BeforeAwait =</text>
+      <circle cx="560" cy="68" r="6" class="fill-a"/><text x="560" y="48" text-anchor="middle" class="t-small">await task</text>
+      <rect x="600" y="52" width="140" height="32" rx="6" class="box-ok"/><text x="670" y="73" text-anchor="middle" class="t-mono">AfterAwait =</text>
+
+      <circle cx="250" cy="188" r="6" class="fill-b"/><text x="250" y="216" text-anchor="middle" class="t-small">start</text>
+      <rect x="280" y="172" width="100" height="32" rx="6" class="box-b"/><text x="330" y="193" text-anchor="middle" class="t-mono">BeforeAwait</text>
+      <rect x="390" y="172" width="100" height="32" rx="6" class="box-b"/><text x="440" y="193" text-anchor="middle" class="t-mono">AfterAwait</text>
+      <circle cx="520" cy="188" r="6" class="fill-b"/><text x="520" y="216" text-anchor="middle" class="t-small">end</text>
+
+      <path d="M170,74 C170,140 250,130 250,180" class="ln-accent" marker-end="url(#arr3a)"/>
+      <text x="205" y="152" text-anchor="end" class="t-small c-accent">spawn-ребро</text>
+      <path d="M520,182 C520,130 560,120 560,76" class="ln-accent" marker-end="url(#arr3a)"/>
+      <text x="548" y="138" class="t-small c-accent">join-ребро</text>
+
+      <line x1="340" y1="84" x2="330" y2="170" class="ln-bad ln-dash"/>
+      <text x="348" y="132" class="t-small c-bad t-bold">нет пути: пара</text>
+      <text x="670" y="106" text-anchor="middle" class="t-small c-ok t-bold">путь end → await → запись:</text>
+      <text x="670" y="121" text-anchor="middle" class="t-small c-ok t-bold">упорядочено</text>
+    </svg>
+    </div>
+    <figcaption><b>Happens-before — это путь в графе событий.</b> Внутри одного исполнения событие раньше другого, если к первому нельзя вернуться из второго (цикл ничего не упорядочивает). Между исполнениями ребро идёт от spawn к началу задачи и от конца задачи к доказанному join. Запись <code>AfterAwait</code> родителя достижима из конца задачи — пара снята. До записи <code>BeforeAwait</code> из задачи пути нет — пара остаётся.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <p>Правила, которые вытекают из этой картинки (<a href="adr/0008-ordering-is-a-happens-before-graph-trusted-inside-one-instance-tree.md">ADR 0008</a>):</p>
+  <ul>
+    <li><strong>Join должен выполняться на всех путях, включая исключительные.</strong> В <code>join-skipped-on-exception</code> <span class="chip bad">DCA1001</span> <code>await task</code> стоит в <code>try</code> после вызова, который может бросить; после <code>catch</code> родитель пишет поле, а задача может ещё работать.</li>
+    <li><strong>Handle должен быть доказанно тот же.</strong> Задача, сохранённая в поле и awaited в другом методе, — это spawn с join (<code>task-handle-awaited-elsewhere</code> <span class="chip ok">нет находки</span>); задача, чей handle ни на одном пути не доходит до ожидания, — fire-and-forget.</li>
+    <li><strong><code>WhenAny</code>, ожидание с таймаутом, <code>ManualResetEventSlim.Wait()</code> и <code>Dispose()</code> — не join.</strong> <code>event-wait-not-ordering</code> <span class="chip bad">DCA1001</span> — известное ограничение: event-ожидания порядка не дают.</li>
+    <li><strong>Путь доверяется только внутри одного instance tree.</strong> Spawn-ребро верно для всех экземпляров, только если порождающее исполнение запускается один раз (root, который не пересекается сам с собой, например один <code>BackgroundService</code>) и spawn не стоит в цикле. Задача, запущенная из HTTP action, упорядочена со «своим» запросом, но не с соседним запросом — поэтому все spawn-кейсы demo живут внутри одного worker-а.</li>
+    <li><strong>Старт хоста предшествует всем roots.</strong> Поэтому запись из <code>Program</code> до запуска хоста (<code>startup-write-before-run</code>) и конструкторы hosted services ни с чем не пересекаются.</li>
+    <li><strong>Happens-before только удаляет пары.</strong> Новые пары появляются только из новых исполнений, никогда из графа. Ребро, чья identity handle или сам join не доказаны, не добавляется.</li>
+  </ul>
+  <h3>Async-метод без немедленного <code>await</code></h3>
+  <p>Вызов async-метода, результат которого сразу не ожидают, — тоже spawn, но особый: синхронный префикс до первого <code>await</code> выполняется прямо в вызывающем, а хвост после него — отдельное исполнение (TD-060a).</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">fire-and-forget-vs-awaited</span><span class="chips"><span class="chip bad">/dropped DCA1001</span><span class="chip ok">/awaited нет</span></span></div>
+<pre><code class="language-csharp">protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+{
+    _ = DropAsync();          // fire-and-forget: join нет нигде
+    await SaveAsync();        // выполняется целиком в вызывающем
+    Dropped = "parent";       // пересекается с хвостом DropAsync
+    Saved = "parent";         // упорядочено после SaveAsync
+}
+
+private async Task DropAsync() { await Task.Yield(); Dropped = "drop"; }
+private async Task SaveAsync() { await Task.Yield(); Saved = "save"; }</code></pre>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">when-all-synchronous-prefix</span><span class="chips"><span class="chip ok">/prefix нет</span><span class="chip bad">/after-first-await DCA1001</span></span></div>
+<pre><code class="language-csharp">await Task.WhenAll(StepA(), StepB());
+
+private async Task StepA() { Prefix = "a"; await Task.Yield(); Suffix = "a"; }
+private async Task StepB() { Prefix = "b"; await Task.Yield(); Suffix = "b"; }</code></pre>
+    <div class="case-body"><p>Префиксы <code>StepA</code> и <code>StepB</code> выполняются по очереди в вызывающем, ещё до того, как <code>WhenAll</code> вообще получит задачи, — поэтому <code>Prefix</code> не гонится. Хвосты после <code>await Task.Yield()</code> — два параллельных исполнения, и <code>Suffix</code> гонится.</p></div>
+  </div>
+</section>
+
+<section id="edge-timers">
+  <h2>Таймеры</h2>
+  <div class="prose">
+  <p>Callback таймера — это execution root, но с собственной кратностью. Важно, сколько раз и как он может сработать (TD-061):</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Как создан таймер</th><th>Кратность</th><th>Пересекается сам с собой</th><th>Demo</th></tr></thead>
+    <tbody>
+      <tr><td><code>new Timer(cb, null, Timeout.Infinite, Timeout.Infinite)</code> и нет достижимого <code>Change</code></td><td>выключен</td><td>не запускается</td><td><code>timer-never-activated</code> <span class="chip ok">нет</span></td></tr>
+      <tr><td><code>period</code> = <code>Infinite</code> или 0, нет <code>Change</code></td><td>однократный</td><td>нет, если сам таймер создан один раз</td><td><code>timer-one-shot</code></td></tr>
+      <tr><td>Конечный <code>period</code> или достижимый <code>Change(…)</code></td><td>периодический</td><td>да: callback может начаться, пока идёт предыдущий</td><td><code>threading-timer-self-overlap</code> <span class="chip bad">DCA1002</span></td></tr>
+      <tr><td><code>System.Timers.Timer</code> с <code>AutoReset = true</code> (по умолчанию)</td><td>периодический</td><td>да</td><td><code>timers-timer-elapsed</code></td></tr>
+      <tr><td><code>PeriodicTimer</code> в цикле <code>WaitForNextTickAsync</code></td><td>не root, часть своего исполнения</td><td>нет, но пересекается с другими roots</td><td><code>periodic-timer-loop</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">threading-timer-vs-action</span><span class="chips"><span class="chip bad">DCA1001</span><span class="chip bad">/callback-self DCA1001</span></span></div>
+<pre><code class="language-csharp">public sealed class Beat                     // AddSingleton&lt;Beat&gt;()
+{
+    private readonly Timer _timer;
+    public Beat() =&gt; _timer = new Timer(OnTick, null, 0, 1000);   // периодический
+    public string? LastTick { get; private set; }
+    private void OnTick(object? state) =&gt; LastTick = "tick";
+}
+
+[HttpGet] public string? Get() =&gt; _beat.LastTick;</code></pre>
+  </div>
+  <div class="prose">
+  <p><code>timer.Dispose()</code> не ждёт уже запущенный callback (<code>timer-dispose-does-not-join</code> <span class="chip bad">DCA1001</span>). Порядок дают только успешно выжданный <code>await timer.DisposeAsync()</code> или подтверждённое ожидание <code>Dispose(WaitHandle)</code> — и только для того же таймера и для уже завершившихся вызовов.</p>
+  </div>
+</section>
+
+<section id="edge-protection">
+  <h2>Защита: когда замок действительно защищает</h2>
+  <div class="prose">
+  <p>Защита — единственный вердикт, который <em>удаляет</em> кандидата на основании конструкции, похожей на синхронизацию. Ошибка здесь неотличима от безопасности: настоящая гонка молча исчезает из отчёта. Поэтому правила строгие. Пара защищена (<code>sufficient</code>), только если <strong>обе</strong> стороны удерживают <strong>один и тот же</strong> объект синхронизации (по points-to, как и данные) в <strong>совместимых режимах</strong> на <strong>всех</strong> путях. Иначе результат защиты — один из четырёх:</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Результат</th><th>Смысл</th><th>Правило</th></tr></thead>
+    <tbody>
+      <tr><td><code>unprotected</code></td><td>Ни одна сторона ничего не держит</td><td>DCA1001 / DCA1002</td></tr>
+      <tr><td><code>partial</code></td><td>Одна сторона под защитой, другая нет; или защита есть, но не доказана полностью (ёмкость семафора, <code>await</code> внутри замка, привязанного к потоку)</td><td>DCA1003</td></tr>
+      <tr><td><code>different-identity</code></td><td>Обе стороны под замками, но это разные объекты</td><td>DCA1003</td></tr>
+      <tr><td><code>incompatible-mode</code></td><td>Один объект, но режимы не исключают друг друга (read lock + read lock) или разные механизмы на одном объекте</td><td>DCA1003</td></tr>
+      <tr><td><code>sufficient</code></td><td>Общий примитив, совместимые режимы, на всех путях — кандидат удаляется</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">lock-different-identity</span><span class="chips"><span class="chip bad">DCA1003 · different-identity</span></span></div>
+<pre><code class="language-csharp">public sealed class Board                    // AddSingleton&lt;Board&gt;(); два worker-а
+{
+    private readonly object _a = new();
+    private readonly object _b = new();
+    private string? _owner;
+
+    public void SetUnderA(string owner) { lock (_a) _owner = owner; }
+    public void SetUnderB(string owner) { lock (_b) _owner = owner; }
+}</code></pre>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">lock-protected-vs-unprotected</span><span class="chips"><span class="chip bad">DCA1003 · partial</span></span></div>
+<pre><code class="language-csharp">public void Append(string entry)    { lock (_gate) _entry = entry; }
+public void Overwrite(string entry) =&gt; _entry = entry;   // замок исключает только тех, кто его берёт</code></pre>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">semaphore-slim-not-a-mutex</span><span class="chips"><span class="chip bad">DCA1003 · partial × 3</span></span></div>
+<pre><code class="language-csharp">private readonly SemaphoreSlim _unknown;              // ёмкость из параметра конструктора
+private readonly SemaphoreSlim _two = new(2, 2);      // пускает двоих
+private readonly SemaphoreSlim _one = new(1, 1);
+
+public Gatehouse(int capacity) =&gt; _unknown = new SemaphoreSlim(capacity, capacity);
+
+public void SetWithoutFinally(string value)
+{
+    _one.Wait();
+    _releaseNotInFinally = value;   // исключение здесь оставит семафор занятым:
+    _one.Release();                 // Release не на всех путях
+}</code></pre>
+    <div class="case-body"><p><code>SemaphoreSlim</code> — мьютекс только при ёмкости, доказанной <em>константой</em> 1 в конструкторе того же региона, и при парных <code>Wait</code>/<code>Release</code> на всех путях, включая <code>finally</code>.</p></div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">reader-writer-lock-slim</span><span class="chips"><span class="chip ok">/read-vs-write нет</span><span class="chip bad">/write-under-read-lock DCA1003 · incompatible-mode</span></span></div>
+<pre><code class="language-csharp">public void WriteUnderReadLock(string value)   // вызывают оба worker-а
+{
+    _lock.EnterReadLock();                     // read + read не исключают друг друга
+    try { _shared = value; }
+    finally { _lock.ExitReadLock(); }
+}</code></pre>
+    <div class="case-body"><p>Матрица <code>ReaderWriterLockSlim</code>: read/read и read/upgradeable не исключают, любая пара с write исключает, upgradeable/upgradeable исключает.</p></div>
+  </div>
+
+  <div class="prose">
+  <h3>Атомарность — свойство операции, а не защита</h3>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">interlocked-mixed-with-plain-write</span><span class="chips"><span class="chip bad">DCA1001</span></span></div>
+<pre><code class="language-csharp">Interlocked.Increment(ref _meter.Count);   // CountingWorker: атомарный RMW
+_meter.Count = 0;                          // MeterResetWorker: обычная запись</code></pre>
+    <div class="case-body"><p>Атомарны по отдельности оба доступа, но пара — нет: одна сторона неатомарна, значит это обычный незащищённый конфликт. Пара двух <code>Interlocked</code>-операций конфликта не образует (<code>interlocked-increment</code>, <code>interlocked-compare-exchange-loop</code> <span class="chip ok">нет</span>). А <code>volatile</code> упорядочивает чтение и запись, но не сливает их: <code>_hits++</code> над <code>static volatile int</code> — <span class="chip bad">DCA1002</span> (<code>volatile-rmw-not-atomic</code>).</p></div>
+  </div>
+
+  <div class="prose">
+  <h3>Замок, привязанный к потоку, и <code>await</code></h3>
+  <p><code>Monitor</code>, <code>System.Threading.Lock</code>, <code>Mutex</code> и <code>ReaderWriterLockSlim</code> принадлежат потоку, который их взял, а продолжение после <code>await</code> может выполниться на другом потоке. Область такого примитива с <code>await</code> (или <code>yield return</code>) между захватом и освобождением получает <code>partial</code>, а не <code>sufficient</code>. <code>SemaphoreSlim</code> к потоку не привязан, поэтому <code>await _sem.WaitAsync()</code> … <code>Release()</code> в <code>finally</code> — нормальная защита (<code>semaphore-slim-capacity-one</code> <span class="chip ok">нет</span>).</p>
+
+  <h3>Самописные замки: обёртка прозрачна</h3>
+  <p>Анализ никогда не распознаёт замок по имени или форме типа. Класс <code>SimpleLock</code> с методами <code>Lock()</code>/<code>Unlock()</code> без настоящей синхронизации внутри — не защита (<code>custom-lock-by-name</code> <span class="chip bad">DCA1001</span>), как и <code>SpinLock</code>, который не входит в моделируемые примитивы (<code>spin-lock-not-protection</code> <span class="chip bad">DCA1001</span>). Но обёртка над настоящим примитивом работает — потому что она <em>прозрачна</em>: summary метода уже несёт его захваты, а <code>Dispose</code>, который освобождает примитив, — это освобождение в точке <code>Dispose</code> (<a href="adr/0009-a-synchronization-wrapper-is-transparent-never-a-lock-type.md">ADR 0009</a>).</p>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">custom-async-lock-releaser</span><span class="chips"><span class="chip ok">нет находки</span></span></div>
+<pre><code class="language-csharp">public sealed class AsyncLock
+{
+    private readonly SemaphoreSlim _semaphore;
+    public AsyncLock(SemaphoreSlim semaphore) =&gt; _semaphore = semaphore;
+    public Releaser Enter() { _semaphore.Wait(); return new Releaser(_semaphore); }
+}
+
+public sealed class Releaser : IDisposable
+{
+    private readonly SemaphoreSlim _semaphore;
+    public Releaser(SemaphoreSlim semaphore) =&gt; _semaphore = semaphore;
+    public void Dispose() =&gt; _semaphore.Release();
+}
+
+public sealed class Ledger                   // AddSingleton&lt;Ledger&gt;(); два worker-а
+{
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly AsyncLock _lock;
+    private string? _entry;
+
+    public Ledger() =&gt; _lock = new AsyncLock(_semaphore);
+
+    public void Append(string entry)
+    {
+        using (_lock.Enter())                // захват сводится к _semaphore.Wait()
+            _entry = entry;                  // Dispose сводится к _semaphore.Release()
+    }
+}</code></pre>
+    <div class="case-body"><p>Защиту доказывает тот же must-hold анализ, что и для <code>lock</code>, и identity защиты — region семафора, а не обёртки. Поэтому две разные обёртки над одним доказанным семафором защищают друг друга, а обёртки над разными семафорами дают <code>different-identity</code>. Обёртка над семафором с недоказанной ёмкостью не даёт защиты вообще — даже <code>partial</code>.</p></div>
+  </div>
+</section>
+
+<section id="edge-collections">
+  <h2>Коллекции: структура отдельно от ячеек</h2>
+  <div class="prose">
+  <p>Для массивов, спанов и коллекций access path заканчивается <em>селектором</em> ячейки: <code>[0]</code>, <code>["a"]</code>, <code>[0..8]</code> или <code>[?]</code>. Если бы у коллекции были только ячейки, доказанно разные ключи снимали бы любую пару — а это неверно в опасную сторону. Поэтому у каждой коллекции <strong>два вида ресурсов</strong> (<a href="adr/0010-a-collections-structure-is-a-resource-of-its-own.md">ADR 0010</a>): <em>структура</em> (количество, слоты, порядок; путь к самой коллекции) и <em>хранилище элементов</em> (путь плюс селектор).</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">dictionary-disjoint-keys-structural</span><span class="chips"><span class="chip bad">DCA1001 на структуре</span></span></div>
+<pre><code class="language-csharp">public sealed class Ledger                   // AddSingleton&lt;Ledger&gt;(); два worker-а
+{
+    public Dictionary&lt;string, int&gt; Entries { get; } = new();
+    public void AddFirst()  =&gt; Entries.Add("first", 1);
+    public void AddSecond() =&gt; Entries.Add("second", 2);
+}</code></pre>
+  </div>
+
+  <figure>
+    <div class="svg-wrap">
+    <svg viewBox="0 0 760 240" role="img" aria-label="Add first и Add second пишут разные ячейки, но одну структуру словаря; конфликт на структуре">
+      <defs>
+        <marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+      </defs>
+      <rect x="20" y="30" width="170" height="40" rx="7" class="box-a"/>
+      <text x="105" y="55" text-anchor="middle" class="t-mono">Add("first", 1)</text>
+      <rect x="20" y="170" width="170" height="40" rx="7" class="box-b"/>
+      <text x="105" y="195" text-anchor="middle" class="t-mono">Add("second", 2)</text>
+
+      <rect x="300" y="18" width="440" height="206" rx="10" class="box-sunken"/>
+      <text x="316" y="36" class="t-small t-muted">region di:Ledger@Singleton, путь Entries</text>
+      <rect x="330" y="92" width="190" height="56" rx="8" class="box-bad"/>
+      <text x="425" y="116" text-anchor="middle" class="t-bold">структура</text>
+      <text x="425" y="134" text-anchor="middle" class="t-mono">[Entries]</text>
+      <rect x="560" y="50" width="160" height="40" rx="8" class="box-ok"/>
+      <text x="640" y="75" text-anchor="middle" class="t-mono">[Entries, "first"]</text>
+      <rect x="560" y="150" width="160" height="40" rx="8" class="box-ok"/>
+      <text x="640" y="175" text-anchor="middle" class="t-mono">[Entries, "second"]</text>
+
+      <path d="M190,50 C260,50 280,105 328,110" class="ln-a" marker-end="url(#arr4)"/>
+      <path d="M190,190 C260,190 280,135 328,130" class="ln-b" marker-end="url(#arr4)"/>
+      <path d="M190,44 L558,64" class="ln-a ln-dash"/>
+      <path d="M190,196 L558,176" class="ln-b ln-dash"/>
+      <text x="236" y="100" class="t-small">пишет</text>
+      <text x="236" y="152" class="t-small">пишет</text>
+      <text x="640" y="118" text-anchor="middle" class="t-small c-ok">ячейки разные</text>
+      <text x="640" y="132" text-anchor="middle" class="t-small c-ok">пары нет</text>
+      <text x="425" y="170" text-anchor="middle" class="t-small c-bad t-bold">запись × запись: пара</text>
+    </svg>
+    </div>
+    <figcaption><b>Два ресурса одной коллекции.</b> Каждая вставка пишет структуру и свою ячейку. Ячейки <code>"first"</code> и <code>"second"</code> доказанно разные, но обе вставки переписывают одни и те же buckets словаря — структура общая, и два параллельных <code>Add</code> на обычном <code>Dictionary</code> ломают его.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <p>Какие ресурсы трогает каждый член, записано в таблице членов (ADR 0010 и её поправка 5b). Несколько неочевидных строк: <code>Count</code> и <code>ContainsKey</code> читают только структуру; индексатор-get читает структуру и ячейку; удаление пишет и ячейку, потому что переход «есть → нет» тоже можно потерять; <code>Insert</code>/<code>RemoveAt</code> у <code>List&lt;T&gt;</code> сдвигают соседей и пишут ячейку <code>[?]</code>; перечисление читает структуру и все ячейки. <code>HashSet</code>, <code>Queue</code>, <code>Stack</code> и <code>LinkedList</code> моделируются так же, всегда с ячейкой <code>[?]</code>.</p>
+  <p>У <code>ConcurrentDictionary</code> оба ресурса атомарны: пары двух <code>GetOrAdd</code> нет, и перечисление во время изменения — определённое поведение (<code>concurrent-dictionary-enumerate-while-mutate/concurrent-dictionary</code> <span class="chip ok">нет</span>). Но последовательность атомарных вызовов не атомарна:</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">concurrent-dictionary-compound</span><span class="chips"><span class="chip bad">DCA1004 × 2</span></span></div>
+<pre><code class="language-csharp">[HttpPost("flag")]
+public void PostFlag()
+{
+    if (!_registry.Flags.ContainsKey("ready"))   // проверка...
+        _registry.Flags["ready"] = 1;            // ...и действие: между ними успевает другой запрос
+}
+
+[HttpPost("count")]
+public void PostCount() =&gt; _registry.Counts["hits"] = _registry.Counts["hits"] + 1;</code></pre>
+    <div class="case-body"><p>Проверка, которая решает, выполнится ли изменение, считается такой же зависимостью, как зависимость по значению. Поэтому check-then-act — это неатомарный RMW над составной операцией, а значит DCA1004. Замена на thread-safe коллекцию тут не помогает: нужна одна критическая секция на проверку и действие либо атомарный член вроде <code>GetOrAdd</code>/<code>AddOrUpdate</code>.</p></div>
+  </div>
+</section>
+
+<section id="edge-selectors">
+  <h2>Индексы, условия путей и Z3</h2>
+  <div class="prose">
+  <p>Две записи в один массив — это пара, только если индексы могут совпасть. Анализ пытается доказать обратное дёшево, а в последнюю очередь — через SMT-решатель Z3.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Кейс</th><th>Код</th><th>Как решается</th><th>Итог</th></tr></thead>
+    <tbody>
+      <tr><td><code>array-disjoint-constant-indices</code></td><td><code>_slots[0] = …</code> и <code>_slots[1] = …</code></td><td>Разные константы, без решателя</td><td><span class="chip ok">нет</span></td></tr>
+      <tr><td><code>constant-argument-cells</code></td><td>Разные константы переданы аргументами в общий метод записи</td><td>Точные ячейки по пути вызова, без решателя</td><td><span class="chip ok">нет</span></td></tr>
+      <tr><td><code>array-symbolic-indices</code></td><td><code>_slots[index]</code> с индексами из <code>ProcessorCount</code> и <code>TickCount</code></td><td>Z3: <code>i == j</code> выполнимо (SAT)</td><td><span class="chip bad">DCA1001</span></td></tr>
+      <tr><td><code>array-disjoint-guarded-ranges</code></td><td><code>if (i &lt; 5) _slots[i]</code> и <code>if (j &gt;= 5) _slots[j]</code></td><td>Z3: <code>i &lt; 5 ∧ j ≥ 5 ∧ i == j</code> невыполнимо (UNSAT)</td><td><span class="chip ok">нет</span></td></tr>
+      <tr><td><code>index-overflow-wraps</code></td><td><code>_slots[(byte)i]</code> и <code>_slots[(byte)(i + 256)]</code></td><td>Z3 в битовых векторах ширины типа: после приведения к <code>byte</code> индексы равны</td><td><span class="chip bad">DCA1001</span></td></tr>
+      <tr><td><code>parallel-for-disjoint-index</code></td><td><code>Parallel.For(0, n, i =&gt; results[i] = …)</code></td><td>У двух итераций разные значения счётчика</td><td><span class="chip ok">нет</span></td></tr>
+      <tr><td><code>span-slices-disjoint</code></td><td><code>_buffer.AsSpan(0, 8)[0]</code> и <code>_buffer.AsSpan(8, 8)[0]</code></td><td>Срез сводится к смещению в исходном массиве: ячейки <code>[0]</code> и <code>[8]</code></td><td><span class="chip ok">нет</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+  <p>Пример <code>index-overflow-wraps</code> объясняет, почему решатель — настоящий Z3, а не алгебраические упрощения: как алгебра, <code>i</code> и <code>i + 256</code> никогда не равны, а как исполняет C#, приведение к <code>byte</code> сворачивает их в одну ячейку. Неучтённое переполнение дало бы ложное подавление — единственный класс ошибок, который продукт себе позволить не может (<a href="adr/0004-z3-ships-inside-the-executable-and-degrades-to-unknown.md">ADR 0004</a>).</p>
+
+  <h3>Взаимоисключающие ветки</h3>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">mutually-exclusive-paths</span><span class="chips"><span class="chip ok">/boolean нет</span><span class="chip ok">/enum-switch нет</span></span></div>
+<pre><code class="language-csharp">public sealed class RoleOptions              // AddSingleton&lt;RoleOptions&gt;()
+{
+    public bool IsPrimary { get; } = true;   // get-only, пишется только при конструировании
+    public Shard Shard { get; } = Shard.Left;
+}
+
+// PrimaryPathWorker                          // SecondaryPathWorker
+if (_options.IsPrimary)                       if (!_options.IsPrimary)
+    _state.Boolean = "primary";                   _state.Boolean = "secondary";</code></pre>
+    <div class="case-body"><p>Guard-ы двух исполнений можно связать между собой только если доказано всё сразу: region — ровно один объект на процесс (статик, DI singleton или аллокация, выполняемая не более раза), поле <code>readonly</code> или get-only auto-property, вне конструирования его никто не пишет, и чтение идёт после конструирования. Тогда <code>IsPrimary ∧ ¬IsPrimary</code> — UNSAT. Во всех остальных случаях значение принадлежит одному исполнению и снять пару не может. С неподдержанным предикатом (<code>Name.StartsWith("x")</code>) пара остаётся с пометкой в uncertainty (<code>unsupported-guard-kept</code> <span class="chip bad">DCA1001</span>).</p></div>
+  </div>
+  <div class="prose">
+  <p>Guard передаётся к доступу по каждому пути от root отдельно (до 16 путей на доступ; дальше условия выше слияния отбрасываются с потерей точности, но не корректности). Условие вызывающего на значение аргумента ограничивает соответствующий параметр — только для параметров по значению и только для входного значения, не после переприсваивания.</p>
+  </div>
+</section>
+
+<section id="edge-iterators">
+  <h2>Итераторы исполняются там, где их перечисляют</h2>
+  <div class="prose">
+  <p>Вызов метода с <code>yield return</code> ничего не выполняет: он строит перечислитель. Тело работает по кусочку в <code>MoveNext</code> — там и тогда, где и когда кто-то перечисляет. Если бы анализ помещал тело в точку вызова, он ошибался бы как раз в защите (<a href="adr/0011-an-iterator-runs-where-it-is-enumerated.md">ADR 0011</a>).</p>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">iterator-created-under-lock</span><span class="chips"><span class="chip bad">DCA1003 · partial</span></span></div>
+<pre><code class="language-csharp">public IEnumerable&lt;int&gt; Walk() { Value = 1; yield return 1; }
+
+// EnumeratingWorker
+IEnumerable&lt;int&gt; sequence;
+lock (_state.Gate)
+    sequence = _state.Walk();      // тело ещё не выполнялось
+foreach (var item in sequence) { } // Value = 1 выполняется здесь, без замка
+
+// WritingWorker
+lock (_state.Gate) _state.Value = 2;</code></pre>
+    <div class="case-body"><p>Зеркальный кейс <code>iterator-enumerated-under-lock</code> <span class="chip ok">нет</span>: итератор создан вне замка, а <code>foreach</code> стоит внутри <code>lock</code> — тело действительно защищено. Итератор, который ушёл туда, где анализ не видит перечисления (сохранён в поле, отдан <code>ToList</code> или неизвестной библиотеке), дополнительно исполняется <em>unknown execution</em>: оно пересекается со всеми исполнениями своего process scope, включая себя, ничем не упорядочено и не держит замков (<code>iterator-escapes-to-field</code> <span class="chip bad">DCA1001</span>).</p></div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">async-tail-acquisition</span><span class="chips"><span class="chip bad">DCA1003 · partial</span></span></div>
+<pre><code class="language-csharp">public async Task EnterAsync()
+{
+    await Task.Yield();
+    Gate.Wait();                 // захват в хвосте, после первого await
+}
+
+// SpawningWorker
+_ = _state.EnterAsync();         // не ожидается: хвост — отдельное исполнение
+try { _state.Value = 1; }        // вызывающий этот семафор НЕ держит
+finally { _state.Gate.Release(); }</code></pre>
+    <div class="case-body"><p>От невыжданного async-вызова к вызывающему поднимается только то, что синхронный префикс захватил и тело не отпускает ни в одной точке, где может вернуть управление. Захват хвоста принадлежит хвосту и вызывающего не защищает.</p></div>
+  </div>
+</section>
+
+<section id="edge-unknown">
+  <h2>Код, которого анализ не видит</h2>
+  <div class="prose">
+  <p>У вызовов в библиотеки нет тела в solution. Для них есть три ответа, и выбор между ними — одна из самых тонких частей плагина.</p>
+  </div>
+
+  <figure class="narrow">
+    <div class="svg-wrap">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Вызов без тела: известный вызов по таблице, иначе opaque с UnknownEffect; opaque, трогающий общий изменяемый регион или делегат, становится semantic gap">
+      <defs>
+        <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
+      </defs>
+      <rect x="220" y="14" width="200" height="40" rx="8" class="box"/>
+      <text x="320" y="39" text-anchor="middle" class="t-bold">вызов без тела в run</text>
+      <line x1="320" y1="54" x2="320" y2="84" class="ln" marker-end="url(#arr5)"/>
+      <rect x="170" y="86" width="300" height="40" rx="8" class="box-sunken"/>
+      <text x="320" y="111" text-anchor="middle">описан таблицей семантики библиотек?</text>
+      <line x1="170" y1="106" x2="110" y2="106" class="ln"/>
+      <line x1="110" y1="106" x2="110" y2="160" class="ln" marker-end="url(#arr5)"/>
+      <text x="140" y="98" text-anchor="middle" class="t-small">да</text>
+      <rect x="20" y="162" width="180" height="56" rx="8" class="box-ok"/>
+      <text x="110" y="185" text-anchor="middle" class="t-bold">known call</text>
+      <text x="110" y="203" text-anchor="middle" class="t-small">эффекты из таблицы</text>
+      <line x1="470" y1="106" x2="530" y2="106" class="ln"/>
+      <line x1="530" y1="106" x2="530" y2="160" class="ln" marker-end="url(#arr5)"/>
+      <text x="500" y="98" text-anchor="middle" class="t-small">нет</text>
+      <rect x="430" y="162" width="200" height="56" rx="8" class="box-warn"/>
+      <text x="530" y="185" text-anchor="middle" class="t-bold">opaque call</text>
+      <text x="530" y="203" text-anchor="middle" class="t-small t-mono">UnknownEffect</text>
+      <line x1="530" y1="218" x2="530" y2="238" class="ln" marker-end="url(#arr5)"/>
+      <rect x="250" y="240" width="380" height="50" rx="8" class="box-bad"/>
+      <text x="440" y="261" text-anchor="middle" class="t-bold">semantic gap</text>
+      <text x="440" y="279" text-anchor="middle" class="t-small">если достаёт до общего изменяемого региона или получил делегат</text>
+    </svg>
+    </div>
+    <figcaption><b>Три исхода вызова без тела.</b> Known call описан таблицей и никогда не gap. Opaque call получает консервативный <code>UnknownEffect</code> — «может прочитать и записать всё, до чего достаёт». Gap-ом он становится только тогда, когда это действительно может повлиять на находки.</figcaption>
+  </figure>
+
+  <div class="prose">
+  <h3>Known call: таблица семантики библиотек</h3>
+  <p>Таблица (<code>ConcurrencyHunter.Core/Providers/LibrarySemantics/</code>, по файлу на семейство: <code>System.*</code>, логирование, System.Text.Json, Newtonsoft.Json, <code>HttpClient</code>, LINQ без делегатов, EF Core как opaque persistence) описывает член по точному <code>DocumentationCommentId</code>, имени сборки и диапазону версий. Эффектов три: без эффекта; <code>reads-deep</code> — чтение всего, что достижимо из аргумента, как делает сериализатор; <code>writes-arg</code> — запись собственных полей аргумента. Другая перегрузка или версия вне диапазона — уже opaque.</p>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">json-serialize-reads-deep</span><span class="chips"><span class="chip bad">DCA1001 · Deterministic</span></span></div>
+<pre><code class="language-csharp">public sealed class Settings { public readonly Limits Limits = new(); }   // AddSingleton&lt;Settings&gt;()
+
+_settings.Limits.Max = 100;                                  // worker
+[HttpGet] public string Get() =&gt; JsonSerializer.Serialize(_settings);    // action: deep read</code></pre>
+  </div>
+
+  <div class="prose">
+  <h3>Opaque call: <code>UnknownEffect</code></h3>
+  <p>Неизвестный вызов не считается «ничего не делающим». Его эффект — одно обращение вида <code>UnknownEffect</code>, которое читает и пишет всё, что достижимо из receiver и аргументов, до глубины summaries и wildcard дальше. В процедуре конфликта он ведёт себя как запись. Но есть важные сужения, каждое из которых снимает огромный шум:</p>
+  <ul>
+    <li>Объект одного исполнения (<code>Owned</code>, <code>ThreadConfined</code>) такой вызов только <em>читает</em>: вызов ничей ownership не меняет. Измерение на eShop: обратное правило давало 913 новых находок против 2.</li>
+    <li><code>readonly</code>-поле тоже только читается (кроме reflection), а то, на что оно указывает, получает эффект целиком.</li>
+    <li>Через receiver виден только тип, объявивший член: библиотечный член, вызванный на объекте из исходников (<code>base</code>-конструктор, унаследованный <code>HttpContext</code>), полей исходников не видит.</li>
+    <li>На структуре thread-safe коллекции эффект атомарен, как её собственные члены.</li>
+  </ul>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">unknown-call-model-not-noop</span><span class="chips"><span class="chip bad">DCA1001 · Medium</span></span></div>
+<pre><code class="language-csharp">public sealed class Inbox { public readonly List&lt;string&gt; Items = new(); }   // AddSingleton&lt;Inbox&gt;()
+
+CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне всех таблиц
+[HttpGet] public int Get() =&gt; _inbox.Items.Count;   // action читает структуру</code></pre>
+    <div class="case-body"><p>Вызов — semantic gap вида <code>unknown-library</code>. Он <em>решает</em> одну из проверок находки (здесь — операцию: одна из сторон и есть его <code>UnknownEffect</code>), поэтому этот компонент оценки становится 10 баллов, а итоговый score ограничен 79 — метка не выше Medium. Gap, который лишь стоит на пути вызовов до доступа, находку не меняет.</p></div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">unknown-library-captures-delegate</span><span class="chips"><span class="chip bad">DCA1001 · Medium</span></span></div>
+<pre><code class="language-csharp">protected override Task ExecuteAsync(CancellationToken stoppingToken)    // ShutdownWatcher
+{
+    stoppingToken.Register(() =&gt; _shutdown.Requested = true);   // делегат отдан opaque-вызову
+    return Task.CompletedTask;
+}
+
+[HttpGet] public bool Get() =&gt; _shutdown.Requested;</code></pre>
+    <div class="case-body"><p>Делегат, отданный неизвестному вызову, выполняется в unknown execution: когда угодно и сколько угодно раз, ничем не упорядоченно, без замков вызывающего. Одно исключение: делегат отдан в одном месте исполнением, которое запускается один раз и проходит это место один раз (как здесь — worker), — тогда он сам с собой не пересекается. То, что лямбда захватила из объектов «своего» исполнения, остаётся изолированным.</p></div>
+  </div>
+
+  <div class="prose">
+  <h3>Semantic gap</h3>
+  <p>Opaque call становится gap-ом, только когда его <code>UnknownEffect</code> достаёт до изменяемого региона с ownership <code>Escaped</code>/<code>Shared</code>/<code>Unknown</code>, когда ему передан делегат, или когда его результат записывается в поле общего региона. Вызов только со строками, числами и неизменяемыми типами gap-ом не бывает (<code>reflection-primitive-args-no-gap</code> <span class="chip ok">нет gap</span>). Виды gap: <code>reflection</code>, <code>dynamic</code>, <code>unresolved-dispatch</code> (interface/virtual/delegate-вызов без известного объекта), <code>model-gap</code> (service locator с неконстантным типом) и <code>unknown-library</code>. Gap один на callee в пределах process scope. Их порядок в отчёте — <em>materiality</em>: сначала число roots, потом число регионов, потом число мест вызова, без общего «скора».</p>
+  <p>Классический пример, где gap честно оставляет неопределённость, — <code>Channel&lt;T&gt;</code> (<code>channel-handoff</code> <span class="chip ok">нет находки</span>): объект, прочитанный consumer-ом, с записанным producer-ом не связан, а запись в канал общего объекта видна как gap в coverage — неопределённость, а не безопасность.</p>
+  <p>Сейчас gaps только показываются: в отчёте (coverage и uncertainty) и в confidence. AI-разрешение gap-ов — пакеты для субагентов, проверка ответов и повторный fixpoint — запланировано в фазах 5c–5d.</p>
+  </div>
+</section>
+
+<section id="edge-findings">
+  <h2>Одна гонка — одна находка</h2>
+  <div class="prose">
+  <p>Identity находки — правило, ресурс и неупорядоченная пара мест доступа. Roots, которые до этих мест доходят, — её <em>occurrences</em>, а не отдельные находки (<a href="adr/0007-a-finding-is-a-pair-of-access-sites.md">ADR 0007</a>).</p>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">group-shared-helper-many-callers</span><span class="chips"><span class="chip bad">DCA1001 · 1 находка, 6 occurrences</span></span></div>
+<pre><code class="language-csharp">public sealed class ActivityLog              // AddSingleton&lt;ActivityLog&gt;()
+{
+    private string? _lastAction;
+    public void Record(string action) =&gt; _lastAction = action;   // одно место записи
+}
+
+[HttpPost("create")] public void Create() =&gt; _log.Record("create");
+[HttpPost("update")] public void Update() =&gt; _log.Record("update");
+[HttpPost("delete")] public void Delete() =&gt; _log.Record("delete");</code></pre>
+    <div class="case-body"><p>Место записи одно, пара — запись с самой собой. Occurrences — пары roots: 3 самопересечения и 3 пары разных actions, всего 6. Fingerprint находки считается по правилу, содержащим символам обоих мест, форме ресурса, видам операций и результату защиты, но <strong>без roots</strong>: четвёртый вызывающий не меняет fingerprint, и suppression по нему продолжает работать. Меняется fingerprint только при смене причины.</p></div>
+  </div>
+
+  <div class="prose">
+  <h3>Глубокие пути и wildcard</h3>
+  <p>Access path ограничен глубиной 8. Более длинный путь сворачивается в wildcard-ресурс <code>["*"]</code> на регионе, с которого он начинается (<code>deep-access-path-wildcard</code> <span class="chip bad">DCA1001 · Medium</span>). Точное поле не установлено: компонент «ресурс» в оценке падает с 25 до 10, поэтому типичная wildcard-находка получает Medium, а uncertainty называет причину.</p>
+  </div>
+</section>
+</div>
+<div class="part" id="part-4">
+  <div class="part-label">Часть IV <span>Сопровождение и развитие</span></div>
+
+<section id="code-map">
+  <h2>Карта кода</h2>
+  <div class="prose">
+  <p>Плагин лежит в <code>plugins/concurrency-hunter/</code>. Код — около 26 тысяч строк C# в трёх проектах и ещё около 32 тысяч строк тестов. Разделение проектов — архитектурное правило, а не удобство: ядро анализа не должно знать ни Roslyn, ни хост, ни AI.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Проект / каталог</th><th>Что внутри</th><th>Крупнейшие файлы (строк)</th></tr></thead>
+    <tbody>
+      <tr><td><code>ConcurrencyHunter.Analysis</code></td><td colspan="2"><strong>Ядро без внешних ссылок.</strong> Проверяется <code>AnalysisBoundaryTests</code>.</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Ir/</code></td><td>Модель IR, валидатор, принтер</td><td class="num"><code>IrOperations.cs</code> 508</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>CallGraph/</code></td><td>Индекс программы, reachable set</td><td class="num"><code>ReachableSet.cs</code> 794</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Heap/</code></td><td>Summaries, points-to, DI-семантика, лимиты</td><td class="num"><code>WholeProgram.cs</code> 2143, <code>MethodSummaryBuilder.cs</code> 1615</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Execution/</code></td><td>Исполнения, ownership, конструирование, happens-before, таймеры</td><td class="num"><code>ExecutionModel.cs</code> 1449, <code>HappensBefore.cs</code> 1366</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Accesses/</code></td><td>Сбор доступов, замки, пары, неизвестные вызовы, gaps</td><td class="num"><code>InterproceduralAccesses.cs</code> 2895, <code>MustHeldLocks.cs</code> 894</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Analysis/</code>, <code>Solving/</code></td><td>Находки и оценка, селекторы, guard-ы, модель решателя</td><td class="num"><code>ConflictFindings.cs</code> 553</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Di/</code>, <code>Roots/</code>, <code>Scopes/</code></td><td>Модели DI, root descriptor, process scope</td><td class="num">—</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Reporting/</code>, <code>Narrative/</code></td><td>Рендер отчёта, правила статуса, валидатор narrative</td><td class="num"><code>ReportRenderer.cs</code> 733</td></tr>
+      <tr><td><code>ConcurrencyHunter.Core</code></td><td colspan="2"><strong>Всё, что знает Roslyn и Z3.</strong></td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Frontend/</code></td><td>Опускание в IR, SSA, эффективный CFG, индекс программы</td><td class="num"><code>IrLowering.cs</code> 3588</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Providers/</code></td><td>Root providers, DI-индекс, process scopes, таблица библиотек (<code>LibrarySemantics/</code>)</td><td class="num"><code>AspNetCoreRootProvider.cs</code> 584</td></tr>
+      <tr><td>&nbsp;&nbsp;<code>Analysis/</code></td><td><code>PhaseOneAnalyzer</code> — оркестрация конвейера; <code>Z3ConstraintSolver</code></td><td class="num">317</td></tr>
+      <tr><td><code>ConcurrencyHunter.Cli</code></td><td>Исполняемый файл: MCP-сервер (<code>Mcp/RunTools.cs</code>), <code>Runs/RunRegistry.cs</code>, <code>TargetResolver</code>, подкоманда <code>metrics</code></td><td class="num"><code>RunRegistry.cs</code> 553</td></tr>
+      <tr><td><code>ConcurrencyHunter.Core.Tests</code></td><td><code>Engine/</code> (движок на <code>EngineFixture</code>), <code>Providers/</code>, <code>Ir*Tests</code>, отчёт, <code>DemoExpectationTests</code>, <code>Expectations/</code>, <code>Fixtures/</code></td><td class="num">~30 тыс.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Cli.Tests</code></td><td>Жизненный цикл run, инструменты MCP, <code>metrics</code>, снапшоты demo и eShop</td><td class="num">~2,3 тыс.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Рядом с кодом: <code>skills/hunt/</code> (skill, правила composer-а, evals хостов и metrics), <code>demo/</code> (корпус кейсов), <code>docs/</code> (PRD, SPEC, ADR), <code>build/</code> (гейты и упаковка), <code>bin/</code> (launcher), три манифеста хостов. Общий код с cache-detective — <code>plugins/Common</code> (<code>Common.Roslyn</code> загружает solution, <code>Common.Mcp</code> даёт paged-ответы).</p>
+  <h3>В каком порядке читать</h3>
+  <ol>
+    <li><a href="../CONTEXT.md"><code>CONTEXT.md</code></a> — словарь и связи между терминами.</li>
+    <li><a href="SPEC.md">SPEC</a>: §3 (внутренние термины и модель неизвестного вызова), §6 (flow одного run), §7 (решающая процедура).</li>
+    <li>ADR 0006–0011 — решения, которые чаще всего всплывают в коде.</li>
+    <li><a href="../demo/SCENARIOS.md"><code>demo/SCENARIOS.md</code></a> и несколько кейсов из <code>demo/Demo.Web/Cases</code> рядом с их записями в <code>expected-findings.json</code>.</li>
+    <li><code>PhaseOneAnalyzer.AnalyzeAsync</code> — весь конвейер на одной странице.</li>
+    <li><code>IrSchema.cs</code> и <code>IrOperations.cs</code>, затем <code>MethodSummary.cs</code>: с этими типами работает всё остальное.</li>
+    <li>Любой тест из <code>Engine/</code> под отладчиком: <code>EngineFixture</code> позволяет прогнать фрагмент C# через весь движок.</li>
+  </ol>
+  </div>
+</section>
+
+<section id="testing">
+  <h2>Сборка, тесты и гейты</h2>
+  <div class="prose">
+  <p>Нужны Windows x64, .NET SDK 10.0.302 (<code>global.json</code>, roll-forward до последней feature-версии) и PowerShell 7. Долгие команды, по правилу репозитория, запускайте с выводом в файл, а не в консоль или через pipe.</p>
+  </div>
+<pre><code class="language-powershell"># из plugins/concurrency-hunter
+dotnet test src/ConcurrencyHunter.slnx *&gt; test.log; Get-Content test.log -Tail 50
+
+pwsh build/check-test-baseline.ps1            # все случаи из baseline должны пройти
+pwsh build/check-test-baseline.ps1 -Record    # перезаписать baseline (только с зелёного прогона)
+pwsh build/check-demo-expectations.ps1        # статическая проверка expected-findings.json
+pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dotnet test с E2E</code></pre>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Гейт</th><th>Что проверяет</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Test baseline</strong><br><code>build/test-baseline.txt</code></td><td>Список из 1 813 тестовых случаев, каждый <code>Passed</code>. Гейт падает, если случай из списка пропал, пропущен или упал. Перезапись охраняет <code>check-baseline-rerecord.ps1</code>: потерянный случай должен сопоставиться с переименованным в том же классе. Baseline — это список тестов, а не снапшот находок.</td></tr>
+      <tr><td><strong>Demo-гейт</strong><br><code>DemoExpectationTests</code></td><td>xunit-тест <code>Demo_matches_every_phase_5b_expectation_on_three_runs</code>: трижды анализирует <code>demo/Demo.slnx</code>, требует побайтно одинаковый результат и точное совпадение с <code>expected-findings.json</code> для записей фаз ≤ текущей. Любая находка, не совпавшая ни с одной записью, — false positive.</td></tr>
+      <tr><td><strong>Статика ожиданий</strong><br><code>check-demo-expectations.ps1</code></td><td>У каждой записи текущей фазы есть файл кейса с правильным namespace; записи завершённых фаз не изменены относительно <code>HEAD</code>; с <code>-Complete</code> — у каждого кейса таблицы фазы в <code>SCENARIOS.md</code> есть файл и запись.</td></tr>
+      <tr><td><strong>Снапшоты</strong><br><code>Cli.Tests/Snapshots</code></td><td><code>demo.json</code> и <code>eshop.json</code> — счётчики и coverage прогона <code>metrics</code>. eShop читается из checkout-а по переменной <code>CH_ESHOP_ROOT</code>.</td></tr>
+      <tr><td><strong>CI</strong><br><code>build-concurrency-hunter.yml</code></td><td>На <code>windows-latest</code> выполняет только <code>package.ps1</code>. Baseline и demo-гейт запускаются локально перед коммитом.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+  <h3>Формат <code>expected-findings.json</code></h3>
+  <p>Ожидания пишутся <strong>руками и до реализации</strong> и никогда не генерируются из результата анализатора — иначе demo проверял бы сам себя. Запись находки — правило, метка уверенности, ресурс в символьной форме и неупорядоченная пара доступов; roots в identity не входят:</p>
+  </div>
+<pre><code class="language-json">{
+  "id": "rmw-singleton-counter",
+  "phase": "2",
+  "rule": "DCA1002",
+  "confidence": "high",
+  "resource": {
+    "region": "di:Demo.Web.Cases.RmwSingletonCounter.HitStats@Singleton",
+    "accessPath": ["Hits"]
+  },
+  "accesses": [
+    { "symbol": "Demo.Web.Cases.RmwSingletonCounter.HitsController.Post()", "operation": "read-modify-write" },
+    { "symbol": "Demo.Web.Cases.RmwSingletonCounter.HitsController.Post()", "operation": "read-modify-write" }
+  ]
+}</code></pre>
+  <div class="prose">
+  <p>Две одинаковые стороны — это self-pair action-а. Запись в <code>notDefects</code> без <code>accesses</code> запрещает любую находку на ресурсе, с <code>accesses</code> — только на этой паре. Ячейка коллекции пишется отдельным сегментом пути: <code>["_cells", "[0]"]</code>, <code>["Items", "[?]"]</code>. Поле <code>phase</code> говорит, с гейта какой фазы запись проверяется; её содержимое — окончательный ответ первой версии и при смене фаз не переписывается.</p>
+  <div class="note warn">
+    <div class="note-title">Что учесть на Linux и при смене фазы</div>
+    <p>CLI-проект собирается под <code>win-x64</code>, <code>LauncherTests</code> требуют <code>cmd.exe</code>, а <code>EShopSnapshotTests</code> без <code>CH_ESHOP_ROOT</code> пропускается — но в baseline записан как <code>Passed</code>, поэтому гейт baseline проходит только на Windows с checkout-ом eShop. При переходе на следующую фазу нужно поднять три жёстко заданных маркера: <code>$PHASE = '5b'</code> в <code>check-demo-expectations.ps1</code>, <code>"5b"</code> в <code>DemoExpectationTests</code> и <code>phase_5a_expectation</code> в <code>check-baseline-rerecord.ps1</code>.</p>
+  </div>
+  </div>
+</section>
+
+<section id="invariants">
+  <h2>Правила, которые нельзя нарушать</h2>
+  <div class="prose">
+  <p>Эти правила записаны в SPEC и ADR, но в коде их легко нарушить незаметно — одна правка в одном слое без соседнего. Перед каждым изменением движка стоит перечитать список.</p>
+  <ol>
+    <li><strong>Unknown — не safe.</strong> Пару удаляет только доказательство. Недоступный решатель, таймаут, слитый контекст, неизвестный вызов, неизвестный компаратор снижают уверенность, но пару оставляют.</li>
+    <li><strong>Защита — самый опасный вердикт.</strong> <code>sufficient</code> только при общем объекте, совместимых режимах и удержании на всех путях. Никакого распознавания по имени или форме пользовательского типа.</li>
+    <li><strong>Happens-before только удаляет пары.</strong> Ребро без доказанной identity handle или без join на всех путях не добавляется.</li>
+    <li><strong>Неизвестный вызов не меняет ownership.</strong> Объект одного исполнения он только читает, общий — читает и пишет.</li>
+    <li><strong>AI не доказывает безопасность.</strong> Принятый AI-факт может добавить ребро, эффект или находку, но не может удалить детерминированный эффект или доказать синхронизацию или порядок.</li>
+    <li><strong>Одна пара мест доступа — одна находка.</strong> Roots — occurrences; fingerprint не зависит от roots.</li>
+    <li><strong>Никакого декартова перебора.</strong> Новые виды ресурсов встраиваются в buckets <code>CandidateIndex</code>.</li>
+    <li><strong><code>Analysis</code> не ссылается ни на что.</strong> Roslyn-специфичное остаётся во frontend, граница — IR.</li>
+    <li><strong>Ожидания demo пишутся руками до реализации.</strong> Подтверждённый false positive или false negative получает минимальный demo-кейс.</li>
+    <li><strong>Детерминизм.</strong> Все порядки обхода и сортировки ordinal и стабильны: demo-гейт требует одинаковый результат на трёх прогонах.</li>
+    <li><strong>Документация описывает текущее состояние.</strong> История изменений — только в CHANGELOG; в README, SPEC и этом руководстве пишется, как работает сейчас.</li>
+  </ol>
+  </div>
+</section>
+
+<section id="howto">
+  <h2>Как доработать: частые задачи</h2>
+  <div class="prose">
+  <h3>Новый demo-кейс</h3>
+  <ol>
+    <li>Один файл <code>demo/Demo.Web/Cases/&lt;PascalName&gt;.cs</code>, один namespace <code>Demo.Web.Cases.&lt;PascalName&gt;</code>, регистрация через метод-расширение <code>Add&lt;Case&gt;()</code> или <code>Map&lt;Case&gt;()</code>, вызванный из <code>Program.cs</code>. Общих строк между кейсами нет.</li>
+    <li>Кейс фазы не содержит конструкций поздних фаз, если они не его предмет: иначе метка уверенности сдвинется в поздней фазе, а запись ожиданий переписывать нельзя.</li>
+    <li>Если нужна пара, которая не пересекается сама с собой, пишите в двух <code>BackgroundService</code>, а action пусть только читает.</li>
+    <li>Запись в <code>expected-findings.json</code> (kebab-имя файла как <code>id</code>) и строка в таблице своей фазы в <code>SCENARIOS.md</code> — до изменения движка.</li>
+  </ol>
+
+  <h3>Новый execution root</h3>
+  <ol>
+    <li>Один класс <code>IExecutionRootProvider</code>: распознавание по <code>ExactSymbols</code> (символ + диапазон версий), <code>ExecutionRootDescriptor</code> со стабильным id, <code>InstanceBindings</code> и <code>InvocationPolicy</code>.</li>
+    <li>Регистрация в <code>BuiltInProviders.Create()</code>.</li>
+    <li>Случаи в <code>ProviderFixture</code> с именами <code>Provider_Scenario_ExpectedOutcome</code> и сквозной тест root → находка → отчёт. Шаблон — <code>SyntheticProviderEndToEndTests</code>. Ядро не меняется.</li>
+  </ol>
+
+  <h3>Новый член в таблице библиотек</h3>
+  <ol>
+    <li>Одна строка в файле семейства <code>Core/Providers/LibrarySemantics/*Family.cs</code>. Пример из <code>SystemTextJsonFamily.cs</code>:</li>
+  </ol>
+  </div>
+<pre><code class="language-csharp">Known("M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions)~System.String",
+      DeepReadOf("value")),</code></pre>
+  <div class="prose">
+  <ol start="2">
+    <li>Обновить эталонный список в <code>LibrarySemanticsTableTests</code> (тест сравнивает таблицу с ним точно). Contract-тесты сами проверят, что id разрешается в реальной сборке, эффект называет существующий параметр, член не принимает делегат и не является setter-ом.</li>
+    <li>Добавлять только члены, которые реально встретились в demo или корпусах, и никогда — члены, меняющие собственное состояние библиотечного объекта.</li>
+  </ol>
+
+  <h3>Новая конструкция C#</h3>
+  <ol>
+    <li>Ветка в <code>LowerValue</code> или <code>LowerTop</code>; новая цель присваивания — <code>LowerStore</code>, адресуемая или RMW-цель — <code>LowerAddress</code> и <code>TryLocation</code>.</li>
+    <li>Каждое новое определение локальной переменной — в <code>SsaPlan.Scan</code> <strong>в том же порядке вычисления</strong>, иначе лоуеринг бросит «No SSA definition was planned».</li>
+    <li>Новый вид операции: запись в <code>IrOperations.cs</code>, ветка в <code>IrPrinter</code> (тест <code>Every_operation_kind_has_a_text_form</code> упадёт без неё), правила в <code>IrValidator</code>, обработка в <code>MethodSummaryBuilder</code>, <code>ReachableSet</code>, <code>HappensBefore</code> и <code>InterproceduralAccesses</code>; подумайте о повышении <code>IrSchema.VERSION</code>.</li>
+  </ol>
+
+  <h3>Новый вид региона</h3>
+  <p>Перечисление в <code>WholeProgram.cs</code> и создание через <code>Region()</code>; затем switch ownership в <code>ExecutionModel</code>, <code>IsContainerWide</code>/<code>SharedRoots</code>, <code>CreationExecutions</code>, <code>AssignRegionExecutions</code> (если регион конструируется), <code>IsInternal</code>, <code>SingleObjects</code>. Проверьте все места, где identity разбирается строкой.</p>
+
+  <h3>Лимиты анализа</h3>
+  <p>Значения по умолчанию — в <code>Heap/MethodSummary.cs</code>. Их изменение сдвигает <code>DemoExpectationTests</code> и снапшот eShop; сетку значений воспроизводит <code>skills/hunt/evals/metrics/run-limits-grid.ps1</code>, а выбор записан в <code>limits.md</code>.</p>
+  </div>
+</section>
+
+<section id="status">
+  <h2>Состояние разработки</h2>
+  <div class="prose">
+  <p>Разработка идёт фазами из SPEC §14.3. Каждая фаза заканчивается работающим плагином, зелёными гейтами и, начиная с 2b, записанным прогоном <code>metrics</code>. Текущая ветка — первая половина фазы 5b.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Фаза</th><th>Содержание</th><th>Статус</th></tr></thead>
+    <tbody>
+      <tr><td>0–1b</td><td>Документы, demo, каркас плагина, пять MCP-инструментов, провайдеры AspNetCore и Hosting, DI, must-hold <code>lock</code></td><td><span class="status done">готово</span></td></tr>
+      <tr><td>2a–2b</td><td>Frontend в полной форме, summaries, points-to, ownership, конструирование, DCA1002; buckets, fingerprints, <code>metrics</code>, eShop, service locator</td><td><span class="status done">готово</span></td></tr>
+      <tr><td>3</td><td>Все spawn sites, happens-before, таймеры, gRPC</td><td><span class="status done">готово</span></td></tr>
+      <tr><td>4 и 4b</td><td>Все примитивы, коллекции, DCA1003/1004, селекторы, guard-ы, Z3; guard-ы по путям, доступы через ссылки, итераторы</td><td><span class="status done">готово</span></td></tr>
+      <tr><td>5a</td><td>Known calls: таблица семантики библиотек</td><td><span class="status done">готово</span></td></tr>
+      <tr><td>5b</td><td>Неизвестные вызовы без AI: <code>UnknownEffect</code>, gaps, materiality, делегаты в unknown execution, <code>HashSet</code>/<code>Queue</code>/<code>Stack</code>/<code>LinkedList</code>. Второй ран — вопросы 25 и 30</td><td><span class="status part">первый ран готов</span></td></tr>
+      <tr><td>5c</td><td>Проверка AI-фактов без MCP: gap packets, валидация inferred facts, повторный fixpoint, <code>AI-Assisted</code>, потолок Medium</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>5d</td><td>Протокол resolver: <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code>, <code>run_cancel</code>, статус <code>Cancelled</code>, два раунда</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>5e</td><td>LINQ с делегатами, MediatR, AutoMapper, FluentValidation, Polly, entity tracking EF Core, <code>[ThreadStatic]</code>/<code>ThreadLocal</code>/<code>AsyncLocal</code>, keyed services</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>6</td><td>Triage: suppressions, redaction, generated code, выбор TFM, категории исправлений, README и guides</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>7</td><td>Масштаб: nopCommerce, OrchardCore, eShopOnAbp, цели производительности, ручной triage</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>8</td><td>Инкрементальный кэш, вторая волна провайдеров, <code>Channel</code> и event-ожидания, server-driven AI, Linux</td><td><span class="status todo">впереди</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <h3>Открытые вопросы</h3>
+  <p>Нумерация — из <code>demo/SCENARIOS.md</code>; каждый решается в плане указанной фазы до написания кейса.</p>
+  <ul>
+    <li><strong>25 (5b)</strong> — RMW через одну ссылку в раздельных операторах (<code>ref int r = ref s.Value; var old = r; r = old + 1;</code>) сейчас классифицируется как DCA1001, а не DCA1002.</li>
+    <li><strong>30 (5b)</strong> — куча не хранит элементы <code>List&lt;T&gt;</code> и <code>Dictionary</code>: <code>_state.Items[0].Value = 1</code> не даёт доступа, а тот же код над массивом даёт.</li>
+    <li><strong>21 (5c)</strong> — снимает ли принятый AI-факт консервативную модель того же opaque-вызова.</li>
+    <li><strong>20, 29 (5e)</strong> — имя региона для keyed-регистраций; эффект <code>returns-arg</code> у LINQ-операторов, сохраняющих элементы.</li>
+    <li><strong>9, 13 (6)</strong> — корень репозитория для <code>suppressions.json</code>; что именно redaction убирает из сниппетов.</li>
+  </ul>
+  <h3>Временные границы</h3>
+  <p>Что сейчас намеренно не моделируется и какая фаза это снимет: resolver не вызывается, gaps только видны в отчёте (5d); EF Core — opaque persistence без entity tracking, и общий между исполнениями <code>DbContext</code> не виден (5e); лямбды LINQ-операторов, Polly и MediatR исполняются в unknown execution (5e); <code>[ThreadStatic]</code>, <code>ThreadLocal</code>, <code>AsyncLocal</code>, keyed и <code>Type</code>-регистрации не анализируются (5e); suppressions не реализованы (6); только Windows x64 (8).</p>
+  </div>
+</section>
+
+<section id="discrepancies">
+  <h2>Где код и документы расходятся</h2>
+  <div class="prose">
+  <p>При разборе кода для этого руководства нашлись места, где реализация отличается от SPEC или содержит устаревшие строки. Каждое проверено по исходникам; ни одно не проверялось запуском. Прежде чем править, решите, что верно — код или документ.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Что</th><th>SPEC / документы</th><th>Код сейчас</th></tr></thead>
+    <tbody>
+      <tr><td>Вес path feasibility</td><td>TD-103: 15, сумма 100</td><td>10 (SAT) / 5 (не спрашивался) / 0; максимум оценки 95 (<code>ConflictFindings.cs</code>)</td></tr>
+      <tr><td>Частичная защита в оценке</td><td>TD-103: <code>partial</code> и <code>different-identity</code> <em>повышают</em> компонент</td><td>Понижают: 12 вместо 20, с обоснованием в комментарии к <code>Components</code></td></tr>
+      <tr><td>Wildcard-находка</td><td><code>composing.md</code>: метка Medium</td><td>Отдельного потолка нет: ресурс даёт 10 вместо 25; с ответом SAT такая находка набирает 80 и становится High</td></tr>
+      <tr><td>Устаревшие строки отчёта</td><td>Z3 и доступы к элементам работают с фазы 4</td><td>Каждая находка начинает uncertainty с «Path feasibility is not analyzed in this version.»; coverage пишет «Not analyzed in this version: … path feasibility, element accesses». Строки закреплены тестами</td></tr>
+      <tr><td>Заголовок DCA1004</td><td>—</td><td><code>ReportRenderer.Title</code> не знает DCA1004 и даёт ему заголовок DCA1001</td></tr>
+      <tr><td>Hash-и summaries</td><td>TD-021/024: <code>InputHash</code>, <code>DependencyHash</code> с первой версии</td><td>У summaries их нет; есть только в схеме IR</td></tr>
+      <tr><td>Fixpoint</td><td>TD-023: worklist по SCC снизу вверх</td><td>Круговые проходы по всем экземплярам; SCC считается только при исчерпании бюджета</td></tr>
+      <tr><td>Root descriptor</td><td>SPEC §11: <code>ProcessScope</code>, <code>ActivationCondition</code>, <code>LifetimeOwner</code></td><td>Этих полей нет; <code>CompletionEvents</code>, <code>OrderingConstraints</code>, <code>PrecisionFlags</code> есть, но никто их не читает</td></tr>
+      <tr><td>Устаревший doc-comment</td><td>ADR 0006, фаза 3</td><td><code>ExecutionModel.Accesses</code>: «accesses of startup constructions are dropped and counted» — сейчас они упорядочены happens-before</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <h3>Похоже на дефекты — стоит проверить тестом</h3>
+  <ul>
+    <li><strong>Составное присваивание элементу.</strong> <code>LowerCompoundAssignment</code> и <code>LowerIncrement</code> обрабатывают поля, auto-properties, ссылки и локальные переменные. Для элемента массива (<code>a[i]++</code>, <code>a[i] += x</code>), обычного индексатора (<code>dict[k] += 1</code>) и свойства с телом (<code>P++</code>) они возвращают <code>Unknown(compound, "unsupported")</code> <em>без операндов</em>: ни чтение, ни запись, ни вызовы внутри индекса не попадают в IR, хотя <code>LowerUnsupported</code> для остальных конструкций детей опускает. Ни в тестах, ни в demo такой формы нет. Если подтвердится, это пропуск DCA1002.</li>
+    <li><strong>Startup и unknown executions.</strong> <code>HappensBefore.EndEdges</code> ведёт ребро из конца startup ко всем исполнениям вне дерева startup, включая <code>UnknownDelegateCall</code> и <code>UnknownEnumeration</code>. Комментарий в <code>ExecutionModel</code> и ADR 0011 говорят, что unknown execution не упорядочено «даже startup-ом». Делегат, отданный неизвестному вызову во время старта, может выполниться ещё во время старта.</li>
+  </ul>
+  </div>
+</section>
+
+<section id="glossary">
+  <h2>Словарь</h2>
+  <div class="prose">
+  <p>Термины из <code>CONTEXT.md</code> с объяснением по-русски. В скобках — слова, которые словарь запрещает использовать вместо термина.</p>
+  </div>
+  <dl class="glossary prose">
+    <dt>Run</dt><dd>Один запуск команды от <code>run_start</code> до terminal status. <span class="en">(не scan, session, job)</span></dd>
+    <dt>Skill / Server</dt><dd>Skill — инструкция для агента хоста, единственный оркестратор run. Server — анализатор за MCP: хранит состояние и дедлайн, сам AI не запускает.</dd>
+    <dt>Deadline, late response</dt><dd>30 минут от старта run. Ответ AI, пришедший позже, записывается как late и не применяется.</dd>
+    <dt>Terminal status</dt><dd><code>CompleteWithFindings</code>, <code>CompleteClean</code>, <code>Incomplete</code>, <code>Failed</code>; <code>Cancelled</code> появится в фазе 5d.</dd>
+    <dt>Execution root</dt><dd>Точка, откуда фреймворк или рантайм начинает независимое исполнение. <span class="en">(не entry point, handler, thread)</span></dd>
+    <dt>Spawn site</dt><dd>Вызов в пользовательском коде, начинающий новое исполнение из текущего. <span class="en">(не fork, background call)</span></dd>
+    <dt>Execution instance</dt><dd>Одно логическое исполнение root-а или spawn-а; не поток ОС. <span class="en">(не thread, request, task)</span></dd>
+    <dt>Fire-and-forget</dt><dd>Вызов, возвращающий задачу, чей handle ни на одном пути не доходит до ожидания.</dd>
+    <dt>Unknown execution</dt><dd>Исполнение, о котором известно, что оно запустит код, но неизвестно кто: перечисление сбежавшего итератора или вызов делегата, отданного opaque-вызову. Пересекается со всем в своём scope, включая себя.</dd>
+    <dt>Join</dt><dd>Точка, которая выполняется только после завершения другого исполнения, доказанная на всех путях для handle именно этого исполнения. <code>WhenAny</code>, ожидание с таймаутом, event-ожидание и <code>Dispose()</code> — не join.</dd>
+    <dt>Happens-before</dt><dd>Доказанный порядок двух событий: путь через spawn, join, продолжения и startup внутри одного instance tree.</dd>
+    <dt>Instance tree</dt><dd>Root, который запускается не более раза и не пересекается сам с собой, вместе с порождёнными из него однократными исполнениями. Единственное место, где путь happens-before считается доказательством.</dd>
+    <dt>Construction</dt><dd>Работа конструктора или type initializer. Её обращения к собственному объекту не образуют пар, пока объект не опубликован; остальное принадлежит исполнению, которое её запустило.</dd>
+    <dt>Reachable set</dt><dd>Тела методов, достижимые из roots и spawn sites. Только они опускаются в IR и считаются в coverage.</dd>
+    <dt>Process scope</dt><dd>Исполняемый проект вместе с проектами, которые он загружает. Статик в двух scope — два объекта. <span class="en">(не solution, app)</span></dd>
+    <dt>Heap region</dt><dd>Идентичность объекта или множества объектов: место аллокации с контекстом, статика, DI-экземпляр. <span class="en">(не object, instance)</span></dd>
+    <dt>Access path, selector</dt><dd>Путь поле за полем от региона до места; селектор — последний шаг в массив или коллекцию: константа, символическое выражение, диапазон или неизвестно.</dd>
+    <dt>Resource</dt><dd>Регион плюс access path — единица, по которой сравниваются доступы. <span class="en">(не shared state, variable)</span></dd>
+    <dt>Collection structure</dt><dd>Собственная форма коллекции (количество, слоты, порядок) — отдельный ресурс от ячеек.</dd>
+    <dt>Ownership</dt><dd><code>Owned</code>, <code>ThreadConfined</code>, <code>Escaped</code>, <code>Shared</code> или <code>Unknown</code> — с цепочкой доказательств.</dd>
+    <dt>Access</dt><dd>Одна операция над ресурсом вместе с исполнением, удерживаемой защитой и guard-ом.</dd>
+    <dt>Candidate, bucket</dt><dd>Кандидат — пара, прошедшая дешёвые фильтры. Bucket — ячейка индекса кандидатов: доступы одного scope к одному ресурсу.</dd>
+    <dt>Finding, occurrence, fingerprint</dt><dd>Находка — правило, ресурс и пара мест доступа. Occurrence — пара roots, которой она достигается. Fingerprint — стабильное имя находки между прогонами, без roots.</dd>
+    <dt>Protection, protection result</dt><dd>Синхронизатор и режим, удерживаемые на всех путях к доступу. Результат пары: <code>sufficient</code>, <code>partial</code>, <code>different-identity</code>, <code>incompatible-mode</code>, <code>unprotected</code>.</dd>
+    <dt>Atomic operation</dt><dd>Операция, которую платформа выполняет неделимо над одним местом: <code>Interlocked</code>, <code>Volatile</code>, <code>volatile</code>. Свойство операции, а не защита.</dd>
+    <dt>Guard</dt><dd>Условие пути, при котором выполняется доступ. Два доступа с несовместимыми guard-ами не встречаются. <span class="en">(не protection, lock)</span></dd>
+    <dt>Known call, deep read</dt><dd>Вызов без тела, описанный таблицей семантики для точного члена и версии. Deep read — чтение всего, что достижимо из аргумента.</dd>
+    <dt>Opaque call, unknown effect</dt><dd>Вызов без тела, который таблица не описывает. Его эффект — «может прочитать и записать всё, до чего достаёт», конфликтует как запись.</dd>
+    <dt>Semantic gap, gap packet, materiality</dt><dd>Неразобранный вызов, который трогает общее изменяемое состояние или получает делегат. Packet — ограниченный вопрос к AI о нём (фаза 5c). Materiality — порядок gaps по числу roots, регионов и мест вызова.</dd>
+    <dt>Inferred fact</dt><dd>Гипотеза AI, прошедшая проверку сервером и помеченная как AI-derived (фаза 5c).</dd>
+    <dt>Confidence label</dt><dd>High (80+), Medium (55–79), Low. Не severity: severity — отдельная оценка последствий.</dd>
+    <dt>Skeleton, narrative, report bundle</dt><dd>Skeleton — часть отчёта, которую сервер пишет сам. Narrative — текст AI к группе находок. Bundle — <code>report.md</code>, <code>findings.json</code>, <code>run-metadata.json</code>.</dd>
+    <dt>Suppression</dt><dd>Решение пользователя скрыть находку с обязательной причиной; меняет только представление (фаза 6).</dd>
+  </dl>
+</section>
+</div>
+    <footer class="end">
+      <p>Составлено по <code>docs/PRD.md</code>, <code>docs/SPEC.md</code>, <code>CONTEXT.md</code>, ADR 0001–0011, кейсам <code>demo/</code> и исходному коду ветки <code>feature/race-hunter</code> на коммите <code>904c715</code> (первый ран фазы 5b). Номера фаз, счётчики demo и число тестов относятся к этому состоянию.</p>
+    </footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-powershell.min.js"></script>
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.sidebar nav a'));
+  if (!links.length || !('IntersectionObserver' in window)) return;
+  var byId = {};
+  links.forEach(function (link) { byId[link.getAttribute('href').slice(1)] = link; });
+  var visible = {};
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) { visible[entry.target.id] = entry.isIntersecting; });
+    var current = null;
+    for (var i = 0; i < links.length; i++) {
+      var id = links[i].getAttribute('href').slice(1);
+      if (visible[id]) { current = id; break; }
+    }
+    if (!current) return;
+    links.forEach(function (link) { link.classList.remove('active'); });
+    byId[current].classList.add('active');
+  }, { rootMargin: '-10% 0px -70% 0px' });
+  Object.keys(byId).forEach(function (id) {
+    var section = document.getElementById(id);
+    if (section) observer.observe(section);
+  });
+})();
+</script>
+</body>
+</html>
