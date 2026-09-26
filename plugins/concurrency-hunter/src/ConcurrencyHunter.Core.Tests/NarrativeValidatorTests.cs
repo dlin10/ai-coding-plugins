@@ -236,6 +236,26 @@ public sealed class NarrativeValidatorTests
     }
 
     [Fact]
+    public void Backticked_C_sharp_keywords_and_literals_are_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("A `catch` or `finally` that sets `false`, `true` or `null`, passes it `ref` or `out`, or locks `this`."),
+            GroupScope(CreateFinding()));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Keyword_is_accepted_only_as_the_whole_snippet()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Do not invent `InventedSymbol`, `this.Invented` or `@finally`."),
+            GroupScope(CreateFinding()));
+
+        Assert.Equal(["inventedSymbol:InventedSymbol", "inventedSymbol:this.Invented", "inventedSymbol:@finally"], verdict.Reasons);
+    }
+
+    [Fact]
     public void Backticked_symbol_absent_from_the_evidence_is_rejected()
     {
         var verdict = NarrativeValidator.Validate(

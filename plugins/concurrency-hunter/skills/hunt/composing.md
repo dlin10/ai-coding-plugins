@@ -145,7 +145,7 @@ Follow every validation rule:
   region type without its `static:`, `di:` or `alloc:<method>#` prefix and its `@<Lifetime>` or `#<n>`
   suffix; the field; a held protection name without that prefix, suffix or its trailing note; the callee
   of a semantic gap the finding's uncertainty names, without type arguments or parameters, or a
-  dot-suffix of it; an evidence id; `DCA1001` through `DCA1004`; or the synchronization vocabulary below. The lifetime on
+  dot-suffix of it; an evidence id; `DCA1001` through `DCA1004`; the synchronization vocabulary below; or a reserved C# keyword. The lifetime on
   its own, such as `Singleton`, and the creating method of an `alloc:` region, are not accepted.
   Nor is a type name on its own unless it is the region type, a C# keyword, or a framework member the
   evidence does not name: a worker, controller or service is named by its member, a dot-suffix of the
@@ -159,6 +159,11 @@ Follow every validation rule:
   `readonly`, `static`, `const`, `async`, `await`, `Task`, `Dictionary`, `List`, `HashSet`, `Queue`,
   `Stack`, `LinkedList`, `LinkedListNode`, or the protection verdicts `unprotected`, `partial` and
   `sufficient`.
+- A reserved C# keyword, the literals `true`, `false` and `null` among them, is accepted when it is the
+  whole backticked snippet, such as `finally`, `catch`, `ref`, `out` or `this`. Anything longer is checked
+  as an identifier: a keyword followed by a member is accepted only when that member would be, and a
+  verbatim identifier with `@` names a symbol. Contextual keywords such as value, var or yield are not
+  keywords here.
 - Keep citations, locations, and identifiers grounded in the supplied group. Do not invent them and
   do not copy the evidence prose back into the narrative.
 

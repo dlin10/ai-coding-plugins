@@ -63,6 +63,19 @@ public static class NarrativeValidator
         "sufficient"
     };
 
+    // The reserved keywords of C#, the literals among them. None of them can name a symbol without `@`, so a narrative cannot
+    // invent one. Each is accepted only as the whole snippet: `this.Field` and `@class` are checked like any other identifier.
+    private static readonly HashSet<string> KEYWORDS = new(StringComparer.Ordinal)
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked", "class", "const", "continue",
+        "decimal", "default", "delegate", "do", "double", "else", "enum", "event", "explicit", "extern", "false", "finally",
+        "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock", "long",
+        "namespace", "new", "null", "object", "operator", "out", "override", "params", "private", "protected", "public",
+        "readonly", "ref", "return", "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
+        "volatile", "while"
+    };
+
     public static NarrativeVerdict Validate(string? text, NarrativeScope scope)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -226,7 +239,8 @@ public static class NarrativeValidator
                            suffixTargets.Any(target => IsDotSuffix(withoutParameters, target)) ||
                            evidenceIds.Contains(normalized) ||
                            Regex.IsMatch(normalized, @"^DCA100[1-4]$") ||
-                           SYNCHRONIZATION_VOCABULARY.Contains(firstSegment);
+                           SYNCHRONIZATION_VOCABULARY.Contains(firstSegment) ||
+                           KEYWORDS.Contains(quoted);
             if (!accepted)
                 addReason($"inventedSymbol:{quoted}");
         }
