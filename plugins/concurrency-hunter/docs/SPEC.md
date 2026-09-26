@@ -72,7 +72,7 @@ flowchart LR
 | Project Loader (`Common.Roslyn`) | MSBuild/Roslyn workspace, compilation boundary, coverage inventory | Анализ concurrency |
 | Roslyn Frontend | Symbols/IOperation/CFG → normalized IR | Framework-specific verdicts |
 | Reachability | Reachable set от roots и spawn sites по CHA-графу | Точный граф вызовов |
-| Whole-program Fixpoint | Summaries, граф вызовов, points-to, escape, ownership в одном worklist | Попарное сравнение accesses |
+| Whole-program Fixpoint | Summaries, граф вызовов, points-to, escape, ownership в одном fixpoint | Попарное сравнение accesses |
 | Semantic Gap Builder | Определение gap, модель unknown call по умолчанию, пакет на callee, materiality | Домыслы о semantics |
 | Validation Service | Проверка inferred facts и narrative fragments; вызывается tool-handlers и, в будущем, server-driven режимом | Генерация narrative |
 | Execution Model | Roots, instances, intervals, may-overlap, happens-before | Resource identity |
@@ -91,7 +91,7 @@ Core IR, fixpoint, execution model и rule engine не зависят от Rosly
 ### 2.3. Основные технические решения
 
 - Roslyn как frontend; собственный normalized SSA-like IR отделяет core от compiler API.
-- Compositional method summaries; граф вызовов, points-to и escape считаются одним совместным fixpoint по SCC.
+- Compositional method summaries; граф вызовов, points-to и escape считаются одним совместным fixpoint над instances `(method, context)`.
 - Lowering и анализ только reachable set; все проекты компилируются один раз.
 - Field-sensitive allocation-site points-to с ограниченной hybrid context sensitivity и ownership/escape выполняются до candidate pairing; доказанно unshared regions исключаются рано.
 - Дешёвые фильтры и resource index предшествуют дорогому candidate-local refinement; глобальное декартово сравнение не используется.
@@ -160,13 +160,13 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-020.** Для каждого метода reachable set вычисляется summary, переиспользуемое во всех call sites.
 
-**TD-021.** Summary содержит: symbolic heap accesses относительно `this`, arguments, statics, allocation sites и return value; operation kind и value dependency для RMW; escapes/captures/returns; points-to transfer facts; synchronization events и protection sets; spawn/join/order events; path predicates эффектов; resolved и unresolved callees; unknown effects с причинами; source/evidence provenance; `InputHash` и `DependencyHash`.
+**TD-021.** Summary содержит: symbolic heap accesses относительно `this`, arguments, statics, allocation sites и return value; operation kind и value dependency для RMW; escapes/captures/returns; points-to transfer facts; synchronization events и protection sets; spawn/join/order events; path predicates эффектов; resolved и unresolved callees; unknown effects с причинами; source/evidence provenance.
 
 **TD-022.** На call site symbolic resources summary инстанцируются фактическими receiver/arguments и их points-to sets. Общий symbolic summary переиспользуется; context-specific instantiations различаются по `(MethodId, ContextKey)`.
 
-**TD-023.** Рекурсивные SCC анализируются до fixpoint с документированным widening и termination budget на SCC.
+**TD-023.** Fixpoint это проходы по всем instances `(method, context)` в порядке их создания, пока проход что-то меняет; instances создаются по требованию от roots и конструкций, которые они запускают. Points-to множества только растут над конечным универсумом, поэтому проходы сходятся; widening нет, его место занимают два бюджета. Тело, у которого больше `MaxContextsPerMethod` (16) контекстов, или подстановка с открытым type parameter уходит в один контекст `@merged` (счётчик `merged-context`). Instance, который продолжает меняться дольше `MaxSccIterations` (16) проходов, получает свою компоненту сильной связности в графе вызовов instances; если она циклическая, тела компоненты сливаются так же (счётчик `scc-budget-exceeded`). SCC вычисляется только при исчерпании этого бюджета.
 
-**TD-024.** Summary schema versioned. Хэши входов и зависимостей вычисляются с первой версии, хотя в v1 не хранятся между runs; это условие будущего кэша по PRD 8.
+**TD-024.** Summary живёт в памяти одного run: не сериализуется, не версионируется и хэшей не несёт. Версию схемы имеет IR (`IrSchema.VERSION`, строка `IR schema` заголовка отчёта). Хэши входов и зависимостей summaries вводятся вместе с incremental cache в фазе 8 (PRD 8).
 
 **TD-025.** Для metadata-only метода без source применяется built-in semantics provider, таблица семантики библиотек или unknown-call model. Неизвестный метод не считается no-op.
 
@@ -206,7 +206,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-043.** Индексы arrays/spans и keys collections представлены `ElementSelector`: `Exact` для доказанно известного типизированного значения; `ExpressionOrRange` для простого символического выражения или консервативного диапазона с guards, где переменные связаны с canonical value identities и контекстом, а не с текстом имени; `Unknown` для wildcard. Неподдержанное выражение или превышение complexity budget расширяет selector до безопасного диапазона либо `Unknown`. Различие selectors доказывает только различие ячеек при доказанно непересекающихся значениях; объекты в разных ячейках всё ещё могут alias. Для spans/slices сравнение использует underlying region и offset. Прямой доступ к ячейке коллекции, которую тело получило параметром по значению, — это доступ к ячейке коллекции, переданной вызывающим, со сдвигом его среза и с выражением индекса, связанным по пути вызовов; к ячейке коллекции, которую вернул вызов с телом, — доступ к хранилищу, которое называет `return` вызываемого, с неизвестной ячейкой; так же и для ссылки на такую ячейку. Коллекция, которая и там не прочитана из поля, ресурсом не является, как и в собственном теле, и в coverage не учитывается. У пользовательского среза смещение доказано только из тела через `readonly`-поля (в том числе поля `readonly struct`), заданные при конструировании из связанных входных аргументов, в пределах бюджета глубины; иначе selector `[?]`. Чужой тип не распознаётся по имени члена. Numeric types, conversions и overflow моделируются в solver через `QF_BV`; без solver algebraic simplification не используется как доказательство. Equality keys определяется фактическим comparer коллекции; неизвестный или custom comparer это `Unknown` equality. Дешёвые сравнения constants/ranges выполняются до solver.
 
-**TD-044.** Hybrid context sensitivity: для instance methods context это абстрактный receiver (`receiver-object sensitivity`) через allocation/DI region; для static methods непосредственный call site (`1-call-site sensitivity`); для fresh allocations из factory summary call site входит в allocation context, у instance factory сохраняется связь с receiver; возвращаемый существующий alias, static object или DI singleton сохраняет исходную identity. Базовый проход использует эти контексты; более глубокое различение выполняется только для оставшихся candidates по TD-033. Число контекстов на метод, глубина refinement и widening ограничены константами сервера, значения выбираются на demo и eShop в фазе 2. При объединении контекстов сохраняется консервативное объединение may-targets, aliases и effects; потеря precision видна в uncertainty; must-held protection и ordering остаются доказанными для всех охваченных executions. Разный `ContextKey` не доказывает разные объекты.
+**TD-044.** Hybrid context sensitivity: для instance methods context это абстрактный receiver (`receiver-object sensitivity`) через allocation/DI region; для static methods непосредственный call site (`1-call-site sensitivity`); для fresh allocations из factory summary call site входит в allocation context, у instance factory сохраняется связь с receiver; возвращаемый существующий alias, static object или DI singleton сохраняет исходную identity. Базовый проход использует эти контексты; более глубокое различение выполняется только для оставшихся candidates по TD-033. Число контекстов на метод, глубина refinement и бюджет проходов SCC (TD-023) ограничены константами сервера, значения выбираются на demo и eShop в фазе 2. При объединении контекстов сохраняется консервативное объединение may-targets, aliases и effects; потеря precision видна в uncertainty; must-held protection и ordering остаются доказанными для всех охваченных executions. Разный `ContextKey` не доказывает разные объекты.
 
 **TD-045.** Lock identity использует тот же points-to mechanism, что и data resource identity.
 
@@ -326,9 +326,9 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-109.** Fingerprint AI-assisted finding включает hypothesis kind и deterministic anchors, не текст ответа.
 
-### 4.12. Хэши без кэша
+### 4.12. Без кэша между runs
 
-**TD-110.** В v1 результаты анализа между runs не хранятся; каждый run это clean full scan. Summaries, points-to и candidate artifacts несут `InputHash` и `DependencyHash` по TD-021 и TD-024; они пишутся в `run-metadata.json` как диагностика и являются условием будущего кэша по PRD 8.
+**TD-110.** В v1 результаты анализа между runs не хранятся; каждый run это clean full scan. Summaries, points-to и candidate artifacts хэшей не несут, и `run-metadata.json` их не пишет (TD-024); хэши входов и зависимостей вводятся вместе с кэшем в фазе 8 (PRD 8).
 
 **TD-111.** Кэш inferred facts ключуется по payload hash пакета, provider/model identity, prompt/schema version и engine/provider version; hit не освобождает ответ от валидации. Хранится в artifact directory плагина. PRD FR-19 его допускает, но не требует; реализуется в фазе 8, до неё resolver работает без кэша.
 
@@ -452,9 +452,6 @@ MethodSummary
   Guards[]
   UnknownEffects[]
   Provenance[]
-  InputHash
-  DependencyHash
-  SchemaVersion
 
 SemanticGapPacket
   GapId
@@ -522,7 +519,7 @@ NarrativeFragment
 1. **Старт.** `run_start` разрешает target, создаёт run id и deadline, возвращает немедленно. Job загружает MSBuild workspace и компилирует все проекты один раз с общими metadata references. Это главный фиксированный расход времени.
 2. **Roots и DI index.** Root providers находят roots, BCL provider находит spawn sites по exact symbols, DI provider собирает регистрации и lifetimes. Результаты дают seeds points-to: `DiInstance`-регионы и symbolic receivers roots.
 3. **Reachable set и lowering.** От roots и spawn callbacks строится CHA-граф вызовов; lowering-ятся только достижимые тела, параллельно по методам.
-4. **Совместный fixpoint.** Worklist по SCC снизу вверх: локальное summary, инстанциация callees, распространение points-to и escape, сужение dispatch, новые рёбра ставят затронутые SCC обратно. Widening и termination budget на SCC. Выход: summaries, points-to граф, ownership, граф вызовов с причинами рёбер, opaque calls с unknown-call model.
+4. **Совместный fixpoint.** Проходы по всем instances до неподвижной точки (TD-023): локальное summary, инстанциация callees, распространение points-to и escape, сужение dispatch; новые instances и рёбра обрабатывает следующий проход. Регистрация, до которой ничего не дошло, получает собственный регион, и проходы продолжаются. Бюджеты контекстов и SCC по TD-023. Выход: summaries, points-to граф, ownership, граф вызовов с причинами рёбер, opaque calls с unknown-call model.
 5. **Сбор gaps.** Таблица семантики библиотек снимает известные вызовы; остаток по TD-034 становится пакетами, один на callee, с materiality. Job в checkpoint `awaiting_gaps`; при нуле пакетов сразу шаг 8 с `NoSemanticGaps`.
 6. **Interlude resolver.** Skill забирает `get_gaps` постранично, режет на батчи по несколько пакетов на субагента, запускает субагентов параллельно, насколько host позволяет, и приносит `submit_inferences`. Сервер валидирует, применяет принятое, возвращает причины отказов; один повтор на пакет. По концу очереди или deadline skill вызывает `run_continue`.
 7. **Повторный fixpoint** только для SCC с затронутыми call sites и их зависимостей. Новые gaps от принятых фактов идут во второй round по шагам 5–6; после него остаток в coverage.
@@ -775,7 +772,7 @@ Analyzer стремится не пропускать defects внутри suppo
 | Пакет gap | ~1,5 КБ, ≤ 3 сниппетов |
 | Дайджест группы | ~1,5 КБ |
 | Ответ tool | ≤ 8 КБ, paging |
-| Access-path depth, контексты на метод, глубина refinement, widening SCC, unknown-node bounds | Константы сервера, выбираются на demo и eShop в фазах 2–4 |
+| Access-path depth, контексты на метод, глубина refinement, бюджет проходов SCC, unknown-node bounds | Константы сервера, выбираются на demo и eShop в фазах 2–4 |
 
 Cold performance targets в PRD 6.1. Превышение внутреннего budget отражается в coverage/uncertainty; порядок candidates стабилен.
 
@@ -797,17 +794,18 @@ Cold performance targets в PRD 6.1. Превышение внутреннего
 ```text
 IExecutionRootProvider
   ProviderId
-  SupportedAssemblyVersions[]
+  SupportedAssemblyVersions[]: AssemblyName, Minimum, MaximumExclusive
   Discover(RootDiscoveryContext) -> RootDiscoveryResult
 
 RootDiscoveryContext
-  CompilationIndex
-  SymbolResolver
-  CallAndRegistrationIndex
-  ConfigurationFacts
-  EvidenceFactory
+  ScopeId
+  Compilations[]
+  RootDirectory
+  DiIndex
+  CancellationToken
 
 RootDiscoveryResult
+  Status: Checked | NotChecked
   Roots: ExecutionRootDescriptor[]
   Diagnostics: RootDiscoveryDiagnostic[]
 
@@ -815,30 +813,33 @@ ExecutionRootDescriptor
   StableRootId
   RootKind
   ProviderId
-  EntryMethodOrCallback
+  Entry: BodyKey, Symbol, Display, Source
   InstanceBindings
   InvocationPolicy
-  ProcessScope
-  ActivationCondition
-  CompletionEvents[]
-  OrderingConstraints[]
-  DiscoveryEvidence[]
-  PrecisionFlags[]
+  CompletionEvents[]        // зарезервировано
+  OrderingConstraints[]     // зарезервировано
+  DiscoveryEvidence[]: Id, Kind, Text, Source?
+  PrecisionFlags[]          // зарезервировано
 
 InstanceBindings
-  Receiver
-  Arguments[]
-  LifetimeOwner
+  Receiver: None | PerInvocation | HostedService | Unbound | DiService
+  ReceiverType?
+  ReceiverTypeKey?
+  Parameters[]: Name, Type, TypeKey?, IsValueType, Kind: DiService | RequestData | Unsupported
 
 InvocationPolicy
   Multiplicity: AtMostOnce | Repeated | Unknown
   SelfOverlap: MayOverlap | Serialized | Unknown
   ScopeBinding
 
+CompletionEvent
+  EventRef
+  Kind
+
 OrderingConstraint
   BeforeEventRef
   AfterEventRef
-  GuardRef
+  GuardRef?
   EvidenceIds[]
 
 RootDiscoveryDiagnostic
@@ -849,18 +850,18 @@ RootDiscoveryDiagnostic
   EvidenceIds[]
 ```
 
-Provider получает read-only context и возвращает immutable данные; не имеет доступа к candidate/finding engine, не назначает severity/confidence, не реализует concurrency rules. `StableRootId` основан на canonical provider/symbol/registration anchors и сохраняется при сдвиге строк. `InstanceBindings` описывает symbolic receiver, аргументы, включая timer `state`, и владельца lifecycle; отсутствующий по семантике receiver отличается от неизвестного binding. `InvocationPolicy` описывает число и пересечение invocations в `ScopeBinding`; `AtMostOnce` относится к scope, не ко всем instances типа; `Serialized` требует deterministic evidence. Activation/completion и ordering описываются canonical guards и event/handle references; core применяет ограничение только при подтверждённых bindings и evidence. Diagnostics поступают в coverage. Проверенная область без roots допускает пустой результат; непроверенная не выдаётся за успешный пустой результат.
+Provider получает read-only context одного process scope — его compilations, корень для относительных путей evidence и DI index — и возвращает immutable данные; не имеет доступа к candidate/finding engine, не назначает severity/confidence, не реализует concurrency rules. `StableRootId` основан на canonical provider/symbol/registration anchors и сохраняется при сдвиге строк. `Entry` называет тело, с которого начинается root, его символ, отображаемое имя и source. `InstanceBindings` описывает receiver и параметры entry. Receiver: `None` у статического handler-а, где receiver нет по семантике; `Unbound` у instance handler-а, чей receiver provider не связывает; `PerInvocation` — объект, создаваемый на каждый вызов (controller, gRPC service вне DI); `DiService` — объект DI-регистрации `ReceiverTypeKey`; `HostedService` — реализация hosted service. Отсутствующий по семантике receiver отличается от неизвестного binding. Параметр — DI service, данные запроса или неподдержанный; DI-параметр без `TypeKey` ничего не связывает. `InvocationPolicy` описывает число и пересечение invocations в `ScopeBinding`; `AtMostOnce` относится к scope, не ко всем instances типа; `Serialized` требует deterministic evidence. `CompletionEvents`, `OrderingConstraints` и `PrecisionFlags` зарезервированы: провайдеры v1 оставляют их пустыми, core их не читает, а порядок lifecycle-методов hosted service не моделируется и называется в uncertainty находки. Заполнять их начнёт вторая волна providers (фаза 8). Diagnostics поступают в coverage. Проверенная область без roots — `Checked` с пустым `Roots`; непроверенная — `NotChecked` хотя бы с одной diagnostic и никогда не выдаётся за успешный пустой результат.
 
 V1 поставляет `AspNetCoreRootProvider` (controllers, minimal APIs, gRPC) и `HostingRootProvider`; runtime roots и spawn sites создаёт BCL provider. Новый root: один класс, одна регистрация, provider-specific tests, новая версия плагина; изменения core не требуются, core не содержит `if (framework == ...)`.
 
-Contract tests каждой реализации: positive/negative discovery, supported/out-of-range versions, overload resolution, generic substitution, duplicate roots, stable IDs, instance bindings, invocation policy/scopes, activation/completion/ordering evidence, unsupported configuration. Общий data-driven fixture: case это небольшой набор source files, target framework, версии assemblies и независимо заданный ожидаемый `RootDiscoveryResult`; сравнение не зависит от порядка сериализации; `StableRootId` проверяется отдельно при сдвиге строк; expectations не генерируются из результата provider-а. Имя case `Provider_Scenario_ExpectedOutcome`. Для каждого provider, включая synthetic, обязателен сквозной сценарий root → finding → отчёт.
+Contract tests каждой реализации: positive/negative discovery, supported/out-of-range versions, overload resolution, generic substitution, duplicate roots, stable IDs, instance bindings, invocation policy/scopes, discovery evidence, unsupported configuration. Общий data-driven fixture: case это небольшой набор source files, target framework, версии assemblies и независимо заданный ожидаемый `RootDiscoveryResult`; сравнение не зависит от порядка сериализации; `StableRootId` проверяется отдельно при сдвиге строк; expectations не генерируются из результата provider-а. Имя case `Provider_Scenario_ExpectedOutcome`. Для каждого provider, включая synthetic, обязателен сквозной сценарий root → finding → отчёт.
 
 ## 12. Validation и test strategy
 
 ### 12.1. Test layers
 
 1. **IR golden tests:** snippet → canonical IR + provenance.
-2. **Summary contract tests:** local/interprocedural effects, generic substitution, recursion/widening.
+2. **Summary contract tests:** local/interprocedural effects, generic substitution, recursion и бюджет SCC.
 3. **Points-to/ownership tests:** allocations, fields, alias через два поля, escapes, captures, DI instances, hybrid contexts, консервативное объединение при context budget.
 4. **Execution tests:** roots, все spawn sites TD-065, timers, `PeriodicTimer`, join и exception paths.
 5. **Synchronization tests:** same/different locks, modes, Interlocked, volatile, SemaphoreSlim с известной и неизвестной capacity, RWLS, compound collections.
@@ -945,7 +946,7 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 
 ### 14.1. Что уточняется в планах фаз
 
-1. Константы TD-042, TD-044, widening SCC, unknown-node bounds: выбираются на demo и eShop в фазах 2–4 и фиксируются в коде. Выбрано в 2b: depth=8, contexts=16, scc=16 (`skills/hunt/evals/metrics/limits.md`, `run-limits-grid.ps1`).
+1. Константы TD-042, TD-044, бюджет проходов SCC (TD-023), unknown-node bounds: выбираются на demo и eShop в фазах 2–4 и фиксируются в коде. Выбрано в 2b: depth=8, contexts=16, scc=16 (`skills/hunt/evals/metrics/limits.md`, `run-limits-grid.ps1`).
 2. Serialization contracts разделов 5 и 8, canonical IDs, schema evolution.
 3. Форматы bindings, guards, events и diagnostic codes раздела 11; fixture API.
 4. Prompt и schema resolver и composer; размеры батчей на субагента для каждого host.

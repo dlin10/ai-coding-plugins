@@ -138,7 +138,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 
 ### 4.5. Повторные запуски и расширяемость
 
-**FR-19. Повторный анализ.** Каждый run это clean full scan; кэш результатов анализа между runs не ведётся. Method summaries несут content hashes входов и зависимостей с первой версии, чтобы incremental cache мог появиться позже без смены модели. Кэш inferred facts по payload hash допустим и не освобождает ответ от валидации.
+**FR-19. Повторный анализ.** Каждый run это clean full scan; кэш результатов анализа между runs не ведётся. Method summaries хэшей не несут: content hashes входов и зависимостей вводятся вместе с incremental cache (раздел 8). Кэш inferred facts по payload hash допустим и не освобождает ответ от валидации.
 
 **FR-20. Расширение framework coverage.** Поддержка нового execution root добавляется встроенным provider вместе с новой версией plugin/engine и не требует переработки downstream engines. Новые roots используют общие правила и формат evidence. Отсутствующая либо несовместимая framework semantics видна в coverage; runtime/user providers не загружаются.
 
@@ -214,7 +214,7 @@ Targets относятся к deterministic фазам сервера; AI interl
 
 ## 8. Дальнейшее развитие
 
-**Incremental analysis cache.** Content-addressed кэш IR, summaries, точек графа и refinement с инвалидацией по зависимостям и дифференциальной проверкой равенства warm и clean результатов. Проектируется после первого cold-бенчмарка на OSS-корпусах, когда измерена стоимость каждой фазы; summaries уже несут хэши входов и зависимостей.
+**Incremental analysis cache.** Content-addressed кэш IR, summaries, точек графа и refinement с инвалидацией по зависимостям и дифференциальной проверкой равенства warm и clean результатов. Проектируется после первого cold-бенчмарка на OSS-корпусах, когда измерена стоимость каждой фазы; хэши входов и зависимостей summaries вводятся вместе с ним.
 
 **Вторая волна providers.** Middleware `InvokeAsync`, action filters, SignalR hubs, Razor Pages handlers, затем MassTransit, Quartz, Hangfire, NServiceBus, Wolverine, TPL Dataflow, Akka.NET. Каждый это один built-in `IExecutionRootProvider` с contract tests.
 

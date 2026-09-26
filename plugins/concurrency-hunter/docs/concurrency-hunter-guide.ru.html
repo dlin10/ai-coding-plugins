@@ -1873,14 +1873,6 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <div class="prose">
   <p>При разборе кода для этого руководства нашлись места, где реализация отличается от SPEC или содержит устаревшие строки. Каждое проверено по исходникам; ни одно не проверялось запуском. Прежде чем править, решите, что верно — код или документ.</p>
   </div>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Что</th><th>SPEC / документы</th><th>Код сейчас</th></tr></thead>
-    <tbody>
-      <tr><td>Hash-и summaries</td><td>TD-021/024: <code>InputHash</code>, <code>DependencyHash</code> с первой версии</td><td>У summaries их нет; есть только в схеме IR</td></tr>
-      <tr><td>Fixpoint</td><td>TD-023: worklist по SCC снизу вверх</td><td>Круговые проходы по всем экземплярам; SCC считается только при исчерпании бюджета</td></tr>
-      <tr><td>Root descriptor</td><td>SPEC §11: <code>ProcessScope</code>, <code>ActivationCondition</code>, <code>LifetimeOwner</code></td><td>Этих полей нет; <code>CompletionEvents</code>, <code>OrderingConstraints</code>, <code>PrecisionFlags</code> есть, но никто их не читает</td></tr>
-    </tbody>
-  </table></div>
   <div class="prose">
   <h3>Похоже на дефекты — стоит проверить тестом</h3>
   <ul>
