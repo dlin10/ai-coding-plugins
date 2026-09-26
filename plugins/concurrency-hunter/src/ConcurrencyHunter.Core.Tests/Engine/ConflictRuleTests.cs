@@ -40,7 +40,8 @@ public sealed class ConflictRuleTests
         Assert.Equal((AccessOperation.ReadModifyWrite, AccessOperation.ReadModifyWrite), (finding.AccessA.Operation, finding.AccessB.Operation));
         Assert.Equal(["A reads `_hits`", "B writes `_hits`", "A writes a value computed from its stale read, overwriting B's update"],
                      finding.Scenario);
-        Assert.Equal(["Path feasibility is not analyzed in this version."], finding.Uncertainty);
+        // What the solver said about the two paths is the finding's path feasibility, not an uncertainty (issue #124).
+        Assert.Empty(finding.Uncertainty);
     }
 
     /// <summary>An update made atomically is an update all the same: a plain read-modify-write writes back what it read and
@@ -360,8 +361,7 @@ public sealed class ConflictRuleTests
             """ + Startup("services.AddHostedService<ProgressWorker>().AddHostedService<StateWorker>();"));
 
         var lifecycle = Assert.Single(result.Findings, finding => finding.Resource.Member.Name == "_lastItem");
-        Assert.Equal(["Path feasibility is not analyzed in this version.",
-                      "Ordering between lifecycle methods of one hosted service is not analyzed in this version."], lifecycle.Uncertainty);
+        Assert.Equal(["Ordering between lifecycle methods of one hosted service is not analyzed in this version."], lifecycle.Uncertainty);
         Assert.All(result.Findings.Where(finding => finding.Resource.Member.Name == "Value"),
                    finding => Assert.DoesNotContain(finding.Uncertainty, item => item.StartsWith("Ordering", StringComparison.Ordinal)));
     }

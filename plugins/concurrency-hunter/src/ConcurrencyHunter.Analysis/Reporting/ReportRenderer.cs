@@ -33,7 +33,8 @@ public static class ReportRenderer
         [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member the table describes, in an assembly version outside its supported range",
         [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs and DI factories, minimal API " +
                                                 "handlers included; each one a call no recognizer models is handed runs in an unknown execution",
-        [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
+        [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes; one on an array read from a field, handed in or returned by a call is " +
+                                               "an access to its cell",
         [CoverageCounters.UNANALYSED_REGISTRATION] = "unsupported registrations in reached members, binding nothing",
         [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, each a place of a semantic gap",
         [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing the analysis has and " +
@@ -90,7 +91,7 @@ public static class ReportRenderer
             Line($"- joins without proven identity: {Number(ordering.UnprovenJoins)}");
             AppendScopes(markdown, report.Analysis);
         }
-        Line("- Not analyzed in this version: resolution of semantic gaps by the resolver, path feasibility, element accesses");
+        Line("- Not analyzed in this version: resolution of semantic gaps by the resolver");
         Line();
 
         foreach (var label in new[] { "High", "Medium", "Low" })
@@ -400,6 +401,7 @@ public static class ReportRenderer
         {
             "DCA1002" => $"Non-atomic update of shared {member}",
             "DCA1003" => $"Inconsistent synchronization of shared {member}",
+            "DCA1004" => $"Non-atomic sequence of atomic operations on shared {member}",
             _ => $"Unsynchronized access to shared {member}"
         };
     }

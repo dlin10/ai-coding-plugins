@@ -18,7 +18,6 @@ internal static class ConflictFindings
     internal const string COMPOUND_RULE = "DCA1004";
     internal const string KEY_EQUALITY_UNCERTAINTY =
         "The collection's comparer is not known, so no two keys are proven to name different entries.";
-    internal const string PATH_UNCERTAINTY = "Path feasibility is not analyzed in this version.";
     internal const string LIFECYCLE_UNCERTAINTY = "Ordering between lifecycle methods of one hosted service is not analyzed in this version.";
     internal const string WILDCARD_UNCERTAINTY = "The resource is a wildcard: an access path longer than the analysis limit was collapsed.";
 
@@ -259,7 +258,7 @@ internal static class ConflictFindings
             ? $"The root {accessA.PathRoot.Display} may run concurrently with itself in scope {candidate.Resource.Scope}."
             : $"The roots {accessA.PathRoot.Display} and {accessB.PathRoot.Display} may run concurrently in scope {candidate.Resource.Scope}.";
         var scenario = Scenario(candidate.Resource, accessA, accessB);
-        var uncertainty = new List<string> { PATH_UNCERTAINTY };
+        var uncertainty = new List<string>();
         if (IsLifecyclePair(accessA.PathRoot, accessB.PathRoot))
             uncertainty.Add(LIFECYCLE_UNCERTAINTY);
         if (candidate.Resource.IsWildcard)

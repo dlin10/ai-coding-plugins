@@ -631,7 +631,7 @@ public sealed class NarrativeValidatorTests
             new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 20, 0)),
             ["The same ControllerBase action may run concurrently with itself."],
             ["A writes", "B reads", "B observes"],
-            ["Path feasibility is not analyzed in this version."],
+            [$"Contexts of {symbol} were merged; the objects involved may be more than one."],
             evidence);
     }
 }

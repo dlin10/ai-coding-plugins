@@ -397,7 +397,7 @@ public sealed class RunToolsTests
                     new FindingConfidence(labels[groupIndex], 85, new ConfidenceComponents(25, 20, 20, 20, 0)),
                     ["Two actions overlap."],
                     ["A writes the field", "B reads the field", "B sees either value"],
-                    ["Path feasibility is not analyzed in this version."],
+                    [$"Contexts of Ns.Type{groupIndex + 1}.Post() were merged; the objects involved may be more than one."],
                     evidence));
                 groupFindingIds.Add(findingId);
             }

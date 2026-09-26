@@ -120,7 +120,8 @@ public sealed class ExecutionAnalysis
     /// <summary>Each execution's entries, in order: a root's entry, then the constructor chains it runs, receiver first.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> Entries { get; }
 
-    /// <summary>Every access an execution runs, per region; accesses of startup constructions are dropped and counted.</summary>
+    /// <summary>Every access an execution runs, per region; startup's are kept like any other, and happens-before orders them before
+    /// what runs after startup.</summary>
     public IReadOnlyList<CollectedAccess> Accesses { get; }
 
     public IReadOnlyDictionary<string, RegionOwnership> Ownership { get; }

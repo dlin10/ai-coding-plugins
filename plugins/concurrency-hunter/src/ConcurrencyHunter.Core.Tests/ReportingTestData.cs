@@ -54,7 +54,7 @@ internal static class ReportingTestData
                 ["Two ControllerBase actions may run concurrently in one process."],
                 [$"A writes `_value{number}`", $"B reads `_value{number}` at the same time",
                     "B observes either the old or the new value"],
-                ["Path feasibility is not analyzed in this version."],
+                [$"Contexts of Ns.Controller{number}.Post() were merged; the objects involved may be more than one."],
                 evidence));
             groups.Add(FindingTestData.Group(groupId, confidenceLabel, resource, [findingId]));
         }

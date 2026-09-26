@@ -95,8 +95,8 @@ public sealed class ReportSkeletonTests
 
         foreach (var coverage in new[] { analyzed, unanalyzed })
         {
-            Assert.Contains("- Not analyzed in this version: resolution of semantic gaps by the resolver, path feasibility, element accesses\n", coverage,
-                            StringComparison.Ordinal);
+            // Path feasibility and element accesses are analyzed since phase 4 (issue #124).
+            Assert.Contains("- Not analyzed in this version: resolution of semantic gaps by the resolver\n", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("spawn sites and ordering", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Reachable set", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Calls from roots", coverage, StringComparison.Ordinal);
@@ -432,12 +432,32 @@ public sealed class ReportSkeletonTests
         Assert.Empty(finding.GetProperty("protectionAnalysis").GetProperty("commonProtection").EnumerateArray());
         Assert.Equal("not-analyzed", finding.GetProperty("pathFeasibility").GetProperty("result").GetString());
         Assert.NotEmpty(finding.GetProperty("scenario").EnumerateArray());
-        Assert.NotEmpty(finding.GetProperty("uncertainty").EnumerateArray());
+        Assert.Empty(finding.GetProperty("uncertainty").EnumerateArray());
         Assert.Empty(finding.GetProperty("aiContributions").EnumerateArray());
         Assert.Equal(JsonValueKind.Null, finding.GetProperty("suppression").ValueKind);
         Assert.Equal(["aspnetcore", "hosting"],
                      finding.GetProperty("analysis").GetProperty("providers").EnumerateArray().Select(item => item.GetString()));
         Assert.Equal(6, finding.GetProperty("evidence").GetArrayLength());
+    }
+
+    /// <summary>A check-then-act on a thread-safe collection is two atomic calls with a gap between them, and its title says so
+    /// rather than falling through to the conflict rule's (issue #124).</summary>
+    [Fact]
+    public async Task A_compound_operation_finding_has_a_title_of_its_own()
+    {
+        var (result, bundle) = await Render(registrations: "", source: """
+            public static class Counts { public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> Map = new(); }
+            public class CountsController : ControllerBase
+            {
+                public void Post() { if (!Counts.Map.ContainsKey("a")) Counts.Map["a"] = 1; }
+            }
+            """);
+        using var json = JsonDocument.Parse(bundle.FindingsJson);
+
+        var compound = result.Findings.First(finding => finding.RuleId == "DCA1004").FindingId;
+        var finding = json.RootElement.GetProperty("findings").EnumerateArray()
+                          .Single(item => item.GetProperty("findingId").GetString() == compound);
+        Assert.Equal("Non-atomic sequence of atomic operations on shared Counts.Map", finding.GetProperty("title").GetString());
     }
 
     [Fact]
@@ -501,6 +521,10 @@ public sealed class ReportSkeletonTests
         Assert.Equal(13, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
+        // An element operation on shared storage is an access to its cell since phase 4 (issue #124).
+        Assert.EndsWith(": array element reads and writes; one on an array read from a field, handed in or returned by a call is an access to its cell",
+                        Assert.Single(lines, line => line.StartsWith($"  - {CoverageCounters.ELEMENT_OPERATION} ", StringComparison.Ordinal)),
+                        StringComparison.Ordinal);
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));
         Assert.StartsWith("    - Top opaque callees: ", lines[opaque + 1], StringComparison.Ordinal);
         Assert.DoesNotContain("object..ctor() ", lines[opaque + 1], StringComparison.Ordinal);
