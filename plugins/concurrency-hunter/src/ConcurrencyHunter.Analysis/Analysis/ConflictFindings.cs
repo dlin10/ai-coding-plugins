@@ -428,15 +428,15 @@ internal static class ConflictFindings
             };
         }
 
-        if (accessA.Operation == AccessOperation.CompoundOperation || accessB.Operation == AccessOperation.CompoundOperation)
-        {
-            var sequence = accessA.Operation == AccessOperation.CompoundOperation ? "A" : "B";
-            var other = sequence == "A" ? "B" : "A";
-            return
-            [
-                $"{sequence} reads {field}", $"{other} changes {field} before {sequence} acts on what it read",
-                $"{sequence} changes {field} as if {other} had not run"
-            ];
+        if (accessA.Operation == AccessOperation.CompoundOperation || accessB.Operation == AccessOperation.CompoundOperation)
+        {
+            var sequence = accessA.Operation == AccessOperation.CompoundOperation ? "A" : "B";
+            var other = sequence == "A" ? "B" : "A";
+            return
+            [
+                $"{sequence} reads {field}", $"{other} changes {field} before {sequence} acts on what it read",
+                $"{sequence} changes {field} as if {other} had not run"
+            ];
         }
 
         if (accessA.Operation == AccessOperation.ReadModifyWrite || accessB.Operation == AccessOperation.ReadModifyWrite)
