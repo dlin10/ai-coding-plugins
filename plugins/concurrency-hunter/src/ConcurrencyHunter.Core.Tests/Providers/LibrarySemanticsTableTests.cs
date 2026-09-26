@@ -173,6 +173,8 @@ public sealed class LibrarySemanticsTableTests
         ("M:System.Array.IndexOf``1(``0[],``0)~System.Int32", "DeepRead:array,DeepRead:value"),
         ("M:System.Environment.get_ProcessorCount~System.Int32", ""),
         ("M:System.Environment.get_TickCount~System.Int32", ""),
+        // Phase 5b's one exception to the census (TD-034a): a sink tests keep values alive with, whose semantics are known exactly.
+        ("M:System.GC.KeepAlive(System.Object)", ""),
         ("M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean", "DeepRead:source"),
         ("M:System.Linq.Enumerable.AsEnumerable``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0}", "DeepRead:source"),
         ("M:System.Linq.Enumerable.Cast``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0}", "DeepRead:source"),

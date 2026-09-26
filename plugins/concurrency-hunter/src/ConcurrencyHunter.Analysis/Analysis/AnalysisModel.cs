@@ -8,7 +8,9 @@ namespace ConcurrencyHunter.Analysis;
 
 /// <summary>What an access does to its cell (TD-071). The atomic kinds are the ones a single hardware operation performs:
 /// <c>Interlocked</c>, <c>Volatile</c> and a <c>volatile</c> field (TD-082). A read-modify-write built from a volatile read and a
-/// volatile write is not one of them.</summary>
+/// volatile write is not one of them. <see cref="UnknownEffect"/> is what an unresolved call may do to what it reaches, a read and a
+/// write at once that conflicts like a write (TD-071, TD-072); on the structure or a cell of a thread-safe collection it is
+/// <see cref="AtomicUnknownEffect"/>, as atomic as the collection's own members (ADR 0010).</summary>
 public enum AccessOperation
 {
     Read,
@@ -17,7 +19,9 @@ public enum AccessOperation
     AtomicRead,
     AtomicWrite,
     AtomicReadModifyWrite,
-    CompoundOperation
+    CompoundOperation,
+    UnknownEffect,
+    AtomicUnknownEffect
 }
 
 public static class AccessOperationExtensions
@@ -31,13 +35,19 @@ public static class AccessOperationExtensions
         AccessOperation.AtomicWrite => "atomic-write",
         AccessOperation.AtomicReadModifyWrite => "atomic-read-modify-write",
         AccessOperation.CompoundOperation => "compound-operation",
+        AccessOperation.UnknownEffect => "unknown-effect",
+        AccessOperation.AtomicUnknownEffect => "atomic-unknown-effect",
         _ => throw new ArgumentOutOfRangeException(nameof(operation))
     };
 
-    /// <summary>Whether an access can make a pair a conflict: only a non-atomic write, a non-atomic read-modify-write or a
-    /// compound operation can (TD-072). Two accesses of which neither can are never reported.</summary>
+    /// <summary>Whether an access can make a pair a conflict: only a non-atomic write, a non-atomic read-modify-write, a compound
+    /// operation or a non-atomic unknown effect can (TD-072). Two accesses of which neither can are never reported.</summary>
     public static bool Conflicts(this AccessOperation operation) =>
-        operation is AccessOperation.Write or AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation;
+        operation is AccessOperation.Write or AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation or AccessOperation.UnknownEffect;
+
+    /// <summary>Whether an access is an unknown effect, atomic or not: a side that may read and write the resource in a call.</summary>
+    public static bool IsUnknownEffect(this AccessOperation operation) =>
+        operation is AccessOperation.UnknownEffect or AccessOperation.AtomicUnknownEffect;
 }
 
 public sealed record SourceSpan(string Path, int StartLine, int StartColumn, int EndLine, int EndColumn);
@@ -79,6 +89,10 @@ public sealed record Finding(string FindingId, string Fingerprint, string GroupI
 
     /// <summary>What the solver said about the two paths meeting, null where it was never asked (TD-093).</summary>
     public SolverAnswer? PathFeasibility { get; init; }
+
+    /// <summary>The callees of the semantic gaps that decide a check of one of its occurrences (TD-039): what its uncertainty names,
+    /// and what a narrative may name.</summary>
+    public IReadOnlyList<string> GapCallees { get; init; } = [];
 }
 
 /// <summary>Findings of one rule on one object: the same scope and resource identity. Two singleton registrations
@@ -106,6 +120,9 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
     public IReadOnlyList<OperationSite> UnprovenJoins { get; init; } = [];
     public IReadOnlyDictionary<string, int> Ordering { get; init; } = new Dictionary<string, int>();
     public IReadOnlyList<(string Callee, int Count)> TopOpaqueCallees { get; init; } = [];
+
+    /// <summary>The scope's semantic gaps, in materiality order (TD-039a).</summary>
+    public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
     public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
 }

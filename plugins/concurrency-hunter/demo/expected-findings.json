@@ -1573,6 +1573,138 @@
         { "symbol": "Demo.Web.Cases.EfAddSharedEntity.ImportWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
         { "symbol": "Demo.Web.Cases.EfAddSharedEntity.StockWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "opaque-task-source",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.OpaqueTaskSource.Work@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.OpaqueTaskSource.Scheduler.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.OpaqueTaskSource.Work.Run()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "mixed-source-timer",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.MixedSourceTimer.Clock@Singleton", "accessPath": ["Ticks"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MixedSourceTimer.ClockController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.MixedSourceTimer.ClockWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "mixed-source-timer/self-pair",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.MixedSourceTimer.Clock@Singleton", "accessPath": ["Ticks"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.MixedSourceTimer.ClockWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.MixedSourceTimer.ClockWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "unknown-call-model-not-noop",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.UnknownCallModelNotNoop.Inbox@Singleton", "accessPath": ["Items"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.UnknownCallModelNotNoop.InboxController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.UnknownCallModelNotNoop.InboxTrimmer.ExecuteAsync(CancellationToken)", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-get-get",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Get()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Get()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-get-post",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Get()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Post()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-get-put",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Get()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Put()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-post-post",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Post()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Post()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-post-put",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Post()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Put()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/slot-put-put",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.GapMaterialityOrder.Board..ctor()#Demo.Web.Cases.GapMaterialityOrder.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Put()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Put()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "gap-materiality-order/tally-delete-delete",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.GapMaterialityOrder.Tally@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Delete()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.GapMaterialityOrder.BoardController.Delete()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "unknown-library-captures-delegate",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.UnknownLibraryCapturesDelegate.Shutdown@Singleton", "accessPath": ["Requested"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.UnknownLibraryCapturesDelegate.ShutdownController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.UnknownLibraryCapturesDelegate.ShutdownWatcher.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2061,6 +2193,21 @@
       "id": "iterator-enumerated-under-lock",
       "phase": "4b",
       "resource": { "region": "di:Demo.Web.Cases.IteratorEnumeratedUnderLock.State@Singleton", "accessPath": ["Value"] }
+    },
+    {
+      "id": "reflection-primitive-args-no-gap",
+      "phase": "5b",
+      "resource": { "region": "di:Demo.Web.Cases.ReflectionPrimitiveArgsNoGap.Greeting@Singleton", "accessPath": ["Text"] }
+    },
+    {
+      "id": "library-table-no-gap",
+      "phase": "5b",
+      "resource": { "region": "di:Demo.Web.Cases.LibraryTableNoGap.Ledger@Singleton", "accessPath": ["Total"] }
+    },
+    {
+      "id": "channel-handoff",
+      "phase": "5b",
+      "resource": { "region": "alloc:Demo.Web.Cases.ChannelHandoff.Producer.ExecuteAsync(CancellationToken)#Demo.Web.Cases.ChannelHandoff.Order", "accessPath": ["Quantity"] }
     }
   ]
 }

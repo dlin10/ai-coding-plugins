@@ -542,7 +542,7 @@ public sealed class FindingIdentityTests
         using var json = JsonDocument.Parse(ReportRenderer.Render(ReportingTestData.CreateReport(analysis)).FindingsJson);
         var root = json.RootElement;
 
-        Assert.Equal("2.1", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("2.2", root.GetProperty("schemaVersion").GetString());
         var finding = Assert.Single(root.GetProperty("findings").EnumerateArray());
         var group = Assert.Single(root.GetProperty("groups").EnumerateArray());
         Assert.False(finding.TryGetProperty("stableId", out _));

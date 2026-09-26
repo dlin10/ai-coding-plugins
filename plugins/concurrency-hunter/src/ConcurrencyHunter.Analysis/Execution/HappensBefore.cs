@@ -131,6 +131,11 @@ internal sealed class HappensBefore
 
     internal bool Ordered(Access first, Access second) => Path(first, second) || Path(second, first);
 
+    /// <summary>Whether every path of an execution to an access passes a join operation: only then could that join, proven, order the
+    /// access after what it waits for.</summary>
+    internal bool JoinDominates(string execution, string joinInstance, int joinOperation, Access access) =>
+        FlowOf(execution).Dominates(new PointKey(joinInstance, joinOperation, false), new PointKey(access.InstanceId, access.OperationId, false));
+
     /// <summary>Whether every work callee of a spawn anchor's site has an async body.</summary>
     private bool AllWorkAsync(SpawnAnchor anchor) =>
         _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site) &&

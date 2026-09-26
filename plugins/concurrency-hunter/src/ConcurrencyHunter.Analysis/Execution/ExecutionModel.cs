@@ -15,7 +15,10 @@ public enum ExecutionKind
     Spawn,
     TimerCallback,
     UnknownEnumeration,
-    Startup
+    Startup,
+
+    /// <summary>The run of a delegate an unresolved call was handed (R3, ADR 0011): one per delegate region, overlapping everything.</summary>
+    UnknownDelegateCall
 }
 
 /// <summary>Where a spawned execution starts: the API (<c>Task.Run</c>, <c>async-call</c>, a timer type, ...), the symbol of the member
@@ -48,7 +51,8 @@ public enum ExecutionEntryKind
     Construction,
     TypeInitializer,
     Spawn,
-    UnknownEnumeration
+    UnknownEnumeration,
+    UnknownDelegateCall
 }
 
 /// <summary>Which operations of a body an execution runs: all of them, those an async body runs before its first await, or those it
@@ -136,6 +140,10 @@ public sealed class ExecutionAnalysis
     /// <summary>Whether a happens-before path trusted for every instance it connects orders two accesses of different executions.</summary>
     public bool Ordered(Access first, Access second) => first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
 
+    /// <summary>Whether a join of an instance comes before an access on every path of the access's execution (R6).</summary>
+    public bool JoinDominates(string joinInstance, int joinOperation, Access access) =>
+        _order?.JoinDominates(access.ExecutionId, joinInstance, joinOperation, access) ?? true;
+
     /// <summary>The distinct spawn and async call sites the executions reach, by source; timers are counted apart.</summary>
     public IReadOnlyList<SpawnSiteCoverage> SpawnSites => _order?.SpawnSites ?? [];
 
@@ -144,6 +152,10 @@ public sealed class ExecutionAnalysis
 
     /// <summary>The timer creation sites the executions reach, each with the counter of the widest kind a context creates it with.</summary>
     public IReadOnlyList<TimerSiteCoverage> TimerSites { get; init; } = [];
+
+    /// <summary>The subscriptions and creations each timer callback execution runs for: what says which timer objects it may run on.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<TimerCallbackSite>> TimerCallbackSites { get; init; } =
+        new Dictionary<string, IReadOnlyList<TimerCallbackSite>>();
 
     /// <summary>Whether a region is provably one object per process, as a lock identity.</summary>
     public bool IsSingleObject(string regionId) => _singleObjects.Contains(regionId);
@@ -266,6 +278,9 @@ public static class ExecutionModel
 
     public static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap) => new Builder(scope, heap).Build();
 
+    /// <summary>The id of the unknown execution running a delegate region an unresolved call was handed (R3).</summary>
+    public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
+
     private sealed class Builder(ScopeProgram scope, HeapSolution heap)
     {
         private readonly Dictionary<string, ExecutionInstance> _executions = new(StringComparer.Ordinal);
@@ -327,6 +342,21 @@ public static class ExecutionModel
                 Entry(id, new ExecutionEntry(iterator.Creation.CalleeInstance, ExecutionEntryKind.UnknownEnumeration, null));
             }
 
+            // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders,
+            // not even startup, and which holds no lock on entry (R3, ADR 0011).
+            foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0))
+            {
+                // A lambda has no name of its own: it is named by the member it is written in and its place.
+                var body = scope.Reachable.Bodies[heap.Instances[handoff.Callees[0]].BodyId];
+                var named = body.Kind == IrBodyKind.Lambda
+                    ? $"lambda in {body.OwnerSymbol}{At(body.Blocks.SelectMany(block => block.Operations).FirstOrDefault()?.Provenance.Span)}"
+                    : body.MethodSymbol;
+                var id = Add(new ExecutionInstance(UnknownDelegateCallId(handoff.RegionId), ExecutionKind.UnknownDelegateCall,
+                                                   $"unknown call of the delegate {named}", REPEATED, null, handoff.RegionId));
+                foreach (var callee in handoff.Callees)
+                    Entry(id, new ExecutionEntry(callee, ExecutionEntryKind.UnknownDelegateCall, null));
+            }
+
             foreach (var construction in heap.Constructions.OrderBy(construction => heap.Regions[construction.RegionId].Kind != HeapRegionKind.Receiver)
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))
             {
@@ -359,10 +389,13 @@ public static class ExecutionModel
             if (_entries.ContainsKey(STARTUP))
                 Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
             FinishSpawnedExecutions();
+            FinishUnknownDelegateCalls();
 
-            var published = Published();
+            // Ownership reads which executions reach a region, which publication does not change; publication in turn asks whether
+            // the object handed to an unresolved call is shared (R2).
+            var ownership = Ownership(Collect(new HashSet<string>(StringComparer.Ordinal)));
+            var published = Published(ownership);
             var accesses = Collect(published);
-            var ownership = Ownership(accesses);
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
             var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
             var visits = _visitList.GroupBy(visit => visit.Execution, StringComparer.Ordinal)
@@ -394,7 +427,8 @@ public static class ExecutionModel
                 order)
             {
                 SpawnSiteLocations = _spawnSites,
-                TimerSites = timerSites
+                TimerSites = timerSites,
+                TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal)
             };
         }
 
@@ -419,6 +453,7 @@ public static class ExecutionModel
 
         private static readonly InvocationPolicy AT_MOST_ONCE = new(Multiplicity.AtMostOnce, SelfOverlap.Serialized, "");
         private static readonly InvocationPolicy REPEATED = new(Multiplicity.Repeated, SelfOverlap.MayOverlap, "");
+        private static readonly InvocationPolicy SERIALIZED = new(Multiplicity.Repeated, SelfOverlap.Serialized, "");
 
         private static string Api(IrSpawnKind kind) => kind switch
         {
@@ -591,6 +626,26 @@ public static class ExecutionModel
                     ? _spawnSites[parentId]
                     : [.. _spawnSites.GetValueOrDefault(parentId) ?? [], new SpawnSiteLocation(segment, SiteSource(origin))];
                 _executions[id] = child with { Policy = policy, TreeRootId = parent?.TreeRootId ?? STARTUP, SpawnedOnce = once };
+            }
+        }
+
+        /// <summary>Sets the policy of each unknown call of a delegate, once the executions that hand it over have theirs (R3). The call
+        /// may run the delegate any number of times; it runs it one call at a time only when the delegate is handed at one site, in the
+        /// one execution that runs that site, which runs once and runs the site once per run, as a spawn is. Handed anywhere else, it may
+        /// overlap itself.</summary>
+        private void FinishUnknownDelegateCalls()
+        {
+            foreach (var handoff in heap.DelegateHandoffs)
+            {
+                if (!_executions.TryGetValue(UnknownDelegateCallId(handoff.RegionId), out var execution))
+                    continue;
+                var handings = handoff.Sites.SelectMany(site => (_instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? [])
+                                                            .Select(handing => (Execution: handing, heap.Instances[site.CallerInstance].BodyId,
+                                                                                site.OperationId)))
+                                      .Distinct()
+                                      .ToArray();
+                if (handings is [var (handing, bodyId, operationId)] && RunsOnce(handing) && SiteOnce(handing, bodyId, operationId))
+                    _executions[execution.Id] = execution with { Policy = SERIALIZED };
             }
         }
 
@@ -990,8 +1045,9 @@ public static class ExecutionModel
         }
 
         /// <summary>The objects whose construction publishes them: an instance of the chain stores the object, or a delegate capturing
-        /// it, into a region that is neither the object nor reachable from it, or returns it to a caller outside the chain.</summary>
-        private HashSet<string> Published()
+        /// it, into a region that is neither the object nor reachable from it, returns it to a caller outside the chain, or hands a
+        /// shared object to an unresolved call.</summary>
+        private HashSet<string> Published(IReadOnlyDictionary<string, RegionOwnership> ownership)
         {
             var published = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (@object, chain) in _chains)
@@ -1026,6 +1082,12 @@ public static class ExecutionModel
                     {
                         published.Add(@object);
                     }
+
+                    // Handing a shared object to a call the analysis cannot follow publishes it: the call may keep it anywhere. An object
+                    // of one execution it only reads, and leaves where it was (R2, ADR 0006).
+                    if (ownership[@object].Kind is OwnershipKind.Escaped or OwnershipKind.Shared or OwnershipKind.Unknown &&
+                        UnknownReach.Any(item => item.Call.Instance.Id == instanceId && item.Regions.Contains(@object)))
+                        published.Add(@object);
                 }
             }
 
@@ -1046,6 +1108,24 @@ public static class ExecutionModel
             _sharedReach.TryGetValue(@object, out var reach)
                 ? reach
                 : _sharedReach[@object] = Closure(SharedRoots().Where(root => root != @object));
+
+        /// <summary>The unresolved calls with unknown effects and the regions each reaches (R1): a construction that hands them its
+        /// shared object publishes it (R2). A locator has no unknown effect.</summary>
+        private IReadOnlyList<(UnknownCall Call, IReadOnlySet<string> Regions)> UnknownReach
+        {
+            get
+            {
+                if (_unknownReach is not null)
+                    return _unknownReach;
+                var reach = new UnknownCalls.Reach(scope, heap);
+                return _unknownReach = UnknownCalls.Of(scope, heap).Where(call => !call.IsLocator)
+                                                   .Select(call => (call, reach.Of(call).Regions))
+                                                   .Where(item => item.Regions.Count != 0)
+                                                   .ToArray();
+            }
+        }
+
+        private IReadOnlyList<(UnknownCall Call, IReadOnlySet<string> Regions)>? _unknownReach;
 
         private IEnumerable<string> SharedRoots() =>
             heap.Regions.Values.Where(region => !region.IsMerged && (region.Kind == HeapRegionKind.Static || IsContainerWide(region)))
@@ -1105,8 +1185,40 @@ public static class ExecutionModel
 
         private Dictionary<string, RegionOwnership> Ownership(IReadOnlyList<CollectedAccess> accesses)
         {
+            // What the unknown execution of a handed delegate touches it touches as the executions that handed it over, so their own
+            // objects stay theirs and only what is shared overlaps everything (R3).
+            var handedBy = heap.DelegateHandoffs.ToDictionary(
+                handoff => UnknownDelegateCallId(handoff.RegionId),
+                handoff => handoff.Sites.SelectMany(site => _instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? []).ToHashSet(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+            // A delegate handed over inside the unknown call of another is attributed through it to where the outer one was handed.
+            HashSet<string> Attributed(IEnumerable<string> executions)
+            {
+                var attributed = new HashSet<string>(StringComparer.Ordinal);
+                var visited = new HashSet<string>(StringComparer.Ordinal);
+                var given = executions.ToHashSet(StringComparer.Ordinal);
+                var pending = new Stack<string>(given);
+                while (pending.TryPop(out var execution))
+                {
+                    if (!visited.Add(execution))
+                        continue;
+                    if (handedBy.TryGetValue(execution, out var by) && by.Count != 0)
+                    {
+                        foreach (var handing in by)
+                            pending.Push(handing);
+                    }
+                    else
+                    {
+                        attributed.Add(execution);
+                    }
+                }
+
+                // Delegates that only hand each other over run nowhere else: they stay their own.
+                return attributed.Count != 0 ? attributed : given;
+            }
+
             var accessExecutions = accesses.GroupBy(access => access.RegionId, StringComparer.Ordinal)
-                                           .ToDictionary(group => group.Key, group => group.Select(access => access.ExecutionId).ToHashSet(StringComparer.Ordinal),
+                                           .ToDictionary(group => group.Key, group => Attributed(group.Select(access => access.ExecutionId)),
                                                          StringComparer.Ordinal);
 
             var sharedRoots = SharedRoots().ToArray();
@@ -1136,9 +1248,9 @@ public static class ExecutionModel
                     _ when IsContainerWide(region) =>
                         new RegionOwnership(OwnershipKind.Shared, [$"{region.Display} is one container object for the whole scope ({region.Context})."]),
                     _ when escapes.TryGetValue(region.Identity, out var chain) => new RegionOwnership(OwnershipKind.Escaped, chain),
-                    _ when reached is not null && reached.Except(CreationExecutions(region)).FirstOrDefault() is { } other =>
+                    _ when reached is not null && reached.Except(Attributed(CreationExecutions(region))).FirstOrDefault() is { } other =>
                         new RegionOwnership(OwnershipKind.Escaped,
-                                            [$"{region.Display} is created in {Describe(CreationExecutions(region))} and reached from {Describe([other])}."]),
+                                            [$"{region.Display} is created in {Describe(Attributed(CreationExecutions(region)))} and reached from {Describe([other])}."]),
                     _ when reached is not null => new RegionOwnership(OwnershipKind.ThreadConfined, [$"{region.Display} is reached only in {Describe(reached)}."]),
                     _ => new RegionOwnership(OwnershipKind.Owned, [$"No access reaches {region.Display}."])
                 };

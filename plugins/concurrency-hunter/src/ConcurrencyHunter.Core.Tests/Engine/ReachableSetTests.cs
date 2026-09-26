@@ -206,7 +206,8 @@ public sealed class ReachableSetTests
         const string POST = "body:Fixture:M:JobsController.Post";
         var spawn = Assert.Single(run.Result.Bodies[POST].Blocks.SelectMany(block => block.Operations).OfType<IrSpawnOperation>());
         Assert.Equal($"spawn:{POST}:{spawn.Id}", run.Result.ReachedBodies[POST + "#lambda1"]);
-        Assert.False(run.Reaches(POST + "#lambda2"));
+        // The lambda Select is handed runs in an unknown execution since phase 5b (R3), so it is reached through that call.
+        Assert.StartsWith($"call:{POST}:", run.Result.ReachedBodies[POST + "#lambda2"], StringComparison.Ordinal);
         var taskRun = Assert.Single(run.Result.OpaqueCalls[POST], call => call.Callee.StartsWith("System.Threading.Tasks.Task.Run", StringComparison.Ordinal));
         Assert.Empty(taskRun.DelegateTargets);
         var select = Assert.Single(run.Result.OpaqueCalls[POST], call => call.Callee.StartsWith("System.Linq.Enumerable.Select", StringComparison.Ordinal));

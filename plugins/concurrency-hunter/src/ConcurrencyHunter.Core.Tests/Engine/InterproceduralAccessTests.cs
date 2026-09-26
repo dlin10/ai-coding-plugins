@@ -384,8 +384,9 @@ public sealed class InterproceduralAccessTests
             }
             """ + Startup("services.AddSingleton<Marks>();"));
 
-        var spawned = Assert.Single(run.Accesses("Value"));
-        Assert.Equal(ExecutionKind.Spawn, run.Execution.Analysis.Execution(spawned.ExecutionId).Kind);
+        // The work runs as the spawn's and, handed to Lazy as well, in the unknown call of that delegate (R3).
+        Assert.Equal([ExecutionKind.Spawn, ExecutionKind.UnknownDelegateCall],
+                     run.Accesses("Value").Select(access => run.Execution.Analysis.Execution(access.ExecutionId).Kind).Order());
         Assert.Equal(1, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
         var reached = run.Execution.Heap.Program.Result.OpaqueCalls[post];
         Assert.Single(Assert.Single(reached, call => call.Callee.StartsWith("System.Lazy", StringComparison.Ordinal)).DelegateValues);
@@ -426,10 +427,11 @@ public sealed class InterproceduralAccessTests
         Assert.Equal(0, run.Counter(OrderingCounters.UNPROVEN_JOINS));
         Assert.Equal(0, run.Counter(CoverageCounters.MERGED_CONTEXT));
         Assert.Equal(run.Counter(CoverageCounters.OPAQUE_CALL), coverage.TopOpaqueCallees.Sum(callee => callee.Count));
-        // A lambda handed to an opaque call is lowered with its member and never reached: inventory of its own. Spawn work is reached.
+        // Spawn work is reached, and since phase 5b a lambda handed to an opaque call is too: it runs in an unknown execution (R3).
         Assert.DoesNotContain("body:Fixture:M:MixedController.Post(Payload)#lambda1", coverage.LoweredNotReached);
-        Assert.Contains("body:Fixture:M:MixedController.Post(Payload)#lambda2", coverage.LoweredNotReached);
-        Assert.Contains(coverage.TopOpaqueCallees, callee => callee is { Callee: "System.GC.KeepAlive(object)", Count: 3 });
+        Assert.DoesNotContain("body:Fixture:M:MixedController.Post(Payload)#lambda2", coverage.LoweredNotReached);
+        // Phase 5b puts GC.KeepAlive(Object) into the library table without effect (TD-034a): its three calls are known, not opaque.
+        Assert.DoesNotContain(coverage.TopOpaqueCallees, callee => callee.Callee == "System.GC.KeepAlive(object)");
     }
 
     [Fact]

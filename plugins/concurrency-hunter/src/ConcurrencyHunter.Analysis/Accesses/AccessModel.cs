@@ -104,6 +104,9 @@ public sealed record Access(AccessResource Resource, AccessOperation Operation, 
     /// <summary>The expression naming this access's cell, in the width of its own type, for the solver to compare with another
     /// candidate's (TD-092). Null where the access touches no cell or the expression is not one the analysis reads.</summary>
     public ValueTerm? SelectorTerm { get; init; }
+
+    /// <summary>The checks of any pair of this access that a semantic gap decides by what this side alone does (R6).</summary>
+    public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
 }
 
 /// <summary>What one access holds on one lock object: the mechanism that took it, the mode it is held in, and whether that holding
@@ -182,6 +185,9 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
     /// <summary>What the solver said about the two paths meeting, null where it was never asked (TD-093). Only
     /// <see cref="SolverAnswer.Sat"/> is a proof that the pair can happen; an undecided answer lowers its confidence.</summary>
     public SolverAnswer? Feasibility { get; init; }
+
+    /// <summary>The checks of the pair a semantic gap decides (R6), each of which costs its component of the confidence.</summary>
+    public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
 }
 
 /// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the

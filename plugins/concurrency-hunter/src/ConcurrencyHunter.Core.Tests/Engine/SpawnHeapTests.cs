@@ -23,7 +23,7 @@ public sealed class SpawnHeapTests
     }
 
     [Fact]
-    public void Delegate_handed_to_a_user_method_without_a_body_is_still_not_reached()
+    public void Delegate_handed_to_a_user_method_without_a_body_is_reached_and_handed_off_but_no_spawn()
     {
         var run = Solve(Controller("Native.Run(() => GC.KeepAlive(this));", """
             public static class Native
@@ -33,7 +33,9 @@ public sealed class SpawnHeapTests
             }
             """));
 
-        Assert.False(run.Program.Reaches(POST + "#lambda1"));
+        // The call is opaque, so what it is handed runs in an unknown execution (R3), which is no spawn.
+        Assert.True(run.Program.Reaches(POST + "#lambda1"));
+        Assert.Equal(POST + "#lambda1", run.Heap.Instances[Assert.Single(Assert.Single(run.Heap.DelegateHandoffs).Callees)].BodyId);
         Assert.Empty(run.Heap.Spawns);
     }
 

@@ -95,7 +95,8 @@ public sealed class ReportSkeletonTests
 
         foreach (var coverage in new[] { analyzed, unanalyzed })
         {
-            Assert.Contains("- Not analyzed in this version: semantic gaps, path feasibility, element accesses\n", coverage, StringComparison.Ordinal);
+            Assert.Contains("- Not analyzed in this version: resolution of semantic gaps by the resolver, path feasibility, element accesses\n", coverage,
+                            StringComparison.Ordinal);
             Assert.DoesNotContain("spawn sites and ordering", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Reachable set", coverage, StringComparison.Ordinal);
             Assert.DoesNotContain("Calls from roots", coverage, StringComparison.Ordinal);
@@ -214,7 +215,8 @@ public sealed class ReportSkeletonTests
         Assert.Contains("- timers: disabled 0, one-shot 0, periodic 0\n", coverage, StringComparison.Ordinal);
         Assert.Contains("- joins without proven identity: 0\n", coverage, StringComparison.Ordinal);
         Assert.Contains($"  - {CoverageCounters.DELEGATE_TO_OPAQUE} ", coverage, StringComparison.Ordinal);
-        Assert.Contains(": delegates handed to such calls other than the recognized spawn and timer APIs, never invoked\n", coverage, StringComparison.Ordinal);
+        Assert.Contains(": delegates handed to such calls other than the recognized spawn and timer APIs and DI factories, minimal API handlers " +
+                        "included; each one a call no recognizer models is handed runs in an unknown execution\n", coverage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -496,7 +498,7 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(12, counters.Length);
+        Assert.Equal(13, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         var opaque = Array.FindIndex(lines, line => line.StartsWith($"  - {CoverageCounters.OPAQUE_CALL} ", StringComparison.Ordinal));

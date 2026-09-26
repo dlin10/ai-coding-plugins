@@ -50,6 +50,12 @@ public static class NarrativeValidator
         // one for the other does not answer a compound operation (ADR 0010).
         "Dictionary",
         "List",
+        // The four collections phase 5b adds to that table, and the node of a linked list, which is a cell of it (ADR 0010).
+        "HashSet",
+        "Queue",
+        "Stack",
+        "LinkedList",
+        "LinkedListNode",
         // The protection verdicts a narrative may quote. The two hyphenated ones, different-identity and incompatible-mode,
         // are no identifiers at all, so they never reach this check.
         "unprotected",
@@ -202,6 +208,7 @@ public static class NarrativeValidator
         var suffixTargets = symbols.Select(symbol => WithoutParameters(NormalizeVerbatimIdentifiers(symbol)))
                                     .Concat(scope.Findings.SelectMany(ResourceTargets))
                                     .Concat(accesses.SelectMany(ProtectionTargets))
+                                    .Concat(scope.Findings.SelectMany(finding => finding.GapCallees).Select(GapTarget).OfType<string>())
                                     .Distinct(StringComparer.Ordinal)
                                     .ToArray();
 
@@ -248,6 +255,18 @@ public static class NarrativeValidator
             return name.Split(" as ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                        .Select(part => NormalizeVerbatimIdentifiers(RegionType(part)));
         });
+
+    /// <summary>What a narrative may name of a semantic gap's callee: its member without type arguments or parameters, such as
+    /// <c>CollectionsMarshal.SetCount</c> for <c>System.Runtime.InteropServices.CollectionsMarshal.SetCount&lt;T&gt;(List&lt;string&gt;, int)</c>.
+    /// A <c>dynamic</c> operation's callee and a constructor name no member of that form and give nothing.</summary>
+    private static string? GapTarget(string callee)
+    {
+        var member = WithoutParameters(callee);
+        while (Regex.IsMatch(member, "<[^<>]*>"))
+            member = Regex.Replace(member, "<[^<>]*>", string.Empty);
+        member = NormalizeVerbatimIdentifiers(member);
+        return IDENTIFIER_PATTERN.IsMatch(member) ? member : null;
+    }
 
     /// <summary>The callee of a <c>call</c> step: <c>calls M(…)</c>, optionally followed by <c> on &lt;receiver&gt;</c>.</summary>
     private static string? CalleeSymbol(CodeFlowStep step)

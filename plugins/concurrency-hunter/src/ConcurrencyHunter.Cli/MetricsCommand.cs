@@ -29,8 +29,8 @@ internal static class MetricsCommand
 
     private const string LOAD = "load";
     private const string RENDER = "render";
-    // 1.1 added the ordering counters to each coverage entry.
-    private const string SCHEMA_VERSION = "1.1";
+    // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps.
+    private const string SCHEMA_VERSION = "1.2";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -150,7 +150,10 @@ internal static class MetricsCommand
     internal static IReadOnlyList<ScopeMeasurement> Coverage(AnalysisResult analysis) =>
         analysis.Coverage.Select(scope => new ScopeMeasurement(scope.ScopeId, Sorted(scope.RootsPerProvider),
                                                                analysis.ScopeSizes.FirstOrDefault(size => size.ScopeId == scope.ScopeId)?.Accesses ?? 0,
-                                                               Sorted(scope.Skips), Sorted(scope.Ordering)))
+                                                               Sorted(scope.Skips), Sorted(scope.Ordering),
+                                                               // The gaps by callee, sorted, so that a snapshot proves which gaps there are as the
+                                                               // fingerprints prove which findings.
+                                                               scope.Gaps.Select(gap => gap.Callee).Order(StringComparer.Ordinal).ToArray()))
                 .ToArray();
 
     internal static async Task<LoadedTarget> LoadWithMsBuildAsync(string path, CancellationToken cancellationToken)
@@ -261,7 +264,8 @@ internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoade
                                          int Findings, int Occurrences, int Groups, IReadOnlyList<string> Fingerprints);
 
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,
-                                        IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering);
+                                        IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering,
+                                        IReadOnlyList<string> SemanticGaps);
 
 internal sealed record TargetValue(double Limit, double Actual, bool Met);
 

@@ -424,6 +424,13 @@ public static class ReachableSet
                     case IrCallOperation { CallKind: IrCallKind.Delegate } call:
                         if (call.ReceiverValue is int receiver && values.TryGetValue(receiver, out var delegateValue))
                             AddDelegateInvocation(delegateValue.Type, $"delegate:{bodyId}:{operation.Id}");
+                        // The delegate invoked may be one the analysis cannot follow, which may run what it is handed (R3).
+                        ReachHandedDelegates(call.ArgumentValues, values, definitions, operations, reason);
+                        break;
+                    // A delegate put into an array's cell is followed by nothing that invokes it by type: whatever the array reaches may run
+                    // it, so it is reached where it is stored (R3).
+                    case IrStoreElementOperation element when DelegateCreation(element.Value, definitions) is { } stored:
+                        ReachDelegateTargets(stored, reason);
                         break;
                     case IrCallOperation { TargetMethodId: { } targetId } call:
                     {
@@ -434,6 +441,20 @@ public static class ReachableSet
                             ReachFactory(bodyId, call, definitions, reason);
                             Locate(bodyId, call);
                         }
+
+                        // A delegate handed to a call the heap may leave unresolved runs in an unknown execution (R3): an opaque call no
+                        // recognizer and no table entry models, or a dispatch that may find no receiver object.
+                        if (targets.Count == 0 ? !call.IsRecognized && call.Library is not { InRange: true } : call.CallKind is IrCallKind.Virtual or IrCallKind.Interface)
+                            ReachHandedDelegates(call.ArgumentValues.Where(value => work.GetValueOrDefault(call.Id)?.Contains(value) != true), values,
+                                                 definitions, operations, reason);
+                        // A delegate handed over as an object is followed by nothing that invokes it by type: whatever the callee hands it
+                        // to may run it, so it is reached here, unless a table entry or a recognizer says what the call does (R3).
+                        else if (!call.IsRecognized && call.Library is not { InRange: true })
+                        {
+                            foreach (var untyped in call.ArgumentValues.Where(value => values.TryGetValue(value, out var argument) && IsUntyped(argument.Type))
+                                                        .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>())
+                                ReachDelegateTargets(untyped, reason);
+                        }
                         foreach (var target in targets)
                             ReachBody(target.MethodId, reason);
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
@@ -442,6 +463,9 @@ public static class ReachableSet
                     }
                     case IrCreateDelegateOperation create when values.TryGetValue(create.ResultValue, out var created):
                         AddDelegateCreation(created.Type, create, bodyId);
+                        break;
+                    case IrUnknownOperation { DynamicCallee: not null } dynamic:
+                        ReachHandedDelegates(dynamic.OperandValues, values, definitions, operations, reason);
                         break;
                     default:
                         foreach (var (value, method) in WorkValues(operation))
@@ -576,6 +600,60 @@ public static class ReachableSet
             }
 
             ReachDelegateTargets(creation, reason);
+        }
+
+        /// <summary>Reaches the delegates handed to a call as its arguments or operands, as a spawn's work is reached: the targets of a
+        /// delegate created in the body, every delegate of the value's type when it comes from a parameter or a field, and the elements
+        /// of an array the call is handed in their place (R3).</summary>
+        private void ReachHandedDelegates(IEnumerable<int> handed, IReadOnlyDictionary<int, IrValue> values,
+                                          IReadOnlyDictionary<int, IrOperation> definitions, IReadOnlyList<IrOperation> operations, string reason,
+                                          HashSet<int>? arrays = null)
+        {
+            arrays ??= [];
+            foreach (var value in handed)
+            {
+                if (DelegateCreation(value, definitions) is { } creation)
+                {
+                    ReachDelegateTargets(creation, reason);
+                    continue;
+                }
+
+                if (Origin(value, definitions) is var array && definitions.GetValueOrDefault(array) is IrAllocateOperation)
+                {
+                    if (arrays.Add(array))
+                    {
+                        ReachHandedDelegates(operations.OfType<IrStoreElementOperation>().Where(store => Origin(store.ReceiverValue, definitions) == array)
+                                                       .Select(store => store.Value),
+                                             values, definitions, operations, reason, arrays);
+                    }
+
+                    continue;
+                }
+
+                if (values.TryGetValue(value, out var delegateValue))
+                    AddDelegateInvocation(delegateValue.Type, reason);
+            }
+        }
+
+        /// <summary>Whether a value's type is no delegate type at all, only what one converts to.</summary>
+        private static bool IsUntyped(string type) =>
+            type is "object" or "dynamic" or "System.Object" or "System.Delegate" or "Delegate" or "System.MulticastDelegate" or "MulticastDelegate";
+
+        /// <summary>The value another is assigned or converted from.</summary>
+        private static int Origin(int value, IReadOnlyDictionary<int, IrOperation> definitions)
+        {
+            var visited = new HashSet<int>();
+            while (visited.Add(value) && definitions.TryGetValue(value, out var definition))
+            {
+                if (definition is IrAssignOperation assign)
+                    value = assign.SourceValue;
+                else if (definition is IrConvertOperation convert)
+                    value = convert.OperandValue;
+                else
+                    break;
+            }
+
+            return value;
         }
 
         /// <summary>Reaches a created delegate's nested body, or every body its method group may run.</summary>

@@ -157,7 +157,11 @@ public sealed record HeldLockValue(IReadOnlySet<AbstractValue> Values, int Acqui
 public enum SummaryAccessKind
 {
     Load,
-    Store
+    Store,
+
+    /// <summary>What an unresolved call may do to a field it reaches: read and write it at once (R1). Only the collection of accesses
+    /// makes one, where the call stands.</summary>
+    UnknownEffect
 }
 
 /// <summary>A predicate of the path an access runs on, as one body states it (TD-090). <see cref="SubjectLoad"/> is the field
@@ -225,7 +229,47 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
 }
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
-public sealed record StoreTransfer(int OperationId, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, IReadOnlySet<AbstractValue> Values);
+public sealed record StoreTransfer(int OperationId, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, IReadOnlySet<AbstractValue> Values)
+{
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+}
+
+/// <summary>Where a value of a body comes from, through assignments, conversions, phis and awaits: the calls and <c>dynamic</c>
+/// operations whose result it may be, the parameters it may be, and the fields it may be read from. What says a semantic gap's
+/// result decides a join, a timer or a lock, however many calls and fields the result passed through (R6).</summary>
+public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Parameters, IReadOnlyList<FieldOrigin> Fields)
+{
+    public static readonly ValueOrigin None = new(new HashSet<int>(), new HashSet<int>(), []);
+
+    /// <summary>The captured variables the value is read from: what the member owning them, or a lambda, assigned them.</summary>
+    public IReadOnlySet<string> Captured { get; init; } = new HashSet<string>();
+
+    /// <summary>The arrays the value is read from a cell of: what any store put into their cells.</summary>
+    public IReadOnlyList<IReadOnlySet<AbstractValue>> Elements { get; init; } = [];
+
+    public bool IsNone => Calls.Count == 0 && Parameters.Count == 0 && Fields.Count == 0 && Captured.Count == 0 && Elements.Count == 0;
+
+    /// <summary>Every origin of several values at once.</summary>
+    public static ValueOrigin Union(IEnumerable<ValueOrigin> origins)
+    {
+        var all = origins.Where(origin => !origin.IsNone).ToArray();
+        return all.Length switch
+        {
+            0 => None,
+            1 => all[0],
+            _ => new ValueOrigin(all.SelectMany(origin => origin.Calls).ToHashSet(), all.SelectMany(origin => origin.Parameters).ToHashSet(),
+                                 all.SelectMany(origin => origin.Fields).ToArray())
+            {
+                Captured = all.SelectMany(origin => origin.Captured).ToHashSet(StringComparer.Ordinal),
+                Elements = all.SelectMany(origin => origin.Elements).ToArray()
+            }
+        };
+    }
+}
+
+/// <summary>A field a value may be read from, and the objects it is read on: none for a static field.</summary>
+public sealed record FieldOrigin(IrFieldRef Field, IReadOnlySet<AbstractValue> Bases);
 
 public enum ElementOperationKind
 {
@@ -235,7 +279,11 @@ public enum ElementOperationKind
 
 /// <summary>An array element load or store: points-to only, never an access.</summary>
 public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind, IReadOnlySet<AbstractValue> Arrays,
-                                     IReadOnlySet<AbstractValue> Values);
+                                     IReadOnlySet<AbstractValue> Values)
+{
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+}
 
 public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
 {
@@ -243,6 +291,9 @@ public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue>
     /// that sees only the regions cannot tell a returned object the heap named from one it could not.</summary>
     public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
     public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>The values a <c>ref</c> or <c>out</c> parameter may hold when the body ends, and what they were computed from.</summary>
@@ -269,6 +320,14 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
     /// <summary>The collection the argument is, where the body names one: what a callee's reference to a cell of the parameter
     /// it binds points to (R3).</summary>
     public ArgumentCollection? Collection { get; init; }
+
+    /// <summary>The elements of an array or collection expression the call creates in the argument's place
+    /// (<see cref="IrCallOperation.CreatedArrayArguments"/>), by which a semantic gap judges the argument (R4); null for any other
+    /// argument.</summary>
+    public IReadOnlySet<AbstractValue>? CreatedElements { get; init; }
+
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>A collection handed over by value: <see cref="Collection"/> is a <see cref="ReferenceCell"/> of the field it was read
@@ -330,6 +389,9 @@ public sealed record LockTransfer(int OperationId, bool IsAcquire, IrSynchroniza
 {
     /// <summary>How many permits an exit gives back, as <see cref="IrReleaseOperation.Permits"/> reads it; an entry takes one.</summary>
     public int? Permits { get; init; } = 1;
+
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>A call into a body the scope may have: <see cref="Target"/> is the method id, or the nested body id of a local function.
@@ -348,6 +410,13 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
     /// <summary>The predicates that must hold for the call to run, in the calling body's own values. Everything the callee does
     /// runs under them too, so the guards of a call site are part of the condition of every access it reaches (R8, TD-090).</summary>
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+
+    /// <summary>The target as the call names it, which is what a semantic gap of a dispatch without a receiver object is called
+    /// (R4).</summary>
+    public string Callee { get; init; } = Target;
+
+    /// <inheritdoc cref="SummaryOpaqueCall.Provenance"/>
+    public IrProvenance? Provenance { get; init; }
 }
 
 /// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked. The
@@ -369,7 +438,38 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     /// <summary>What the call does to the collection it is a member of (ADR 0010): a member that puts values into it tells a deep
     /// read which objects the collection holds.</summary>
     public IrCollectionCall? Collection { get; init; }
+
+    /// <inheritdoc cref="IrCallOperation.IsRecognized"/>
+    public bool IsRecognized { get; init; }
+
+    /// <summary>The type declaring the callee, as the call names it: through a receiver the call sees only that type's state
+    /// (R1).</summary>
+    public string? DeclaringTypeKey { get; init; }
+
+    /// <summary>Whether the call is a constructor, whose receiver is the object it creates: what the heap knows that object holds
+    /// was put there after it ran, or came from its arguments (R1).</summary>
+    public bool IsConstructor { get; init; }
+
+    /// <summary>Where the call stands and the predicates it runs under: the place and the guards of its unknown effect (R1).</summary>
+    public IrProvenance? Provenance { get; init; }
+
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
 }
+
+/// <summary>An operation on a <c>dynamic</c> value (<see cref="IrUnknownOperation.DynamicCallee"/>): the objects its receiver, arguments
+/// and assigned value may be, all of which it sees whole (R1).</summary>
+public sealed record SummaryDynamicOperation(int OperationId, string Callee, IReadOnlySet<AbstractValue> Values)
+{
+    /// <inheritdoc cref="SummaryOpaqueCall.Provenance"/>
+    public IrProvenance? Provenance { get; init; }
+
+    public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+}
+
+/// <summary>A write of the result of the call or <c>dynamic</c> operation <see cref="SourceOperationId"/> into a field or a cell of
+/// <see cref="Targets"/>, or into the static field <see cref="StaticField"/>: what makes an unresolved call a semantic gap when those
+/// are not owned (R4).</summary>
+public sealed record SummaryResultStore(int SourceOperationId, IReadOnlySet<AbstractValue> Targets, IrFieldRef? StaticField);
 
 /// <summary>What a known call does to one argument (R3), a deep read or a write: the objects the argument may be, or the collection
 /// or slice it is cut from, with the call's own place, locks and conditions. Collecting the accesses expands it over the solved
@@ -386,12 +486,19 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
 public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlySet<AbstractValue> Values,
-                                   IReadOnlySet<ValueDependency> Dependencies);
+                                   IReadOnlySet<ValueDependency> Dependencies)
+{
+    /// <inheritdoc cref="SummaryValue.Producers"/>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+}
 
 /// <summary>The union of every version of a local or parameter in the body.</summary>
 public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
 {
     public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
+
+    /// <summary>Where every version of the variable in the body comes from (<see cref="ValueOrigin"/>).</summary>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>Where a value may come from that the analysis does not follow to an object: <c>null</c> or a default, a parameter,
@@ -416,6 +523,10 @@ public sealed record SummaryValue(IReadOnlySet<AbstractValue> Values, IReadOnlyS
     /// <summary>The calls whose results the value comes from as <see cref="UnknownSource.SourceCall"/>: what each of them returns is the
     /// callee's business, so only the region a call is known to produce excuses it.</summary>
     public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+
+    /// <summary>Where the value comes from in its body (<see cref="ValueOrigin"/>): what says a semantic gap's result decides a join,
+    /// a timer or a lock (R6).</summary>
+    public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>Work a BCL call starts (<see cref="IrSpawnOperation"/>): <see cref="Handle"/> is the call's result, or the started
@@ -489,4 +600,14 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
     public IReadOnlyList<SummaryWhenAll> WhenAlls { get; init; } = [];
     public IReadOnlyList<SummaryUnwrap> Unwraps { get; init; } = [];
     public IReadOnlyList<SummaryTimer> Timers { get; init; } = [];
+    public IReadOnlyList<SummaryDynamicOperation> DynamicOperations { get; init; } = [];
+    public IReadOnlyList<SummaryResultStore> ResultStores { get; init; } = [];
+
+    /// <summary>The stores through a reference into a field of named objects, such as <c>ref var r = ref x.F; r = v;</c>: what a later read of
+    /// that field gets, as far as a semantic gap's result goes (R6).</summary>
+    public IReadOnlyList<StoreTransfer> ReferenceStores { get; init; } = [];
+
+    /// <summary>The stores through a reference into a cell of an array, such as <c>ref var r = ref x.A[0]; r = v;</c>, by the arrays the
+    /// reference names: kept apart from <see cref="Elements"/>, which the heap and the counters read (R4, R6).</summary>
+    public IReadOnlyList<ElementTransfer> ReferenceElementStores { get; init; } = [];
 }

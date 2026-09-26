@@ -1,15 +1,15 @@
 {
   "status": "complete",
-  "reason": "bundle 20260920-101754-9e66d9",
-  "runId": "20260920-101754-9e66d9",
-  "bundle": "C:\\Users\\Admin\\AppData\\Local\\concurrency-hunter\\runs\\0987e6234f32\\20260920-101754-9e66d9",
-  "invokedAt": "2026-09-20T10:17:37.6331342+00:00",
+  "reason": "bundle 20260926-080042-0d998c",
+  "runId": "20260926-080042-0d998c",
+  "bundle": "C:\\Users\\Admin\\AppData\\Local\\concurrency-hunter\\runs\\0987e6234f32\\20260926-080042-0d998c",
+  "invokedAt": "2026-09-26T08:00:33.6787870+00:00",
   "digest": {
     "engineVersion": "0.1.0",
     "analysisStatus": "CompleteWithFindings",
-    "findings": 135,
-    "groups": 115,
-    "fingerprints": "e2044d7462686bff",
-    "narrativesAccepted": 116
+    "findings": 160,
+    "groups": 134,
+    "fingerprints": "10446a5c90a225db",
+    "narrativesAccepted": 135
   }
 }

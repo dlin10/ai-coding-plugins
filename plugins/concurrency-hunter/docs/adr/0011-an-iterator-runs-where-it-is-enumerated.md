@@ -33,3 +33,40 @@ shared helper that returns a lazy sequence the caller hands to LINQ can produce 
 may read as noise. That is the price of not knowing who enumerates it, and it is paid in the open —
 the finding names the unknown execution — rather than in a missed race. Phase 5 may narrow it once
 the library table knows which framework consumers enumerate synchronously in their caller.
+
+## Amendment, phase 5b: a delegate handed to an opaque call
+
+Up to phase 5b a delegate passed to a call that is neither a recognized spawn or timer API nor a
+source method was never invoked: its body was lowered with its member and reached by nobody. A
+delegate handed to an **Opaque call** is the same unknown as an escaped iterator — code the analysis
+knows will run without knowing who runs it, when, or how often — and it gets the same answer: its
+body runs in an **Unknown execution**, which may overlap every execution of its process scope,
+itself included, that nothing orders, and that holds no lock on entry.
+
+Rejected: not invoking it and letting the call's unknown effect reach only what the delegate
+captures. It keeps today's counts, but the body's own accesses stay out of every pair, and a lambda
+that writes a singleton through a library the table does not describe would need an accepted AI
+fact to be seen at all. Rejected: invoking it synchronously at the call, as a LINQ operator would.
+That places the body in the caller's execution, under the caller's locks and ordered with the
+caller's code, which is a proof of protection and of order the analysis does not have for a callee
+it cannot read.
+
+What the delegate captures of the execution that handed it over — a per-request object the lambda
+fills — the unknown execution touches as that execution does, so those objects stay confined and
+pair with nothing new; only what is shared overlaps everything. Measured on eShop before this was
+settled, treating such captures as reached by a second execution would have paired every
+per-request object handed to a view, a mapper or a LINQ operator with itself across requests.
+
+A delegate handed at one site by an execution that runs once, and runs that site once, is the one
+place the unknown call does not overlap itself: the call may run it many times, but one at a time,
+as a spawn from such a site does not overlap itself. A token's `Register` from a hosted service is
+the common case. Anywhere else — handed by a request, at two sites, or by two executions — two
+calls of it may be under way at once. An escaped iterator keeps overlapping itself: anybody may
+enumerate it, and nothing about where it was created says how often or by whom. Measured on eShop,
+the narrowing still leaves the seed's Polly lambda overlapping itself, since the seed hands it both
+from startup and from the retry lambda of `MigrateDbContext`, which the analysis cannot tell apart.
+
+The consequence to hold: until the sub-phase that makes a library member known models its
+invocation — LINQ operators with delegates, retry policies, mediators in 5e — their lambdas run in
+unknown executions and cost findings, paid in the open as with iterators. An accepted inferred fact
+cannot remove such an execution (TD-038); it can only add what it proves.

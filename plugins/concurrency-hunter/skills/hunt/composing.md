@@ -61,6 +61,42 @@ occurrences pass through.
   for each read it depends on; explain the lost update across both methods and cite that read location.
   `DCA1001` is any other unsynchronized write paired with a read or a write.
 
+## Calls the analysis cannot follow
+
+- **An `unknown-effect` access.** A call the analysis cannot follow — a library member its table does
+  not describe, an interface call with no known implementation object, a dynamic operation — is
+  reported as an access with the operation `unknown-effect` (or `atomic-unknown-effect` on a
+  thread-safe collection), at the call site and under the member that makes the call. It says what the
+  call *may* do with the resource: read it and write it, or leave it alone. Never say the call wrote
+  the field; say that it may, and that nothing the analysis can read rules it out. Such a pair
+  conflicts as a write does, so the rule is `DCA1001`, or `DCA1002` against a read-modify-write, or
+  `DCA1004` against a check-then-act sequence on a thread-safe collection. An object that only one
+  execution uses is only read by such a call, so it never yields one of these findings; the resource
+  of one is shared.
+- **An unknown call of a delegate.** A root displayed as `unknown call of the delegate ...` is the
+  body of a lambda or method handed to such a call. The call may run it at any time and any number of
+  times, so it overlaps the other roots of the scope; nothing orders it, not even startup, and the locks
+  held where it was handed over do not protect its body. The access symbol is still the member the
+  lambda is written in. What the lambda captured of one request or worker stays that execution's; only
+  shared state meets other roots. Say that the library may invoke the delegate concurrently, not that it
+  does.
+- **A semantic gap in the uncertainty.** An item reading `The unresolved call <callee> (<kind>) decides
+  the <component> check: ...` means that call decides whether the finding holds: its unknown effect is
+  one side (the operation check), the delegate it was handed runs one side or a task, timer or lock it
+  returns orders or protects the pair (the overlap or protection check). That component costs confidence and the occurrence
+  it decides is at most Medium; a finding keeps the label of its best occurrence, so one reached another
+  way that no gap decides may still be High, and the uncertainty lists the gaps of every occurrence. Take the
+  label as the evidence gives it, never lower it yourself. Put it in the uncertainty section and tell the reader what to check in that
+  library's documentation. You may name the call in backticks by its type and member without type
+  arguments or parameters, such as `CollectionsMarshal.SetCount`.
+- **Collections.** `HashSet`, `Queue`, `Stack` and `LinkedList` are modelled as `List` and `Dictionary`
+  are: a structure resource (the collection itself) and a cell resource (`Items.[?]`), none of them
+  thread-safe. Add, Enqueue, Push, AddFirst, AddLast, AddBefore, AddAfter, Dequeue, Pop, RemoveFirst,
+  RemoveLast and Clear change the structure and a cell; Count reads the structure, Peek the structure
+  and a cell. A `LinkedListNode` is a cell of its list: setting its Value writes that cell without
+  changing the structure, so it never races with Count. In backticks, name such a member with its
+  collection type, as `Queue.Enqueue` or `LinkedListNode.Value`; the member alone is rejected.
+
 ## Occurrences through spawns and timers
 
 An occurrence path can pass a `spawn:<API>@<member>` segment, where work such as `Task.Run` or a thread
@@ -107,15 +143,22 @@ Follow every validation rule:
   segment. Use only an exact evidence access symbol, root entry symbol, called method of a `call` step
   or method of a read location; a dot-suffix of any of them without its parameters; the evidenced
   region type without its `static:`, `di:` or `alloc:<method>#` prefix and its `@<Lifetime>` or `#<n>`
-  suffix; the field; a held protection name without that prefix, suffix or its trailing note; an
-  evidence id; `DCA1001` through `DCA1004`; or the synchronization vocabulary below. The lifetime on
+  suffix; the field; a held protection name without that prefix, suffix or its trailing note; the callee
+  of a semantic gap the finding's uncertainty names, without type arguments or parameters, or a
+  dot-suffix of it; an evidence id; `DCA1001` through `DCA1004`; or the synchronization vocabulary below. The lifetime on
   its own, such as `Singleton`, and the creating method of an `alloc:` region, are not accepted.
+  Nor is a type name on its own unless it is the region type, a C# keyword, or a framework member the
+  evidence does not name: a worker, controller or service is named by its member, a dot-suffix of the
+  root entry symbol such as `OrderWorker.ExecuteAsync`, never by the class alone, and any other word
+  stays outside backticks.
   Backticked snippets that do not match the identifier pattern are not checked.
 - An identifier is also accepted when its first segment, before `.` or `(`, is in this vocabulary:
   `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`,
   `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`,
   `ConcurrentBag`, `ConcurrentStack`, `ImmutableInterlocked`, `ThreadLocal`, `AsyncLocal`,
-  `readonly`, `static`, `const`, `async`, `await`, or `Task`.
+  `readonly`, `static`, `const`, `async`, `await`, `Task`, `Dictionary`, `List`, `HashSet`, `Queue`,
+  `Stack`, `LinkedList`, `LinkedListNode`, or the protection verdicts `unprotected`, `partial` and
+  `sufficient`.
 - Keep citations, locations, and identifiers grounded in the supplied group. Do not invent them and
   do not copy the evidence prose back into the narrative.
 

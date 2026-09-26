@@ -60,8 +60,11 @@ _Avoid_: unawaited call, dropped task, background task
 
 **Unknown execution**:
 An execution the analysis knows will run some code without knowing which root or spawn runs it —
-the enumeration of an iterator that escaped to where the analysis cannot follow it. It may overlap
-every execution of its process scope, itself included, and nothing orders it.
+the enumeration of an iterator that escaped to where the analysis cannot follow it, or the
+invocation of a delegate handed to an **Opaque call**. It may overlap every execution of its
+process scope, itself included, and nothing orders it. The one exception is a delegate handed at
+one site by an execution that runs once and runs that site once: the call may run it many times,
+but one at a time, as a spawn from such a site does not overlap itself.
 _Avoid_: background execution, anonymous thread, somewhere
 
 **Join**:
@@ -143,8 +146,9 @@ _Avoid_: scope, lifetime (a DI lifetime is evidence for ownership, never the sam
 ### Conflicts
 
 **Access**:
-One read, write, read-modify-write, atomic or compound operation on a resource, carried with the
-execution instance it runs in, the protection held, and the guard it runs under.
+One read, write, read-modify-write, atomic or compound operation, or **Unknown effect**, on a
+resource, carried with the execution instance it runs in, the protection held, and the guard it runs
+under.
 _Avoid_: use, reference, touch
 
 **Candidate**:
@@ -231,10 +235,29 @@ A call into a method whose body the run does not have and whose effects no built
 describes; its effects are unknown, which is not the same as none.
 _Avoid_: external call, library call (a library method the built-in semantics describe is not opaque), unknown call
 
+**Unknown effect**:
+What an unresolved **Opaque call** may do to what its receiver and arguments reach: read and write
+every field, collection structure and cell reachable from them, up to the depth the summaries are
+bounded by and a wildcard beyond it, as one access kind that conflicts like a write. Through a
+receiver it reaches only the state of the type that declares the member, so a library member called
+on a source object — a base constructor, an inherited `HttpContext` — sees none of the fields the
+source declares; and it reaches a library object only through what the heap knows the object holds,
+never the library object's own state. On a thread-safe collection's structure it is as atomic as
+the collection's own members. On a region that belongs to one execution — `Owned` or `ThreadConfined`
+— it only reads: the call neither changes such an object nor keeps it. A `readonly` field of an
+object it only reads too, since nothing outside the object's construction can assign one but
+reflection, whose calls get the whole effect there as well; what the field points to gets the whole
+effect.
+_Avoid_: havoc, unknown write, opaque write
+
 **Semantic gap**:
 A call the deterministic analysis could not reduce and that touches a mutable non-owned region, a
 delegate, or feeds a shared region; a reflection, `dynamic`, unresolved-dispatch or unknown-library
-call that touches none of those is not a gap.
+call that touches none of those is not a gap. A virtual, interface or delegate call with no receiver
+object is unresolved dispatch, and the same conditions decide whether it is a gap. Only shared
+regions count — `Escaped`, `Shared` or `Unknown` — so an object of one execution handed to the call
+makes no gap; an array created at the call to carry its arguments — a `params` array, or an array
+creation in the argument's place — is judged by its elements.
 _Avoid_: unresolved (cache-detective's word for a different mechanism), unknown call, hole
 
 **Gap packet**:
@@ -249,7 +272,8 @@ _Avoid_: annotation (cache-detective's word, which carries no validation), assum
 
 **Materiality**:
 The rank of a semantic gap by how many roots and shared regions it can touch; it orders the queue
-and the coverage section, and it never decides a terminal status.
+and the coverage section, and it never decides a terminal status. Roots count first, shared regions
+break a tie, and call sites break the next; there is no combined score.
 _Avoid_: severity, priority, blocking
 
 **Coverage**:
@@ -292,6 +316,18 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Resource** belongs to exactly one **Heap region**; a **Heap region** has exactly one **Ownership** at a time.
 - A **Semantic gap** yields exactly one **Gap packet** and zero or more **Inferred facts**; every gap, resolved or not, appears in **Coverage**.
 - A **Semantic gap** never changes a **Terminal status**; only a phase that did not finish does.
+- A **Semantic gap** makes a **Finding** uncertain only when it decides one of the finding's checks:
+  one of its accesses is the gap's unknown effect, or its resource, its ordering or its protection
+  came through the gap's call. A gap that merely lies on a call path before an access leaves the
+  finding as it is. An **Occurrence** an unresolved gap decides loses score on the check the gap
+  decides and is never above Medium; a finding still takes its best occurrence, so one occurrence no
+  gap decides can keep it High.
+- A delegate handed to an **Opaque call** runs in an **Unknown execution**; nothing orders it with
+  the execution that made the call. What it captures of that execution's own objects it touches as
+  that execution does, so they stay confined; on a shared object it overlaps everything.
+- An **Opaque call** changes no object's **Ownership**: an object of one execution it receives is
+  only read, and a shared object it reaches gets the whole **Unknown effect**. A **Construction**
+  that hands a shared object it produces to one has published it.
 - Two **Accesses** on one **Resource** in two **Execution instances** that may overlap form a **Candidate**; a **Candidate** becomes at most one **Finding**.
 - Two **Accesses** are compared only inside one **Bucket** or across the wildcard and open-region joins the bucket's definition names; an access in no bucket is compared with nothing.
 - A **Finding** has one or more **Occurrences**; a new **Execution root** reaching its access sites adds an occurrence and changes neither the finding nor its **Fingerprint**.
@@ -355,6 +391,12 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   exception the SPEC fixes as opaque persistence, which is why a `DbContext` shared between
   executions is not seen until phase 5e.
 - An object handed over through a `Channel<T>` could be linked from the writer to the reader.
-  Resolved on 2026-09-23 for the first version: the written object is `Escaped`, the object the
-  reader gets back is not linked to it, and the producer–consumer pair shows as uncertainty, never
-  as safety. Linking the two waits for the second-wave `Channel` semantics (PRD 8).
+  Resolved on 2026-09-23 for the first version, and restated in phase 5b: the object the reader gets
+  back is not linked to the written one, and when the written object is shared the write is a
+  **Semantic gap**, so the producer–consumer pair shows as uncertainty, never as safety. Linking the
+  two waits for the second-wave `Channel` semantics (PRD 8).
+- An object of one execution handed to an **Opaque call** could be read as escaping, since unknown
+  code might keep it. Resolved in phase 5b by measurement: that reading made every per-request
+  object passed to a view, a mapper or a LINQ operator pair with itself across requests — 913 new
+  findings on eShop against 2. The call only reads such an object and leaves its **Ownership** as it
+  was; what unknown code does with it is a question for an **Inferred fact**.

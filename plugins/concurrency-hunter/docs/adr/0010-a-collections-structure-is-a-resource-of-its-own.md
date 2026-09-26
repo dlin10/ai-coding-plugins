@@ -66,3 +66,24 @@ collection does not help at all — a `Count` that decides an `Add` is already t
 gap between them. A read paired with a write needs both sides under one primitive, because guarding
 the write alone leaves the read unguarded. Only a pair of plain non-atomic operations on one cell is
 answered by an atomic member.
+
+## Amendment, phase 5b: `HashSet<T>`, `Queue<T>`, `Stack<T>` and `LinkedList<T>`
+
+Until phase 5b these four were opaque, so what an opaque member put into them was held by nothing
+the heap knew: a deep read of the collection never reached its elements, and neither did anything
+else. Phase 5b models them by their members with the same two resources. None of them is
+thread-safe, so none of their members is atomic on either resource, and none has an index, so every
+cell is the unknown one.
+
+The members follow the rules above. An insertion — `Add`, `Enqueue`, `Push`, `AddFirst`, `AddLast`,
+`AddBefore`, `AddAfter` — writes the structure and a cell, and the collection holds what it
+inserted. A removal — `Remove`, `Dequeue`, `Pop` and their `Try` forms, `RemoveFirst`, `RemoveLast`
+— writes the structure and a cell; `Clear` writes the structure and every cell. `Peek` reads the
+structure and a cell, `Count` the structure alone, and `Contains`, `Find` and enumeration read the
+structure and every cell, because they compare or visit values. A `LinkedListNode<T>` is a cell of
+the list it belongs to: the members that hand one out — the insertions above, `First`, `Last`,
+`Find`, a node's `Next` and `Previous` — read the structure, and a node's `Value` reads or writes
+that list's cell without touching the structure, because setting it moves no version. What a
+removal or `Peek` returns points to no object yet, like a `List<T>` indexer, until the heap stores
+collection elements (open question 30).
+

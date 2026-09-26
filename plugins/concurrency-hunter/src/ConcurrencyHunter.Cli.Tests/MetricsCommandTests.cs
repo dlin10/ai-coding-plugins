@@ -61,7 +61,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
                       "peakWorkingSetMb", "counts", "coverage", "targets"],
                      Names(root));
-        Assert.Equal("1.1", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.2", root.GetProperty("schemaVersion").GetString());
         Assert.Equal(BuildInfo.Version, root.GetProperty("engineVersion").GetString());
         Assert.True(DateTimeOffset.TryParse(root.GetProperty("recordedAt").GetString(), out _));
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
@@ -76,7 +76,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "suppressed", "candidates"],
                      Names(root.GetProperty("counts").GetProperty("pairs")));
         Assert.All(root.GetProperty("coverage").EnumerateArray(), scope =>
-            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering"], Names(scope)));
+            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps"], Names(scope)));
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);

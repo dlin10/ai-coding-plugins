@@ -1167,6 +1167,8 @@ public static class IrLowering
                     when reference.Event.Name == "Elapsed" && Bcl.TypeOf(reference.Event) == Bcl.TIMERS_TIMER =>
                     LowerElapsedSubscription(assignment, reference),
                 IArgumentOperation argument => LowerArgument(argument) ?? Unknown(argument, "address-taken"),
+                IDynamicInvocationOperation invocation => LowerDynamicInvocation(invocation),
+                IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation => LowerDynamicRead(operation),
                 _ when operation.ConstantValue.HasValue => Constant(operation, "constant"),
                 _ => LowerUnsupported(operation)
             };
@@ -1300,6 +1302,17 @@ public static class IrLowering
                 return result;
             }
 
+            if (DynamicTarget(target) is { } dynamicTarget)
+            {
+                var loaded = Unknown(target, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
+                var right = LowerValue(compound.Value);
+                var result = AddTemporary(compound.Type);
+                _operations.Add(new IrComputeOperation(
+                    NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
+                Unknown(compound, "unsupported", [.. dynamicTarget.Operands, result], dynamicTarget.Set);
+                return result;
+            }
+
             return Unknown(compound, "unsupported");
         }
 
@@ -1329,6 +1342,18 @@ public static class IrLowering
                         parameter.Parameter,
                     _ => null
                 };
+                if (symbol is null && DynamicTarget(target) is { } dynamicTarget)
+                {
+                    var dynamicLoaded = Unknown(target, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
+                    var dynamicOne = Constant(increment, 1, "increment");
+                    var dynamicResult = AddTemporary(increment.Type);
+                    _operations.Add(new IrComputeOperation(NextOperation(), dynamicResult,
+                                                          increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
+                                                          [dynamicLoaded, dynamicOne], Provenance(increment, "increment")));
+                    Unknown(increment, "unsupported", [.. dynamicTarget.Operands, dynamicResult], dynamicTarget.Set);
+                    return increment.IsPostfix ? dynamicLoaded : dynamicResult;
+                }
+
                 if (symbol is null)
                     return Unknown(increment, "unsupported");
 
@@ -1491,6 +1516,11 @@ public static class IrLowering
                     _operations.Add(new IrStoreFieldOperation(
                         NextOperation(), primaryLocation.Receiver, primaryLocation.Field, value, null,
                         Provenance(source, transformation)));
+                    return value;
+                // A write to a member or an indexer of a `dynamic` receiver keeps the receiver and the value it writes (R4).
+                case IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation:
+                    var dynamicTarget = DynamicTarget(target)!.Value;
+                    Unknown(source, "unsupported", [.. dynamicTarget.Operands, value], dynamicTarget.Set);
                     return value;
                 default:
                     return Unknown(source, "unsupported");
@@ -1729,32 +1759,41 @@ public static class IrLowering
                 return atomicResult;
 
             var method = invocation.TargetMethod;
+            // A partial method with no implementation is never called: the compiler removes the call together with the evaluation of
+            // its arguments, so nothing runs here and there is nothing opaque about it.
+            if (method.IsPartialDefinition && method.PartialImplementationPart is null)
+                return Constant(invocation, null, "removed-partial-call");
+
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
             var arguments = LowerArguments(invocation.Arguments);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
                                  ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
             var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
-            call = AnnotateLibraryCall(call, invocation.Arguments, arguments);
+            call = AnnotateLibraryCall(call, invocation.Arguments, arguments) with { CreatedArrayArguments = CreatedArrays(invocation.Arguments) };
             _operations[^1] = call;
 
             if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
                 _configuredTasks[result] = configured;
             AnnotateBclCall(invocation, method, call, invocation.Arguments, arguments);
-            // A method with no body at hand — none in source, or an `extern` one declared there — writes its `out` arguments where
-            // it is called, since no body will say where (R3).
-            if (method.DeclaringSyntaxReferences.Length == 0 || method.IsExtern)
-            {
-                foreach (var argument in invocation.Arguments.Where(argument => argument.Parameter?.RefKind == RefKind.Out))
-                {
-                    if (arguments.At(argument.Parameter!.Ordinal) is not int address)
-                        continue;
-                    var written = Unknown(argument, "opaque-out-value");
-                    _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null,
-                                                                 Provenance(argument, "opaque-out")));
-                }
-            }
+            WriteOpaqueOuts(method, invocation.Arguments, arguments);
             return asAddress || !(method.ReturnsByRef || method.ReturnsByRefReadonly)
                 ? result : LowerReferenceLoad(result, invocation);
+        }
+
+        /// <summary>A method or constructor with no body at hand — none in source, or an `extern` one declared there — writes its
+        /// `out` arguments where it is called, since no body will say where (R3, open question 23).</summary>
+        private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments)
+        {
+            if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern)
+                return;
+
+            foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out))
+            {
+                if (arguments.At(argument.Parameter!.Ordinal) is not int address)
+                    continue;
+                var written = Unknown(argument, "opaque-out-value");
+                _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null, Provenance(argument, "opaque-out")));
+            }
         }
 
         /// <summary>A base call runs the base member itself, never an override of it (R1): an exact call of that member, which runs
@@ -1774,23 +1813,28 @@ public static class IrLowering
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
-            _operations.Add(Call(result, method, receiver, arguments, Provenance(source, "call")) with
+            var role = source.IsImplicit && source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
+                ? method.Name switch
+                {
+                    "GetEnumerator" => IrEnumerationRole.GetEnumerator,
+                    "MoveNext" => IrEnumerationRole.MoveNext,
+                    "get_Current" => IrEnumerationRole.Current,
+                    "Dispose" => IrEnumerationRole.Dispose,
+                    _ => IrEnumerationRole.None
+                }
+                : IrEnumerationRole.None;
+            var call = Call(result, method, receiver, arguments, Provenance(source, "call"));
+            _operations.Add(call with
             {
                 ServiceCall = serviceCall,
                 IsAwaitedImmediately = awaited,
                 EnumerationId = source.IsImplicit
                     ? source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().FirstOrDefault()?.SpanStart
                     : null,
-                EnumerationRole = source.IsImplicit && source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
-                    ? method.Name switch
-                    {
-                        "GetEnumerator" => IrEnumerationRole.GetEnumerator,
-                        "MoveNext" => IrEnumerationRole.MoveNext,
-                        "get_Current" => IrEnumerationRole.Current,
-                        "Dispose" => IrEnumerationRole.Dispose,
-                        _ => IrEnumerationRole.None
-                    }
-                    : IrEnumerationRole.None
+                EnumerationRole = role,
+                // The enumeration of a `foreach` over a library enumerable is what the recognizer of phase 4b models (ADR 0010), so its
+                // members are no unresolved calls; a member of the run's own without a body is one all the same (R1).
+                IsRecognized = call.IsRecognized || role != IrEnumerationRole.None && !method.Locations.Any(location => location.IsInSource)
             });
             return result ?? Constant(source, null, "void");
         }
@@ -2073,11 +2117,33 @@ public static class IrLowering
                 RefResults = arguments.RefResults,
                 Collection = Collections.Of(method),
                 Library = nestedId is null ? LibraryCalls.Of(method) : null,
+                IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
             };
         }
+
+        /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
+        /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor.</summary>
+        private static bool IsRecognized(IMethodSymbol method) =>
+            Bcl.TypeOf(method) is { } type &&
+            (LibrarySemanticsTable.IsRecognizedType(type) ||
+             SpanTypes.Names(type) && (method.MethodKind == MethodKind.Constructor
+                                           ? type is "System.Span`1" or "System.ReadOnlySpan`1"
+                                           : method.Name is "AsSpan" or "AsMemory" or "Slice"));
+
+        /// <summary>The ordinals of the parameters whose argument is an array created in its place: a <c>params</c> array or
+        /// collection, or an array creation or collection expression written as the argument (R4).</summary>
+        private static int[] CreatedArrays(IEnumerable<IArgumentOperation> arguments) =>
+            arguments.Where(argument => argument.Parameter is not null &&
+                                        (argument.ArgumentKind is ArgumentKind.ParamArray or ArgumentKind.ParamCollection ||
+                                         WithoutConversions(argument.Value) is IArrayCreationOperation or ICollectionExpressionOperation))
+                     .Select(argument => argument.Parameter!.Ordinal)
+                     .ToArray();
+
+        private static IOperation WithoutConversions(IOperation value) =>
+            value is IConversionOperation conversion ? WithoutConversions(conversion.Operand) : value;
 
         /// <summary>Lowers a call that enters or leaves a synchronization primitive into that entry or exit (TD-080, TD-083). An
         /// entry with a timeout holds the primitive only where its success flag is true, and an asynchronous entry only where its
@@ -2363,8 +2429,12 @@ public static class IrLowering
             {
                 var arguments = LowerArguments(creation.Arguments);
                 _operations.Add(Call(null, creation.Constructor, result, arguments, provenance));
-                _operations[^1] = AnnotateLibraryCall((IrCallOperation)_operations[^1], creation.Arguments, arguments);
+                _operations[^1] = AnnotateLibraryCall((IrCallOperation)_operations[^1], creation.Arguments, arguments) with
+                {
+                    CreatedArrayArguments = CreatedArrays(creation.Arguments)
+                };
                 AnnotateBclCall(creation, creation.Constructor, (IrCallOperation)_operations[^1], creation.Arguments, arguments);
+                WriteOpaqueOuts(creation.Constructor, creation.Arguments, arguments);
             }
 
             return result;
@@ -2631,15 +2701,46 @@ public static class IrLowering
 
         private int Unknown(IOperation operation, string reason) => Unknown(operation, reason, []);
 
-        private int Unknown(IOperation operation, string reason, IReadOnlyList<int> operands)
+        private int Unknown(IOperation operation, string reason, IReadOnlyList<int> operands, string? dynamicCallee = null)
         {
             int? result = operation.Type is null || operation.Type.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(operation.Type);
             _operations.Add(new IrUnknownOperation(
-                NextOperation(), result, operation.Kind.ToString(), reason, operands, Provenance(operation, reason)));
+                NextOperation(), result, operation.Kind.ToString(), reason, operands, Provenance(operation, reason))
+            {
+                DynamicCallee = dynamicCallee
+            });
             return result ?? Constant(operation, null, reason);
         }
+
+        /// <summary>A <c>dynamic</c> call: the receiver and the arguments are its operands, and the member it names is part of its
+        /// callee, so a call of <c>d.Read()</c> is never taken for a read of a member <c>Read</c> (R4).</summary>
+        private int LowerDynamicInvocation(IDynamicInvocationOperation invocation)
+        {
+            var (receiver, callee) = invocation.Operation is IDynamicMemberReferenceOperation member
+                ? (DynamicReceiver(member), $"dynamic invoke {member.MemberName}")
+                : ([LowerValue(invocation.Operation)], "dynamic invoke");
+            return Unknown(invocation, "unsupported", [.. receiver, .. invocation.Arguments.Select(LowerValue)], callee);
+        }
+
+        private int LowerDynamicRead(IOperation operation)
+        {
+            var read = DynamicTarget(operation)!.Value;
+            return Unknown(operation, "unsupported", read.Operands, read.Get);
+        }
+
+        private int[] DynamicReceiver(IDynamicMemberReferenceOperation member) => member.Instance is null ? [] : [LowerValue(member.Instance)];
+
+        /// <summary>A member or an indexer of a <c>dynamic</c> receiver as the target of an assignment: its receiver and indices, lowered
+        /// once, and what its read and its write are called (R4). Null for every other target.</summary>
+        private (int[] Operands, string Get, string Set)? DynamicTarget(IOperation target) => target switch
+        {
+            IDynamicMemberReferenceOperation member => (DynamicReceiver(member), $"dynamic get {member.MemberName}", $"dynamic set {member.MemberName}"),
+            IDynamicIndexerAccessOperation indexer => ([LowerValue(indexer.Operation), .. indexer.Arguments.Select(LowerValue)],
+                                                       "dynamic index get", "dynamic index set"),
+            _ => null
+        };
 
         // An operation the lowering does not model still evaluates its children: their loads, stores, calls and
         // delegate creations are lowered first, in evaluation order, and become the operands of the unknown.
@@ -3125,7 +3226,8 @@ public static class IrLowering
     /// The collections modelled by their members (ADR 0010) and what each member does to the two resources of one: the structure,
     /// which is the collection itself, and the storage of its cells. A member that shifts its neighbours, scans for a value or
     /// enumerates touches cells it cannot name, so it takes no key argument and touches all of them. A thread-safe collection
-    /// performs every member of it atomically on both resources; a <c>List</c> or a <c>Dictionary</c> performs none of them so.
+    /// performs every member of it atomically on both resources; a <c>List</c>, a <c>Dictionary</c>, and since phase 5b a <c>HashSet</c>,
+    /// a <c>Queue</c>, a <c>Stack</c> and a <c>LinkedList</c> perform none of them so.
     /// Every other type, and every member not listed here, stays an ordinary call.
     /// </summary>
     private static class Collections
@@ -3136,6 +3238,11 @@ public static class IrLowering
         private const string CONCURRENT_QUEUE = "System.Collections.Concurrent.ConcurrentQueue`1";
         private const string CONCURRENT_STACK = "System.Collections.Concurrent.ConcurrentStack`1";
         private const string CONCURRENT_BAG = "System.Collections.Concurrent.ConcurrentBag`1";
+        private const string HASH_SET = "System.Collections.Generic.HashSet`1";
+        private const string QUEUE = "System.Collections.Generic.Queue`1";
+        private const string STACK = "System.Collections.Generic.Stack`1";
+        private const string LINKED_LIST = "System.Collections.Generic.LinkedList`1";
+        private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode`1";
 
         internal static IrCollectionCall? Of(IMethodSymbol method)
         {
@@ -3144,17 +3251,41 @@ public static class IrLowering
             var keyed = type is DICTIONARY or CONCURRENT_DICTIONARY || type == LIST && method.Name is "get_Item" or "set_Item";
             return (type, method.Name) switch
             {
+                // A node is a cell of its list: its value is that cell, and moving to a neighbour reads the list's structure, which
+                // setting a value leaves alone (ADR 0010, phase 5b).
+                // A node created on its own holds its value, and touches no list until one is handed it.
+                (LINKED_LIST_NODE, ".ctor") => Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None),
+                (LINKED_LIST_NODE, "get_Value") => Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.Read),
+                (LINKED_LIST_NODE, "set_Value") => Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.Write),
+                (LINKED_LIST_NODE, "get_Next" or "get_Previous") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.None) with
+                {
+                    HandsOutCell = true
+                },
+                (LINKED_LIST, "AddFirst" or "AddLast" or "AddBefore" or "AddAfter") => Effects(method, type, false, IrCollectionEffect.Write,
+                                                                                               IrCollectionEffect.Write) with
+                {
+                    HandsOutCell = true
+                },
+                (LINKED_LIST, "get_First" or "get_Last") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.None) with
+                {
+                    HandsOutCell = true
+                },
+                (LINKED_LIST, "Find" or "FindLast") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read) with
+                {
+                    HandsOutCell = true
+                },
                 (_, "Add" or "TryAdd" or "Enqueue" or "Push" or "set_Item") => Effects(method, type, keyed, IrCollectionEffect.Write,
                                                                                       IrCollectionEffect.Write),
                 (LIST, "Insert" or "RemoveAt" or "Remove") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
                 (_, "Remove" or "TryRemove") => Effects(method, type, keyed, IrCollectionEffect.Write, IrCollectionEffect.Write),
-                (_, "TryDequeue" or "TryPop" or "TryTake") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (_, "TryDequeue" or "TryPop" or "TryTake" or "Dequeue" or "Pop" or "RemoveFirst" or "RemoveLast") =>
+                    Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
                 (_, "Clear") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
                 (CONCURRENT_DICTIONARY, "GetOrAdd" or "AddOrUpdate") => Effects(method, type, true, IrCollectionEffect.Write,
                                                                                 IrCollectionEffect.ReadWrite),
                 (CONCURRENT_DICTIONARY, "TryUpdate") => Effects(method, type, true, IrCollectionEffect.Read, IrCollectionEffect.ReadWrite),
                 (_, "get_Item" or "TryGetValue") => Effects(method, type, keyed, IrCollectionEffect.Read, IrCollectionEffect.Read),
-                (_, "TryPeek") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                (_, "TryPeek" or "Peek") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
                 // A key lookup never reaches a value, so it reads no cell, while a scan over the values reads every one of them.
                 // Its key is carried all the same: a check that names a cell decides where the sequence it guards is reported.
                 (_, "get_Count" or "ContainsKey") => Effects(method, type, keyed, IrCollectionEffect.Read, IrCollectionEffect.None),
@@ -3202,7 +3333,8 @@ public static class IrLowering
                 type is CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG);
 
         private static bool IsModelled(string type) =>
-            type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG;
+            type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG or HASH_SET or QUEUE or
+                STACK or LINKED_LIST or LINKED_LIST_NODE;
     }
 
     /// <summary>The library semantics table's word on a called member without a source declaration (TD-034a), with each effect

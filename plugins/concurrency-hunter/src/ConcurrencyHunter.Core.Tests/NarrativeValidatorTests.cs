@@ -519,6 +519,38 @@ public sealed class NarrativeValidatorTests
         Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
     }
 
+    [Fact]
+    public void The_four_collections_of_phase_5b_and_the_node_pass_the_vocabulary()
+    {
+        var body = "A `HashSet`, a `Queue`, a `Stack` and a `LinkedList` are none of them thread-safe; `LinkedListNode.Value` is a cell.";
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText(body), GroupScope(CreateFinding()));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    /// <summary>A narrative about a finding a semantic gap decides may name the unresolved call, as its uncertainty does, by its
+    /// member without type arguments or parameters (TD-039).</summary>
+    [Fact]
+    public void The_callee_of_a_gap_that_decides_a_check_is_accepted_without_type_arguments_or_parameters()
+    {
+        var finding = CreateFinding() with { GapCallees = ["System.Runtime.InteropServices.CollectionsMarshal.SetCount<T>(List<string>, int)"] };
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("The call `CollectionsMarshal.SetCount` may change the list; `SetCount` too."),
+                                                  GroupScope(finding));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void A_callee_no_gap_of_the_finding_names_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText("The call `CollectionsMarshal.SetCount` may change the list."),
+                                                  GroupScope(CreateFinding()));
+
+        Assert.Equal(["inventedSymbol:CollectionsMarshal.SetCount"], verdict.Reasons);
+    }
+
     /// <summary>The vocabulary is a list, not a licence: a type nobody named is still an invention.</summary>
     [Fact]
     public void A_type_outside_the_vocabulary_and_the_evidence_is_still_rejected()

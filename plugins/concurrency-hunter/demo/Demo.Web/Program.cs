@@ -13,6 +13,7 @@ using Demo.Web.Cases.AwaitConditionalTask;
 using Demo.Web.Cases.BackgroundStopReadsOwnField;
 using Demo.Web.Cases.BranchingJoin;
 using Demo.Web.Cases.CalleeJoinsOnAParameter;
+using Demo.Web.Cases.ChannelHandoff;
 using Demo.Web.Cases.CalleeJoinsOnAllPaths;
 using Demo.Web.Cases.ConcurrentBagCountThenAdd;
 using Demo.Web.Cases.ConcurrentDictionaryAtomicOps;
@@ -53,6 +54,7 @@ using Demo.Web.Cases.FactoryReturnsSharedStatic;
 using Demo.Web.Cases.FactoryScopedPerRequest;
 using Demo.Web.Cases.FireAndForgetVsAwaited;
 using Demo.Web.Cases.FromServicesActionParameter;
+using Demo.Web.Cases.GapMaterialityOrder;
 using Demo.Web.Cases.GenericSingletonPerTypeArgument;
 using Demo.Web.Cases.GroupSharedHelperManyCallers;
 using Demo.Web.Cases.GrpcServiceMethod;
@@ -73,6 +75,7 @@ using Demo.Web.Cases.JoinSkippedOnException;
 using Demo.Web.Cases.JsonSerializeReadsDeep;
 using Demo.Web.Cases.KeyEqualityComparer;
 using Demo.Web.Cases.LambdaAndLocalFunction;
+using Demo.Web.Cases.LibraryTableNoGap;
 using Demo.Web.Cases.LocatorScopedViaCreateScope;
 using Demo.Web.Cases.LocatorSingletonVsWorker;
 using Demo.Web.Cases.LocatorTransientDistinct;
@@ -86,11 +89,13 @@ using Demo.Web.Cases.LoggerArgReadsDeep;
 using Demo.Web.Cases.MaybeNullHandle;
 using Demo.Web.Cases.MinimalApiLambdaHandler;
 using Demo.Web.Cases.MinimalApiReadWrite;
+using Demo.Web.Cases.MixedSourceTimer;
 using Demo.Web.Cases.MonitorEnterExitSameGate;
 using Demo.Web.Cases.MonitorTryEnter;
 using Demo.Web.Cases.MutexInProcess;
 using Demo.Web.Cases.MutuallyExclusivePaths;
 using Demo.Web.Cases.NonActionPublicMethod;
+using Demo.Web.Cases.OpaqueTaskSource;
 using Demo.Web.Cases.OutAndRefArguments;
 using Demo.Web.Cases.ParallelForDisjointIndex;
 using Demo.Web.Cases.ParallelForSharedTotal;
@@ -103,6 +108,7 @@ using Demo.Web.Cases.ReaderWriterLockSlim;
 using Demo.Web.Cases.ReceiverSensitivity;
 using Demo.Web.Cases.RecursiveSummary;
 using Demo.Web.Cases.RefLocalWrite;
+using Demo.Web.Cases.ReflectionPrimitiveArgsNoGap;
 using Demo.Web.Cases.RefReturnWrite;
 using Demo.Web.Cases.RmwForms;
 using Demo.Web.Cases.RmwSingletonCounter;
@@ -137,6 +143,8 @@ using Demo.Web.Cases.TimerNeverActivated;
 using Demo.Web.Cases.TimerOneShot;
 using Demo.Web.Cases.TimerStateSharing;
 using Demo.Web.Cases.TimersTimerElapsed;
+using Demo.Web.Cases.UnknownCallModelNotNoop;
+using Demo.Web.Cases.UnknownLibraryCapturesDelegate;
 using Demo.Web.Cases.UnsupportedGuardKept;
 using Demo.Web.Cases.VirtualDispatchPointsTo;
 using Demo.Web.Cases.VolatileReadWriteFlag;
@@ -290,7 +298,15 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddAsyncTailAcquisition()
                 .AddJsonSerializeReadsDeep()
                 .AddLoggerArgReadsDeep()
-                .AddEfAddSharedEntity();
+                .AddEfAddSharedEntity()
+                .AddReflectionPrimitiveArgsNoGap()
+                .AddLibraryTableNoGap()
+                .AddGapMaterialityOrder()
+                .AddOpaqueTaskSource()
+                .AddMixedSourceTimer()
+                .AddUnknownCallModelNotNoop()
+                .AddChannelHandoff()
+                .AddUnknownLibraryCapturesDelegate();
 
 var app = builder.Build();
 

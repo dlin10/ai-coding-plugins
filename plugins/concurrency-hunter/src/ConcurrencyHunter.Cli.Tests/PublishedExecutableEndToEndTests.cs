@@ -160,7 +160,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             var findingElements = findings.RootElement.GetProperty("findings").EnumerateArray().ToArray();
             Assert.Equal(rendered.GetProperty("counts").GetProperty("findings").GetInt32(), findingElements.Length);
             Assert.Contains(findingElements, finding => finding.GetProperty("ruleId").GetString() == "DCA1002");
-            Assert.Equal("2.1", findings.RootElement.GetProperty("schemaVersion").GetString());
+            Assert.Equal("2.2", findings.RootElement.GetProperty("schemaVersion").GetString());
             Assert.All(findingElements, finding =>
             {
                 Assert.Matches("^[0-9a-f]{16}$", finding.GetProperty("fingerprint").GetString()!);

@@ -3,43 +3,45 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 238,
+    "roots": 253,
     "rootsPerProvider": {
-      "aspnetcore": 91,
-      "hosting": 147
+      "aspnetcore": 100,
+      "hosting": 153
     },
-    "reachableBodies": 921,
-    "summaries": 921,
-    "regions": 586,
-    "instances": 963,
-    "accesses": 1101,
+    "reachableBodies": 974,
+    "summaries": 974,
+    "regions": 626,
+    "instances": 1020,
+    "accesses": 1191,
     "pairs": {
-      "comparisons": 1236,
-      "cartesianBound": 314822,
+      "comparisons": 1328,
+      "cartesianBound": 363379,
       "largestBucket": 8,
-      "buckets": 486,
+      "buckets": 521,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 263,
-        "ordered": 20,
-        "read-read": 697,
+        "no-overlap": 275,
+        "ordered": 21,
+        "read-read": 761,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 157
+      "candidates": 172
     },
-    "findings": 148,
-    "occurrences": 157,
-    "groups": 128,
+    "findings": 160,
+    "occurrences": 169,
+    "groups": 134,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
       "03278e7cac53fea0",
       "04382e96b2774556",
+      "060ed9e8d33d76c3",
       "06497da93092d31f",
+      "0c99a46fa78a7e1a",
       "0d494ad39807c408",
       "0f3602cdbf073b5c",
       "0ff382932ec42e00",
@@ -62,6 +64,7 @@
       "2f2c498276cc327b",
       "2f670aa8284d3790",
       "33ef591448fde6b9",
+      "34e840c7a707dbc5",
       "3730bda85a8cc9a7",
       "386b91364073a8cc",
       "39e862e1c3353646",
@@ -84,6 +87,7 @@
       "5f158cc5a1d9ae41",
       "5f4cd8fbb74fe791",
       "5f4e356ccf353d27",
+      "601a2642cbab2ba1",
       "608cad26b11b15f2",
       "63130a58ff958b92",
       "644c6073c130aa6a",
@@ -107,11 +111,13 @@
       "7c58babcede86c11",
       "7c968dbe5ed393ec",
       "7ee04391e659cd20",
+      "7faca75deac3abf7",
       "7fc339d9738a95d7",
       "8187d8ad17a08bbd",
       "8405e1e3a6fff46c",
       "878aecf3a8a0c20c",
       "878b961cd3dd728f",
+      "88f686c572789f17",
       "893c3ba82483c84a",
       "89f506f876385f53",
       "8c63cabb09990496",
@@ -127,8 +133,10 @@
       "9bf7e171c6e3076b",
       "9c9c8106b0ad6f1d",
       "9f784624fea9d5f0",
+      "a0a00611df8f4181",
       "a4c002cee80ba7b4",
       "a4e7febde68abeaa",
+      "a560ec199fe59856",
       "a56f6581531e1c11",
       "a604518aa7f05508",
       "a654dfacbf97bf03",
@@ -136,7 +144,9 @@
       "aa449e473e4843e6",
       "aa65984b1204137e",
       "aaee237651e61f1b",
+      "ab66ff4ab2a6dfa0",
       "aba895a957e3e151",
+      "aca96e6ccc892fc6",
       "acc85a83bc96ee65",
       "acf69ab8fcb23ea1",
       "af5eac9010c6daf5",
@@ -172,6 +182,7 @@
       "e16132ce934681c0",
       "e4691f7e6749aadb",
       "e775eba7dd452d0f",
+      "e9fec193f3551e0c",
       "ef07b9800887cefd",
       "f00b4e69472bfc8a",
       "f0a8012f99a33d8a",
@@ -182,6 +193,7 @@
       "f6a844fb679b5eb7",
       "f6beff54a3c25edf",
       "fa80453e1156d2b0",
+      "fd00541eeae2ce38",
       "ff6af698a226ea8c"
     ]
   },
@@ -189,20 +201,21 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 91,
-        "hosting": 146
+        "aspnetcore": 100,
+        "hosting": 152
       },
-      "accesses": 793,
+      "accesses": 852,
       "counters": {
-        "delegate-to-opaque": 5,
-        "element-operation": 21,
-        "known-call": 167,
+        "delegate-to-opaque": 8,
+        "element-operation": 24,
+        "known-call": 185,
         "merged-context": 0,
-        "no-receiver-object": 7,
-        "opaque-call": 788,
+        "no-receiver-object": 9,
+        "opaque-call": 843,
         "out-of-range-call": 0,
-        "reachable-bodies": 918,
+        "reachable-bodies": 971,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 9,
         "solver-available": 1,
         "solver-queries": 11,
         "solver-sat": 7,
@@ -210,15 +223,26 @@
         "unanalysed-registration": 0,
         "unproven-reference": 8,
         "unresolved-locator": 2,
-        "wildcard-access": 5
+        "wildcard-access": 8
       },
       "ordering": {
-        "spawn-sites": 43,
+        "spawn-sites": 44,
         "timers-disabled": 1,
         "timers-one-shot": 5,
-        "timers-periodic": 6,
-        "unproven-joins": 25
-      }
+        "timers-periodic": 7,
+        "unproven-joins": 28
+      },
+      "semanticGaps": [
+        "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
+        "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
+        "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
+        "System.Console.Write(object)",
+        "System.Console.WriteLine(object)",
+        "System.Runtime.InteropServices.CollectionsMarshal.SetCount\u003CT\u003E(List\u003Cstring\u003E, int)",
+        "System.Threading.CancellationToken.Register(Action)",
+        "System.Threading.Channels.Channel.CreateUnbounded\u003CT\u003E()",
+        "System.Threading.Channels.ChannelWriter\u003CDemo.Web.Cases.ChannelHandoff.Order\u003E.TryWrite(Order)"
+      ]
     },
     {
       "scopeId": "Demo.Worker",
@@ -237,6 +261,7 @@
         "out-of-range-call": 0,
         "reachable-bodies": 3,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 0,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 0,
@@ -249,7 +274,8 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 0
-      }
+      },
+      "semanticGaps": []
     }
   ]
 }

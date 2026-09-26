@@ -281,9 +281,9 @@ public sealed class CollectionResourceTests
     [Fact]
     public void A_collection_the_table_does_not_name_has_neither_resource()
     {
-        var run = Workers("Hashes.Add(1);", "Hashes.Add(2);");
+        var run = Workers("Sorted.Add(1);", "Sorted.Add(2);");
 
-        Assert.DoesNotContain(run.Collection.Accesses, access => Path(access).StartsWith("Hashes.", StringComparison.Ordinal));
+        Assert.DoesNotContain(run.Collection.Accesses, access => Path(access).StartsWith("Sorted.", StringComparison.Ordinal));
         Assert.All(Of(run, "Store.First()"), access => Assert.Equal(AccessOperation.Read, access.Operation));
         Assert.Empty(Pairs(run));
     }
@@ -415,7 +415,7 @@ public sealed class CollectionResourceTests
             public readonly ConcurrentDictionary<string, int> Custom = new(new FirstLetterComparer());
             public readonly List<int> Items = new();
             public readonly ConcurrentQueue<int> Queue = new();
-            public readonly HashSet<int> Hashes = new();
+            public readonly SortedSet<int> Sorted = new();
         """;
 
     private const string Comparer = """

@@ -195,6 +195,15 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// decides only for a call that would otherwise be opaque: one whose dispatch may reach a source body runs that body.</summary>
     public IrLibraryCall? Library { get; init; }
 
+    /// <summary>Whether a recognizer of phases 1-4 already models the target: a member of a type one owns
+    /// (<c>LibrarySemanticsTable.RecognizedTypes</c>) or the creation of a framework slice. Such a call is never an unresolved one
+    /// and never a semantic gap (R1).</summary>
+    public bool IsRecognized { get; init; }
+
+    /// <summary>The ordinals of the parameters whose argument is an array the call creates in its place, a <c>params</c> array or an
+    /// array creation written as the argument: a semantic gap judges such an argument by its elements (R4).</summary>
+    public IReadOnlyList<int> CreatedArrayArguments { get; init; } = [];
+
     /// <summary>The call's result is awaited in the same expression, directly or through <c>ConfigureAwait</c>.</summary>
     public bool IsAwaitedImmediately { get; init; }
 
@@ -216,7 +225,12 @@ public enum IrEnumerationRole
 /// cell the member touches; without it a member that touches cells touches all of them. <see cref="IsAtomic"/> is the
 /// collection's own guarantee: a thread-safe collection performs each of its members atomically on both resources.</summary>
 public sealed record IrCollectionCall(string Member, IrCollectionEffect Structure, IrCollectionEffect Element, int? KeyArgument,
-                                      bool IsAtomic);
+                                      bool IsAtomic)
+{
+    /// <summary>Whether the member hands out a <c>LinkedListNode&lt;T&gt;</c> of its list: a node is a cell of that list, so what is
+    /// done to the node is done to the list the call was made on (ADR 0010, phase 5b).</summary>
+    public bool HandsOutCell { get; init; }
+}
 
 /// <summary>A member the library semantics table describes (TD-034a): its documentation id, whether the assembly it was found in
 /// is inside the table's version range, and its effects on its arguments. Out of range the call stays opaque and is counted
@@ -486,4 +500,9 @@ public sealed record IrUnknownOperation(int Id, int? ResultValue, string Operati
 {
     public override IReadOnlyList<int> DefinedValues => ResultValue is int result ? [result] : [];
     public override IReadOnlyList<int> Operands => OperandValues;
+
+    /// <summary>What a <c>dynamic</c> operation is called as a semantic gap's callee: its kind and member (<c>dynamic invoke Record</c>,
+    /// <c>dynamic get Name</c>, <c>dynamic set Name</c>) or, for an indexer, its kind alone (<c>dynamic index get</c>). Its operands
+    /// are the receiver, the arguments and the assigned value. Null for every other unknown operation (R4).</summary>
+    public string? DynamicCallee { get; init; }
 }

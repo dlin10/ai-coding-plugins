@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "1.1",
-  "target": "C:\\Dev\\eShopOnContainers\\src\\eShopOnContainers-ServicesAndWebApps.sln",
+  "schemaVersion": "1.2",
+  "target": "C:\\Dev\\eShopOnContainers/src/eShopOnContainers-ServicesAndWebApps.sln",
   "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
   "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-24T16:55:38.7300816\u002B00:00",
+  "recordedAt": "2026-09-26T02:45:00.7363950\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,43 +18,43 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 10.93
+        "seconds": 10.416
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.85
+        "seconds": 4.646
       },
       {
         "step": "program-index",
-        "seconds": 7.263
+        "seconds": 6.762
       },
       {
         "step": "lowering",
-        "seconds": 2.825
+        "seconds": 3.151
       },
       {
         "step": "reachable-set",
-        "seconds": 0.103
+        "seconds": 0.121
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.592
+        "seconds": 0.745
       },
       {
         "step": "executions",
-        "seconds": 0.107
+        "seconds": 0.156
       },
       {
         "step": "accesses",
-        "seconds": 0.826
+        "seconds": 1.086
       },
       {
         "step": "pairing",
-        "seconds": 0.023
+        "seconds": 0.038
       },
       {
         "step": "solver",
-        "seconds": 0.006
+        "seconds": 0.007
       },
       {
         "step": "findings",
@@ -62,12 +62,12 @@
       },
       {
         "step": "render",
-        "seconds": 0.076
+        "seconds": 0.065
       }
     ],
-    "totalSeconds": 30.589
+    "totalSeconds": 30.096
   },
-  "peakWorkingSetMb": 459.4,
+  "peakWorkingSetMb": 475,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -77,29 +77,42 @@
       "aspnetcore": 88,
       "hosting": 1
     },
-    "reachableBodies": 483,
-    "summaries": 664,
-    "regions": 945,
-    "instances": 774,
-    "accesses": 1812,
+    "reachableBodies": 724,
+    "summaries": 833,
+    "regions": 1229,
+    "instances": 1247,
+    "accesses": 2766,
     "pairs": {
-      "comparisons": 1551,
-      "cartesianBound": 86285,
-      "largestBucket": 8,
-      "buckets": 698,
+      "comparisons": 3162,
+      "cartesianBound": 318228,
+      "largestBucket": 13,
+      "buckets": 1086,
       "skips": {
-        "confined": 558,
-        "read-read": 991
+        "confined": 1462,
+        "no-overlap": 24,
+        "read-read": 1662
       },
       "suppressed": 0,
-      "candidates": 2
+      "candidates": 14
     },
-    "findings": 2,
-    "occurrences": 2,
-    "groups": 2,
+    "findings": 14,
+    "occurrences": 14,
+    "groups": 14,
     "fingerprints": [
+      "1ed177fa6479677c",
+      "271725babe72922b",
+      "3b1f06183b0a9f43",
+      "41c21c6f6eeea16a",
       "7c919c7aedc4b38e",
-      "fa3fbc528c46593e"
+      "90bb0d1df684bc73",
+      "b333834b5e6dda11",
+      "d895f2d196672612",
+      "d9de2ebaeff5e7bf",
+      "e2f90b13e3a22ff2",
+      "ebf363b7f8f114c6",
+      "edb1e535bb0b6443",
+      "fa3fbc528c46593e",
+      "fd3c9a1de47e689c"
     ]
   },
   "coverage": [
@@ -109,17 +122,18 @@
         "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 43,
+      "accesses": 68,
       "counters": {
-        "delegate-to-opaque": 16,
-        "element-operation": 8,
-        "known-call": 29,
+        "delegate-to-opaque": 21,
+        "element-operation": 9,
+        "known-call": 33,
         "merged-context": 0,
         "no-receiver-object": 14,
-        "opaque-call": 141,
+        "opaque-call": 190,
         "out-of-range-call": 0,
-        "reachable-bodies": 44,
+        "reachable-bodies": 66,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 19,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 5,
@@ -132,7 +146,28 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 12
-      }
+      },
+      "semanticGaps": [
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.BasketItemResponse\u003E..ctor(Func\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.CustomerBasketResponse\u003E..ctor(Func\u003CCustomerBasketResponse\u003E)",
+        "Microsoft.AspNetCore.Authorization.AuthorizationOptions.AddPolicy(string, Action\u003CAuthorizationPolicyBuilder\u003E)",
+        "Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy(string, Action\u003CCorsPolicyBuilder\u003E)",
+        "Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(Func\u003Cstring, bool\u003E)",
+        "Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(Action\u003CIServiceCollection\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(IWebHostBuilder, Action\u003CKestrelServerOptions\u003E)",
+        "Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(IPAddress, int, Action\u003CListenOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(IServiceCollection, Action\u003CCorsOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(IServiceCollection, Action\u003CGrpcServiceOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)",
+        "Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(AuthenticationBuilder, Action\u003CJwtBearerOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddJsonOptions(IMvcBuilder, Action\u003CJsonOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(IServiceCollection, Action\u003CMvcOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.SwaggerGenServiceCollectionExtensions.AddSwaggerGen(IServiceCollection, Action\u003CSwaggerGenOptions\u003E)",
+        "System.Security.Claims.ClaimsPrincipal.FindFirst(Predicate\u003CClaim\u003E)"
+      ]
     },
     {
       "scopeId": "Catalog.API",
@@ -140,20 +175,21 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 115,
+      "accesses": 555,
       "counters": {
-        "delegate-to-opaque": 17,
-        "element-operation": 14,
-        "known-call": 105,
+        "delegate-to-opaque": 28,
+        "element-operation": 47,
+        "known-call": 234,
         "merged-context": 0,
-        "no-receiver-object": 17,
-        "opaque-call": 159,
+        "no-receiver-object": 21,
+        "opaque-call": 232,
         "out-of-range-call": 0,
-        "reachable-bodies": 83,
+        "reachable-bodies": 136,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 21,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 4,
+        "unproven-reference": 14,
         "unresolved-locator": 6,
         "wildcard-access": 0
       },
@@ -162,8 +198,31 @@
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
-        "unproven-joins": 34
-      }
+        "unproven-joins": 47
+      },
+      "semanticGaps": [
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CCatalogItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.CatalogItemResponse\u003E..ctor(Func\u003CCatalogItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.PaginatedItemsResponse\u003E..ctor(Func\u003CPaginatedItemsResponse\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(IWebHostBuilder, Action\u003CKestrelServerOptions\u003E)",
+        "Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(IPAddress, int, Action\u003CListenOptions\u003E)",
+        "Microsoft.EntityFrameworkCore.ExecutionStrategyExtensions.ExecuteAsync(IExecutionStrategy, Func\u003CTask\u003E)",
+        "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
+        "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
+        "Polly.Policy.Execute(Action)",
+        "System.Linq.Enumerable.All\u003CTSource\u003E(IEnumerable\u003C(bool Ok, int Value)\u003E, Func\u003C(bool Ok, int Value), bool\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003C(bool Ok, int Value)\u003E, Func\u003C(bool Ok, int Value), int\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CSelectTryResult\u003CTSource, TResult\u003E\u003E, Func\u003CSelectTryResult\u003CTSource, TResult\u003E, TResult\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003Cstring\u003E, Func\u003Cstring, (bool Ok, int Value)\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003Cstring\u003E, Func\u003Cstring, string[]\u003E)",
+        "System.Linq.Enumerable.ToDictionary\u003CTSource, TKey, TElement\u003E(IEnumerable\u003CCatalogBrand\u003E, Func\u003CCatalogBrand, string\u003E, Func\u003CCatalogBrand, int\u003E)",
+        "System.Linq.Enumerable.ToDictionary\u003CTSource, TKey, TElement\u003E(IEnumerable\u003CCatalogType\u003E, Func\u003CCatalogType, string\u003E, Func\u003CCatalogType, int\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CCatalogBrand\u003E, Func\u003CCatalogBrand, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CCatalogItem\u003E, Func\u003CCatalogItem, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CCatalogType\u003E, Func\u003CCatalogType, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CType\u003E, Func\u003CType, bool\u003E)"
+      ]
     },
     {
       "scopeId": "Identity.API",
@@ -171,21 +230,22 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 291,
+      "accesses": 399,
       "counters": {
         "delegate-to-opaque": 28,
-        "element-operation": 13,
-        "known-call": 73,
-        "merged-context": 0,
+        "element-operation": 16,
+        "known-call": 95,
+        "merged-context": 1,
         "no-receiver-object": 8,
-        "opaque-call": 823,
+        "opaque-call": 900,
         "out-of-range-call": 0,
-        "reachable-bodies": 86,
+        "reachable-bodies": 115,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 16,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 10,
-        "unresolved-locator": 1,
+        "unresolved-locator": 2,
         "wildcard-access": 1
       },
       "ordering": {
@@ -193,8 +253,26 @@
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
-        "unproven-joins": 62
-      }
+        "unproven-joins": 66
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.set_Predicate(Func\u003CHealthCheckRegistration, bool\u003E)",
+        "Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.set_ResponseWriter(Func\u003CHttpContext, HealthReport, Task\u003E)",
+        "Microsoft.Extensions.DependencyInjection.EntityFrameworkServiceCollectionExtensions.AddDbContext\u003CTContext\u003E(IServiceCollection, Action\u003CDbContextOptionsBuilder\u003E, ServiceLifetime, ServiceLifetime)",
+        "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)",
+        "Microsoft.Extensions.DependencyInjection.IdentityServerServiceCollectionExtensions.AddIdentityServer(IServiceCollection, Action\u003CIdentityServerOptions\u003E)",
+        "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
+        "Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(PolicyBuilder, Func\u003Cint, TimeSpan\u003E, Action\u003CException, int, TimeSpan\u003E)",
+        "System.Linq.Enumerable.FirstOrDefault\u003CTSource\u003E(IEnumerable\u003CClaim\u003E, Func\u003CClaim, bool\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CApiScope\u003E, Func\u003CApiScope, string\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CAuthenticationScheme\u003E, Func\u003CAuthenticationScheme, ExternalProvider\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CClaim\u003E, Func\u003CClaim, string\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CIdentityResource\u003E, Func\u003CIdentityResource, ScopeViewModel\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CIdentityResource\u003E, Func\u003CIdentityResource, string\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CAuthenticationScheme\u003E, Func\u003CAuthenticationScheme, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CExternalProvider\u003E, Func\u003CExternalProvider, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003Cstring\u003E, Func\u003Cstring, bool\u003E)"
+      ]
     },
     {
       "scopeId": "Mobile.Shopping.HttpAggregator",
@@ -202,17 +280,18 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 135,
+      "accesses": 174,
       "counters": {
-        "delegate-to-opaque": 22,
+        "delegate-to-opaque": 23,
         "element-operation": 6,
-        "known-call": 27,
+        "known-call": 30,
         "merged-context": 0,
         "no-receiver-object": 14,
-        "opaque-call": 64,
+        "opaque-call": 74,
         "out-of-range-call": 0,
-        "reachable-bodies": 58,
+        "reachable-bodies": 78,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 19,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 4,
@@ -225,7 +304,28 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 16
-      }
+      },
+      "semanticGaps": [
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CBasketItem\u003E)",
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.CatalogItemRequest\u003E..ctor(Func\u003CCatalogItemRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.CatalogItemsRequest\u003E..ctor(Func\u003CCatalogItemsRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.BasketItemResponse\u003E..ctor(Func\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.BasketRequest\u003E..ctor(Func\u003CBasketRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.CustomerBasketRequest\u003E..ctor(Func\u003CCustomerBasketRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.BasketItem\u003E..ctor(Func\u003CBasketItem\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.CreateOrderDraftCommand\u003E..ctor(Func\u003CCreateOrderDraftCommand\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)",
+        "System.Linq.Enumerable.FirstOrDefault\u003CTSource\u003E(IEnumerable\u003CBasketDataItem\u003E, Func\u003CBasketDataItem, bool\u003E)",
+        "System.Linq.Enumerable.GroupBy\u003CTSource, TKey, TElement, TResult\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E, Func\u003CUpdateBasketRequestItemData, UpdateBasketRequestItemData\u003E, Func\u003Cint, IEnumerable\u003CUpdateBasketRequestItemData\u003E, \u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003C\u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E\u003E, Func\u003C\u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E, UpdateBasketRequestItemData\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CCatalogItemResponse\u003E, Func\u003CCatalogItemResponse, CatalogItem\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E)",
+        "System.Linq.Enumerable.SingleOrDefault\u003CTSource\u003E(IEnumerable\u003CBasketDataItem\u003E, Func\u003CBasketDataItem, bool\u003E)",
+        "System.Linq.Enumerable.SingleOrDefault\u003CTSource\u003E(IEnumerable\u003CCatalogItem\u003E, Func\u003CCatalogItem, bool\u003E)",
+        "System.Linq.Enumerable.Sum\u003CTSource\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E)"
+      ]
     },
     {
       "scopeId": "Ordering.API",
@@ -233,20 +333,21 @@
         "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 29,
+      "accesses": 68,
       "counters": {
-        "delegate-to-opaque": 13,
-        "element-operation": 21,
-        "known-call": 39,
+        "delegate-to-opaque": 19,
+        "element-operation": 37,
+        "known-call": 97,
         "merged-context": 0,
-        "no-receiver-object": 13,
-        "opaque-call": 122,
+        "no-receiver-object": 23,
+        "opaque-call": 158,
         "out-of-range-call": 0,
-        "reachable-bodies": 43,
+        "reachable-bodies": 91,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 16,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 5,
+        "unproven-reference": 9,
         "unresolved-locator": 6,
         "wildcard-access": 0
       },
@@ -255,8 +356,26 @@
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
-        "unproven-joins": 10
-      }
+        "unproven-joins": 13
+      },
+      "semanticGaps": [
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003COrderItemDTO\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.OrderDraftDTO\u003E..ctor(Func\u003COrderDraftDTO\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.OrderItemDTO\u003E..ctor(Func\u003COrderItemDTO\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(IWebHostBuilder, Action\u003CKestrelServerOptions\u003E)",
+        "Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(IPAddress, int, Action\u003CListenOptions\u003E)",
+        "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
+        "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
+        "Polly.Policy.Execute(Action)",
+        "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CBasketItem\u003E, Func\u003CBasketItem, BasketItem\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CFieldInfo\u003E, Func\u003CFieldInfo, object\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CSelectTryResult\u003CTSource, TResult\u003E\u003E, Func\u003CSelectTryResult\u003CTSource, TResult\u003E, TResult\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CType\u003E, Func\u003CType, string\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003CCardType\u003E, Func\u003CCardType, bool\u003E)",
+        "System.Linq.Enumerable.Where\u003CTSource\u003E(IEnumerable\u003COrderStatus\u003E, Func\u003COrderStatus, bool\u003E)"
+      ]
     },
     {
       "scopeId": "Ordering.BackgroundTasks",
@@ -264,20 +383,21 @@
         "aspnetcore": 0,
         "hosting": 1
       },
-      "accesses": 15,
+      "accesses": 20,
       "counters": {
         "delegate-to-opaque": 4,
         "element-operation": 4,
-        "known-call": 14,
+        "known-call": 17,
         "merged-context": 0,
         "no-receiver-object": 3,
-        "opaque-call": 29,
+        "opaque-call": 60,
         "out-of-range-call": 0,
-        "reachable-bodies": 10,
+        "reachable-bodies": 15,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 6,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 1,
+        "unproven-reference": 2,
         "unresolved-locator": 0,
         "wildcard-access": 0
       },
@@ -287,7 +407,15 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 1
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.Extensions.Hosting.GenericHostBuilderExtensions.ConfigureWebHostDefaults(IHostBuilder, Action\u003CIWebHostBuilder\u003E)",
+        "Microsoft.Extensions.Hosting.HostingHostBuilderExtensions.ConfigureLogging(IHostBuilder, Action\u003CHostBuilderContext, ILoggingBuilder\u003E)",
+        "Microsoft.Extensions.Hosting.IHostBuilder.ConfigureAppConfiguration(Action\u003CHostBuilderContext, IConfigurationBuilder\u003E)",
+        "Microsoft.Extensions.Options.IOptions\u003COrdering.BackgroundTasks.BackgroundTaskSettings\u003E.get_Value()",
+        "System.Reflection.AssemblyName.get_Name()",
+        "System.Threading.CancellationToken.Register(Action)"
+      ]
     },
     {
       "scopeId": "Ordering.SignalrHub",
@@ -295,17 +423,18 @@
         "aspnetcore": 0,
         "hosting": 0
       },
-      "accesses": 6,
+      "accesses": 7,
       "counters": {
-        "delegate-to-opaque": 5,
-        "element-operation": 2,
-        "known-call": 6,
+        "delegate-to-opaque": 9,
+        "element-operation": 3,
+        "known-call": 7,
         "merged-context": 0,
         "no-receiver-object": 2,
-        "opaque-call": 68,
+        "opaque-call": 96,
         "out-of-range-call": 0,
-        "reachable-bodies": 10,
+        "reachable-bodies": 19,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 9,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 3,
@@ -318,7 +447,18 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 0
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents.set_OnMessageReceived(Func\u003CMessageReceivedContext, Task\u003E)",
+        "Microsoft.AspNetCore.Authorization.AuthorizationOptions.AddPolicy(string, Action\u003CAuthorizationPolicyBuilder\u003E)",
+        "Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy(string, Action\u003CCorsPolicyBuilder\u003E)",
+        "Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(Func\u003Cstring, bool\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(IServiceCollection, Action\u003CCorsOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)",
+        "Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(AuthenticationBuilder, Action\u003CJwtBearerOptions\u003E)",
+        "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)"
+      ]
     },
     {
       "scopeId": "Payment.API",
@@ -333,10 +473,11 @@
         "known-call": 7,
         "merged-context": 0,
         "no-receiver-object": 2,
-        "opaque-call": 68,
+        "opaque-call": 70,
         "out-of-range-call": 0,
-        "reachable-bodies": 9,
+        "reachable-bodies": 11,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 2,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 2,
@@ -349,7 +490,11 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 0
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)"
+      ]
     },
     {
       "scopeId": "Web.Shopping.HttpAggregator",
@@ -357,17 +502,18 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 146,
+      "accesses": 194,
       "counters": {
-        "delegate-to-opaque": 23,
+        "delegate-to-opaque": 24,
         "element-operation": 10,
-        "known-call": 31,
+        "known-call": 34,
         "merged-context": 0,
         "no-receiver-object": 14,
-        "opaque-call": 65,
+        "opaque-call": 75,
         "out-of-range-call": 0,
-        "reachable-bodies": 58,
+        "reachable-bodies": 79,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 19,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 4,
@@ -380,7 +526,28 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 16
-      }
+      },
+      "semanticGaps": [
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CBasketItem\u003E)",
+        "Google.Protobuf.FieldCodec.ForMessage\u003CT\u003E(uint, MessageParser\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.CatalogItemRequest\u003E..ctor(Func\u003CCatalogItemRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CCatalogApi.CatalogItemsRequest\u003E..ctor(Func\u003CCatalogItemsRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.BasketItemResponse\u003E..ctor(Func\u003CBasketItemResponse\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.BasketRequest\u003E..ctor(Func\u003CBasketRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcBasket.CustomerBasketRequest\u003E..ctor(Func\u003CCustomerBasketRequest\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.BasketItem\u003E..ctor(Func\u003CBasketItem\u003E)",
+        "Google.Protobuf.MessageParser\u003CGrpcOrdering.CreateOrderDraftCommand\u003E..ctor(Func\u003CCreateOrderDraftCommand\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)",
+        "System.Linq.Enumerable.FirstOrDefault\u003CTSource\u003E(IEnumerable\u003CBasketDataItem\u003E, Func\u003CBasketDataItem, bool\u003E)",
+        "System.Linq.Enumerable.GroupBy\u003CTSource, TKey, TElement, TResult\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E, Func\u003CUpdateBasketRequestItemData, UpdateBasketRequestItemData\u003E, Func\u003Cint, IEnumerable\u003CUpdateBasketRequestItemData\u003E, \u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003C\u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E\u003E, Func\u003C\u003Canonymous type: int productId, IEnumerable\u003CUpdateBasketRequestItemData\u003E items\u003E, UpdateBasketRequestItemData\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CCatalogItemResponse\u003E, Func\u003CCatalogItemResponse, CatalogItem\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E)",
+        "System.Linq.Enumerable.SingleOrDefault\u003CTSource\u003E(IEnumerable\u003CBasketDataItem\u003E, Func\u003CBasketDataItem, bool\u003E)",
+        "System.Linq.Enumerable.SingleOrDefault\u003CTSource\u003E(IEnumerable\u003CCatalogItem\u003E, Func\u003CCatalogItem, bool\u003E)",
+        "System.Linq.Enumerable.Sum\u003CTSource\u003E(IEnumerable\u003CUpdateBasketRequestItemData\u003E, Func\u003CUpdateBasketRequestItemData, int\u003E)"
+      ]
     },
     {
       "scopeId": "WebMVC",
@@ -388,17 +555,18 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 172,
+      "accesses": 296,
       "counters": {
         "delegate-to-opaque": 16,
         "element-operation": 2,
         "known-call": 36,
         "merged-context": 0,
         "no-receiver-object": 16,
-        "opaque-call": 150,
+        "opaque-call": 168,
         "out-of-range-call": 0,
-        "reachable-bodies": 37,
+        "reachable-bodies": 53,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 2,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 3,
@@ -411,7 +579,11 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 18
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "System.Linq.Enumerable.FirstOrDefault\u003CTSource\u003E(IEnumerable\u003CClaim\u003E, Func\u003CClaim, bool\u003E)"
+      ]
     },
     {
       "scopeId": "WebSPA",
@@ -426,10 +598,11 @@
         "known-call": 0,
         "merged-context": 0,
         "no-receiver-object": 0,
-        "opaque-call": 12,
+        "opaque-call": 30,
         "out-of-range-call": 0,
-        "reachable-bodies": 4,
+        "reachable-bodies": 7,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 3,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 1,
@@ -442,7 +615,12 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 1
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(Action\u003CWebHostBuilderContext, IConfigurationBuilder\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
+        "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
+      ]
     },
     {
       "scopeId": "WebStatus",
@@ -450,17 +628,18 @@
         "aspnetcore": 3,
         "hosting": 0
       },
-      "accesses": 8,
+      "accesses": 9,
       "counters": {
         "delegate-to-opaque": 7,
-        "element-operation": 0,
+        "element-operation": 1,
         "known-call": 6,
         "merged-context": 0,
         "no-receiver-object": 0,
-        "opaque-call": 72,
+        "opaque-call": 84,
         "out-of-range-call": 0,
-        "reachable-bodies": 10,
+        "reachable-bodies": 18,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 5,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 2,
@@ -473,7 +652,14 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 0
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
+        "System.Linq.Enumerable.OrderBy\u003CTSource, TKey\u003E(IEnumerable\u003Cstring\u003E, Func\u003Cstring, string\u003E)",
+        "System.Linq.Enumerable.Select\u003CTSource, TResult\u003E(IEnumerable\u003CAssembly\u003E, Func\u003CAssembly, string\u003E)",
+        "System.Linq.Enumerable.SelectMany\u003CTSource, TResult\u003E(IEnumerable\u003CIConfigurationSection\u003E, Func\u003CIConfigurationSection, IEnumerable\u003CIConfigurationSection\u003E\u003E)",
+        "System.Linq.Enumerable.ToDictionary\u003CTSource, TKey, TElement\u003E(IEnumerable\u003CIConfigurationSection\u003E, Func\u003CIConfigurationSection, string\u003E, Func\u003CIConfigurationSection, string\u003E)"
+      ]
     },
     {
       "scopeId": "WebhookClient",
@@ -481,7 +667,7 @@
         "aspnetcore": 3,
         "hosting": 0
       },
-      "accesses": 14,
+      "accesses": 17,
       "counters": {
         "delegate-to-opaque": 0,
         "element-operation": 3,
@@ -492,6 +678,7 @@
         "out-of-range-call": 0,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 0,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 0,
@@ -504,7 +691,8 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 4
-      }
+      },
+      "semanticGaps": []
     },
     {
       "scopeId": "Webhooks.API",
@@ -512,17 +700,18 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 36,
+      "accesses": 42,
       "counters": {
         "delegate-to-opaque": 5,
-        "element-operation": 12,
-        "known-call": 44,
+        "element-operation": 17,
+        "known-call": 49,
         "merged-context": 0,
         "no-receiver-object": 1,
-        "opaque-call": 51,
+        "opaque-call": 59,
         "out-of-range-call": 0,
-        "reachable-bodies": 21,
+        "reachable-bodies": 26,
         "scc-budget-exceeded": 0,
+        "semantic-gap": 4,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 2,
@@ -535,18 +724,24 @@
         "timers-one-shot": 0,
         "timers-periodic": 0,
         "unproven-joins": 7
-      }
+      },
+      "semanticGaps": [
+        "Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(Action\u003CWebHostBuilderContext, IConfigurationBuilder\u003E)",
+        "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
+        "Polly.Policy.Execute(Action)",
+        "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
+      ]
     }
   ],
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 30.589,
+      "actual": 30.096,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.449,
+      "actual": 0.464,
       "met": true
     }
   }

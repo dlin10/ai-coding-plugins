@@ -29,6 +29,8 @@ internal static class ConflictFindings
     private const int PATH_FEASIBILITY = 10;
     private const int UNASKED_PATH_FEASIBILITY = 5;
     private const int WILDCARD_RESOURCE_IDENTITY = 10;
+    private const int GAP_DECIDED_COMPONENT = 10;
+    private const int GAP_DECIDED_MAXIMUM = 79;
     private const int HIGH_MINIMUM = 80;
     private const int MEDIUM_MINIMUM = 55;
     private const int LISTED_OCCURRENCES = 3;
@@ -53,7 +55,10 @@ internal static class ConflictFindings
                                  {
                                      var (accessA, accessB) = Orient(pair.First, pair.Second, pair.Resource, ordinals);
                                      return new Candidate(GroupKey.From(OperationRule(accessA, accessB), pair.Resource), pair.Resource,
-                                                          accessA, accessB, pair.Protection, pair.Uncertainties, pair.Feasibility);
+                                                          accessA, accessB, pair.Protection, pair.Uncertainties, pair.Feasibility)
+                                     {
+                                         GapChecks = pair.GapChecks
+                                     };
                                  })
                              .GroupBy(FindingIdentity, StringComparer.Ordinal)
                              .Select(Fold)
@@ -165,12 +170,14 @@ internal static class ConflictFindings
     /// <summary>Whether an operation changes the cell at all. Only a change can be lost, and only a change can take one away.</summary>
     private static bool Changes(AccessOperation operation) =>
         operation is AccessOperation.Write or AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation
-                  or AccessOperation.AtomicWrite or AccessOperation.AtomicReadModifyWrite;
+                  or AccessOperation.AtomicWrite or AccessOperation.AtomicReadModifyWrite
+                  or AccessOperation.UnknownEffect or AccessOperation.AtomicUnknownEffect;
 
-    /// <summary>Whether an operation is performed as one: an atomic member, or a compound operation of which each step is.</summary>
+    /// <summary>Whether an operation is performed as one: an atomic member, a compound operation of which each step is, or an unknown
+    /// effect on a thread-safe collection, as atomic as the collection's own members (R1).</summary>
     private static bool IsIndivisible(AccessOperation operation) =>
         operation is AccessOperation.CompoundOperation or AccessOperation.AtomicRead or AccessOperation.AtomicWrite
-                  or AccessOperation.AtomicReadModifyWrite;
+                  or AccessOperation.AtomicReadModifyWrite or AccessOperation.AtomicUnknownEffect;
 
     /// <summary>The classification of SPEC 7 in its order: a lost update keeps its own rule however protected the pair is, and only
     /// a conflict that is not one falls to the protection rule. A folded finding is classified by the verdict it reports, which is
@@ -187,18 +194,41 @@ internal static class ConflictFindings
         return folded with { Evidence = evidence with { Key = evidence.Key with { Rule = PROTECTION_RULE } } };
     }
 
-    private static int Score(Candidate candidate) => Score(Components(candidate));
+    private static int Score(Candidate candidate) => Score(Components(candidate), candidate.GapChecks);
 
     /// <summary>What a pair is expected to score before the solver is asked, which is what the budget is spent in the order of
-    /// (TD-103): every component but the path feasibility is decided by then — the resource's identity and, no less, how
-    /// protected the pair is — and the feasibility counts as the one of a pair that was never asked.</summary>
+    /// (TD-103): every component but the path feasibility is decided by then — the resource's identity, how protected the pair is
+    /// and, no less, the checks a semantic gap decides — and the feasibility counts as the one of a pair that was never asked.</summary>
     internal static int ExpectedScore(AccessPair pair) =>
-        Score(new ConfidenceComponents(pair.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
-                                       pair.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
-                                       UNASKED_PATH_FEASIBILITY));
+        Score(WithGaps(new ConfidenceComponents(pair.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
+                                                pair.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+                                                UNASKED_PATH_FEASIBILITY), pair.GapChecks),
+              pair.GapChecks);
 
     private static int Score(ConfidenceComponents components) =>
         components.ResourceIdentity + components.ExecutionOverlap + components.Operation + components.Protection + components.PathFeasibility;
+
+    /// <summary>The score of an occurrence a semantic gap decides a check of is never above the top of the Medium band, so its label
+    /// is never High and still follows from the score (TD-039, TD-108).</summary>
+    private static int Score(ConfidenceComponents components, IReadOnlyList<GapCheck> gapChecks) =>
+        gapChecks.Count == 0 ? Score(components) : Math.Min(Score(components), GAP_DECIDED_MAXIMUM);
+
+    /// <summary>Every component a semantic gap decides counts <see cref="GAP_DECIDED_COMPONENT"/> (TD-039).</summary>
+    private static ConfidenceComponents WithGaps(ConfidenceComponents components, IReadOnlyList<GapCheck> gapChecks)
+    {
+        foreach (var component in gapChecks.Select(check => check.Component).Distinct(StringComparer.Ordinal))
+        {
+            components = component switch
+            {
+                GapComponents.OPERATION => components with { Operation = GAP_DECIDED_COMPONENT },
+                GapComponents.OVERLAP => components with { ExecutionOverlap = GAP_DECIDED_COMPONENT },
+                GapComponents.PROTECTION => components with { Protection = GAP_DECIDED_COMPONENT },
+                _ => components
+            };
+        }
+
+        return components;
+    }
 
     /// <summary>
     /// The TD-103 components. A wildcard resource lowers resource identity. Protection counts full where nothing on either side
@@ -209,14 +239,15 @@ internal static class ConflictFindings
     /// undecided solver costs a finding confidence rather than its verdict (TD-093).
     /// </summary>
     private static ConfidenceComponents Components(Candidate candidate) =>
-        new(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
-            candidate.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
-            candidate.Feasibility switch
-            {
-                SolverAnswer.Sat => PATH_FEASIBILITY,
-                SolverAnswer.Unknown => 0,
-                _ => UNASKED_PATH_FEASIBILITY
-            });
+        WithGaps(new ConfidenceComponents(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
+                                          candidate.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+                                          candidate.Feasibility switch
+                                          {
+                                              SolverAnswer.Sat => PATH_FEASIBILITY,
+                                              SolverAnswer.Unknown => 0,
+                                              _ => UNASKED_PATH_FEASIBILITY
+                                          }),
+                 candidate.GapChecks);
 
     private static string Label(int score) => score >= HIGH_MINIMUM ? "High" : score >= MEDIUM_MINIMUM ? "Medium" : "Low";
 
@@ -234,12 +265,16 @@ internal static class ConflictFindings
         if (candidate.Resource.IsWildcard)
             uncertainty.Add(WILDCARD_UNCERTAINTY);
         uncertainty.AddRange(folded.Occurrences.SelectMany(occurrence => occurrence.AccessA.Uncertainties.Concat(occurrence.AccessB.Uncertainties)
-                                                                                    .Concat(occurrence.Uncertainties))
+                                                                                    .Concat(occurrence.Uncertainties)
+                                                                                    .Concat(occurrence.GapChecks.Select(check => check.Uncertainty)))
                                    .Except(uncertainty, StringComparer.Ordinal)
                                    .Distinct(StringComparer.Ordinal)
                                    .Order(StringComparer.Ordinal));
-        var components = folded.Occurrences.Select(Components).MaxBy(Score)!;
-        var confidence = new FindingConfidence(Label(Score(components)), Score(components), components);
+        // Each occurrence is scored with the checks a gap decides for it, and the finding takes the best one, its components and label
+        // with it: an occurrence no gap decides can keep a finding High although another one is capped (TD-039).
+        var best = folded.Occurrences.MaxBy(Score)!;
+        var components = Components(best);
+        var confidence = new FindingConfidence(Label(Score(best)), Score(best), components);
         var listed = folded.Occurrences.Take(LISTED_OCCURRENCES)
                            .Select(occurrence => new FindingOccurrence(occurrence.AccessA.PathRoot, occurrence.AccessB.PathRoot,
                                                                        occurrence.AccessA.CallPath, occurrence.AccessB.CallPath, occurrence.Protection)
@@ -260,7 +295,9 @@ internal static class ConflictFindings
         {
             OccurrenceCount = folded.Occurrences.Count,
             Occurrences = listed,
-            PathFeasibility = candidate.Feasibility
+            PathFeasibility = candidate.Feasibility,
+            GapCallees = folded.Occurrences.SelectMany(occurrence => occurrence.GapChecks).Select(check => check.Callee)
+                               .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()
         };
     }
 
@@ -355,15 +392,51 @@ internal static class ConflictFindings
     private static IReadOnlyList<string> Scenario(AccessResource resource, Access accessA, Access accessB)
     {
         var field = $"`{Field(resource)}`";
-        if (accessA.Operation == AccessOperation.CompoundOperation || accessB.Operation == AccessOperation.CompoundOperation)
+        // A side with an unknown effect may read and write the resource in a call the analysis cannot follow (R1).
+        if (accessA.Operation.IsUnknownEffect() || accessB.Operation.IsUnknownEffect())
         {
-            var sequence = accessA.Operation == AccessOperation.CompoundOperation ? "A" : "B";
-            var other = sequence == "A" ? "B" : "A";
-            return
-            [
-                $"{sequence} reads {field}", $"{other} changes {field} before {sequence} acts on what it read",
-                $"{sequence} changes {field} as if {other} had not run"
-            ];
+            var call = accessA.Operation.IsUnknownEffect() ? "A" : "B";
+            var other = call == "A" ? "B" : "A";
+            var otherOperation = call == "A" ? accessB.Operation : accessA.Operation;
+            return otherOperation switch
+            {
+                _ when otherOperation.IsUnknownEffect() =>
+                [
+                    $"A may read and write {field} in its call", $"B may read and write {field} in its call at the same time",
+                    "Either call may observe or overwrite what the other left"
+                ],
+                AccessOperation.ReadModifyWrite =>
+                [
+                    $"{other} reads {field}", $"{call} may read and write {field} in its call",
+                    $"{other} writes a value computed from its stale read, overwriting what the call may have written"
+                ],
+                AccessOperation.CompoundOperation =>
+                [
+                    $"{other} reads {field}", $"{call} may read and write {field} in its call before {other} acts on what it read",
+                    $"{other} changes {field} as if the call had not run"
+                ],
+                AccessOperation.Read or AccessOperation.AtomicRead =>
+                [
+                    $"{call} may read and write {field} in its call", $"{other} reads {field} at the same time",
+                    $"{other} observes either the old value or one the call wrote"
+                ],
+                _ =>
+                [
+                    $"{call} may read and write {field} in its call", $"{other} writes {field} at the same time",
+                    "One of the two writes is lost, or the call acts on a value it did not expect"
+                ]
+            };
+        }
+
+        if (accessA.Operation == AccessOperation.CompoundOperation || accessB.Operation == AccessOperation.CompoundOperation)
+        {
+            var sequence = accessA.Operation == AccessOperation.CompoundOperation ? "A" : "B";
+            var other = sequence == "A" ? "B" : "A";
+            return
+            [
+                $"{sequence} reads {field}", $"{other} changes {field} before {sequence} acts on what it read",
+                $"{sequence} changes {field} as if {other} had not run"
+            ];
         }
 
         if (accessA.Operation == AccessOperation.ReadModifyWrite || accessB.Operation == AccessOperation.ReadModifyWrite)
@@ -449,7 +522,10 @@ internal static class ConflictFindings
     }
 
     private sealed record Candidate(GroupKey Key, AccessResource Resource, Access AccessA, Access AccessB, string Protection,
-                                    IReadOnlyList<string> Uncertainties, SolverAnswer? Feasibility = null);
+                                    IReadOnlyList<string> Uncertainties, SolverAnswer? Feasibility = null)
+    {
+        public IReadOnlyList<GapCheck> GapChecks { get; init; } = [];
+    }
 
     private sealed record FoldedFinding(Candidate Evidence, IReadOnlyList<Candidate> Occurrences, int Score);
 

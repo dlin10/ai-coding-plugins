@@ -26,17 +26,23 @@ public static class ReportRenderer
     private static readonly Dictionary<string, string> COUNTER_MEANINGS = new(StringComparer.Ordinal)
     {
         [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
-        [CoverageCounters.OPAQUE_CALL] = "calls without a source body, modelled without effect",
+        [CoverageCounters.OPAQUE_CALL] = "calls without a source body that the library semantics table does not describe, members of the types a recognizer " +
+                                         "models included; each one no recognizer models has an unknown effect on what its arguments reach and, " +
+                                         "through a receiver, on the state of the type declaring the member",
         [CoverageCounters.KNOWN_CALL] = "calls without a source body that the library semantics table describes, with the effects it gives them",
         [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member the table describes, in an assembly version outside its supported range",
-        [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs, never invoked",
+        [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs and DI factories, minimal API " +
+                                                "handlers included; each one a call no recognizer models is handed runs in an unknown execution",
         [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes, not analyzed",
         [CoverageCounters.UNANALYSED_REGISTRATION] = "unsupported registrations in reached members, binding nothing",
-        [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, modelled without effect",
-        [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing",
+        [CoverageCounters.UNRESOLVED_LOCATOR] = "service locator calls with no constant type, no known scope or no binding, each a place of a semantic gap",
+        [CoverageCounters.NO_RECEIVER_OBJECT] = "virtual, interface or delegate calls with no receiver object, calling nothing the analysis has and " +
+                                                "modelled with an unknown effect on what their arguments reach",
         [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
         [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource",
-        [CoverageCounters.UNPROVEN_REFERENCE] = "reference accesses whose target has no proven source location"
+        [CoverageCounters.UNPROVEN_REFERENCE] = "reference accesses whose target has no proven source location",
+        [CoverageCounters.SEMANTIC_GAP] = "callees the analysis could not reduce that touch a mutable region that is not owned, take a delegate or feed a " +
+                                          "shared region, by materiality: roots, regions, call sites"
     };
     private static readonly Regex HEADING_PATTERN = new(@"^( {0,3})(#{1,6})(?=[ \t]|$)");
     private static readonly Regex FENCE_PATTERN = new("^ {0,3}(`{3,}|~{3,})");
@@ -84,7 +90,7 @@ public static class ReportRenderer
             Line($"- joins without proven identity: {Number(ordering.UnprovenJoins)}");
             AppendScopes(markdown, report.Analysis);
         }
-        Line("- Not analyzed in this version: semantic gaps, path feasibility, element accesses");
+        Line("- Not analyzed in this version: resolution of semantic gaps by the resolver, path feasibility, element accesses");
         Line();
 
         foreach (var label in new[] { "High", "Medium", "Low" })
@@ -183,6 +189,11 @@ public static class ReportRenderer
                 Line($"  - {counter} {Number(count)}{meaning}");
                 if (counter == CoverageCounters.OPAQUE_CALL)
                     Line($"    - Top opaque callees: {Items(coverage.TopOpaqueCallees.Select(callee => $"{callee.Callee} {Number(callee.Count)}"))}");
+                if (counter == CoverageCounters.SEMANTIC_GAP)
+                {
+                    foreach (var gap in coverage.Gaps)
+                        Line($"    - {gap.Callee} ({gap.Kind}): roots {Number(gap.Roots)}, regions {Number(gap.Regions)}, call sites {Number(gap.CallSites)}");
+                }
             }
 
             Line($"  - Lowered but not reached (inventory, not counted against coverage): {Items(coverage.LoweredNotReached)}");
@@ -323,6 +334,12 @@ public static class ReportRenderer
                    "verify manually.";
         }
 
+        if (operations.Any(operation => operation.IsUnknownEffect()))
+        {
+            return "hold one synchronization primitive around the call that may read and write this resource and around every other " +
+                   "access to it, or stop handing that call shared state; the analysis cannot see what the call does; verify manually.";
+        }
+
         if (operations.Any(operation => operation == AccessOperation.Read))
         {
             return "put both the read and the write under one synchronization primitive; guarding the write alone leaves the " +
@@ -406,7 +423,8 @@ public static class ReportRenderer
         var narrative = NarrativeJson(report);
         return Serialize(new
         {
-            SchemaVersion = "2.1",
+            // 2.2 lists the semantic gaps of a finding's scope in its analysis, in place of the coverage state it did not analyze.
+            SchemaVersion = "2.2",
             report.RunId,
             Findings = findings,
             Groups = groups,
@@ -487,7 +505,17 @@ public static class ReportRenderer
                 Rounds = 0,
                 AcceptedInferenceCount = 0
             },
-            CoverageState = "not-analyzed"
+            SemanticGaps = analysis.Coverage.Where(coverage => coverage.ScopeId == finding.Resource.Scope)
+                                   .SelectMany(coverage => coverage.Gaps.Select(gap => new
+                                   {
+                                       Scope = coverage.ScopeId,
+                                       gap.Callee,
+                                       gap.Kind,
+                                       gap.Roots,
+                                       gap.Regions,
+                                       gap.CallSites
+                                   }))
+                                   .ToArray()
         },
         finding.Evidence
     };

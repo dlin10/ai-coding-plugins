@@ -57,6 +57,9 @@ internal static class SystemFamily
         Known("M:System.Object.GetType~System.Type"),
         Known("M:System.Environment.get_ProcessorCount~System.Int32"),
         Known("M:System.Environment.get_TickCount~System.Int32"),
+        // Not met by the census: the exception phase 5b makes (TD-034a). Tests use it as a sink that keeps a value alive, and what
+        // it does is known exactly, so it is no unknown call.
+        Known("M:System.GC.KeepAlive(System.Object)"),
         Known("M:System.String.Concat(System.String[])~System.String", DeepReadOf("values")),
         Known("M:System.String.Concat(System.ReadOnlySpan{System.String})~System.String", DeepReadOf("values")),
         Known("M:System.Text.Encoding.GetString(System.Byte[])~System.String", DeepReadOf("bytes")),

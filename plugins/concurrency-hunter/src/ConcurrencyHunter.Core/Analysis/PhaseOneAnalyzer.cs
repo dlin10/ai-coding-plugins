@@ -185,9 +185,12 @@ public static class PhaseOneAnalyzer
             Record(timings, SUMMARIES_AND_FIXPOINT, step);
             var executions = ExecutionModel.Build(scopeProgram, heap);
             Record(timings, EXECUTIONS, step);
-            var collection = InterproceduralAccesses.Collect(new InterproceduralInput(scopeProgram, heap, executions));
+            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
+            var collection = InterproceduralAccesses.Collect(interprocedural);
             Record(timings, ACCESSES, step);
             var scopePairs = pairing(collection.Accesses, executions, heap);
+            // Before the solver: the checks a semantic gap decides are part of what the budget is spent in the order of (TD-039).
+            scopePairs = scopePairs with { Pairs = GapDecisions.Mark(scopePairs.Pairs, interprocedural, collection.Coverage.Gaps) };
             Record(timings, PAIRING, step);
             // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
             // run's share of its deadline. A solver that never started answers every question Unknown (ADR 0004).
@@ -213,6 +216,7 @@ public static class PhaseOneAnalyzer
                                            Merged(collection.Coverage.Counters, refined.Counters))
             {
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
+                Gaps = collection.Coverage.Gaps,
                 SpawnSites = collection.Coverage.SpawnSites,
                 TimerSites = collection.Coverage.TimerSites,
                 UnprovenJoins = collection.Coverage.UnprovenJoins,

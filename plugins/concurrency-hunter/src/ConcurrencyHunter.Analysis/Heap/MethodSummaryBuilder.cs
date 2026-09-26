@@ -151,6 +151,7 @@ public static class MethodSummaryBuilder
             var calls = new List<CallTransfer>();
             var opaqueCalls = new List<SummaryOpaqueCall>();
             var argumentEffects = new List<SummaryArgumentEffect>();
+            var dynamicOperations = new List<SummaryDynamicOperation>();
             var capturedStores = new List<CapturedStore>();
             foreach (var operation in _operations)
             {
@@ -189,7 +190,7 @@ public static class MethodSummaryBuilder
                             StoredTerm = Term(store.Value)
                         });
                         if (!IsValueType(store.Field.Type))
-                            stores.Add(new StoreTransfer(store.Id, store.Field, bases, stored));
+                            stores.Add(new StoreTransfer(store.Id, store.Field, bases, stored) { Producers = Producers(store.Value) });
                         break;
                     case IrStoreElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } storeCell:
                         accesses.Add(new SummaryAccess(element.Id, SummaryAccessKind.Store, storeCell.Field,
@@ -205,7 +206,7 @@ public static class MethodSummaryBuilder
                             IsOnCollection = true
                         });
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
-                                                         Final(Points(element.Value), delegates)));
+                                                         Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) });
                         break;
                     case IrLoadElementOperation loadElement when Cell(loadElement.ReceiverValue, loadElement.IndexValues, loadElement.NamesOneCell) is { } loadCell:
                         accesses.Add(new SummaryAccess(loadElement.Id, SummaryAccessKind.Load, loadCell.Field,
@@ -231,7 +232,7 @@ public static class MethodSummaryBuilder
                                 IsCollectionElement = true
                             });
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
-                                                         Final(Points(element.Value), delegates)));
+                                                         Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) });
                         break;
                     case IrLoadElementOperation element:
                         if (((ReferenceTarget?)ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) ??
@@ -254,7 +255,8 @@ public static class MethodSummaryBuilder
                         returns.Add(new ReturnTransfer(@return.Id, Final(Points(returned), delegates), Dependencies(returned))
                         {
                             UnknownSources = _unknown[returned],
-                            SourceCalls = _sourceCalls[returned]
+                            SourceCalls = _sourceCalls[returned],
+                            Producers = Producers(returned)
                         });
                         break;
                     case IrCreateDelegateOperation create:
@@ -271,7 +273,12 @@ public static class MethodSummaryBuilder
                             Arguments = Arguments(call, delegates),
                             ServiceCall = call.ServiceCall,
                             Library = call.Library,
-                            Collection = call.Collection
+                            Collection = call.Collection,
+                            IsRecognized = call.IsRecognized,
+                            DeclaringTypeKey = call.TargetContainingTypeKey,
+                            IsConstructor = call.CallKind == IrCallKind.Constructor,
+                            Provenance = call.Provenance,
+                            Conditions = Conditions(call.Id)
                         });
                         if (call.Library is { InRange: true } library)
                         {
@@ -294,11 +301,24 @@ public static class MethodSummaryBuilder
                             ReceiverSourceCalls = call.ReceiverValue is int source ? _sourceCalls[source] : new HashSet<int>(),
                             // An access runs where the call that reaches it runs, so the guards of the call site travel with the
                             // edge; without them two helpers called from exclusive branches look reachable together (R8, TD-090).
-                            Conditions = Conditions(call.Id)
+                            Conditions = Conditions(call.Id),
+                            Callee = call.Method,
+                            Provenance = call.Provenance
+                        });
+                        break;
+                    case IrUnknownOperation { DynamicCallee: { } callee } dynamic:
+                        dynamicOperations.Add(new SummaryDynamicOperation(dynamic.Id, callee,
+                                                                          Final(dynamic.OperandValues.SelectMany(operand => _points[operand]), delegates))
+                        {
+                            Provenance = dynamic.Provenance,
+                            Conditions = Conditions(dynamic.Id)
                         });
                         break;
                     case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
-                        capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue)));
+                        capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue))
+                        {
+                            Producers = Producers(assign.SourceValue)
+                        });
                         break;
                 }
 
@@ -340,14 +360,18 @@ public static class MethodSummaryBuilder
                                      .ToArray();
             var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key))
                                           {
-                                              UnknownSources = _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _unknown[value.Id]).ToHashSet()
+                                              UnknownSources = _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _unknown[value.Id]).ToHashSet(),
+                                              Producers = ValueOrigin.Union(_body.Values.Where(value => value.SymbolKey == key).Select(value => Producers(value.Id)))
                                           })
                                           .ToArray();
             var lockTransfers = _operations.Select(operation => operation switch
                                    {
                                        IrAcquireOperation acquire => new LockTransfer(acquire.Id, true, acquire.Primitive, acquire.Mode,
                                                                                       Points(acquire.LockValue), Origin(acquire.LockValue),
-                                                                                      acquire.Provenance),
+                                                                                      acquire.Provenance)
+                                       {
+                                           Producers = Producers(acquire.LockValue)
+                                       },
                                        IrReleaseOperation release => new LockTransfer(release.Id, false, release.Primitive, release.Mode,
                                                                                       Points(release.LockValue), Origin(release.LockValue),
                                                                                       release.Provenance) { Permits = release.Permits },
@@ -378,8 +402,156 @@ public static class MethodSummaryBuilder
                                      .Select(unwrap => new SummaryUnwrap(unwrap.Id, DefiningCall(unwrap.ResultValue)!.Value, Value(unwrap.OuterValue, delegates),
                                                                          unwrap.Provenance))
                                      .ToArray(),
-                Timers = _operations.OfType<IrTimerOperation>().Select(timer => Timer(timer, delegates)).ToArray()
+                Timers = _operations.OfType<IrTimerOperation>().Select(timer => Timer(timer, delegates)).ToArray(),
+                DynamicOperations = dynamicOperations,
+                ResultStores = ResultStores(delegates),
+                ReferenceStores = ReferenceStores(delegates),
+                ReferenceElementStores = ReferenceElementStores(delegates)
             };
+        }
+
+        /// <summary>Every write of a call's or a <c>dynamic</c> operation's result into a field, an array cell or a collection that holds
+        /// it, with the objects written into (R4). The result is followed through assignments, conversions, phis and awaits, and
+        /// no further: what a callee does with it is the callee's.</summary>
+        private List<SummaryResultStore> ResultStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            var stores = new List<SummaryResultStore>();
+            // A store through a reference writes the field the reference names, of the objects it names, or a cell of the arrays it
+            // names (R4).
+            foreach (var store in ReferenceStores(delegates))
+            {
+                foreach (var source in store.Producers.Calls)
+                    stores.Add(new SummaryResultStore(source, store.Bases, store.Field.IsStatic ? store.Field : null));
+            }
+
+            foreach (var store in ReferenceElementStores(delegates))
+            {
+                foreach (var source in store.Producers.Calls)
+                    stores.Add(new SummaryResultStore(source, store.Arrays, null));
+            }
+
+            foreach (var operation in _operations)
+            {
+                (int Value, int? Target, IrFieldRef? Field)[] written = operation switch
+                {
+                    IrStoreFieldOperation store => [(store.Value, store.ReceiverValue, store.Field.IsStatic ? store.Field : null)],
+                    IrStoreElementOperation element => [(element.Value, (int?)element.ReceiverValue, (IrFieldRef?)null)],
+                    IrCallOperation { Collection: { } member } call =>
+                        call.ArgumentValues.Where((_, position) => InterproceduralAccesses.IsHeldArgument(
+                                                      member, position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position))
+                            .Select(value => (value, call.ReceiverValue, (IrFieldRef?)null))
+                            .ToArray(),
+                    _ => []
+                };
+                foreach (var (value, target, field) in written)
+                {
+                    foreach (var source in Producers(value).Calls)
+                        stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), field));
+                }
+            }
+
+            return stores;
+        }
+
+        /// <summary>The stores through a reference into a field of the objects the reference names.</summary>
+        private List<StoreTransfer> ReferenceStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            _operations.OfType<IrStoreReferenceOperation>()
+                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => !cell.IsOnCollection)
+                                                .Select(cell => new StoreTransfer(store.Id, cell.Field, Final(cell.Bases, delegates),
+                                                                                  Final(Points(store.Value), delegates))
+                                                {
+                                                    Producers = Producers(store.Value)
+                                                }))
+                       .ToList();
+
+        /// <summary>The stores through a reference into a cell of the arrays the reference names: the arrays are what its field holds.</summary>
+        private List<ElementTransfer> ReferenceElementStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            _operations.OfType<IrStoreReferenceOperation>()
+                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => cell.IsOnCollection)
+                                                .Select(cell => new ElementTransfer(store.Id, ElementOperationKind.Store,
+                                                                                    Final(Extend(cell.Bases, FieldSlot.Key(cell.Field)), delegates),
+                                                                                    Final(Points(store.Value), delegates))
+                                                {
+                                                    Producers = Producers(store.Value)
+                                                }))
+                       .ToList();
+
+        /// <summary>Where a value comes from in the body: the calls and <c>dynamic</c> operations whose result it is, the parameters it
+        /// is, and the fields it is read from (<see cref="ValueOrigin"/>).</summary>
+        private ValueOrigin Producers(int value)
+        {
+            var calls = new HashSet<int>();
+            var parameters = new HashSet<int>();
+            var fields = new List<FieldOrigin>();
+            var captured = new HashSet<string>(StringComparer.Ordinal);
+            var elements = new List<IReadOnlySet<AbstractValue>>();
+            var visited = new HashSet<int>();
+            var pending = new Stack<int>([value]);
+            while (pending.TryPop(out var current))
+            {
+                if (!visited.Add(current))
+                    continue;
+                // A parameter is what the caller handed over, and a field what some store put there: the origin goes on there (R6).
+                if (_parameterOrdinals.TryGetValue(current, out var ordinal))
+                {
+                    parameters.Add(ordinal);
+                    continue;
+                }
+
+                if (!_definitions.TryGetValue(current, out var definition))
+                {
+                    // A captured variable read where no assignment of this body defines it holds what its owner or a lambda put there.
+                    if (_values[current].SymbolKey is { } key && _capturedKeys.Contains(key))
+                        captured.Add(key);
+                    continue;
+                }
+
+                switch (definition)
+                {
+                    case IrLoadElementOperation load:
+                        elements.Add(_points[load.ReceiverValue].ToHashSet());
+                        break;
+                    // A read through a reference reads the field it names, or a cell of the arrays that field holds.
+                    case IrLoadReferenceOperation load:
+                        foreach (var cell in References(load.AddressValue).OfType<ReferenceCell>())
+                        {
+                            if (cell.IsOnCollection)
+                                elements.Add(Extend(cell.Bases, FieldSlot.Key(cell.Field)));
+                            else
+                                fields.Add(new FieldOrigin(cell.Field, cell.Bases));
+                        }
+
+                        break;
+                    case IrLoadFieldOperation { Field.IsStatic: true } load:
+                        fields.Add(new FieldOrigin(load.Field, new HashSet<AbstractValue>()));
+                        break;
+                    case IrLoadFieldOperation { ReceiverValue: int receiver } load:
+                        fields.Add(new FieldOrigin(load.Field, _points[receiver].ToHashSet()));
+                        break;
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        break;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        break;
+                    case IrPhiOperation phi:
+                        foreach (var input in phi.Inputs)
+                            pending.Push(input.Value);
+                        break;
+                    case IrAwaitOperation awaited:
+                        pending.Push(awaited.TaskValue ?? awaited.AwaitableValue);
+                        break;
+                    case IrCallOperation call when call.ResultValue == current:
+                        calls.Add(call.Id);
+                        break;
+                    case IrUnknownOperation { DynamicCallee: not null } dynamic:
+                        calls.Add(dynamic.Id);
+                        break;
+                }
+            }
+
+            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements };
+            return origin.IsNone ? ValueOrigin.None : origin;
         }
 
         private SummarySpawn Spawn(IrSpawnOperation spawn, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
@@ -424,7 +596,7 @@ public static class MethodSummaryBuilder
             };
 
         private SummaryValue Value(int value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
-            new(Final(_points[value], delegates), _unknown[value]) { SourceCalls = _sourceCalls[value] };
+            new(Final(_points[value], delegates), _unknown[value]) { SourceCalls = _sourceCalls[value], Producers = Producers(value) };
 
         private SummaryValue? Value(int? value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             value is int id ? Value(id, delegates) : null;
@@ -437,9 +609,24 @@ public static class MethodSummaryBuilder
                     Dependencies = Dependencies(value),
                     Term = Term(value),
                     References = References(value),
-                    Collection = Collection(value)
+                    Collection = Collection(value),
+                    CreatedElements = call.CreatedArrayArguments.Contains(position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position)
+                        ? Final(CreatedElements(value), delegates)
+                        : null,
+                    Producers = Producers(value)
                 })
                 .ToArray();
+
+        /// <summary>The elements of an array or collection expression created in an argument's place: the values stored into the
+        /// allocated array, or the operands of the collection expression.</summary>
+        private IEnumerable<AbstractValue> CreatedElements(int value) =>
+            Definition(Origin(value)) switch
+            {
+                IrAllocateOperation => _operations.OfType<IrStoreElementOperation>().Where(store => Origin(store.ReceiverValue) == Origin(value))
+                                                  .SelectMany(store => _points[store.Value]),
+                IrUnknownOperation collection => collection.OperandValues.SelectMany(operand => _points[operand]),
+                _ => _points[value]
+            };
 
         /// <summary>Solves the values and the dependencies of every IR value until neither changes.</summary>
         private void Solve()
@@ -580,6 +767,9 @@ public static class MethodSummaryBuilder
                 IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
                     when call.ResultValue == value.Id && _enumerated.TryGetValue(enumeration, out var enumerated) =>
                     [new CallResultValue(call.Id), .. Extend(_points[Slice(enumerated).Array], PathValue.ELEMENT)],
+                // A node a linked list hands out is a cell of that list, so it stands for the list (ADR 0010, phase 5b).
+                IrCallOperation { Collection.HandsOutCell: true, ReceiverValue: int list } call when call.ResultValue == value.Id =>
+                    [new CallResultValue(call.Id), .. _points[list]],
                 IrCallOperation call when call.ResultValue == value.Id => [new CallResultValue(call.Id)],
                 IrCallOperation call => call.RefResults.Where(pair => pair.Value == value.Id)
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))
@@ -954,8 +1144,7 @@ public static class MethodSummaryBuilder
             IReadOnlyDictionary<int, IReadOnlyList<HeldLockValue>> held)
         {
             var members = _operations.OfType<IrCallOperation>()
-                                     .Select(call => call.Collection is { } effects && call.ReceiverValue is { } receiver &&
-                                                     Definition(receiver) is IrLoadFieldOperation load
+                                     .Select(call => call.Collection is { } effects && call.ReceiverValue is { } receiver && HolderLoad(receiver) is { } load
                                                  ? new CollectionMember(call, effects, load, Key(call, effects))
                                                  : null)
                                      .OfType<CollectionMember>()
@@ -989,6 +1178,38 @@ public static class MethodSummaryBuilder
 
             return (accesses, members.Select(member => member.Load.Id).ToHashSet());
         }
+
+        /// <summary>The load of the field holding the collection a receiver is: the receiver itself, or, for a <c>LinkedListNode</c>,
+        /// the list the members handing it out were called on, since a node is a cell of its list (ADR 0010, phase 5b).</summary>
+        private IrLoadFieldOperation? HolderLoad(int receiver)
+        {
+            var visited = new HashSet<int>();
+            while (visited.Add(receiver))
+            {
+                switch (Definition(receiver))
+                {
+                    case IrLoadFieldOperation load:
+                        return load;
+                    case IrCallOperation { Collection.HandsOutCell: true, ReceiverValue: int list } call when call.ResultValue == Origin(receiver):
+                        receiver = list;
+                        break;
+                    // A node created in the body is a cell of the list the body adds it to.
+                    case IrAllocateOperation when AddedTo(Origin(receiver)) is int list:
+                        receiver = list;
+                        break;
+                    default:
+                        return null;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>The list a linked list member of the body adds a node to, where the body adds it to one.</summary>
+        private int? AddedTo(int node) =>
+            _operations.OfType<IrCallOperation>()
+                       .FirstOrDefault(call => call.Collection is { HandsOutCell: true, Structure: IrCollectionEffect.Write } && call.ReceiverValue is not null &&
+                                               call.ArgumentValues.Any(argument => Origin(argument) == node))?.ReceiverValue;
 
         /// <summary>The reads of the same collection that the change of <paramref name="member"/> depends on: through the
         /// conditions that decide it runs, and through the values it is given.</summary>

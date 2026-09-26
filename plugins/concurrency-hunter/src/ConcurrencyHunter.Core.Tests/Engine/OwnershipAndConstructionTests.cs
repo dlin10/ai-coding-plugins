@@ -438,14 +438,15 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
-    public void Constructor_passing_this_to_an_opaque_call_keeps_its_own_field_writes_local()
+    public void Constructor_passing_this_of_a_singleton_to_an_opaque_call_publishes_it()
     {
+        // The call may keep the shared object anywhere, so what its construction writes next is no longer its own (R2, ADR 0006).
         var run = Execute("""
             public sealed class Thing { public object? Status; public Thing() { Console.WriteLine(this); Status = new object(); } }
             public class ThingController(Thing thing) : ControllerBase { public void Get() => GC.KeepAlive(thing.Status); }
             """ + Startup("services.AddSingleton<Thing>();"));
 
-        Assert.True(Assert.Single(run.Accesses("Status", SummaryAccessKind.Store)).IsConstructionLocal);
+        Assert.False(Assert.Single(run.Accesses("Status", SummaryAccessKind.Store)).IsConstructionLocal);
     }
 
     [Fact]

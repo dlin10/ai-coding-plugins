@@ -59,6 +59,11 @@ public sealed class LibrarySemanticsTable
         "System.Collections.Concurrent.ConcurrentQueue`1",
         "System.Collections.Concurrent.ConcurrentStack`1",
         "System.Collections.Concurrent.ConcurrentBag`1",
+        "System.Collections.Generic.HashSet`1",
+        "System.Collections.Generic.Queue`1",
+        "System.Collections.Generic.Stack`1",
+        "System.Collections.Generic.LinkedList`1",
+        "System.Collections.Generic.LinkedListNode`1",
         "System.Threading.Tasks.Task",
         "System.Threading.Tasks.Task`1",
         "System.Threading.Tasks.TaskFactory",
@@ -135,6 +140,10 @@ public sealed class LibrarySemanticsTable
     public IReadOnlyList<LibraryMember> Members { get; }
 
     public IReadOnlyList<ImmutableLibraryType> ImmutableTypes { get; }
+
+    /// <summary>Whether a recognizer of phases 3-4 owns the type with this metadata name: a call of its members keeps the behaviour
+    /// of those phases and is never an unresolved call (R1).</summary>
+    public static bool IsRecognizedType(string metadataName) => RecognizedTypes.Contains(metadataName);
 
     /// <summary>What the table says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
     /// or null for a member it does not describe. A member it describes by its immutable type only is known when every parameter

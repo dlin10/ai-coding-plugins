@@ -141,7 +141,7 @@ public sealed class ReportRendererTests
         var group = Assert.Single(root.GetProperty("groups").EnumerateArray());
         var narrative = root.GetProperty("narrative").EnumerateArray().ToArray();
 
-        Assert.Equal("2.1", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("2.2", root.GetProperty("schemaVersion").GetString());
         Assert.Equal("F1", finding.GetProperty("findingId").GetString());
         Assert.Equal("deterministic", finding.GetProperty("evidenceMode").GetString());
         Assert.Equal("high", finding.GetProperty("confidence").GetProperty("label").GetString());
@@ -251,7 +251,8 @@ public sealed class ReportRendererTests
             ["findings[].occurrences[]"] = ["callPaths", "protection", "roots"],
             ["findings[].protectionAnalysis"] = ["commonProtection", "result"],
             ["findings[].pathFeasibility"] = ["result", "solver"],
-            ["findings[].analysis"] = ["ai", "coverageState", "engineVersion", "providers"],
+            // Phase 5b lists the scope's semantic gaps in place of the coverage state it did not analyze.
+            ["findings[].analysis"] = ["ai", "engineVersion", "providers", "semanticGaps"],
             ["findings[].analysis.ai"] = ["acceptedInferenceCount", "rounds", "semanticResolverInvoked", "semanticResolverSkipReason"],
             ["findings[].evidence[]"] = ["id", "kind", "text"],
             ["groups[]"] = ["confidenceLabel", "findingIds", "fingerprint", "groupId", "narrativeStatus", "occurrenceCount", "ownership",

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Ir;
@@ -105,6 +106,10 @@ public sealed record TimerCallbackSite(string CallerInstance, int OperationId, I
 /// The edges themselves stay call edges: the body runs in the caller up to its first await.</summary>
 public sealed record AsyncSpawnSite(string CallerInstance, int OperationId, IrSpawnKind Kind, string? Handle, IReadOnlyList<string> Callees);
 
+/// <summary>A delegate region handed to unresolved calls (R3): the calls that handed it, by caller instance and operation, and the
+/// instances running its target. These are not call edges: the body runs in an unknown execution of its own.</summary>
+public sealed record DelegateHandoff(string RegionId, IReadOnlyList<(string CallerInstance, int OperationId)> Sites, IReadOnlyList<string> Callees);
+
 /// <summary>The tasks a <c>Task.WhenAll</c> result completes after, or that they are unknown.</summary>
 public sealed record TaskGroup(IReadOnlySet<string> Members, bool MembersKnown);
 
@@ -179,6 +184,18 @@ public sealed class HeapSolution
 
     /// <summary>The locator calls that stayed opaque, once per body and operation.</summary>
     public IReadOnlyList<(string BodyId, int OperationId)> UnresolvedLocators { get; init; } = [];
+
+    /// <summary>The virtual, interface and delegate calls of each instance with no receiver object at all: unresolved dispatch, which
+    /// calls nothing the heap has (R1).</summary>
+    public IReadOnlySet<(string Instance, int Operation)> UnresolvedDispatches { get; init; } = new HashSet<(string, int)>();
+
+    /// <summary>For each unresolved dispatch, the receiver objects whose implementation has no body, each with the type of the run's own
+    /// declaring that implementation, whose state alone the call sees through it (R1); null where no type of the run's own declares it.</summary>
+    public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<(string Region, string? DeclaringTypeKey)>> UnresolvedDispatchReceivers { get; init; } =
+        new Dictionary<(string, int), IReadOnlySet<(string, string?)>>();
+
+    /// <summary>The delegates handed to unresolved calls, each run in an unknown execution of its own (R3), by region.</summary>
+    public IReadOnlyList<DelegateHandoff> DelegateHandoffs { get; init; } = [];
 
     /// <summary>What the analysis could not know about a region: a symbolic parameter's unknown caller, a registration whose
     /// factory or instance gives more than one object or an unknown one.</summary>
@@ -368,6 +385,10 @@ public static class WholeProgram
             new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<string>> _constructions = new(StringComparer.Ordinal);
         private readonly HashSet<(string BodyId, int OperationId)> _noReceiver = [];
+        private readonly HashSet<(string Instance, int Operation)> _unresolvedDispatches = [];
+        private readonly Dictionary<(string Instance, int Operation), HashSet<(string Region, string? DeclaringTypeKey)>> _unresolvedReceivers = [];
+        private readonly Dictionary<string, (HashSet<(string Caller, int Operation)> Sites, HashSet<string> Callees)> _handoffs = new(StringComparer.Ordinal);
+        private UnknownCalls.Modelled? _modelled;
         private readonly Dictionary<string, int> _counters = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _rootInstances = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ResolutionScope> _providers = new(StringComparer.Ordinal);
@@ -426,6 +447,9 @@ public static class WholeProgram
                 var before = _changes;
                 // A registration's created types arrive during the fixpoint; the last, unchanged pass records the calls with no receiver.
                 _noReceiver.Clear();
+                _unresolvedDispatches.Clear();
+                _unresolvedReceivers.Clear();
+                _handoffs.Clear();
                 for (var index = 0; index < _instanceOrder.Count; index++)
                 {
                     var instance = _instances[_instanceOrder[index]];
@@ -517,8 +541,13 @@ public static class WholeProgram
                     }
                 }
             }
+            // An iterator escapes when a field keeps it, or keeps a delegate that captured it: whoever calls that delegate enumerates it
+            // (open question 24). The delegate itself, stored without a visible call, runs nowhere of its own.
             foreach (var values in _fields.Values)
+            {
                 unknownIterators.UnionWith(values.Where(_iteratorObjects.ContainsKey));
+                unknownIterators.UnionWith(values.Where(_delegates.ContainsKey).SelectMany(Captures).Where(_iteratorObjects.ContainsKey));
+            }
 
             static bool PotentialIteratorValue(AbstractValue value) => value switch
             {
@@ -551,16 +580,22 @@ public static class WholeProgram
                 (instanceId, field) => StaticRegion(_instances[instanceId], field),
                 regionId => _fields.Where(pair => pair.Key.Region == regionId && pair.Value.Count != 0).Select(pair => pair.Key.Field)
                                    .Order(StringComparer.Ordinal).ToArray(),
-                regionId => _delegates.TryGetValue(regionId, out var state)
-                    ? state.CapturedReceivers.Concat(state.CellOwners.SelectMany(owner => state.CapturedKeys.SelectMany(key => Cell(owner, key))))
-                           .ToHashSet(StringComparer.Ordinal)
-                    : new HashSet<string>(StringComparer.Ordinal))
+                regionId => _delegates.ContainsKey(regionId) ? Captures(regionId) : new HashSet<string>(StringComparer.Ordinal))
             {
                 ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
                 IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key, pair.Value)).ToArray(),
                 UnknownIterators = unknownIterators,
                 UnresolvedLocators = unresolved.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
+                UnresolvedDispatches = _unresolvedDispatches.ToHashSet(),
+                UnresolvedDispatchReceivers = _unresolvedReceivers.ToDictionary(pair => pair.Key,
+                                                                                pair => (IReadOnlySet<(string, string?)>)pair.Value.ToHashSet()),
+                DelegateHandoffs = _handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                            .Select(pair => new DelegateHandoff(pair.Key,
+                                                                               pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
+                                                                                   .ThenBy(site => site.Operation).ToArray(),
+                                                                               pair.Value.Callees.Order(StringComparer.Ordinal).ToArray()))
+                                            .ToArray(),
                 RegionUncertainties = _uncertainties.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
                 Collections = _collections.ToDictionary(pair => pair.Key,
                                                         pair => (IReadOnlyList<string>)pair.Value.SelectMany(Object).Distinct(StringComparer.Ordinal).ToArray(),
@@ -603,6 +638,14 @@ public static class WholeProgram
 
             static IReadOnlyList<string> Callees(SiteState site) =>
                 site.Callees.Select(callee => callee.Instance).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        }
+
+        /// <summary>What a delegate region captures: the receiver it was created on and the values of the variables it closes over.</summary>
+        private HashSet<string> Captures(string regionId)
+        {
+            var state = _delegates[regionId];
+            return state.CapturedReceivers.Concat(state.CellOwners.SelectMany(owner => state.CapturedKeys.SelectMany(key => Cell(owner, key))))
+                        .ToHashSet(StringComparer.Ordinal);
         }
 
         /// <summary>The locator calls of every instance that resolve nothing: no constant type, a receiver standing for no scope,
@@ -1162,6 +1205,12 @@ public static class WholeProgram
                 Spawn(instance, spawn);
             foreach (var timer in summary.Timers.Where(timer => timer.Callback is not null))
                 TimerCallback(instance, timer);
+            // What an unresolved call is handed it may run whenever it likes (R3); a call a recognizer or the table models is no such call.
+            var modelled = _modelled ??= new UnknownCalls.Modelled(_scope);
+            foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown && !modelled.Contains(instance.BodyId, call)))
+                Handoff(instance, call.OperationId, call.Arguments.SelectMany(argument => argument.Values).Concat(call.Delegates));
+            foreach (var dynamic in summary.DynamicOperations)
+                Handoff(instance, dynamic.OperationId, dynamic.Values);
             foreach (var whenAll in summary.WhenAlls)
                 WhenAll(instance, whenAll);
             foreach (var unwrap in summary.Unwraps)
@@ -1469,7 +1518,11 @@ public static class WholeProgram
                 {
                     var regions = Eval(caller, call.Receivers).Where(region => _delegates.ContainsKey(region)).ToArray();
                     if (regions.Length == 0)
+                    {
                         NoReceiver(caller, call);
+                        _unresolvedDispatches.Add((caller.Id, call.OperationId));
+                        Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                    }
                     UnresolvedTargets(caller, call);
                     foreach (var region in regions)
                         CallDelegate(caller, call, _delegates[region]);
@@ -1479,7 +1532,11 @@ public static class WholeProgram
                 {
                     var receivers = Eval(caller, call.Receivers);
                     if (receivers.Count == 0)
+                    {
                         NoReceiver(caller, call);
+                        _unresolvedDispatches.Add((caller.Id, call.OperationId));
+                        Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                    }
                     UnresolvedTargets(caller, call);
                     foreach (var receiver in receivers)
                         Dispatch(caller, call, call.Target, receiver, typeArguments, _regions[receiver].Kind == HeapRegionKind.Di ? "di-binding" : "points-to");
@@ -1521,13 +1578,51 @@ public static class WholeProgram
             }
         }
 
+        /// <summary>The delegates among values an unresolved call is handed, each run by the instances of its target in an unknown
+        /// execution of its own (R3, ADR 0011). A delegate handed to two such calls is one execution, which both sites started.</summary>
+        private void Handoff(InstanceState caller, int operationId, IEnumerable<AbstractValue> values)
+        {
+            // An array handed over hands over what it holds: a params array, one created in the argument's place, or any other (R1).
+            var handed = Eval(caller, values);
+            handed.UnionWith(handed.Where(region => _regions[region].TypeKey?.EndsWith(']') == true)
+                                   .SelectMany(array => Load(array, PathValue.ELEMENT)).ToArray());
+            foreach (var region in handed.Where(_delegates.ContainsKey))
+            {
+                if (!_handoffs.TryGetValue(region, out var handoff))
+                    _handoffs.Add(region, handoff = ([], new HashSet<string>(StringComparer.Ordinal)));
+                handoff.Sites.Add((caller.Id, operationId));
+                foreach (var callee in DelegateCallees(caller, operationId, _delegates[region], () => { }))
+                {
+                    Add(callee.Requests, caller.Requests);
+                    handoff.Callees.Add(callee.Id);
+                }
+            }
+        }
+
         /// <summary>A delegate invocation runs the delegate's target: its nested body with the creating instance's cells and captured
         /// receiver, a static method at the invocation site, or an instance method on each captured receiver region, resolved
         /// through the program index when the method is virtual.</summary>
         private void CallDelegate(InstanceState caller, CallTransfer call, DelegateState state)
         {
-            foreach (var callee in DelegateCallees(caller, call.OperationId, state, () => NoReceiver(caller, call)))
+            var callees = DelegateCallees(caller, call.OperationId, state, () => NoReceiver(caller, call));
+            foreach (var callee in callees)
                 Bind(caller, call, callee, "delegate");
+            // A method group whose target runs no body the analysis has is as unresolved as a call of that target (R1).
+            if (callees.Count == 0 && !state.IsNestedBody)
+            {
+                var declaring = _program.Method(state.Target)?.ContainingTypeKey;
+                Unresolved(caller, call, state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
+            }
+        }
+
+        /// <summary>Records an unresolved dispatch with the receiver objects it sees and hands off the delegates it is given (R1, R3).</summary>
+        private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
+        {
+            _unresolvedDispatches.Add((caller.Id, call.OperationId));
+            if (!_unresolvedReceivers.TryGetValue((caller.Id, call.OperationId), out var known))
+                _unresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
+            known.UnionWith(receivers);
+            Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
         }
 
         /// <summary>The instances running a delegate's target for an operation of <paramref name="caller"/>; <paramref name="noReceiver"/>
@@ -1596,8 +1691,14 @@ public static class WholeProgram
             foreach (var callee in callees)
                 Bind(caller, call, callee, reason);
 
+            // A receiver whose type has no implementation with a body runs one the analysis cannot read: however many other types do,
+            // the call is unresolved for this one (R1).
             if (!dispatched)
+            {
                 NoReceiver(caller, call);
+                var declaring = _regions[receiver].TypeKey is { } type ? _program.Implementation(type, methodId)?.ContainingTypeKey : null;
+                Unresolved(caller, call, [(receiver, declaring)]);
+            }
         }
 
         /// <summary>The source implementations a receiver region runs for a call of <paramref name="methodId"/>, and whether any of its
