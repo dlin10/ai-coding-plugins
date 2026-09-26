@@ -316,7 +316,7 @@ Preview frameworks, language features и SDK не входят в matrix. Multi-
 
 **TD-102.** Core формирует deterministic event skeleton `A reads v0 → B reads/writes → A writes f(v0) → update lost`. Narrative объясняет его и не добавляет events.
 
-**TD-103.** Confidence 0–100 только для ranking. Rubric: resource identity/alias 25, MayOverlap 20, conflicting operation/RMW 20, protection analysis 20, path feasibility 15. Labels `High` 80–100, `Medium` 55–79, `Low` 0–54. Unresolved target, wildcard region, opaque effect, solver unknown и incomplete built-in coverage уменьшают соответствующий component и перечисляются. Компонент, который решает неразрешённый gap по TD-039 (operation, overlap или protection), становится 10 баллов, а score такого occurrence ограничен 79; gap, который лишь стоит на call path, компонентов не меняет. Protection result `partial` или `different-identity` повышает protection component: кто-то уже считал ресурс разделяемым.
+**TD-103.** Confidence 0–100 только для ranking. Rubric: resource identity/alias 25, MayOverlap 20, conflicting operation/RMW 20, protection analysis 20, path feasibility 15. Labels `High` 80–100, `Medium` 55–79, `Low` 0–54. Unresolved target, wildcard region, opaque effect, solver unknown и incomplete built-in coverage уменьшают соответствующий component и перечисляются. Path feasibility: 15, когда решатель доказал, что оба пути выполнимы вместе (`sat`); 5, когда его не спрашивали, потому что кандидат не нёс ничего для решателя; 0, когда спросили и ответа нет — `unknown`, timeout или недоступный решатель (TD-093). Компонент, который решает неразрешённый gap по TD-039 (operation, overlap или protection), становится 10 баллов, а score такого occurrence ограничен 79; gap, который лишь стоит на call path, компонентов не меняет. Wildcard region даёт resource identity 10, и score такого occurrence тоже ограничен 79: поле не установлено, поэтому метка не выше `Medium`, что бы ни доказал решатель. Protection result `partial`, `different-identity` или `incompatible-mode` повышает protection component: 20 против 15 у `unprotected`, потому что кто-то уже считал ресурс разделяемым и пара, которую его защита оставила открытой, вероятнее ошибка.
 
 **TD-104.** Suppressions. Локальная: атрибут с простым именем `ConcurrencyHunterSuppress` на методе или типе, где лежит access A или B; аргументы rule ID, `Reason` обязателен, `Owner` и `Expiry` необязательны; класс атрибута пользователь объявляет сам. Repository-wide: `.concurrency-hunter/suppressions.json` в корне репозитория, записи `{ fingerprint, reason, owner?, expiry? }`. Сервер сопоставляет и проверяет expiry на каждом run до передачи групп composer-у. Просроченная или невалидная запись не скрывает finding и видна в диагностике. Suppression меняет только reportability; findings/evidence сохраняются; suppressed summary содержит finding id, источник, reason, owner/expiry.
 
@@ -587,14 +587,14 @@ RMW определяется по ресурсу, а не по маршруту 
   "evidenceMode": "deterministic",
   "confidence": {
     "label": "high",
-    "score": 94,
+    "score": 95,
     "isProbability": false,
     "components": {
       "resourceIdentity": 25,
       "executionOverlap": 20,
       "operation": 20,
-      "protection": 19,
-      "pathFeasibility": 10
+      "protection": 15,
+      "pathFeasibility": 15
     }
   },
   "resource": {

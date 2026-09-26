@@ -24,7 +24,7 @@ public sealed class GapConfidenceTests
         var finding = Assert.Single(await Findings(JoinCase("Opaque.Factory.Start(work)")));
 
         Assert.Equal(DECIDED, finding.Confidence.Components.ExecutionOverlap);
-        Assert.Equal(("Medium", 79), (finding.Confidence.Label, finding.Confidence.Score));
+        Assert.Equal(("Medium", 75), (finding.Confidence.Label, finding.Confidence.Score));
         Assert.Contains(finding.Uncertainty, item => item.Contains("Opaque.Factory.Start(object)", StringComparison.Ordinal) &&
                                                      item.Contains("overlap check", StringComparison.Ordinal));
     }
@@ -35,7 +35,7 @@ public sealed class GapConfidenceTests
         var finding = Assert.Single(await Findings(JoinCase("Opaque.Factory.Start()")));
 
         Assert.Equal(20, finding.Confidence.Components.ExecutionOverlap);
-        Assert.Equal(("High", 90), (finding.Confidence.Label, finding.Confidence.Score));
+        Assert.Equal(("High", 85), (finding.Confidence.Label, finding.Confidence.Score));
         Assert.DoesNotContain(finding.Uncertainty, item => item.Contains("unresolved call", StringComparison.Ordinal));
     }
 
@@ -292,8 +292,8 @@ public sealed class GapConfidenceTests
             }
             """, "services.AddSingleton<Work>(); services.AddHostedService<Starter>(); services.AddHostedService<Writer>();")));
 
-        Assert.Equal(new ConfidenceComponents(25, 20, 20, 20, 5), finding.Confidence.Components);
-        Assert.Equal(("High", 90), (finding.Confidence.Label, finding.Confidence.Score));
+        Assert.Equal(new ConfidenceComponents(25, 20, 20, 15, 5), finding.Confidence.Components);
+        Assert.Equal(("High", 85), (finding.Confidence.Label, finding.Confidence.Score));
         Assert.DoesNotContain(finding.Uncertainty, item => item.Contains("unresolved call", StringComparison.Ordinal));
     }
 
@@ -305,7 +305,7 @@ public sealed class GapConfidenceTests
 
         var finding = Assert.Single(json.RootElement.GetProperty("findings").EnumerateArray());
         var confidence = finding.GetProperty("confidence");
-        Assert.Equal(("medium", 79), (confidence.GetProperty("label").GetString(), confidence.GetProperty("score").GetInt32()));
+        Assert.Equal(("medium", 75), (confidence.GetProperty("label").GetString(), confidence.GetProperty("score").GetInt32()));
         Assert.Equal(DECIDED, confidence.GetProperty("components").GetProperty("executionOverlap").GetInt32());
         Assert.Contains(finding.GetProperty("uncertainty").EnumerateArray(),
                         item => item.GetString()!.Contains("Opaque.Factory.Start(object)", StringComparison.Ordinal));
@@ -317,15 +317,15 @@ public sealed class GapConfidenceTests
     public void Finding_takes_its_best_occurrence_after_a_gap_caps_the_other()
     {
         // The occurrence a gap decides would score 85 (a proven path, a decided overlap); capped to 79 it loses to the occurrence no
-        // gap decides, which scores 82 on a partial protection.
+        // gap decides, which scores 90 on a partial protection.
         var finding = Assert.Single(ConflictFindings.Create(
         [
             Pair("root-a", "root-b", PairProtection.UNPROTECTED, SolverAnswer.Sat, [Overlap]),
             Pair("root-c", "root-d", PairProtection.PARTIAL, null, [])
         ], CancellationToken.None).Findings);
 
-        Assert.Equal(("High", 82), (finding.Confidence.Label, finding.Confidence.Score));
-        Assert.Equal(new ConfidenceComponents(25, 20, 20, 12, 5), finding.Confidence.Components);
+        Assert.Equal(("High", 90), (finding.Confidence.Label, finding.Confidence.Score));
+        Assert.Equal(new ConfidenceComponents(25, 20, 20, 20, 5), finding.Confidence.Components);
         Assert.Contains(Overlap.Uncertainty, finding.Uncertainty);
         Assert.Equal(2, finding.OccurrenceCount);
     }
@@ -342,6 +342,20 @@ public sealed class GapConfidenceTests
         Assert.Equal(("Medium", 79), (finding.Confidence.Label, finding.Confidence.Score));
         Assert.Contains(Overlap.Uncertainty, finding.Uncertainty);
         Assert.Contains(Protection.Uncertainty, finding.Uncertainty);
+    }
+
+    /// <summary>A wildcard names no field, so no proof about the two paths makes its occurrence High: it is capped as a gap-decided
+    /// one is, although every component it has would sum to 85 (TD-103, issue #125).</summary>
+    [Fact]
+    public void A_wildcard_occurrence_is_at_most_Medium_whatever_the_solver_proved()
+    {
+        var finding = Assert.Single(ConflictFindings.Create(
+        [
+            Pair("root-a", "root-b", PairProtection.PARTIAL, SolverAnswer.Sat, [], wildcard: true)
+        ], CancellationToken.None).Findings);
+
+        Assert.Equal(new ConfidenceComponents(10, 20, 20, 20, 15), finding.Confidence.Components);
+        Assert.Equal(("Medium", 79), (finding.Confidence.Label, finding.Confidence.Score));
     }
 
     [Fact]
@@ -375,8 +389,9 @@ public sealed class GapConfidenceTests
     [Fact]
     public void Expected_score_for_the_solver_budget_counts_the_decided_checks()
     {
-        Assert.Equal(90, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.UNPROTECTED, null, [])));
-        Assert.Equal(79, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.UNPROTECTED, null, [Overlap])));
+        Assert.Equal(85, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.UNPROTECTED, null, [])));
+        Assert.Equal(25 + DECIDED + 20 + 15 + 5, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.UNPROTECTED, null, [Overlap])));
+        Assert.Equal(79, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.PARTIAL, null, [Overlap])));
         Assert.Equal(25 + DECIDED + 20 + DECIDED + 5, ConflictFindings.ExpectedScore(Pair("root-a", "root-b", PairProtection.PARTIAL, null, [Overlap, Protection])));
     }
 

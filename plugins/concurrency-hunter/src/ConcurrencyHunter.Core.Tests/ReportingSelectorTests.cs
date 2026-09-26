@@ -102,20 +102,23 @@ public sealed class ReportingSelectorTests
                      .Select(answer => Score(Candidate(AccessOperation.Write, AccessOperation.Write, answer)))
                      .ToArray();
 
-        Assert.Equal([95, 90, 85], scores);
+        Assert.Equal([95, 85, 80], scores);
         Assert.True(scores[2] < scores[1], "An answer that decided nothing must not be worth as much as never asking.");
     }
 
-    /// <summary>A partial verdict lowers confidence too: something already treats the resource as shared, so what the analysis
-    /// did not see matters more (TD-103).</summary>
+    /// <summary>A verdict between the two raises confidence: something already treats the resource as shared, so a pair it leaves
+    /// open is the more likely mistake, and a proven one scores the whole rubric (TD-103, issue #125).</summary>
     [Fact]
-    public void A_verdict_between_the_two_costs_the_finding_confidence()
+    public void A_verdict_between_the_two_raises_the_finding_confidence()
     {
         var unprotected = Score(Candidate(AccessOperation.Write, AccessOperation.Write, null, PairProtection.UNPROTECTED));
-        var partial = Score(Candidate(AccessOperation.Write, AccessOperation.Write, null, PairProtection.PARTIAL));
+        var between = new[] { PairProtection.PARTIAL, PairProtection.DIFFERENT_IDENTITY, PairProtection.INCOMPATIBLE_MODE }
+                      .Select(verdict => Score(Candidate(AccessOperation.Write, AccessOperation.Write, null, verdict)))
+                      .ToArray();
 
-        Assert.Equal(90, unprotected);
-        Assert.Equal(82, partial);
+        Assert.Equal(85, unprotected);
+        Assert.Equal([90, 90, 90], between);
+        Assert.Equal(100, Score(Candidate(AccessOperation.Write, AccessOperation.Write, SolverAnswer.Sat, PairProtection.PARTIAL)));
     }
 
     /// <summary>A pair of compound operations is not answered by a thread-safe collection, and the remediation says so: its

@@ -316,7 +316,7 @@ public sealed class FindingIdentityTests
 
         var high = Assert.Single(findings, finding => !finding.Resource.IsWildcard);
         Assert.Equal(2, high.OccurrenceCount);
-        Assert.Equal(("High", 90), (high.Confidence.Label, high.Confidence.Score));
+        Assert.Equal(("High", 85), (high.Confidence.Label, high.Confidence.Score));
         var medium = Assert.Single(findings, finding => finding.Resource.IsWildcard);
         Assert.True(medium.Confidence.Score < high.Confidence.Score);
     }

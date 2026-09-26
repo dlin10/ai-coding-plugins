@@ -520,7 +520,7 @@ public sealed class ConflictRuleTests
 
         var wildcard = result.Findings.Where(item => item.Resource.IsWildcard).ToArray();
         Assert.NotEmpty(wildcard);
-        Assert.All(wildcard, finding => Assert.Equal(new FindingConfidence("Medium", 75, new ConfidenceComponents(10, 20, 20, 20, 5)), finding.Confidence));
+        Assert.All(wildcard, finding => Assert.Equal(new FindingConfidence("Medium", 70, new ConfidenceComponents(10, 20, 20, 15, 5)), finding.Confidence));
         Assert.All(wildcard, finding => Assert.Contains("The resource is a wildcard: an access path longer than the analysis limit was collapsed.", finding.Uncertainty));
         Assert.All(result.Groups.Where(group => group.Resource.IsWildcard), group => Assert.Equal("Medium", group.ConfidenceLabel));
         Assert.DoesNotContain(result.Findings, finding => !finding.Resource.IsWildcard && finding.Confidence.Label != "High");
@@ -541,7 +541,7 @@ public sealed class ConflictRuleTests
         var merged = result.Findings.Where(finding => finding.Uncertainty.Contains("Contexts of Grow.F<T>(object, int) were merged; the objects involved may be more than one."))
                            .ToArray();
         Assert.NotEmpty(merged);
-        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 90, new ConfidenceComponents(25, 20, 20, 20, 5)), finding.Confidence));
+        Assert.All(merged, finding => Assert.Equal(new FindingConfidence("High", 85, new ConfidenceComponents(25, 20, 20, 15, 5)), finding.Confidence));
     }
 
     [Fact]

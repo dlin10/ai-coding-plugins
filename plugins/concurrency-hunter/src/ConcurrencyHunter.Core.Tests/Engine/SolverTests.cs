@@ -209,15 +209,15 @@ public sealed class SolverTests
     }
 
     /// <summary>The budget is spent in the order the candidates are expected to score in, and how protected a pair is decides as
-    /// much of that score as its resource does: an unprotected candidate is asked before a partial one, which an order by the
-    /// wildcard alone left standing in the order they came (TD-103).</summary>
+    /// much of that score as its resource does: a partial candidate is asked before an unprotected one, which an order by the
+    /// wildcard alone left standing in the order they came (TD-103, issue #125).</summary>
     [Fact]
-    public void The_budget_is_spent_on_the_unprotected_candidate_first()
+    public void The_budget_is_spent_on_the_partially_protected_candidate_first()
     {
-        var partial = Pair(Query(Cell(0), Cell(1))) with { Protection = PairProtection.PARTIAL };
         var unprotected = Pair(Query(Cell(2), Cell(3)));
+        var partial = Pair(Query(Cell(0), Cell(1))) with { Protection = PairProtection.PARTIAL };
 
-        Assert.Equal([1, 0], SolverRefinement.Ordered([partial, unprotected]));
+        Assert.Equal([1, 0], SolverRefinement.Ordered([unprotected, partial]));
     }
 
     private static SolverAnswer Decide(SolverQuery query)

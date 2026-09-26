@@ -23,13 +23,13 @@ internal static class ConflictFindings
 
     private const string HOSTING_PROVIDER = "hosting";
     private const int RESOURCE_IDENTITY = 25;
-    private const int PROTECTION = 20;
-    private const int PARTIAL_PROTECTION = 12;
-    private const int PATH_FEASIBILITY = 10;
+    private const int UNPROTECTED_PROTECTION = 15;
+    private const int PARTIAL_PROTECTION = 20;
+    private const int PATH_FEASIBILITY = 15;
     private const int UNASKED_PATH_FEASIBILITY = 5;
     private const int WILDCARD_RESOURCE_IDENTITY = 10;
     private const int GAP_DECIDED_COMPONENT = 10;
-    private const int GAP_DECIDED_MAXIMUM = 79;
+    private const int MEDIUM_MAXIMUM = 79;
     private const int HIGH_MINIMUM = 80;
     private const int MEDIUM_MINIMUM = 55;
     private const int LISTED_OCCURRENCES = 3;
@@ -193,24 +193,27 @@ internal static class ConflictFindings
         return folded with { Evidence = evidence with { Key = evidence.Key with { Rule = PROTECTION_RULE } } };
     }
 
-    private static int Score(Candidate candidate) => Score(Components(candidate), candidate.GapChecks);
+    private static int Score(Candidate candidate) => Score(Components(candidate), IsCapped(candidate.Resource, candidate.GapChecks));
 
     /// <summary>What a pair is expected to score before the solver is asked, which is what the budget is spent in the order of
     /// (TD-103): every component but the path feasibility is decided by then — the resource's identity, how protected the pair is
     /// and, no less, the checks a semantic gap decides — and the feasibility counts as the one of a pair that was never asked.</summary>
     internal static int ExpectedScore(AccessPair pair) =>
         Score(WithGaps(new ConfidenceComponents(pair.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
-                                                pair.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+                                                pair.Protection == PairProtection.UNPROTECTED ? UNPROTECTED_PROTECTION : PARTIAL_PROTECTION,
                                                 UNASKED_PATH_FEASIBILITY), pair.GapChecks),
-              pair.GapChecks);
+              IsCapped(pair.Resource, pair.GapChecks));
 
     private static int Score(ConfidenceComponents components) =>
         components.ResourceIdentity + components.ExecutionOverlap + components.Operation + components.Protection + components.PathFeasibility;
 
-    /// <summary>The score of an occurrence a semantic gap decides a check of is never above the top of the Medium band, so its label
-    /// is never High and still follows from the score (TD-039, TD-108).</summary>
-    private static int Score(ConfidenceComponents components, IReadOnlyList<GapCheck> gapChecks) =>
-        gapChecks.Count == 0 ? Score(components) : Math.Min(Score(components), GAP_DECIDED_MAXIMUM);
+    /// <summary>The score of an occurrence whose claim is not proven whole is never above the top of the Medium band, so its label
+    /// is never High and still follows from the score (TD-039, TD-103, TD-108).</summary>
+    private static int Score(ConfidenceComponents components, bool isCapped) =>
+        isCapped ? Math.Min(Score(components), MEDIUM_MAXIMUM) : Score(components);
+
+    /// <summary>Whether a semantic gap decides one of the occurrence's checks, or its resource is a wildcard that names no field.</summary>
+    private static bool IsCapped(AccessResource resource, IReadOnlyList<GapCheck> gapChecks) => resource.IsWildcard || gapChecks.Count != 0;
 
     /// <summary>Every component a semantic gap decides counts <see cref="GAP_DECIDED_COMPONENT"/> (TD-039).</summary>
     private static ConfidenceComponents WithGaps(ConfidenceComponents components, IReadOnlyList<GapCheck> gapChecks)
@@ -230,16 +233,16 @@ internal static class ConflictFindings
     }
 
     /// <summary>
-    /// The TD-103 components. A wildcard resource lowers resource identity. Protection counts full where nothing on either side
-    /// claims to protect the resource, and less where something does and does not reach: a verdict between the two says someone
-    /// already treated the resource as shared, which is a reason to report it and a reason to be less certain about what the
-    /// analysis did not see. Path feasibility counts most where the solver proved the two paths can hold at once, less where it
-    /// was never asked, and nothing where it was asked and could not answer — which is how an unavailable, timed-out or
-    /// undecided solver costs a finding confidence rather than its verdict (TD-093).
+    /// The TD-103 components. A wildcard resource lowers resource identity. Protection counts full where something on one side
+    /// claims to protect the resource and does not reach, and less where nothing does: a verdict between the two says someone
+    /// already treated the resource as shared, so the pair it leaves open is the more likely mistake. Path feasibility counts
+    /// most where the solver proved the two paths can hold at once, less where it was never asked, and nothing where it was
+    /// asked and could not answer — which is how an unavailable, timed-out or undecided solver costs a finding confidence rather
+    /// than its verdict (TD-093).
     /// </summary>
     private static ConfidenceComponents Components(Candidate candidate) =>
         WithGaps(new ConfidenceComponents(candidate.Resource.IsWildcard ? WILDCARD_RESOURCE_IDENTITY : RESOURCE_IDENTITY, 20, 20,
-                                          candidate.Protection == PairProtection.UNPROTECTED ? PROTECTION : PARTIAL_PROTECTION,
+                                          candidate.Protection == PairProtection.UNPROTECTED ? UNPROTECTED_PROTECTION : PARTIAL_PROTECTION,
                                           candidate.Feasibility switch
                                           {
                                               SolverAnswer.Sat => PATH_FEASIBILITY,

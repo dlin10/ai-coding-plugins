@@ -394,9 +394,10 @@ public sealed class ReportSkeletonTests
                              .Select(line => line[5..line.IndexOf(' ', 5)])
                              .ToArray();
         // One resource carries two groups: the two workers race it unprotected, and the locked action against a worker is the
-        // protection rule, and a group is one rule on one object.
-        Assert.Equal(["di:Ledger@Singleton", "static:Hits", "di:Ledger@Singleton"], result.Groups.Select(group => group.Resource.Region));
-        Assert.Equal(["DCA1001", "DCA1002", "DCA1003"], result.Groups.Select(group => group.RuleId));
+        // protection rule, and a group is one rule on one object. The protection rule's group comes first: a lock that does not
+        // reach says the resource is shared, which scores above an unprotected pair (TD-103).
+        Assert.Equal(["di:Ledger@Singleton", "di:Ledger@Singleton", "static:Hits"], result.Groups.Select(group => group.Resource.Region));
+        Assert.Equal(["DCA1003", "DCA1001", "DCA1002"], result.Groups.Select(group => group.RuleId));
         Assert.Equal(result.Groups.Select(group => group.GroupId), headings);
     }
 

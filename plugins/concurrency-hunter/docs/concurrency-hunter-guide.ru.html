@@ -1876,9 +1876,6 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <div class="table-wrap"><table>
     <thead><tr><th>Что</th><th>SPEC / документы</th><th>Код сейчас</th></tr></thead>
     <tbody>
-      <tr><td>Вес path feasibility</td><td>TD-103: 15, сумма 100</td><td>10 (SAT) / 5 (не спрашивался) / 0; максимум оценки 95 (<code>ConflictFindings.cs</code>)</td></tr>
-      <tr><td>Частичная защита в оценке</td><td>TD-103: <code>partial</code> и <code>different-identity</code> <em>повышают</em> компонент</td><td>Понижают: 12 вместо 20, с обоснованием в комментарии к <code>Components</code></td></tr>
-      <tr><td>Wildcard-находка</td><td><code>composing.md</code>: метка Medium</td><td>Отдельного потолка нет: ресурс даёт 10 вместо 25; с ответом SAT такая находка набирает 80 и становится High</td></tr>
       <tr><td>Hash-и summaries</td><td>TD-021/024: <code>InputHash</code>, <code>DependencyHash</code> с первой версии</td><td>У summaries их нет; есть только в схеме IR</td></tr>
       <tr><td>Fixpoint</td><td>TD-023: worklist по SCC снизу вверх</td><td>Круговые проходы по всем экземплярам; SCC считается только при исчерпании бюджета</td></tr>
       <tr><td>Root descriptor</td><td>SPEC §11: <code>ProcessScope</code>, <code>ActivationCondition</code>, <code>LifetimeOwner</code></td><td>Этих полей нет; <code>CompletionEvents</code>, <code>OrderingConstraints</code>, <code>PrecisionFlags</code> есть, но никто их не читает</td></tr>
