@@ -2,7 +2,7 @@
 
 | Поле | Значение |
 |---|---|
-| Статус | Пересмотрен по итогам interview 2026-09-12; готов к инженерной детализации |
+| Статус | Пересмотрен по итогам interview 2026-09-12; модели библиотек добавлены 2026-09-27 ([ADR 0012](adr/0012-library-semantics-are-data-the-analysis-derives-from-decompiled-code.md)); готов к инженерной детализации |
 | Дата | 2026-09-12 |
 | Владелец продукта | Dmitry Linetsky |
 | Имя плагина | `concurrency-hunter` |
@@ -30,7 +30,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 | G3 | Контролировать шум | Precision High-confidence findings ≥ 90% на demo-корпусе и на ручном triage High findings eShopOnContainers и nopCommerce с записанным adjudication |
 | G4 | Работать с большими solution | Выполнены cold performance targets раздела 6.1 |
 | G5 | Давать результат за одну команду | ≥ 95% пилотных запусков создают отчёт без ввода после старта run; по одному прогону skill на demo в каждом из трёх hosts на релиз |
-| G6 | Использовать AI проверяемо | 100% inferred facts имеют provenance, confidence и validation status; AI не подавляет deterministic findings; 100% тезисов narrative о location/resource/path ссылаются на существующие evidence IDs |
+| G6 | Использовать AI проверяемо | 100% inferred facts и моделей библиотек имеют provenance, confidence и validation status; AI не подавляет deterministic findings, кроме пар неизвестного вызова, которые снимает AI-модель библиотеки, и каждая такая пара учтена в coverage (FR-21); 100% тезисов narrative о location/resource/path ссылаются на существующие evidence IDs |
 
 ## 3. Границы текущего релиза
 
@@ -91,7 +91,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 
 **FR-03. Корректные входы и coverage.** Анализ учитывает исходники, generated documents, compiler symbols, nullable context, language version, project/metadata references и конфигурацию сборки, влияющую на семантику. Анализируется **reachable set**: тела методов, достижимые из execution roots и spawn sites; тело вне него не выполняется в процессе, не анализируется и не считается против coverage. Generated code участвует в анализе путей и эффектов; findings непосредственно в нём не показываются в основном отчёте, но путь через generated code не скрывает finding в user code. Пропущенные проекты и неподдержанные bodies явно отражаются в **coverage**; невозможность загрузить проект даёт `Incomplete`.
 
-**FR-04. Фиксированное поведение.** Плагин использует фиксированные правила поставляемой версии и не читает конфигурацию анализа: пользователю не нужно задавать confidence threshold, правила вывода, AI runtime или лимиты. Единственный файл репозитория, который плагин читает, это список suppressions по FR-18, и он влияет только на представление. Установка и обновление не запускают анализ автоматически.
+**FR-04. Фиксированное поведение.** Плагин использует фиксированные правила поставляемой версии и не читает конфигурацию анализа: пользователю не нужно задавать confidence threshold, правила вывода, AI runtime или лимиты. Из репозитория плагин читает только папку `.concurrency-hunter/`: список suppressions по FR-18, который влияет только на представление, и модели библиотек по FR-21, которые описывают библиотеки, а не правила анализа. Установка и обновление не запускают анализ автоматически.
 
 ### 4.2. Обнаружение и исключение гонок
 
@@ -120,7 +120,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 
 **FR-11. Условия применения AI.** AI выполняется в сессии текущего host-а, Codex, Claude Code или Cursor, по правилам skill; сервер отдаёт **gap packets** и дайджесты групп, валидирует ответы и никогда не запускает AI сам. Semantic-gap resolver обязателен при наличии semantic gaps после детерминированного анализа: skill проходит всю очередь пакетов в порядке **materiality**, budget на число пакетов нет, граница только deadline. Gaps, порождённые принятыми inferred facts, идут во второй круг; третьего круга нет. Если gaps нет, resolver не вызывается, и это не препятствует complete status. Само наличие reflection, `dynamic` или нестандартного вызова не создаёт gap, если семантика уже разрешена. Report composer обязателен для каждого complete run: narrative для каждой **finding group** уровня High и Medium и executive summary; для Low groups narrative пишется, если deadline позволяет.
 
-**FR-12. Проверяемый вклад AI.** Inferred facts имеют supporting evidence, provenance, confidence и validation status. Несуществующие symbols/locations, несовместимые и неподтверждённые гипотезы не влияют на findings. Принятые факты могут расширять анализ и набор находок, но не удалять deterministic facts/findings. AI-inferred synchronization, atomicity или happens-before не подавляют candidate без отдельного deterministic доказательства. Невалидированная гипотеза допустима только как unresolved analysis note.
+**FR-12. Проверяемый вклад AI.** Inferred facts имеют supporting evidence, provenance, confidence и validation status. Несуществующие symbols/locations, несовместимые и неподтверждённые гипотезы не влияют на findings. Принятые факты могут расширять анализ и набор находок, но не удалять deterministic facts/findings; AI-модель библиотеки по FR-21 может снять пары неизвестного вызова того же члена, и каждая такая пара учтена в coverage. AI-inferred synchronization, atomicity или happens-before не подавляют candidate без отдельного deterministic доказательства. Невалидированная гипотеза допустима только как unresolved analysis note.
 
 **FR-13. Достоверный narrative.** Сервер рендерит **skeleton** отчёта: статус, coverage, диагностику, каждую finding с двумя code paths, alias/overlap evidence, protection analysis, event skeleton сценария, fingerprint и suppressed summary. AI поставляет narrative группы: interleaving словами, почему найденная защита недостаточна, fix options. Допустимы локальные исправления через общую синхронизацию или атомарные операции и изменения организации кода: устранение общего изменяемого состояния, изменение владения или последовательное выполнение. Каждый fix suggestion помечен `verify manually` и называет проверки перед применением. Narrative ссылается на существующие evidence IDs и ничего не пересказывает; сервер отклоняет фрагмент с выдуманными locations, symbols, runtime values или events и допускает один повтор. AI не меняет rule, severity, confidence, fingerprint, source paths, evidence mode или coverage. Плагин не применяет рекомендации к application code.
 
@@ -130,7 +130,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 
 **FR-15. Самостоятельный report bundle.** Пользователь получает **report bundle**: `report.md`, versioned `findings.json` и `run-metadata.json`. Отчёт содержит status, target, timestamp, версии, duration, executive summary, coverage, unsupported/incomplete boundaries и findings, сгруппированные по shared resource/root cause. Для каждой finding указаны rule, severity, confidence label/score, ресурс, accesses A/B, roots и ordered code paths, alias/overlap evidence, анализ защиты, path feasibility, AI contributions, uncertainty, interleaving, remediation и stable fingerprint. Отчёт понятен без знания внутреннего представления analyzer.
 
-**FR-16. Confidence и происхождение evidence.** `Deterministic` означает, что verdict не зависит от inferred facts; `AI-Assisted` означает, что хотя бы один необходимый target/effect/alias fact получен через AI. Режимы визуально различаются. Confidence 0–100 ранжирует качество evidence и явно не является вероятностью; severity отражает impact и оценивается отдельно. Self-reported AI confidence не повышает score напрямую. Weak/name-based inference ограничивает finding уровнем `Medium`; `High` требует подтверждения всех необходимых inferred facts точными symbol/type/source/config constraints и отсутствия неразрешённого gap на пути finding.
+**FR-16. Confidence и происхождение evidence.** `Deterministic` означает, что verdict не зависит от inferred facts; `AI-Assisted` означает, что хотя бы один необходимый target/effect/alias fact получен через AI, в том числе из AI-модели библиотеки по FR-21. Режимы визуально различаются. Confidence 0–100 ранжирует качество evidence и явно не является вероятностью; severity отражает impact и оценивается отдельно. Self-reported AI confidence не повышает score напрямую. Weak/name-based inference ограничивает finding уровнем `Medium`; `High` требует подтверждения всех необходимых inferred facts точными symbol/type/source/config constraints и отсутствия неразрешённого gap на пути finding.
 
 **FR-17. Управляемый объём результатов.** Основной отчёт показывает High, Medium и Low в этом порядке; Medium показаны полностью сразу после High. Low finding без narrative остаётся в отчёте со skeleton и пометкой причины. Применяются правила для generated code и suppressions. Одна semantic cause это одна finding group с representative locations и occurrence count. Fingerprints устойчивы к сдвигу строк, но меняются при изменении смысла finding; смена AI model без изменения validated facts не меняет identity. Отчёт включает короткие source snippets после redaction. Source links кликабельны там, где host это поддерживает.
 
@@ -138,9 +138,11 @@ Concurrency Hunter анализирует C# solution локально, без �
 
 ### 4.5. Повторные запуски и расширяемость
 
-**FR-19. Повторный анализ.** Каждый run это clean full scan; кэш результатов анализа между runs не ведётся. Method summaries хэшей не несут: content hashes входов и зависимостей вводятся вместе с incremental cache (раздел 8). Кэш inferred facts по payload hash допустим и не освобождает ответ от валидации.
+**FR-19. Повторный анализ.** Каждый run это clean full scan; кэш результатов анализа между runs не ведётся. Модели библиотек по FR-21 — не результаты анализа кода пользователя: они описывают версии библиотек и хранятся в репозитории. Method summaries хэшей не несут: content hashes входов и зависимостей вводятся вместе с incremental cache (раздел 8). Кэш inferred facts по payload hash допустим и не освобождает ответ от валидации.
 
 **FR-20. Расширение framework coverage.** Поддержка нового execution root добавляется встроенным provider вместе с новой версией plugin/engine и не требует переработки downstream engines. Новые roots используют общие правила и формат evidence. Отсутствующая либо несовместимая framework semantics видна в coverage; runtime/user providers не загружаются.
+
+**FR-21. Модели библиотек.** Что член библиотеки без исходников в solution делает с аргументами и где исполняется переданный ему делегат — сразу, при перечислении результата, при вызове члена удерживающего объекта, в startup, при разрешении сервиса DI или неизвестно где, — описывает **library model**. Модели берутся из слоёв: встроенные поставляются с плагином, проектные пишет команда, сгенерированные плагин выводит сам из декомпилированного кода библиотеки для членов, до которых дошёл анализ, AI-модели приходят через тот же validating путь, что inferred facts. Проектная модель перекрывает любую другую. Проектные и сгенерированные модели лежат в `.concurrency-hunter/models/` в корне репозитория; сгенерированные плагин записывает туда сам, чтобы их коммитили и не генерировали повторно, и больше ничего в репозиторий не пишет. Модель, которую плагин не смог доказать, не сужает анализ: делегат, про который неизвестно, где он исполняется, исполняется неизвестно где. Coverage показывает, какие вызовы описаны каким слоем, какие члены остались без модели и почему, и сколько пар неизвестного вызова сняли сгенерированные и AI-модели. Модель не доказывает защиту или порядок.
 
 ## 5. Статусы результата
 
@@ -169,7 +171,7 @@ Concurrency Hunter анализирует C# solution локально, без �
 | Cold run, 1 MLOC / до 300 проектов, high-capacity workstation | OrchardCore | ≤ 12 минут deterministic phases, peak RSS ≤ 12 GB |
 | Подготовка `findings.json` и skeleton `report.md` | любой | ≤ 5 секунд для 10 000 findings до deduplication |
 
-Targets относятся к deterministic фазам сервера; AI interludes ограничены только общим deadline 30 минут из FR-02. Targets пересматриваются через versioned benchmark decision; молчаливый пропуск effects/findings ради скорости запрещён. Внутренние solver budgets описаны в спецификации.
+Targets относятся к deterministic фазам сервера; AI interludes ограничены только общим deadline 30 минут из FR-02. Targets пересматриваются через versioned benchmark decision; молчаливый пропуск effects/findings ради скорости запрещён. Генерация моделей библиотек по FR-21 входит в deterministic фазы; targets с ней пересматриваются в фазе генератора моделей по замеру на eShop, до этого решения значения таблицы действуют для run, которому генерировать нечего. Внутренние solver budgets описаны в спецификации.
 
 ### 6.2. Надёжность и совместимость
 
@@ -183,15 +185,15 @@ Targets относятся к deterministic фазам сервера; AI interl
 
 ### 6.3. Безопасность и privacy
 
-- Analyzer не запускает application assemblies и не изменяет source tree, project files или build outputs. Restore/network activity не инициируется; локальный core не требует сети.
-- Report bundle размещается в `%LOCALAPPDATA%\concurrency-hunter\runs\<repo-hash>\<run-id>\`; в репозиторий не пишется ничего. Bundle не содержит secrets, environment variables или полные исходники; snippets проходят redaction.
+- Analyzer не запускает application assemblies и не изменяет source tree, project files или build outputs. Декомпиляция библиотек для моделей по FR-21 читает их сборки и ничего не исполняет. Restore/network activity не инициируется; локальный core не требует сети.
+- Report bundle размещается в `%LOCALAPPDATA%\concurrency-hunter\runs\<repo-hash>\<run-id>\`; в репозиторий пишутся только сгенерированные модели библиотек в `.concurrency-hunter/models/` по FR-21. Bundle не содержит secrets, environment variables или полные исходники; snippets проходят redaction.
 - AI data policy описана в README и называет границу: пакеты и дайджесты уходят в сессию host-а и его субагентов, solution целиком AI не передаётся. Redaction, payload size limits и content manifest применяются всегда.
 - Run metadata фиксирует host, provider/model, версию/hash skill, prompt/schema versions и payload hashes.
 - Внешняя telemetry отсутствует.
 
 ### 6.4. Диагностика
 
-Отчёт и metadata показывают timings/counts по фазам, размер reachable set, coverage, число gap packets и кругов resolver, accepted/rejected inferred facts, unresolved calls, потери precision, candidates до/после фильтров, результаты solver и timeouts, группы с narrative и без, late responses, AI token/latency data при доступности, memory high-water mark и причину завершения.
+Отчёт и metadata показывают timings/counts по фазам, размер reachable set, coverage, число gap packets и кругов resolver, accepted/rejected inferred facts, unresolved calls, потери precision, candidates до/после фильтров, результаты solver и timeouts, группы с narrative и без, late responses, AI token/latency data при доступности, memory high-water mark и причину завершения; вызовы по слоям моделей библиотек, сгенерированные в run модели и время генерации, члены без модели по причине и пары, снятые сгенерированными и AI-моделями.
 
 ## 7. Критерии приёмки
 
@@ -211,6 +213,7 @@ Targets относятся к deterministic фазам сервера; AI interl
 14. Все fix suggestions опираются на evidence группы, помечены `verify manually` и содержат конкретные проверки; фрагмент без них отклонён сервером. Application code не изменён.
 15. Reachable set записан в coverage; тело вне него не анализируется и не занижает coverage.
 16. Изменение в `plugins/Common` проходит baseline cache-detective без перезаписи его снапшотов.
+17. Сгенерированные модели библиотек на эталоне членов, размеченном по исходникам библиотек, не сужают ни одного делегата сверх истины; делегат, который библиотека удерживает и вызывает фреймворк, не теряет находку; проектная модель перекрывает сгенерированную; coverage показывает слои и снятые пары; в репозиторий записываются только файлы `.concurrency-hunter/models/`.
 
 ## 8. Дальнейшее развитие
 

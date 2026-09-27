@@ -236,10 +236,11 @@ _Avoid_: severity (the impact of a finding, assessed separately and never decidi
 ### What the analysis could not settle
 
 **Known call**:
-A call into a method whose body the run does not have and whose effects a built-in semantics
-describes for that exact method and a supported version of its assembly; its effects are the ones
-described, and it is never a **Semantic gap**. The same method in an unsupported version is opaque.
-_Avoid_: library call, recognized call, BCL call (a method is known by its description, not by who ships it)
+A call into a method whose body the run does not have and which a **Library model** describes for
+that exact member and that version of its assembly; its effects are the ones the model gives, a
+delegate it receives runs as the model's **Delegate fate** says, and it is never a **Semantic gap**.
+The same member in a version no model covers is opaque.
+_Avoid_: library call, recognized call, BCL call (a method is known by its model, not by who ships it)
 
 **Deep read**:
 What a **Known call** does to an argument it consumes whole, as a serializer or a formatter does: a
@@ -249,13 +250,13 @@ whatever the argument's getters could read without running them.
 _Avoid_: serialization read, full read, recursive read
 
 **Opaque call**:
-A call into a method whose body the run does not have and whose effects no built-in semantics
-describes; its effects are unknown, which is not the same as none. A call through an interface on an
+A call into a method whose body the run does not have and which no **Library model** describes; its
+effects are unknown, which is not the same as none. A call through an interface on an
 array or a modelled collection is decided by the object its receiver points to: it is a call of the
 member that object's type implements it with — for an explicit implementation, the public member it
 stands for — and it is opaque only when that member is. Only a receiver the heap knows no object for
 leaves it undecided.
-_Avoid_: external call, library call (a library method the built-in semantics describe is not opaque), unknown call
+_Avoid_: external call, library call (a library method a model describes is not opaque), unknown call
 
 **Unknown effect**:
 What an unresolved **Opaque call** may do to what its receiver and arguments reach: read and write
@@ -300,8 +301,60 @@ _Avoid_: severity, priority, blocking
 
 **Coverage**:
 The report's account of what the run analyzed and what it could not: loaded and skipped projects,
-unsupported bodies, semantic gaps by materiality, and which built-in semantics applied.
+unsupported bodies, semantic gaps by materiality, which **Library models** applied from which
+**Model layer**, and how many pairs each non-manual layer removed.
 _Avoid_: scope, completeness score
+
+### Libraries
+
+**Library model**:
+What the analysis knows about one member of one assembly version it has no body for: for each
+argument, whether the member reads it deep, writes it or leaves it alone, and for each delegate it
+receives, that delegate's **Delegate fate**. A model belongs to exactly one **Model layer**.
+_Avoid_: library semantics table, built-in semantics, stub, annotation
+
+**Model layer**:
+Where a **Library model** comes from, recorded as its provenance: built-in (shipped with the
+plugin), project (written by the team in the repository's `.concurrency-hunter/models/`), generated
+(by the **Model generator**, stored in the same folder and committed) and AI. A project model wins
+over every other layer, including by declaring a member opaque; the others apply in the order
+built-in, generated, AI.
+_Avoid_: source, tier, pack (a pack is how built-in models ship, not a layer)
+
+**Delegate fate**:
+Where a delegate handed to a **Known call** runs, named by an execution the engine already has:
+`invoke-now` (during the call, in the caller's execution, and not kept afterwards), `iterator` (when
+the returned sequence is enumerated, by whoever enumerates it), `holder` (wherever a member of the
+object that keeps it runs), `di-factory` (where the service it builds is resolved, as often as its
+lifetime says), `startup` (in startup), or `unknown-execution` (in an **Unknown execution**, as the
+model's known answer rather than a gap).
+_Avoid_: callback kind, invocation mode, effect (an effect is what happens to an argument)
+
+**Holder**:
+A library object that keeps a delegate it was given. Its delegate runs wherever any member of the
+holder runs, because only code that reaches the holder can reach the delegate; a holder the heap
+cannot follow any more — handed to an **Opaque call**, stored where a timer or the framework reads
+it — makes the delegate's fate `unknown-execution`.
+_Avoid_: container, owner (an owner is an execution, see **Ownership**)
+
+**Model generator**:
+The part of the server that produces generated **Library models**: it decompiles the library, writes
+a **Driver** for each member the run reached, analyses the driver with the same engine that analyses
+the user's code, and records where each delegate ran and what each argument received.
+_Avoid_: model inference, AI generator (the generator runs no AI)
+
+**Driver**:
+A small program the **Model generator** synthesizes from one member's signature: an action that calls
+the member with probe lambdas and, in further actions, enumerates the result or calls each member
+of the object that may keep the delegate. Where a probe's write lands is the answer.
+_Avoid_: harness, test, stub
+
+**Open-world rule**:
+Library code is not a closed world: a delegate the **Model generator** did not see run, or saw run
+and still kept after the call, may be run later by code no root reaches, so its fate is
+`unknown-execution`. The absence of an observed call proves nothing; an observed trigger list is
+never taken as complete.
+_Avoid_: conservative default, fallback
 
 ### The report
 
@@ -361,7 +414,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Construction** belongs to the **Execution instance** that triggers it; its accesses to the object it produces form no **Candidate** unless it publishes the object.
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
 - A **Known call** into a member of an immutable framework type touches nothing only when every argument it receives is immutable too; an argument that is not gets that argument's own effect, such as a **Deep read**.
-- A **Known call** never runs the user's code: a library member that takes a delegate it may invoke — a LINQ operator with a lambda, a retry policy, a mediator — is not known until the sub-phase that models the invocation, and a lambda that becomes an expression tree is data, not code.
+- A **Known call** runs a delegate it receives only as its model's **Delegate fate** says; a member that takes a delegate its model gives no fate for is an **Opaque call**, and a lambda that becomes an expression tree is data, not code.
+- A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection or happens-before.
+- The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and a **Holder** is decided by what can reach the delegate, not by the calls the **Driver** happened to observe.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.
@@ -403,7 +458,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   arguments reach, so on either side of a pair it conflicts like a write, and it never proves safety.
 - Whether an entity an EF Core query returns belongs to the `DbContext` that produced it. Resolved in
   the phase-5 interview: only when entity tracking is proven for that query, and tracking that is
-  not proven does not prove the entity isolated either. Until phase 5e models tracking, EF Core is
+  not proven does not prove the entity isolated either. Until phase 5g models tracking, EF Core is
   opaque persistence and never yields a database verdict.
 - A library object's own state — a `DbContext`'s change tracker, an `HttpClient`'s default headers —
   could be read as a **Resource** a **Known call** reads or writes. Resolved in the phase-5a
@@ -411,7 +466,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   arguments, so a member that changes that state is not known and stays an **Opaque call**, while
   one that only reads it is known and touches nothing; the `DbContext` and `DbSet` members are the
   exception the SPEC fixes as opaque persistence, which is why a `DbContext` shared between
-  executions is not seen until phase 5e.
+  executions is not seen until phase 5g.
 - An object handed over through a `Channel<T>` could be linked from the writer to the reader.
   Resolved on 2026-09-23 for the first version, and restated in phase 5b: the object the reader gets
   back is not linked to the written one, and when the written object is shared the write is a
@@ -422,3 +477,18 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   object passed to a view, a mapper or a LINQ operator pair with itself across requests — 913 new
   findings on eShop against 2. The call only reads such an object and leaves its **Ownership** as it
   was; what unknown code does with it is a question for an **Inferred fact**.
+- Library semantics were a hand-written table of C# families, and a library member that takes a
+  delegate could not be known. Resolved on 2026-09-27: they are **Library models** in **Model
+  layers**, most of them generated from decompiled code, and a delegate's **Delegate fate** is one
+  of the engine's own executions. See `docs/adr/0012`.
+- Library code the analysis reads as source could be taken as a closed world, where a stored
+  delegate no root calls never runs. Resolved on 2026-09-27 by measurement: a protobuf parser's
+  factory, which the framework calls for every message, lost its finding that way with no gap and
+  no counter. The **Open-world rule** makes such a delegate `unknown-execution`.
+- The calls a **Driver** observed to run a kept delegate could be taken as the full list. Resolved on
+  2026-09-27: a circuit breaker's driver saw `Isolate` run the break callback and missed `Execute`,
+  which runs it on a failure. A **Holder** runs its delegate wherever any of its members runs.
+- "AI does not suppress deterministic findings" (PRD G6) could be read as forbidding any model from
+  a non-manual layer to remove a pair the **Unknown effect** made. Resolved on 2026-09-27: generated
+  and AI models may remove such pairs, and **Coverage** counts them per layer; no model proves
+  protection or happens-before, and a project model can override any other.
