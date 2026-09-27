@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Frontend;
@@ -28,6 +29,7 @@ public sealed class CollectionMemberEffectTests
     private const string KEY_COLLECTION = "System.Collections.Generic.Dictionary`2+KeyCollection";
     private const string VALUE_COLLECTION = "System.Collections.Generic.Dictionary`2+ValueCollection";
     private const string KEY_VALUE_PAIR = "System.Collections.Generic.KeyValuePair`2";
+    private const string DICTIONARY_ENTRY = "System.Collections.DictionaryEntry";
 
     // The interfaces a snapshot of a ConcurrentDictionary view is counted and enumerated through, as a list is.
     private const string SNAPSHOT_COLLECTION = "System.Collections.Generic.ICollection`1";
@@ -39,7 +41,7 @@ public sealed class CollectionMemberEffectTests
     private static readonly string[] TableTypes =
     [
         LIST, DICTIONARY, CONCURRENT_DICTIONARY, CONCURRENT_QUEUE, CONCURRENT_STACK, CONCURRENT_BAG, HASH_SET, QUEUE, STACK, LINKED_LIST,
-        LINKED_LIST_NODE, KEY_COLLECTION, VALUE_COLLECTION, KEY_VALUE_PAIR
+        LINKED_LIST_NODE, KEY_COLLECTION, VALUE_COLLECTION, KEY_VALUE_PAIR, DICTIONARY_ENTRY
     ];
 
     private static readonly string[] SnapshotTypes =
@@ -53,7 +55,8 @@ public sealed class CollectionMemberEffectTests
     /// moving to a neighbour reads the structure and its value is the cell alone. Only the four concurrent collections are atomic.
     /// Since the phase 5b second run: <c>AddRange</c> writes the structure and a cell nobody names; a constructor touches nothing of
     /// the collection it makes; taking a view of a <c>Dictionary</c> touches nothing, enumerating one reads the structure and every
-    /// cell and counting it the structure; a view of a <c>ConcurrentDictionary</c> is an atomic read of both; a pair touches nothing.</summary>
+    /// cell and counting it the structure; a view of a <c>ConcurrentDictionary</c> is an atomic read of both; a pair touches nothing.
+    /// Since the third run, reading a <c>DictionaryEntry</c>'s key or value touches nothing, as a pair's does.</summary>
     private static readonly (string Type, string Member, IrCollectionEffect Structure, IrCollectionEffect Element, bool NamesCell, bool Atomic)[] Rows =
     [
         (LIST, "get_Count", Read, None, false, false),
@@ -187,6 +190,9 @@ public sealed class CollectionMemberEffectTests
         (KEY_VALUE_PAIR, "get_Value", None, None, false, false),
         (KEY_VALUE_PAIR, "Deconstruct", None, None, false, false),
 
+        (DICTIONARY_ENTRY, "get_Key", None, None, false, false),
+        (DICTIONARY_ENTRY, "get_Value", None, None, false, false),
+
         (SNAPSHOT_COLLECTION, "get_Count", Read, None, false, false),
         (SNAPSHOT_READ_ONLY, "get_Count", Read, None, false, false),
         (SNAPSHOT_UNTYPED_COLLECTION, "get_Count", Read, None, false, false),
@@ -198,7 +204,7 @@ public sealed class CollectionMemberEffectTests
     private static string BoxOf(string type) => type switch
     {
         LIST => "List<Item>",
-        DICTIONARY or KEY_COLLECTION or VALUE_COLLECTION or KEY_VALUE_PAIR => "Dictionary<string, Item>",
+        DICTIONARY or KEY_COLLECTION or VALUE_COLLECTION or KEY_VALUE_PAIR or DICTIONARY_ENTRY => "Dictionary<string, Item>",
         CONCURRENT_DICTIONARY => "ConcurrentDictionary<string, Item>",
         CONCURRENT_QUEUE => "ConcurrentQueue<Item>",
         CONCURRENT_STACK => "ConcurrentStack<Item>",
@@ -346,6 +352,9 @@ public sealed class CollectionMemberEffectTests
         [$"{KEY_VALUE_PAIR}.get_Value"] = ["var pair = new KeyValuePair<string, Item>(\"a\", _state.First);", "_ = pair.Value;"],
         [$"{KEY_VALUE_PAIR}.Deconstruct"] = ["var pair = new KeyValuePair<string, Item>(\"a\", _state.First);", "pair.Deconstruct(out _, out _);"],
 
+        [$"{DICTIONARY_ENTRY}.get_Key"] = ["System.Collections.DictionaryEntry entry = default;", "_ = entry.Key;"],
+        [$"{DICTIONARY_ENTRY}.get_Value"] = ["System.Collections.DictionaryEntry entry = default;", "_ = entry.Value;"],
+
         [$"{SNAPSHOT_COLLECTION}.get_Count"] = ["var keys = _state.Box.Keys;", "_ = keys.Count;"],
         [$"{SNAPSHOT_READ_ONLY}.get_Count"] = ["var keys = (IReadOnlyCollection<string>)_state.Box.Keys;", "_ = keys.Count;"],
         [$"{SNAPSHOT_UNTYPED_COLLECTION}.get_Count"] = ["var keys = (System.Collections.ICollection)_state.Box.Keys;", "_ = keys.Count;"],
@@ -425,9 +434,12 @@ public sealed class CollectionMemberEffectTests
         Assert.Empty(listed.Except(Calls.Keys).Order(StringComparer.Ordinal));
     }
 
-    /// <summary>What the recognizer models a member as: a member of the table, or one of the interface a snapshot is used through.</summary>
+    /// <summary>What the recognizer models a member as: a member of the table, or what a call of the interface a snapshot is used through
+    /// is on a snapshot object.</summary>
     private static IrCollectionCall? Recognized(string type, IMethodSymbol method) =>
-        SnapshotTypes.Contains(type) ? IrLowering.Collections.OfSnapshot(method) : IrLowering.Collections.Of(method);
+        SnapshotTypes.Contains(type)
+            ? CollectionObjects.Decision(IrLowering.Collections.ImplementationsOf(method, TestCompilation.Value), CollectionObjects.SNAPSHOT)?.Member
+            : IrLowering.Collections.Of(method);
 
     private static AccessOperation Operation(IrCollectionEffect effect, bool atomic) => (effect, atomic) switch
     {

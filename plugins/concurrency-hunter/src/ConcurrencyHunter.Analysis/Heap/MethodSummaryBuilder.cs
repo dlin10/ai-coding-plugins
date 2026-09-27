@@ -155,6 +155,8 @@ public static class MethodSummaryBuilder
             var calls = new List<CallTransfer>();
             var opaqueCalls = new List<SummaryOpaqueCall>();
             var argumentEffects = new List<SummaryArgumentEffect>();
+            // The standing member effects among them, by the call each stands for.
+            var standingEffects = new Dictionary<int, int>();
             var dynamicOperations = new List<SummaryDynamicOperation>();
             var capturedStores = new List<CapturedStore>();
             foreach (var operation in _operations)
@@ -280,6 +282,7 @@ public static class MethodSummaryBuilder
                             ServiceCall = call.ServiceCall,
                             Library = call.Library,
                             Collection = call.Collection,
+                            Implementations = call.Implementations,
                             IsRecognized = call.IsRecognized,
                             DeclaringTypeKey = call.TargetContainingTypeKey,
                             IsConstructor = call.CallKind == IrCallKind.Constructor,
@@ -299,11 +302,14 @@ public static class MethodSummaryBuilder
 
                         if (call is { Collection: { } member, ReceiverValue: int collection })
                             elements.AddRange(CollectionStores(call, member, collection, delegates));
+                        elements.AddRange(ImplementationTransfers(call, delegates));
                         break;
                     case IrCallOperation call:
+                        elements.AddRange(ImplementationTransfers(call, delegates));
                         calls.Add(new CallTransfer(call.Id, call.TargetMethodId ?? call.Method, call.CallKind, Final(Points(call.ReceiverValue), delegates),
                                                    Arguments(call, delegates), locks, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys)
                         {
+                            Implementations = call.Implementations,
                             IsAwaitedImmediately = call.IsAwaitedImmediately,
                             ReceiverUnknownSources = call.ReceiverValue is int receiver ? _unknown[receiver] : new HashSet<UnknownSource>(),
                             ReceiverSourceCalls = call.ReceiverValue is int source ? _sourceCalls[source] : new HashSet<int>(),
@@ -353,25 +359,56 @@ public static class MethodSummaryBuilder
                     elements.AddRange(CopyStores(copying, delegates));
                 }
 
-                // A member of a node or a live view no field of this body names — a node added to its list elsewhere, a view a caller
-                // handed over, either one a call returned — makes its accesses on the collection the heap says the receiver stands for
-                // (ADR 0010, phase 5b second run).
-                if (operation is IrCallOperation { Collection: { } standing, ReceiverValue: int stands } standingCall &&
-                    (standing.Member.StartsWith(VIEW_MEMBER, StringComparison.Ordinal) || standing.Member.StartsWith(NODE_MEMBER, StringComparison.Ordinal)) &&
-                    (standing.Structure != IrCollectionEffect.None || standing.Element != IrCollectionEffect.None) && HolderLoad(stands) is null)
+                // A member of the table no field of this body names — a collection a caller handed over, a helper returned or another
+                // collection holds, a merge of several, a capture, a node added to its list elsewhere, a view — makes its accesses on
+                // each collection the heap says the receiver is or stands for (ADR 0010, phase 5b second and third runs).
+                // A call through an interface is one on every object it decides, whatever holds the receiver: the heap alone says which
+                // objects those are. Its enumeration by a `foreach` is the enumeration effect above (ADR 0010, amendment of the phase 5b
+                // third run).
+                if (operation is IrCallOperation { ReceiverValue: int stands } standingCall && EffectsOf(standingCall) is { } standing &&
+                    (standing.Structure != IrCollectionEffect.None || standing.Element != IrCollectionEffect.None) &&
+                    (standingCall.Collection is null
+                        ? standingCall.EnumerationRole == IrEnumerationRole.None
+                        : HolderLoad(stands) is null || Deferred.Contains(standingCall.Id)))
                 {
+                    standingEffects[standingCall.Id] = argumentEffects.Count;
                     argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, standingCall.Id, Final(Points(stands), delegates),
                                                                   null, false, standingCall.Provenance, locks)
                     {
-                        Member = standing
+                        Member = standing,
+                        Implementations = standingCall.Implementations,
+                        InterfaceMethod = InterfaceMethodOf(standingCall)
                     });
                 }
             }
 
             var collections = CollectionAccesses(delegates, held);
-            // The load that only reaches a member is no access of its own: what the member does to the collection is.
+            // The load that only reaches a member is no access of its own: what the member does to the collection is. The load that only
+            // reaches an interface call is none where the heap decides every object the field holds as a member of the table.
             accesses.RemoveAll(access => collections.Receivers.Contains(access.OperationId));
+            for (var index = 0; index < accesses.Count; index++)
+            {
+                if (collections.InterfaceReceivers.TryGetValue(accesses[index].OperationId, out var receiver))
+                    accesses[index] = accesses[index] with { InterfaceReceiver = receiver };
+            }
+
             accesses.AddRange(collections.Accesses);
+            // A member no field names carries its cell, its index and its checks to where the heap names its collections.
+            foreach (var (callId, index) in standingEffects)
+            {
+                var standing = collections.Standing[callId];
+                var call = (IrCallOperation)_operations.First(operation => operation.Id == callId);
+                var key = EffectsOf(call)?.KeyArgument is int ordinal ? call.ArgumentAt(ordinal) : null;
+                argumentEffects[index] = argumentEffects[index] with
+                {
+                    MemberSelector = standing.Selector,
+                    MemberSelectorTerm = key is int term ? Term(term) : null,
+                    MemberSelectorParameter = key is int parameter ? ParameterOf(parameter).Ordinal : null,
+                    MemberSelectorWidth = key is int width ? ParameterOf(width).Width : null,
+                    MemberChecks = standing.Checks,
+                    MemberValueDependencies = call.ArgumentValues.Where(value => value != key).SelectMany(Dependencies).ToHashSet()
+                };
+            }
             // Every access runs where its conditions hold, and they are the same for every access of one operation (TD-090).
             var conditions = accesses.Select(access => access.OperationId).Distinct()
                                      .ToDictionary(operation => operation, Conditions);
@@ -468,32 +505,54 @@ public static class MethodSummaryBuilder
 
             foreach (var operation in _operations)
             {
-                (int Value, int? Target, IrFieldRef? Field)[] written = operation switch
+                (int Value, int? Target, IrFieldRef? Field, IReadOnlySet<string>? Kinds)[] written = operation switch
                 {
-                    IrStoreFieldOperation store => [(store.Value, store.ReceiverValue, store.Field.IsStatic ? store.Field : null)],
-                    IrStoreElementOperation element => [(element.Value, (int?)element.ReceiverValue, (IrFieldRef?)null)],
-                    IrCallOperation { Collection: { } member } call =>
-                        call.ArgumentValues.Where((_, position) => InterproceduralAccesses.IsHeldArgument(
-                                                      member, position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position))
-                            .Select(value => (value, call.ReceiverValue, (IrFieldRef?)null))
+                    IrStoreFieldOperation store => [(store.Value, store.ReceiverValue, store.Field.IsStatic ? store.Field : null, null)],
+                    IrStoreElementOperation element => [(element.Value, (int?)element.ReceiverValue, (IrFieldRef?)null, null)],
+                    IrCallOperation call when call.Collection is not null || call.Implementations.Count != 0 =>
+                        call.ArgumentValues.Select((value, position) => (value, call.ReceiverValue, (IrFieldRef?)null, HoldingKinds(
+                                                   call, position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position)))
+                            .Where(write => write.Item4 is not { Count: 0 })
                             .ToArray(),
                     _ => []
                 };
-                foreach (var (value, target, field) in written)
+                foreach (var (value, target, field, kinds) in written)
                 {
                     foreach (var source in Producers(value).Calls)
-                        stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), field));
+                    {
+                        stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), field)
+                        {
+                            TargetKinds = kinds,
+                            InterfaceMethod = kinds is null ? null : InterfaceMethodOf((IrCallOperation)operation)
+                        });
+                    }
                 }
             }
 
             return stores;
         }
 
+        /// <summary>Which objects a call puts the argument of <paramref name="ordinal"/> into: for its own member, every object it is on
+        /// where that member holds it (null) and none where it does not (empty); for a call through an interface, the kinds of objects it
+        /// decides whose member holds it, and those alone (ADR 0010, amendment of the phase 5b third run). The index of an array's element
+        /// is no such argument, as it is none of an element store.</summary>
+        private static IReadOnlySet<string>? HoldingKinds(IrCallOperation call, int ordinal) =>
+            call.Collection is { } own
+                ? InterproceduralAccesses.IsHeldArgument(own, ordinal) ? null : new HashSet<string>()
+                : call.Implementations.Where(implementation => implementation.Member is var member && !Refused(member) &&
+                                                               InterproceduralAccesses.IsHeldArgument(member, ordinal) &&
+                                                               !(member.Member.StartsWith(ARRAY_MEMBER, StringComparison.Ordinal) && ordinal == member.KeyArgument))
+                      .Select(implementation => implementation.Kind)
+                      .ToHashSet(StringComparer.Ordinal);
+
+        private const string ARRAY_MEMBER = "System.Array.";
+
         /// <summary>What a collection member puts into the collection it is called on, as an element store puts a value into an array's
         /// cells: each argument it holds, into the storage that argument goes to (ADR 0010, phase 5b second run). A node handed to a
         /// list is no element of it: what the node holds goes into the list's cells, and the node becomes a cell of that list.</summary>
         private IEnumerable<ElementTransfer> CollectionStores(IrCallOperation call, IrCollectionCall member, int collection,
-                                                              IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+                                                              IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
+                                                              bool takesPair = false)
         {
             var targets = Final(Points(collection), delegates);
             for (var position = 0; position < call.ArgumentValues.Count; position++)
@@ -524,6 +583,17 @@ public static class MethodSummaryBuilder
                     continue;
                 }
 
+                // A pair handed to a dictionary, as `ICollection<KeyValuePair<TKey, TValue>>.Add` hands one, puts its key among the keys and
+                // its value into the cells, as `Add(key, value)` does; the pair itself is held by nothing (ADR 0010, amendment of the phase
+                // 5b third run). It is the form of the call that says so, never the type the argument is declared as: a pair that is a
+                // dictionary's value is held whole, and the argument of a generic `ICollection<T>.Add` is the pair on a dictionary.
+                if (takesPair && IsDictionaryMember(member))
+                {
+                    yield return Copy(call, Points(collection), value, [PathValue.KEYS], PathValue.KEYS, delegates);
+                    yield return Copy(call, Points(collection), value, [PathValue.ELEMENT], PathValue.ELEMENT, delegates);
+                    continue;
+                }
+
                 yield return new ElementTransfer(call.Id, ElementOperationKind.Store, targets, Final(Points(value), delegates))
                 {
                     Producers = Producers(value),
@@ -533,6 +603,125 @@ public static class MethodSummaryBuilder
             }
         }
 
+        private const string KEY_VALUE_PAIR_TYPE = "System.Collections.Generic.KeyValuePair<";
+
+        /// <summary>What a call does to a collection: its own member's effects, or, for a call through an interface, those of every member
+        /// it is on the objects it decides together, which is what decides whether it reads or changes the collection a check before it
+        /// is on. Null for every other call.</summary>
+        private static IrCollectionCall? EffectsOf(IrCallOperation call)
+        {
+            if (call.Collection is not null || call.Implementations.Count == 0)
+                return call.Collection;
+
+            var members = call.Implementations.Select(implementation => implementation.Member).ToArray();
+            // The cell the key names is the cell of every member that takes one: a member that takes none, as a multi-dimensional array
+            // refuses the indexer, reaches no cell of its own, and each object is still decided by its own member.
+            var keys = members.Select(member => member.KeyArgument).OfType<int>().Distinct().Cast<int?>().ToArray();
+            return new IrCollectionCall(members[0].Member, members.Select(member => member.Structure).Aggregate(Join),
+                                        members.Select(member => member.Element).Aggregate(Join), keys.Length == 1 ? keys[0] : null, false);
+        }
+
+        private static IrCollectionEffect Join(IrCollectionEffect first, IrCollectionEffect second) =>
+            first == second || second == IrCollectionEffect.None ? first
+            : first == IrCollectionEffect.None ? second
+            : IrCollectionEffect.ReadWrite;
+
+        /// <summary>The members an interface call is on the objects it decides, each with the kinds of objects it is that member on.</summary>
+        private static IEnumerable<(IrImplementation Implementation, IReadOnlySet<string> Kinds)> ImplementationGroups(IrCallOperation call) =>
+            call.Implementations.GroupBy(implementation => implementation.Member)
+                .Select(group => (group.First(), (IReadOnlySet<string>)group.Select(implementation => implementation.Kind).ToHashSet(StringComparer.Ordinal)));
+
+        /// <summary>Whether a member touches nothing and hands out nothing: what an array does with a member it refuses by throwing, and with
+        /// one it answers without touching the array. A view touches nothing either, and still hands itself out.</summary>
+        private static bool Refused(IrCollectionCall member) =>
+            member is { Structure: IrCollectionEffect.None, Element: IrCollectionEffect.None, View: null };
+
+        /// <summary>
+        /// What an interface call does on each object it decides, as the member it is on that object does it there, and on no other
+        /// object (ADR 0010, amendment of the phase 5b third run): each held argument goes into the objects of the kinds whose member
+        /// holds it; what a member hands out, and the view a member makes, go into a storage of this call site on each object of those
+        /// kinds, which is what the call's result and <c>out</c> arguments are. A member the object refuses holds and hands out nothing.
+        /// </summary>
+        private IEnumerable<ElementTransfer> ImplementationTransfers(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            if (call is not { Collection: null, ReceiverValue: int collection } || InterfaceMethodOf(call) is not { } method)
+                yield break;
+
+            var receivers = Final(Points(collection), delegates);
+            foreach (var (implementation, kinds) in ImplementationGroups(call))
+            {
+                var member = implementation.Member;
+                if (member.View is not null)
+                {
+                    if (call.ResultValue is not int result)
+                        continue;
+                    var region = Final([Synthesized(call, ViewType(member, implementation.ViewType ?? _values[result].Type))], delegates);
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, receivers, region)
+                    {
+                        Slot = DecidedSlot(call, null),
+                        IsCollection = true,
+                        ArrayKinds = kinds,
+                        InterfaceMethod = method
+                    };
+                    // The view holds what the storage it views holds in each object it is made of; a live one stands for that object.
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, region, new HashSet<AbstractValue>())
+                    {
+                        IsCollection = true,
+                        CopiedFrom = receivers,
+                        ViewOf = member.View,
+                        ValueKinds = kinds,
+                        InterfaceMethod = method
+                    };
+                    if (!member.IsAtomic)
+                    {
+                        yield return new ElementTransfer(call.Id, ElementOperationKind.Store, region, receivers)
+                        {
+                            Slot = PathValue.VIEWED,
+                            IsCollection = true,
+                            ValueKinds = kinds,
+                            InterfaceMethod = method
+                        };
+                    }
+
+                    continue;
+                }
+
+                if (Refused(member))
+                    continue;
+                foreach (var store in CollectionStores(call, member, collection, delegates, implementation.TakesPair))
+                    yield return store with { ArrayKinds = kinds, InterfaceMethod = method };
+
+                var (handsOut, handsOutByOut) = InterproceduralAccesses.HandsOutHeld(member);
+                var handedOut = (handsOut && call.ResultValue is not null ? new int?[] { null } : [])
+                    .Concat(handsOutByOut ? call.RefResults.Keys.Select(ordinal => (int?)ordinal) : []);
+                foreach (var ordinal in handedOut)
+                {
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store, receivers, new HashSet<AbstractValue>())
+                    {
+                        Slot = DecidedSlot(call, ordinal),
+                        FromSlot = InterproceduralAccesses.HandedOutSlot(member, ordinal),
+                        IsCollection = true,
+                        ArrayKinds = kinds,
+                        InterfaceMethod = method
+                    };
+                }
+            }
+        }
+
+        /// <summary>The storage of an interface call's site on the objects it decides that holds what it hands out through its result, or
+        /// through the <c>out</c> argument of <paramref name="ordinal"/>.</summary>
+        private string DecidedSlot(IrCallOperation call, int? ordinal) =>
+            $"[decided:{_body.BodyId}#{call.Id}{(ordinal is int argument ? $":{argument}" : "")}]";
+
+        /// <summary>Whether an interface call hands anything out through its result, or through the <c>out</c> argument of
+        /// <paramref name="ordinal"/>, on some object it decides.</summary>
+        private static bool HandsOutDecided(IrCallOperation call, int? ordinal) =>
+            call is { Collection: null, Implementations.Count: > 0 } &&
+            call.Implementations.Any(implementation => ordinal is null && implementation.Member.View is not null ||
+                                                       !Refused(implementation.Member) &&
+                                                       (ordinal is null ? InterproceduralAccesses.HandsOutHeld(implementation.Member).Result
+                                                                        : InterproceduralAccesses.HandsOutHeld(implementation.Member).Out));
+
         /// <summary>What a view, a pair a dictionary's enumeration hands out, and a copy from a collection put into the collection
         /// they fill: a view holds the storage of its dictionary it hands out, a pair the key and the value it yields, and a copy
         /// what enumerating its source yields, keys and values apart where both ends are dictionaries, as the heap decides for each
@@ -540,20 +729,34 @@ public static class MethodSummaryBuilder
         private IEnumerable<ElementTransfer> CopyStores(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
             if (call is { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration, ResultValue: int pair } &&
-                EnumeratesDictionary(enumeration) && _enumerated.TryGetValue(enumeration, out var enumerated))
-                return PairStores(call, Synthesized(call, _values[pair].Type), enumerated, delegates);
-            if (call is { Collection.View: { } slot, ResultValue: int view, ReceiverValue: int dictionary })
+                EnumeratesDictionary(enumeration, _values[pair].Type) && _enumerated.TryGetValue(enumeration, out var enumerated))
             {
-                var region = Synthesized(call, ViewType(call, _values[view].Type));
-                var held = Copy(call, [region], dictionary, [slot], PathValue.ELEMENT, delegates);
-                // A live view stands for its dictionary wherever it is kept or handed, as a node stands for its list.
-                return IsLiveView(call)
-                    ? [held, new ElementTransfer(call.Id, ElementOperationKind.Store, Final([region], delegates), Final(Points(dictionary), delegates))
-                    {
-                        Slot = PathValue.VIEWED,
-                        IsCollection = true
-                    }]
-                    : [held];
+                var enumerator = _enumerators[enumeration];
+                return enumerator.Collection is not null
+                    ? PairStores(call, Synthesized(call, _values[pair].Type), enumerated, delegates)
+                    : DecidedPairStores(call, Synthesized(call, _values[pair].Type), enumerated, enumerator, delegates);
+            }
+            if (call.ReceiverValue is int dictionary && Views(call).ToArray() is { Length: > 0 } views)
+            {
+                return views.SelectMany(view =>
+                {
+                    var region = Synthesized(call, view.Type);
+                    var held = Copy(call, [region], dictionary, [view.Member.View!], PathValue.ELEMENT, delegates);
+                    // A live view stands for its dictionary wherever it is kept or handed, as a node stands for its list; one an interface
+                    // call hands out stands for the dictionaries of the kinds whose member hands out a live view.
+                    return view.Member.IsAtomic
+                        ? [held]
+                        : new[]
+                        {
+                            held,
+                            new ElementTransfer(call.Id, ElementOperationKind.Store, Final([region], delegates), Final(Points(dictionary), delegates))
+                            {
+                                Slot = PathValue.VIEWED,
+                                IsCollection = true,
+                                ValueKinds = view.Kinds
+                            }
+                        };
+                }).ToArray();
             }
             if (call is not { Collection: { Source: int ordinal } member, ReceiverValue: int target } || call.ArgumentAt(ordinal) is not int source)
                 return [];
@@ -599,6 +802,43 @@ public static class MethodSummaryBuilder
             Copy(call, [pair], dictionary, [PathValue.ELEMENT], PathValue.ELEMENT, delegates)
         ];
 
+        /// <summary>The pair an interface call's enumeration hands out on each object it decides as a dictionary, and on those alone: the
+        /// object keeps it for the site of the <c>Current</c> call, and its two storages are filled from those of each such object, as
+        /// the dictionary's own enumeration fills them (ADR 0010, amendment of the phase 5b third run). Every other object keeps for that
+        /// site what its cells hold, and never a dictionary's values beside its pairs.</summary>
+        private IEnumerable<ElementTransfer> DecidedPairStores(IrCallOperation call, AllocationValue pair, int collection, IrCallOperation enumerator,
+                                                               IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            var holders = _points[collection].ToHashSet();
+            var kinds = DictionaryKinds(enumerator);
+            var method = InterfaceMethodOf(enumerator);
+            var origin = new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []);
+            return new[] { PathValue.KEYS, PathValue.ELEMENT }.Select(slot => new ElementTransfer(call.Id, ElementOperationKind.Store,
+                                                                                                    Final([pair], delegates), new HashSet<AbstractValue>())
+            {
+                Producers = slot == PathValue.KEYS ? origin with { Keys = [holders] } : origin with { Elements = [holders] },
+                Slot = slot,
+                IsCollection = true,
+                CopiedFrom = Final(holders, delegates),
+                ViewOf = slot,
+                ValueKinds = kinds,
+                InterfaceMethod = method
+            }).Prepend(new ElementTransfer(call.Id, ElementOperationKind.Store, Final(holders, delegates), Final([pair], delegates))
+            {
+                Slot = DecidedSlot(call, null),
+                IsCollection = true,
+                ArrayKinds = kinds,
+                InterfaceMethod = method
+            }).Append(new ElementTransfer(call.Id, ElementOperationKind.Store, Final(holders, delegates), new HashSet<AbstractValue>())
+            {
+                Slot = DecidedSlot(call, null),
+                FromSlot = PathValue.ELEMENT,
+                IsCollection = true,
+                ExceptKinds = kinds,
+                InterfaceMethod = method
+            }).ToArray();
+        }
+
         /// <summary>A transfer into one storage of <paramref name="targets"/> of what <paramref name="source"/> holds along
         /// <paramref name="path"/>; its origin is the storage it was read from, so a gap's result is followed through it.</summary>
         private ElementTransfer Copy(IrCallOperation call, IEnumerable<AbstractValue> targets, int source, string[] path, string slot,
@@ -618,9 +858,21 @@ public static class MethodSummaryBuilder
         /// dictionary. It is one per call site, as an allocation is.</summary>
         private AllocationValue Synthesized(IrCallOperation call, string type) => new(new CreationSite(_body.BodyId, call.Id, type, 1));
 
-        /// <summary>Whether a <c>foreach</c> enumerates a dictionary through the dictionary's own enumerator, which hands out pairs.</summary>
-        private bool EnumeratesDictionary(int enumeration) =>
-            _enumerators.TryGetValue(enumeration, out var call) && call.Collection is { } member && IsDictionaryMember(member);
+        /// <summary>Whether a <c>foreach</c> enumerates a dictionary through the dictionary's own enumerator, which hands out pairs, or
+        /// through an interface call that is that enumerator on some object it decides, where what it hands out, of type
+        /// <paramref name="current"/>, may be a pair: one typed as a pair, or as an object, as a non-generic enumeration hands them out.</summary>
+        private bool EnumeratesDictionary(int enumeration, string current) =>
+            _enumerators.TryGetValue(enumeration, out var call) &&
+            (call.Collection is { } member
+                ? IsDictionaryMember(member)
+                : DictionaryKinds(call).Count != 0 &&
+                  (current.StartsWith(KEY_VALUE_PAIR_TYPE, StringComparison.Ordinal) || current.TrimEnd('?') is "object" or "System.Object"));
+
+        /// <summary>The kinds of objects an interface call is a member of a dictionary on.</summary>
+        private static IReadOnlySet<string> DictionaryKinds(IrCallOperation call) =>
+            call.Implementations.Where(implementation => IsDictionaryMember(implementation.Member))
+                .Select(implementation => implementation.Kind)
+                .ToHashSet(StringComparer.Ordinal);
 
         private static bool IsDictionaryMember(IrCollectionCall member) =>
             member.Member.StartsWith(DICTIONARY, StringComparison.Ordinal) || member.Member.StartsWith(CONCURRENT_DICTIONARY, StringComparison.Ordinal);
@@ -633,8 +885,28 @@ public static class MethodSummaryBuilder
             type.StartsWith("System.Collections.Generic.IReadOnlyDictionary<", StringComparison.Ordinal);
 
         /// <summary>The type of the collection a view is: the view type of a live one, a list of what it holds for a snapshot.</summary>
-        private static string ViewType(IrCallOperation call, string resultType) =>
-            call.Collection is { IsAtomic: true } ? $"System.Collections.Generic.List<{TypeArguments(resultType)}>" : resultType;
+        private static string ViewType(IrCollectionCall member, string resultType) =>
+            member.IsAtomic ? $"System.Collections.Generic.List<{TypeArguments(resultType)}>" : resultType;
+
+        /// <summary>The view a call of a member of the table hands out, with its type; an interface call's views are the transfers of the
+        /// objects it decides (<see cref="ImplementationTransfers"/>).</summary>
+        private IEnumerable<(IrCollectionCall Member, string Type, IReadOnlySet<string>? Kinds)> Views(IrCallOperation call)
+        {
+            if (call.ResultValue is not int view)
+                yield break;
+            if (call.Collection is { View: not null } member)
+                yield return (member, ViewType(member, _values[view].Type), null);
+        }
+
+        /// <summary>The storages a call hands a held value out of, for its result or for the <c>out</c> parameter with this ordinal: its own
+        /// member's, or those of every member an interface call is on the objects it decides, which is where the value came from; which
+        /// object's storage it is, only the heap says (<see cref="ImplementationTransfers"/>).</summary>
+        private static IReadOnlyList<string> HandedOut(IrCallOperation call, int? ordinal) =>
+            (call.Collection is { } own ? [own] : call.Implementations.Select(implementation => implementation.Member).Where(member => !Refused(member)))
+                .Where(member => ordinal is null ? InterproceduralAccesses.HandsOutHeld(member).Result : InterproceduralAccesses.HandsOutHeld(member).Out)
+                .Select(member => InterproceduralAccesses.HandedOutSlot(member, ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
 
         /// <summary>The pair type a sequence declared as <paramref name="type"/> yields when it is a dictionary: that of a dictionary type,
         /// the element type of a sequence of pairs, and a pair of objects where the declaration names neither.</summary>
@@ -659,8 +931,6 @@ public static class MethodSummaryBuilder
                 : null;
 
         private const string DICTIONARY = "System.Collections.Generic.Dictionary`2.";
-        private const string VIEW_MEMBER = "System.Collections.Generic.Dictionary`2+";
-        private const string NODE_MEMBER = "System.Collections.Generic.LinkedListNode`1.";
         private const string CONCURRENT_DICTIONARY = "System.Collections.Concurrent.ConcurrentDictionary`2.";
         private const string LINKED_LIST = "System.Collections.Generic.LinkedList`1.";
         private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode<";
@@ -725,13 +995,13 @@ public static class MethodSummaryBuilder
                         elements.Add(_points[load.ReceiverValue].ToHashSet());
                         break;
                     // What a collection member hands out is what any store put into its collection's cells, as an element load's is.
-                    case IrCallOperation { Collection: { } member, ReceiverValue: int held } call
-                        when call.ResultValue == current ? InterproceduralAccesses.HandsOutHeld(member).Result
-                            : InterproceduralAccesses.HandsOutHeld(member).Out && call.RefResults.Any(pair => pair.Value == current):
-                        var handedOut = call.ResultValue == current
-                            ? InterproceduralAccesses.HandedOutSlot(member, null)
-                            : InterproceduralAccesses.HandedOutSlot(member, call.RefResults.First(pair => pair.Value == current).Key);
-                        (handedOut == PathValue.KEYS ? keys : elements).Add(_points[held].ToHashSet());
+                    case IrCallOperation { ReceiverValue: int held } call
+                        when (call.ResultValue == current ? HandedOut(call, null)
+                                  : call.RefResults.Where(pair => pair.Value == current).Select(pair => (int?)pair.Key).FirstOrDefault() is int outOrdinal
+                                      ? HandedOut(call, outOrdinal)
+                                      : []) is { Count: > 0 } handedOut:
+                        foreach (var slot in handedOut)
+                            (slot == PathValue.KEYS ? keys : elements).Add(_points[held].ToHashSet());
                         break;
                     // An element of a deconstructed pair is read from the pair's key or value storage.
                     case IrComputeOperation { OperandValues: [var deconstructed] } compute when PairElement(compute, deconstructed) is { } slot:
@@ -1033,29 +1303,41 @@ public static class MethodSummaryBuilder
                 // the storage it is cut from (ADR 0010, TD-043).
                 // A dictionary's enumeration hands out pairs, each an object of its own holding a key and a value apart (ADR 0010,
                 // phase 5b second run).
+                // Through an interface, a pair is handed out only by the objects the call decides as a dictionary and the others hand out
+                // what their cells hold; each object keeps what it hands out for this site.
                 IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
-                    when call.ResultValue == value.Id && EnumeratesDictionary(enumeration) =>
+                    when call.ResultValue == value.Id && EnumeratesDictionary(enumeration, value.Type) && _enumerators[enumeration].Collection is not null =>
                     [new CallResultValue(call.Id), Synthesized(call, value.Type)],
+                IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
+                    when call.ResultValue == value.Id && EnumeratesDictionary(enumeration, value.Type) && _enumerated.TryGetValue(enumeration, out var decided) =>
+                    [new CallResultValue(call.Id), .. Extend(_points[decided], DecidedSlot(call, null))],
                 IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } call
                     when call.ResultValue == value.Id && _enumerated.TryGetValue(enumeration, out var enumerated) =>
                     [new CallResultValue(call.Id), .. Extend(_points[Slice(enumerated).Array], PathValue.ELEMENT)],
+                // What a call through an interface hands out, a value or a view, is what each object it decides hands out, which that
+                // object keeps for the call's site (ADR 0010, amendment of the phase 5b third run).
+                IrCallOperation { ReceiverValue: int decided } call when call.ResultValue == value.Id && HandsOutDecided(call, null) =>
+                    [new CallResultValue(call.Id), .. Extend(_points[decided], DecidedSlot(call, null))],
+                IrCallOperation { ReceiverValue: int decided } call
+                    when call.RefResults.Any(pair => pair.Value == value.Id && HandsOutDecided(call, pair.Key)) =>
+                    [.. call.RefResults.Where(pair => pair.Value == value.Id).Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key)),
+                     .. call.RefResults.Where(pair => pair.Value == value.Id).SelectMany(pair => Extend(_points[decided], DecidedSlot(call, pair.Key)))],
                 // A view of a dictionary is a collection holding its keys or its values: a live one what the dictionary holds, a
                 // snapshot what it held when taken.
-                IrCallOperation { Collection.View: not null } call when call.ResultValue == value.Id =>
-                    [new CallResultValue(call.Id), Synthesized(call, ViewType(call, value.Type))],
+                IrCallOperation call when call.ResultValue == value.Id && Views(call).ToArray() is { Length: > 0 } views =>
+                    [new CallResultValue(call.Id), .. views.Select(view => (AbstractValue)Synthesized(call, view.Type))],
                 // A node a linked list hands out is a cell of that list, so it stands for the list (ADR 0010, phase 5b).
                 IrCallOperation { Collection.HandsOutCell: true, ReceiverValue: int list } call when call.ResultValue == value.Id =>
                     [new CallResultValue(call.Id), .. _points[list]],
                 // What a collection member hands out is what the collection's cells hold, as an element load's is, and a pair's key
                 // what its key storage holds (ADR 0010, phase 5b second run).
-                IrCallOperation { Collection: { } member, ReceiverValue: int held } call
-                    when call.ResultValue == value.Id && InterproceduralAccesses.HandsOutHeld(member).Result =>
-                    [new CallResultValue(call.Id), .. Extend(_points[held], InterproceduralAccesses.HandedOutSlot(member, null))],
-                IrCallOperation { Collection: { } member, ReceiverValue: int held } call
-                    when InterproceduralAccesses.HandsOutHeld(member).Out && call.RefResults.Any(pair => pair.Value == value.Id) =>
+                IrCallOperation { Collection: not null, ReceiverValue: int held } call when call.ResultValue == value.Id && HandedOut(call, null) is { Count: > 0 } slots =>
+                    [new CallResultValue(call.Id), .. slots.SelectMany(slot => Extend(_points[held], slot))],
+                IrCallOperation { Collection: not null, ReceiverValue: int held } call
+                    when call.RefResults.Any(pair => pair.Value == value.Id && HandedOut(call, pair.Key).Count > 0) =>
                     [.. call.RefResults.Where(pair => pair.Value == value.Id).Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key)),
                      .. call.RefResults.Where(pair => pair.Value == value.Id)
-                            .SelectMany(pair => Extend(_points[held], InterproceduralAccesses.HandedOutSlot(member, pair.Key)))],
+                            .SelectMany(pair => HandedOut(call, pair.Key).SelectMany(slot => Extend(_points[held], slot)))],
                 // Deconstructing a pair hands out its key and its value, each from its own storage.
                 IrComputeOperation { OperandValues: [var pair] } compute when PairElement(compute, pair) is { } slot =>
                     Extend(_points[pair], slot),
@@ -1096,16 +1378,25 @@ public static class MethodSummaryBuilder
                 IrCallOperation { Collection: not null } collection when collection.ResultValue == value.Id ||
                                                                          collection.RefResults.Any(pair => pair.Value == value.Id) =>
                     [new LoadDependency(collection.Id)],
+                // A call through an interface is such a member on the objects it decides, and a body it dispatches to on the others.
+                IrCallOperation { Implementations.Count: > 0 } decided when decided.ResultValue == value.Id ||
+                                                                          decided.RefResults.Any(pair => pair.Value == value.Id) =>
+                    [new LoadDependency(decided.Id), .. IsOpaque(decided) ? [] : Dispatched(decided, value)],
                 // Nothing is known about a call without a source body, so its results keep the receiver's and the arguments'
                 // dependencies; a call the analysis can follow says what its return and each ref or out parameter depend on.
                 IrCallOperation call when IsOpaque(call) => call.Operands.SelectMany(operand => _dependencies[operand]).ToHashSet(),
-                IrCallOperation call when call.ResultValue == value.Id => [new CallDependency(call.Id)],
-                IrCallOperation call => call.RefResults.Where(pair => pair.Value == value.Id)
-                                            .Select(pair => (ValueDependency)new RefResultDependency(call.Id, pair.Key))
-                                            .ToHashSet(),
+                IrCallOperation call => Dispatched(call, value),
                 _ => []
             };
         }
+
+        /// <summary>What a value a call the analysis can follow hands back depends on: the callee's return, or its ref or out parameter.</summary>
+        private static HashSet<ValueDependency> Dispatched(IrCallOperation call, IrValue value) =>
+            call.ResultValue == value.Id
+                ? [new CallDependency(call.Id)]
+                : call.RefResults.Where(pair => pair.Value == value.Id)
+                      .Select(pair => (ValueDependency)new RefResultDependency(call.Id, pair.Key))
+                      .ToHashSet();
 
         /// <summary>The bases of an access: the limit is on the access path, the base path and the accessed field together, so a base
         /// the field would grow past the limit is the wildcard of the region its path starts from (R5).</summary>
@@ -1432,19 +1723,37 @@ public static class MethodSummaryBuilder
         /// that depends on an earlier read of the same collection is one compound operation, reported where the change is, over
         /// the resource the dependency crosses: the cell when both ends prove the same one, the structure otherwise, because a
         /// dependency between two cells nothing proves the same is only contained by the whole collection.</summary>
-        private (IReadOnlyList<SummaryAccess> Accesses, IReadOnlySet<int> Receivers) CollectionAccesses(
-            IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
-            IReadOnlyDictionary<int, IReadOnlyList<HeldLockValue>> held)
+        /// <remarks>A member whose receiver no field of this body names makes no access here: its cell and the reads its change depends
+        /// on are handed back as standing, for the collections the heap names both to be, which decides whether they are one
+        /// collection (ADR 0010, phase 5b third run). It still takes part in the checks of the others, as they do in its own.</remarks>
+        private (IReadOnlyList<SummaryAccess> Accesses, IReadOnlySet<int> Receivers,
+                 IReadOnlyDictionary<int, (IReadOnlyList<IrImplementation> Implementations, string Method)> InterfaceReceivers,
+                 IReadOnlyDictionary<int, (ElementSelector? Selector, IReadOnlyList<SummaryMemberCheck> Checks)> Standing)
+            CollectionAccesses(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
+                               IReadOnlyDictionary<int, IReadOnlyList<HeldLockValue>> held)
         {
-            var members = _operations.OfType<IrCallOperation>()
-                                     .Select(call => call.Collection is { } effects && call.ReceiverValue is { } receiver && HolderLoad(receiver) is { } load
-                                                 ? new CollectionMember(call, effects, load, Key(call, effects))
-                                                 : null)
-                                     .OfType<CollectionMember>()
-                                     .ToArray();
+            var named = Members();
+            var members = named.Select(member => Deferred.Contains(member.Call.Id) ? member with { Load = null } : member).ToArray();
+            // The load that only reaches a member through an interface is decided with the objects the field holds.
+            var interfaceReceivers = new Dictionary<int, (IReadOnlyList<IrImplementation>, string)>();
+            foreach (var member in members.Where(member => member.Call.Collection is null))
+            {
+                if (HolderLoad(member.Call.ReceiverValue!.Value) is { } load)
+                    interfaceReceivers.TryAdd(load.Id, (member.Call.Implementations, InterfaceMethodOf(member.Call)!));
+            }
+
             var accesses = new List<SummaryAccess>();
+            var standing = new Dictionary<int, (ElementSelector?, IReadOnlyList<SummaryMemberCheck>)>();
             foreach (var member in members)
             {
+                if (member.Load is null)
+                {
+                    standing[member.Call.Id] = (member.Selector, Checks(member, members, sameCollectionUndecided: true)
+                                                                     .Select(check => new SummaryMemberCheck(check.Call.Id, check.Selector))
+                                                                     .ToArray());
+                    continue;
+                }
+
                 var checks = Checks(member, members);
                 // The sequence is contained by one cell only where every read it depends on is that cell: a read of the
                 // collection's own structure, of another key or of a key nothing proves the same crosses cells, and only the
@@ -1469,8 +1778,41 @@ public static class MethodSummaryBuilder
                 }
             }
 
-            return (accesses, members.Select(member => member.Load.Id).ToHashSet());
+            return (accesses, named.Select(member => member.Load?.Id).OfType<int>().ToHashSet(), interfaceReceivers, standing);
         }
+
+        /// <summary>The calls of the body that are members of the table, each with the load of the field naming its receiver where one does.
+        /// A call through an interface names no field of its own, whichever holds its receiver: what it does is decided for each object.</summary>
+        private CollectionMember[] Members() =>
+            _operations.OfType<IrCallOperation>()
+                       .Select(call => EffectsOf(call) is { } effects && call.ReceiverValue is { } receiver
+                                   ? new CollectionMember(call, effects, call.Collection is null ? null : HolderLoad(receiver), Key(call, effects))
+                                   : null)
+                       .OfType<CollectionMember>()
+                       .ToArray();
+
+        private IReadOnlySet<int>? _deferred;
+
+        /// <summary>The members a field of this body names whose change depends on a read only the heap can tell is of the same collection: a
+        /// member no field names, or a call through an interface, which is a member only on the objects it decides and reads nothing on
+        /// the others. Such a member makes its accesses where the heap names its collections, as a member no field names does, so that
+        /// the heap decides the compound operation (ADR 0010, phase 5b third run). A <c>foreach</c> through an interface is no such read:
+        /// it makes no member effect for the heap to decide, and stays a check of the collection its receiver names here.</summary>
+        private IReadOnlySet<int> Deferred => _deferred ??= DeferredMembers();
+
+        private HashSet<int> DeferredMembers()
+        {
+            var members = Members();
+            return members.Where(member => member.Load is not null &&
+                                           Checks(member, members, sameCollectionUndecided: true)
+                                               .Any(check => check.Load is null && check.Call.EnumerationRole == IrEnumerationRole.None))
+                          .Select(member => member.Call.Id)
+                          .ToHashSet();
+        }
+
+        /// <summary>The interface member a call of one is, for deciding its objects; null for every other call.</summary>
+        private static string? InterfaceMethodOf(IrCallOperation call) =>
+            call is { Collection: null, Implementations.Count: > 0 } ? call.TargetMethodId ?? call.Method : null;
 
         /// <summary>The load of the field holding the collection a receiver is: the receiver itself, or, for a <c>LinkedListNode</c>,
         /// the list the members handing it out were called on, since a node is a cell of its list (ADR 0010, phase 5b).</summary>
@@ -1514,7 +1856,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>The reads of the same collection that the change of <paramref name="member"/> depends on: through the
         /// conditions that decide it runs, and through the values it is given.</summary>
-        private IReadOnlyList<CollectionMember> Checks(CollectionMember member, IReadOnlyList<CollectionMember> members)
+        /// <remarks>Where <paramref name="sameCollectionUndecided"/>, whether a read is of the same collection is left to the heap: a
+        /// member on a parameter and one on another parameter may be one collection, which only the arguments of a call say.</remarks>
+        private IReadOnlyList<CollectionMember> Checks(CollectionMember member, IReadOnlyList<CollectionMember> members, bool sameCollectionUndecided = false)
         {
             if (!Changes(member.Effects.Structure) && !Changes(member.Effects.Element))
                 return [];
@@ -1525,7 +1869,7 @@ public static class MethodSummaryBuilder
                                                      .Select(load => load.OperationId)
                                                      .ToHashSet();
             return members.Where(candidate => candidate.Call.Id != member.Call.Id && dependencies.Contains(candidate.Call.Id) &&
-                                              Reads(candidate.Effects) && IsSameCollection(candidate, member))
+                                              Reads(candidate.Effects) && (sameCollectionUndecided || IsSameCollection(candidate, member)))
                           .ToArray();
         }
 
@@ -1540,7 +1884,8 @@ public static class MethodSummaryBuilder
         /// names they were reached by: the objects their receivers may be have to meet. Two fields holding one dictionary hold
         /// one dictionary, and a receiver that may be either of two collections may be the one the other member holds — an
         /// ambiguity is no proof that the two touch different collections (ADR 0010). Where neither receiver resolves to an
-        /// object at all, the field that names it is the only thing left to compare.
+        /// object at all, the field that names it is the only thing left to compare, and where no field names one of them, the
+        /// value each receiver is.
         /// </summary>
         private bool IsSameCollection(CollectionMember first, CollectionMember second)
         {
@@ -1548,6 +1893,8 @@ public static class MethodSummaryBuilder
             var theirs = Points(second.Call.ReceiverValue);
             if (ours.Count != 0 && theirs.Count != 0)
                 return ours.Overlaps(theirs);
+            if (first.Load is null || second.Load is null)
+                return Origin(first.Call.ReceiverValue!.Value) == Origin(second.Call.ReceiverValue!.Value);
 
             return FieldSlot.Key(first.Load.Field) == FieldSlot.Key(second.Load.Field) &&
                    Points(first.Load.ReceiverValue).Overlaps(Points(second.Load.ReceiverValue));
@@ -1562,7 +1909,7 @@ public static class MethodSummaryBuilder
                                      IReadOnlySet<ValueDependency> dependencies,
                                      IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
                                      IReadOnlyDictionary<int, IReadOnlyList<HeldLockValue>> held) =>
-            new(member.Call.Id, effect == IrCollectionEffect.Read ? SummaryAccessKind.Load : SummaryAccessKind.Store, member.Load.Field,
+            new(member.Call.Id, effect == IrCollectionEffect.Read ? SummaryAccessKind.Load : SummaryAccessKind.Store, member.Load!.Field,
                 AccessBases(Final(Points(member.Load.ReceiverValue), delegates)), member.Call.Provenance,
                 held.GetValueOrDefault(member.Call.Id) ?? [], null, new HashSet<AbstractValue>(), dependencies)
             {
@@ -1770,9 +2117,9 @@ public static class MethodSummaryBuilder
             }
         }
 
-        /// <summary>One call of a modelled collection member: the call, what it does, the load of the collection it works on and
-        /// the cell its key names.</summary>
-        private sealed record CollectionMember(IrCallOperation Call, IrCollectionCall Effects, IrLoadFieldOperation Load,
+        /// <summary>One call of a modelled collection member: the call, what it does, the load of the collection it works on — null
+        /// where no field of this body names it — and the cell its key names.</summary>
+        private sealed record CollectionMember(IrCallOperation Call, IrCollectionCall Effects, IrLoadFieldOperation? Load,
                                                ElementSelector? Selector);
 
         private long? Constant(int value) =>

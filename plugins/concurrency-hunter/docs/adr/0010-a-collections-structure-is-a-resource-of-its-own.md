@@ -129,3 +129,48 @@ access and is simpler, since a key of a string, a number, a `Guid` or an enum is
 a value read would then yield every key object and a key read every value, which puts accesses on the
 wrong objects for a dictionary keyed by objects from source.
 
+## Amendment, phase 5b third run: a member runs on the object its receiver points to
+
+The table decided a member by the method a call names. A call through an interface names the
+interface's member — `ICollection<T>.Count` on a list a field of type `ICollection<T>` holds,
+`IEnumerable<T>.GetEnumerator` in a `foreach` over an `IEnumerable<T>`, `Count` of a snapshot handed on
+as an `ICollection<TKey>` — so none of them met the table. Such a call was opaque, and on a shared
+collection its unknown effect wrote the structure and every cell where `Count` only reads the
+structure (open question 31).
+
+Now the call is decided by the object its receiver points to. For each object the heap knows, the call
+runs the member that object's type implements the interface member with, and has exactly the effects
+that member has when it is called directly: a member of the table has its table effects, and any other
+member is what any other call of it is. An explicit implementation has the effects of the public member
+it stands for — `IEnumerable<T>.GetEnumerator` those of `GetEnumerator`, `Add` of a key–value pair those
+of `Add` at a cell nobody names, `IDictionary<TKey, TValue>.Keys` those of `Keys` — and one that stands
+for no member of the table stays opaque. A call decided this way for every object of its receiver is no
+semantic gap. Each object of a receiver that may point to several is decided on its own, and a receiver
+the heap knows no object for is undecided as before.
+
+An array behind an interface is decided the same way, by what the same code does to the array
+directly: the indexer of a single-dimensional array reads or writes the element, `Count` touches
+nothing because an array's length never changes, enumeration is a `foreach` over the array, and a
+member the array refuses by throwing has no effect — the indexer, `Contains` and `IndexOf` of a
+multi-dimensional array among them, since they need rank 1. `CopyTo` stays what a direct call of it
+is, as it is for a `List<T>`, whose `CopyTo` the table does not model either. A snapshot of a `ConcurrentDictionary` is a list of its own wherever it goes, so its
+`Count` and enumeration read that list whichever body calls them; a live view of a `Dictionary` reads
+its dictionary however it is reached. Neither becomes more than it was: any other member of a view or
+a snapshot stays unresolved, reached through an interface or not. A dictionary enumerated through the
+non-generic `IDictionary` hands out `DictionaryEntry` values rather than pairs; each is that
+dictionary's pair all the same, so its `Key` reads the key storage and its `Value` the value storage,
+as a `KeyValuePair`'s do, and `DictionaryEntry` joins the table beside `KeyValuePair` for those two
+members.
+
+The same holds for the route a receiver takes. Until this run a member of the table made its accesses
+only when the body that called it had loaded the collection from a field itself: the same member on a
+parameter, on what a helper returned or on a cell of another collection made none at all, while a node
+or a live view reached that way already made its accesses on the collection the heap said it stood
+for. Now every member does: it makes its accesses on each collection the heap resolves its receiver to,
+named by the field holding that collection, with the cell its key names and the compound operation a
+check before it makes, exactly as when the body loads the collection from that field itself.
+
+Rejected: deciding by the type the call names. It needs no heap and changes nothing downstream, but an
+interface is how a field or a parameter usually declares a collection, so the most frequent shape would
+stay opaque and go on writing every cell of a shared collection it only reads.
+

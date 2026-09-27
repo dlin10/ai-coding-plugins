@@ -1162,14 +1162,44 @@ public static class WholeProgram
 
             foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
             {
+                // What an interface call does goes only into, and only comes from, the objects of the kinds whose member it is there, and
+                // never into an object whose type of the run's own implements the member itself (ADR 0010, amendment of the phase 5b
+                // third run).
+                bool Decides(string region, IReadOnlySet<string>? kinds) =>
+                    kinds is null || ObjectKind(region, element.InterfaceMethod) is { } kind && kinds.Contains(kind);
+
+                // A view an interface call makes holds what the storage it views holds in each object it is made of.
+                if (element.ViewOf is { } viewed)
+                {
+                    var viewedHeld = Eval(instance, element.CopiedFrom!).Where(source => Decides(source, element.ValueKinds))
+                                                                         .SelectMany(source => Load(source, viewed))
+                                                                         .ToHashSet(StringComparer.Ordinal);
+                    foreach (var view in Eval(instance, element.Arrays))
+                        Add(Field(view, element.Slot), viewedHeld);
+                    continue;
+                }
+
                 if (element.CopiedFrom is not null)
                 {
                     Copy(instance, element);
                     continue;
                 }
 
+                // What an interface call hands out of an object it decides is what that object's own storage holds.
+                if (element.FromSlot is { } from)
+                {
+                    foreach (var array in Eval(instance, element.Arrays).Where(array => Decides(array, element.ArrayKinds) &&
+                                                                                        !(element.ExceptKinds is { } except &&
+                                                                                          ObjectKind(array, element.InterfaceMethod) is { } kind &&
+                                                                                          except.Contains(kind))))
+                        Add(Field(array, element.Slot), Load(array, from));
+                    continue;
+                }
+
                 var values = Eval(instance, element.Values);
-                foreach (var array in Eval(instance, element.Arrays))
+                if (element.ValueKinds is { } valueKinds)
+                    values = values.Where(region => Decides(region, valueKinds)).ToHashSet(StringComparer.Ordinal);
+                foreach (var array in Eval(instance, element.Arrays).Where(array => Decides(array, element.ArrayKinds)))
                     Add(Field(array, element.Slot), values);
             }
 
@@ -1223,7 +1253,7 @@ public static class WholeProgram
                 TimerCallback(instance, timer);
             // What an unresolved call is handed it may run whenever it likes (R3); a call a recognizer or the table models is no such call.
             var modelled = _modelled ??= new UnknownCalls.Modelled(_scope);
-            foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown && !modelled.Contains(instance.BodyId, call)))
+            foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown && !modelled.Contains(instance.BodyId, call) && !DecidesEvery(instance, call)))
                 Handoff(instance, call.OperationId, call.Arguments.SelectMany(argument => argument.Values).Concat(call.Delegates));
             foreach (var dynamic in summary.DynamicOperations)
                 Handoff(instance, dynamic.OperationId, dynamic.Values);
@@ -1812,14 +1842,26 @@ public static class WholeProgram
                 Bind(caller, call, callee, reason);
 
             // A receiver whose type has no implementation with a body runs one the analysis cannot read: however many other types do,
-            // the call is unresolved for this one (R1).
-            if (!dispatched)
+            // the call is unresolved for this one (R1), unless it is an object the call decides as a member of the table (ADR 0010,
+            // amendment of the phase 5b third run).
+            if (!dispatched && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId)) is null)
             {
                 NoReceiver(caller, call);
                 var declaring = _regions[receiver].TypeKey is { } type ? _program.Implementation(type, methodId)?.ContainingTypeKey : null;
                 Unresolved(caller, call, [(receiver, declaring)]);
             }
         }
+
+        /// <summary>Whether a call through an interface decides every receiver object the heap knows for it as a member of the table: it is
+        /// then no unresolved call, and runs nothing it is handed, as the member it is on each of them does not (ADR 0010, amendment of the
+        /// phase 5b third run). A call the heap knows no receiver object for stays unresolved.</summary>
+        private bool DecidesEvery(InstanceState instance, SummaryOpaqueCall call) =>
+            call.Implementations.Count != 0 && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
+            receivers.All(receiver => CollectionObjects.Decision(call.Implementations, ObjectKind(receiver)) is not null);
+
+        /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
+        private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
+            CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod);
 
         /// <summary>The source implementations a receiver region runs for a call of <paramref name="methodId"/>, and whether any of its
         /// types has one.</summary>

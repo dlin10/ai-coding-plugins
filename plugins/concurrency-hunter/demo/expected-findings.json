@@ -1815,6 +1815,149 @@
         { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.DictionaryPairKeyAndValue.RosterController.Post()", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "array-element-increment",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayElementIncrement.SlotBoard@Singleton", "accessPath": ["Slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArrayElementIncrement.SlotController.Post(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ArrayElementIncrement.SlotWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "array-element-increment/self-pair",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayElementIncrement.SlotBoard@Singleton", "accessPath": ["Slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArrayElementIncrement.SlotController.Post(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ArrayElementIncrement.SlotController.Post(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/cell",
+      "phase": "5b",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts", "[\"hits\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyWorker.ExecuteAsync(CancellationToken)", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/cell-self-pair",
+      "phase": "5b",
+      "rule": "DCA1004",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts", "[\"hits\"]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "compound-operation" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "compound-operation" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/structure-read-write",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/structure-write-read",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/structure-write-write",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/structure-self-read-write",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "dictionary-indexer-compound/structure-self-write-write",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DictionaryIndexerCompound.Tally@Singleton", "accessPath": ["Counts"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DictionaryIndexerCompound.TallyController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "property-accessor-increment",
+      "phase": "5b",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PropertyAccessorIncrement.Gauge@Singleton", "accessPath": ["_level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PropertyAccessorIncrement.Gauge.set_Level(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PropertyAccessorIncrement.Gauge.set_Level(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "interface-add-and-count/structure",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceAddAndCount.Drawer@Singleton", "accessPath": ["Writable"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "interface-add-and-count/structure-self-pair",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceAddAndCount.Drawer@Singleton", "accessPath": ["Writable"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "interface-add-and-count/cell-self-pair",
+      "phase": "5b",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceAddAndCount.Drawer@Singleton", "accessPath": ["Writable", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2318,6 +2461,11 @@
       "id": "channel-handoff",
       "phase": "5b",
       "resource": { "region": "alloc:Demo.Web.Cases.ChannelHandoff.Producer.ExecuteAsync(CancellationToken)#Demo.Web.Cases.ChannelHandoff.Order", "accessPath": ["Quantity"] }
+    },
+    {
+      "id": "interface-count-reads-only",
+      "phase": "5b",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceCountReadsOnly.Shelf@Singleton", "accessPath": ["Items"] }
     }
   ]
 }

@@ -13,6 +13,9 @@ internal sealed class SsaPlan
     private readonly EffectiveFlowGraph _flowGraph;
     private readonly Dictionary<ISymbol, SsaVariable> _symbols = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<CaptureId, SsaVariable> _captures = [];
+
+    /// <summary>The local or parameter each capture took, which a compound assignment through the capture defines.</summary>
+    private readonly Dictionary<CaptureId, SsaVariable> _capturedVariables = [];
     private readonly List<SsaVariable> _variables = [];
     private readonly Dictionary<int, List<SsaDefinition>> _definitions = [];
     private readonly Dictionary<int, Dictionary<SsaVariable, SsaToken>> _entry = [];
@@ -185,6 +188,12 @@ internal sealed class SsaPlan
                 return;
             case IFlowCaptureOperation capture:
                 Scan(capture.Value, blockOrdinal);
+                // A reference local is written through, never redefined, as the lowering stores to it.
+                if (Unwrap(capture.Value) is not ILocalReferenceOperation { Local.RefKind: not RefKind.None } &&
+                    TryTargetVariable(Unwrap(capture.Value), out var captured))
+                {
+                    _capturedVariables[capture.Id] = captured;
+                }
                 AddDefinition(blockOrdinal, GetVariable(capture.Id, capture.Value));
                 return;
             case IFlowCaptureReferenceOperation capture:
@@ -262,6 +271,9 @@ internal sealed class SsaPlan
 
         if (TryTargetVariable(target, out var variable))
             AddDefinition(blockOrdinal, variable);
+        // A compound assignment whose right-hand side branches writes the local or parameter its target's capture took.
+        else if (target is IFlowCaptureReferenceOperation capture && _capturedVariables.TryGetValue(capture.Id, out var captured))
+            AddDefinition(blockOrdinal, captured);
     }
 
     private bool TryTargetVariable(IOperation target, out SsaVariable variable)

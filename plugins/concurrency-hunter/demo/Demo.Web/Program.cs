@@ -5,6 +5,7 @@ using Demo.Web.Cases.AliasTwoFields;
 using Demo.Web.Cases.AmbiguousRegistrationScopedWins;
 using Demo.Web.Cases.ArrayDisjointConstantIndices;
 using Demo.Web.Cases.ArrayDisjointGuardedRanges;
+using Demo.Web.Cases.ArrayElementIncrement;
 using Demo.Web.Cases.ArraySymbolicIndices;
 using Demo.Web.Cases.AsyncTailAcquisition;
 using Demo.Web.Cases.AsyncTailEntry;
@@ -38,6 +39,7 @@ using Demo.Web.Cases.DiSingletonControllerVsWorker;
 using Demo.Web.Cases.DiSingletonSameLockOnInstance;
 using Demo.Web.Cases.DiTransient;
 using Demo.Web.Cases.DictionaryDisjointKeysStructural;
+using Demo.Web.Cases.DictionaryIndexerCompound;
 using Demo.Web.Cases.DictionaryPairKeyAndValue;
 using Demo.Web.Cases.DisposeAsyncConfigureAwait;
 using Demo.Web.Cases.DistinctAllocationSites;
@@ -67,6 +69,8 @@ using Demo.Web.Cases.IndexFromFieldGuarded;
 using Demo.Web.Cases.IndexGuardAtCallSite;
 using Demo.Web.Cases.IndexOverflowWraps;
 using Demo.Web.Cases.InstanceRegistrationTouchesStatic;
+using Demo.Web.Cases.InterfaceAddAndCount;
+using Demo.Web.Cases.InterfaceCountReadsOnly;
 using Demo.Web.Cases.InterfaceDispatchDi;
 using Demo.Web.Cases.InterlockedMixedWithPlainWrite;
 using Demo.Web.Cases.IteratorCreatedUnderLock;
@@ -107,6 +111,7 @@ using Demo.Web.Cases.ParallelForeachAsync;
 using Demo.Web.Cases.PeriodicTimerLoop;
 using Demo.Web.Cases.PocoControllerSelfOverlap;
 using Demo.Web.Cases.PrimaryConstructorInjection;
+using Demo.Web.Cases.PropertyAccessorIncrement;
 using Demo.Web.Cases.ReaderWriterLockSlim;
 using Demo.Web.Cases.ReceiverSensitivity;
 using Demo.Web.Cases.RecursiveSummary;
@@ -314,7 +319,12 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddRefLocalSplitReadModifyWrite()
                 .AddListElementFieldWrite()
                 .AddForeachOverListElementWrite()
-                .AddDictionaryPairKeyAndValue();
+                .AddDictionaryPairKeyAndValue()
+                .AddArrayElementIncrement()
+                .AddDictionaryIndexerCompound()
+                .AddPropertyAccessorIncrement()
+                .AddInterfaceCountReadsOnly()
+                .AddInterfaceAddAndCount();
 
 var app = builder.Build();
 

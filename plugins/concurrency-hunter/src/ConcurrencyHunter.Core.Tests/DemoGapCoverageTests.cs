@@ -71,6 +71,33 @@ public sealed class DemoGapCoverageTests
         Assert.All(listedByScope, listed => Assert.Contains(("Demo.Web", gap.Callee), listed.Select(item => (item.Scope, item.Callee))));
     }
 
+    /// <summary>A call through an interface on a list the heap knows is the list's own member, and no gap (question 31, R8).</summary>
+    [Fact]
+    public async Task Interface_collection_cases_make_no_gap()
+    {
+        var web = await Web();
+
+        Assert.DoesNotContain(web.Gaps, gap => gap.Sites.Any(site => InCase(site, "InterfaceCountReadsOnly") || InCase(site, "InterfaceAddAndCount")));
+    }
+
+    /// <summary>The negative case cannot pass by a root or its read going missing: both roots read the list's structure, and neither has
+    /// an unknown effect on it (R8).</summary>
+    [Fact]
+    public async Task Interface_count_case_reads_the_structure_from_both_roots()
+    {
+        var result = await DemoExpectationTests.SharedDemo.Value;
+
+        foreach (var root in new[] { $"{CASES}InterfaceCountReadsOnly.ShelfController.Post()",
+                                     $"{CASES}InterfaceCountReadsOnly.ShelfWorker.ExecuteAsync(CancellationToken)" })
+        {
+            var onList = result.Accesses.Where(access => access.Symbol == root && access.Resource.CollectionId is not null &&
+                                                         access.Resource.Region == $"di:{CASES}InterfaceCountReadsOnly.Shelf@Singleton")
+                               .ToArray();
+            Assert.Contains(onList, access => access.Operation == AccessOperation.Read && access.Resource.Selector is null);
+            Assert.DoesNotContain(onList, access => access.Operation.IsUnknownEffect());
+        }
+    }
+
     private const string CASES = "Demo.Web.Cases.";
 
     private static bool InCase(Access access, string name) => access.Symbol.StartsWith($"{CASES}{name}.", StringComparison.Ordinal);

@@ -250,7 +250,11 @@ _Avoid_: serialization read, full read, recursive read
 
 **Opaque call**:
 A call into a method whose body the run does not have and whose effects no built-in semantics
-describes; its effects are unknown, which is not the same as none.
+describes; its effects are unknown, which is not the same as none. A call through an interface on an
+array or a modelled collection is decided by the object its receiver points to: it is a call of the
+member that object's type implements it with — for an explicit implementation, the public member it
+stands for — and it is opaque only when that member is. Only a receiver the heap knows no object for
+leaves it undecided.
 _Avoid_: external call, library call (a library method the built-in semantics describe is not opaque), unknown call
 
 **Unknown effect**:

@@ -1,4 +1,5 @@
 using System.Globalization;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
@@ -486,13 +487,12 @@ public static class IrLowering
         private readonly Dictionary<SsaVariable, int> _definitionPositions = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<(SyntaxTree Tree, int Start, int Length), int> _coalesceLoads = [];
         private readonly Dictionary<CaptureId, IOperation> _capturedTargets = [];
+
+        /// <summary>The write of each captured assignable target, through the receiver and indices its capture evaluated.</summary>
+        private readonly Dictionary<CaptureId, Action<int, IOperation, string>> _capturedLongForms = [];
         private readonly Dictionary<IParameterSymbol, int> _parameterValues = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<IOperation, IReadOnlyList<int>> _listedElements = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<int, int> _configuredTasks = [];
-
-        /// <summary>The values that are the snapshot a <c>ConcurrentDictionary</c> view handed out, whichever block uses them: counted
-        /// and enumerated as a list is (ADR 0010, phase 5b second run).</summary>
-        private readonly Dictionary<int, bool> _snapshots = [];
 
         /// <summary>The scope each <c>EnterScope</c> handed back, by its value: disposing it leaves the lock.</summary>
         private readonly Dictionary<int, LockScope> _lockScopes = [];
@@ -820,6 +820,7 @@ public static class IrLowering
             _ssaPlan = SsaPlan.Create(_method, _graph, _flowGraph, segment.InitializerOwner);
             _offset = offset;
             _capturedTargets.Clear();
+            _capturedLongForms.Clear();
         }
 
         private void AddInitialValues()
@@ -1317,7 +1318,33 @@ public static class IrLowering
                 return result;
             }
 
-            return Unknown(compound, "unsupported");
+            // A target taken before a right-hand side that branches was read where it was taken; it is written through the same receiver,
+            // whatever kind of target it is, as its long form writes it (R1).
+            if (target is IFlowCaptureReferenceOperation captured && _capturedLongForms.TryGetValue(captured.Id, out var write))
+            {
+                var loaded = LowerCaptureReference(captured);
+                var right = LowerValue(compound.Value);
+                var result = AddTemporary(compound.Type);
+                _operations.Add(new IrComputeOperation(
+                    NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
+                write(result, compound, "compound-assignment");
+                return result;
+            }
+
+            if (IsLongFormTarget(target))
+            {
+                return LowerLongForm(target, compound, "compound-assignment", loaded =>
+                {
+                    var right = LowerValue(compound.Value);
+                    var result = AddTemporary(compound.Type);
+                    _operations.Add(new IrComputeOperation(
+                        NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
+                    return result;
+                }).Written;
+            }
+
+            // A target the lowering does not model still evaluates its receiver, its indices and the right-hand side (R2).
+            return Unknown(compound, "unsupported", [.. target.ChildOperations.Select(LowerValue), LowerValue(compound.Value)]);
         }
 
         private int LowerIncrement(IIncrementOrDecrementOperation increment)
@@ -1358,8 +1385,23 @@ public static class IrLowering
                     return increment.IsPostfix ? dynamicLoaded : dynamicResult;
                 }
 
+                if (symbol is null && IsLongFormTarget(target))
+                {
+                    var (read, written) = LowerLongForm(target, increment, "increment", longFormLoaded =>
+                    {
+                        var longFormOne = Constant(increment, 1, "increment");
+                        var longFormResult = AddTemporary(increment.Type);
+                        _operations.Add(new IrComputeOperation(NextOperation(), longFormResult,
+                                                              increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
+                                                              [longFormLoaded, longFormOne], Provenance(increment, "increment")));
+                        return longFormResult;
+                    });
+                    return increment.IsPostfix ? read : written;
+                }
+
+                // A target the lowering does not model still evaluates its receiver and its indices (R2).
                 if (symbol is null)
-                    return Unknown(increment, "unsupported");
+                    return Unknown(increment, "unsupported", target.ChildOperations.Select(LowerValue).ToArray());
 
                 var loadedValue = GetSymbolValue(symbol);
                 var oneValue = Constant(increment, 1, "increment");
@@ -1385,6 +1427,44 @@ public static class IrLowering
             _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, result, loadId, provenance));
             MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
             return increment.IsPostfix ? loaded : result;
+        }
+
+        /// <summary>Whether a compound target is one <see cref="LowerLongForm"/> lowers: an array element of any rank, or a property the
+        /// lowering calls, which has both accessors.</summary>
+        private static bool IsLongFormTarget(IOperation target) =>
+            target is IArrayElementReferenceOperation or IPropertyReferenceOperation { Property: { GetMethod: not null, SetMethod: not null } };
+
+        /// <summary>A compound assignment or an increment as its long form <c>t = t op v</c> (R1): the receiver and every index lowered
+        /// once, then the read of the target, what <paramref name="compute"/> lowers — the right-hand side and the operator — and the
+        /// write of what it computed. An array element is an element load and store; a property is its getter and its setter, called
+        /// with the same receiver and arguments as the long form calls them. Hands back the value read and the value written.</summary>
+        private (int Read, int Written) LowerLongForm(IOperation target, IOperation source, string transformation, Func<int, int> compute)
+        {
+            var (read, write) = LowerLongFormRead(target);
+            var written = compute(read);
+            write(written, source, transformation);
+            return (read, written);
+        }
+
+        /// <summary>The first half of a long form: the receiver and every index lowered once and the target read, with the write of a value
+        /// to the same target through the same receiver and indices.</summary>
+        private (int Read, Action<int, IOperation, string> Write) LowerLongFormRead(IOperation target)
+        {
+            if (target is IPropertyReferenceOperation property)
+            {
+                int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
+                var arguments = LowerArguments(property.Arguments);
+                var read = CallGetter(property, receiver, arguments);
+                return (read, (written, source, transformation) => CallSetter(property, receiver, arguments, written, source, transformation));
+            }
+
+            var element = (IArrayElementReferenceOperation)target;
+            var array = LowerValue(element.ArrayReference);
+            var indices = element.Indices.Select(LowerValue).ToArray();
+            var loaded = AddTemporary(element.Type);
+            _operations.Add(new IrLoadElementOperation(NextOperation(), loaded, array, indices, Provenance(element, "element-load")));
+            return (loaded, (stored, source, transformation) =>
+                _operations.Add(new IrStoreElementOperation(NextOperation(), array, indices, stored, Provenance(source, transformation))));
         }
 
         private int LowerDeconstruction(IDeconstructionAssignmentOperation deconstruction)
@@ -1565,8 +1645,6 @@ public static class IrLowering
                 _pendingEntries[targetValue] = pending;
             if (_configuredTasks.TryGetValue(sourceValue, out var task))
                 _configuredTasks[targetValue] = task;
-            if (_snapshots.ContainsKey(sourceValue))
-                _snapshots[targetValue] = true;
         }
 
         /// <summary>The same for a value merged from several paths: it means what they all mean, and means nothing where they
@@ -1582,8 +1660,6 @@ public static class IrLowering
                 _pendingEntries[targetValue] = pending;
             if (Same(sources, _configuredTasks, out var task))
                 _configuredTasks[targetValue] = task;
-            if (Same(sources, _snapshots, out _))
-                _snapshots[targetValue] = true;
         }
 
         /// <summary>Whether every one of these values carries the same meaning, and what it is. A meaning is a value type as
@@ -1643,11 +1719,16 @@ public static class IrLowering
                 return result;
             }
 
-            var getter = property.Property.GetMethod;
-            if (getter is null)
+            if (property.Property.GetMethod is null)
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
-            var value = AddCall(property, getter, receiver, LowerArguments(property.Arguments), property.Type);
+            return CallGetter(property, receiver, LowerArguments(property.Arguments));
+        }
+
+        /// <summary>The call of a property's getter on a receiver and arguments already lowered.</summary>
+        private int CallGetter(IPropertyReferenceOperation property, int? receiver, LoweredArguments arguments)
+        {
+            var value = AddCall(property, property.Property.GetMethod!, receiver, arguments, property.Type);
             _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property));
             return value;
         }
@@ -1655,11 +1736,17 @@ public static class IrLowering
         private int LowerPropertyStore(IPropertyReferenceOperation property, int value, IOperation source,
                                        string transformation)
         {
-            var setter = property.Property.SetMethod;
-            if (setter is null)
+            if (property.Property.SetMethod is null)
                 return Unknown(source, "unsupported");
             int? receiver = property.Instance is null ? null : LowerValue(property.Instance);
-            var arguments = LowerArguments(property.Arguments);
+            return CallSetter(property, receiver, LowerArguments(property.Arguments), value, source, transformation);
+        }
+
+        /// <summary>The call of a property's setter with <paramref name="value"/> on a receiver and arguments already lowered.</summary>
+        private int CallSetter(IPropertyReferenceOperation property, int? receiver, LoweredArguments arguments, int value,
+                               IOperation source, string transformation)
+        {
+            var setter = property.Property.SetMethod!;
             arguments = arguments with
             {
                 Values = [.. arguments.Values, value],
@@ -1741,8 +1828,40 @@ public static class IrLowering
             {
                 _capturedTargets[capture.Id] = capture.Value;
             }
-            var sourceValue = capture.Syntax.Parent is RefExpressionSyntax
-                ? LowerAddress(capture.Value) : LowerValue(capture.Value);
+            int sourceValue;
+            if (capture.Syntax.Parent is RefExpressionSyntax)
+            {
+                sourceValue = LowerAddress(capture.Value);
+            }
+            else if (IsCapturedLongFormTarget(capture.Value))
+            {
+                // A compound assignment whose right-hand side branches takes its target here, before the branch: the receiver and the
+                // indices are evaluated and the target read now, and the write after the branch goes through the same ones (R1).
+                (sourceValue, var write) = LowerLongFormRead(capture.Value);
+                _capturedLongForms[capture.Id] = write;
+            }
+            else if (DynamicTarget(capture.Value) is { } dynamicTarget)
+            {
+                sourceValue = Unknown(capture.Value, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
+                _capturedLongForms[capture.Id] = (written, source, _) =>
+                    Unknown(source, "unsupported", [.. dynamicTarget.Operands, written], dynamicTarget.Set);
+            }
+            else if (LowerCapturedStorageRead(capture.Value) is { } storage)
+            {
+                (sourceValue, var write) = storage;
+                _capturedLongForms[capture.Id] = write;
+            }
+            else
+            {
+                sourceValue = LowerValue(capture.Value);
+                // A local or a parameter such a compound assignment takes is written as its long form writes it (R1).
+                if (UnwrapTarget(capture.Value) is ILocalReferenceOperation or IParameterReferenceOperation)
+                {
+                    var target = capture.Value;
+                    _capturedLongForms[capture.Id] = (written, source, transformation) => LowerStore(target, written, source, transformation);
+                }
+            }
+
             var variable = _ssaPlan.GetVariable(capture.Id);
             var targetValue = ResolveToken(NextDefinition(variable));
             SetCurrent(variable, targetValue);
@@ -1751,6 +1870,70 @@ public static class IrLowering
             Carry(sourceValue, targetValue);
             return targetValue;
         }
+
+        /// <summary>A captured target that is storage — a field, an automatic property, a primary-constructor parameter, the cell a
+        /// ref-returning indexer names, or what a ref-returning call hands back — read as a load of it reads it, with the write of a value
+        /// to the same storage through the receiver and indices that read evaluated, which are never evaluated again (R1). Null for every
+        /// other captured operation.</summary>
+        private (int Read, Action<int, IOperation, string> Write)? LowerCapturedStorageRead(IOperation captured)
+        {
+            switch (captured)
+            {
+                case IFieldReferenceOperation { Field.IsConst: false } or IPropertyReferenceOperation or IParameterReferenceOperation { Parameter.RefKind: RefKind.None }
+                    when TryLocation(captured, out var location):
+                {
+                    var loaded = AddTemporary(captured.Type);
+                    var loadId = NextOperation();
+                    var provenance = Provenance(captured, captured switch
+                    {
+                        IFieldReferenceOperation => "direct",
+                        IPropertyReferenceOperation => "property-backing-field",
+                        _ => "primary-constructor-parameter"
+                    });
+                    _operations.Add(new IrLoadFieldOperation(loadId, loaded, location.Receiver, location.Field, provenance));
+                    if (captured is IFieldReferenceOperation)
+                        MarkVolatile(location.Field, loadId, IrAtomicEffect.Read, provenance);
+                    if (captured is not IParameterReferenceOperation)
+                        RememberCoalesceLoad(captured, loadId);
+                    return (loaded, (written, source, transformation) =>
+                    {
+                        var storeId = NextOperation();
+                        var storeProvenance = Provenance(source, transformation);
+                        _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, written, null, storeProvenance));
+                        if (captured is IFieldReferenceOperation)
+                            MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, storeProvenance);
+                    });
+                }
+                case IPropertyReferenceOperation property when IsElementIndexer(property) && NamesOneCell(property):
+                {
+                    var element = AddTemporary(property.Type);
+                    var instance = LowerValue(property.Instance!);
+                    var indices = property.Arguments.Select(argument => LowerValue(argument.Value)).ToArray();
+                    _operations.Add(new IrLoadElementOperation(NextOperation(), element, instance, indices, Provenance(property, "element-load"))
+                    {
+                        NamesOneCell = true
+                    });
+                    return (element, (written, source, transformation) =>
+                        _operations.Add(new IrStoreElementOperation(NextOperation(), instance, indices, written, Provenance(source, transformation))));
+                }
+                case IPropertyReferenceOperation property when IsElementIndexer(property):
+                case IInvocationOperation { TargetMethod.ReturnsByRef: true }:
+                {
+                    var address = LowerAddress(captured);
+                    return (LowerReferenceLoad(address, captured), (written, source, transformation) =>
+                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null, Provenance(source, transformation))));
+                }
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Whether a captured operation is a target <see cref="LowerLongForm"/> lowers, read as a load of it would read it: an array
+        /// element, or a property with both accessors whose getter the lowering calls.</summary>
+        private bool IsCapturedLongFormTarget(IOperation captured) =>
+            captured is IArrayElementReferenceOperation ||
+            captured is IPropertyReferenceOperation { Property: { GetMethod: not null, SetMethod: not null } } property &&
+            !IsAutomatic(property.Property) && !IsElementIndexer(property);
 
         private int LowerCaptureReference(IFlowCaptureReferenceOperation capture)
         {
@@ -2117,10 +2300,7 @@ public static class IrLowering
                                      IrProvenance provenance)
         {
             var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
-            var collection = Collections.Of(method) ?? (Collections.OfSnapshot(method) is { } snapshot && IsSnapshot(receiver) ? snapshot : null);
-            // What a ConcurrentDictionary view hands out is a snapshot wherever the body goes on to use it.
-            if (Collections.IsSnapshot(collection) && result is int taken)
-                _snapshots[taken] = true;
+            var collection = Collections.Of(method);
             return new IrCallOperation(
                 NextOperation(), result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
                 provenance)
@@ -2128,6 +2308,9 @@ public static class IrLowering
                 ArgumentParameterOrdinals = arguments.Ordinals,
                 RefResults = arguments.RefResults,
                 Collection = collection,
+                // A call through an interface is decided by the object its receiver points to, which only the heap knows: it carries
+                // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
+                Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation) : [],
                 Library = nestedId is null ? LibraryCalls.Of(method) : null,
                 IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
@@ -2135,10 +2318,6 @@ public static class IrLowering
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
             };
         }
-
-        /// <summary>Whether a value is the snapshot a <c>ConcurrentDictionary</c> view handed out in this body: through conversions,
-        /// assignments and flow captures in any block, and through a merge whose every input is one.</summary>
-        private bool IsSnapshot(int? value) => value is int snapshot && _snapshots.ContainsKey(snapshot);
 
         /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
         /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor.</summary>
@@ -3260,10 +3439,12 @@ public static class IrLowering
         private const string LINKED_LIST = "System.Collections.Generic.LinkedList`1";
         private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode`1";
         private const string KEY_VALUE_PAIR = "System.Collections.Generic.KeyValuePair`2";
+        private const string DICTIONARY_ENTRY = "System.Collections.DictionaryEntry";
         private const string KEY_COLLECTION = "System.Collections.Generic.Dictionary`2+KeyCollection";
         private const string VALUE_COLLECTION = "System.Collections.Generic.Dictionary`2+ValueCollection";
         private const string KEYS = "[keys]";
         private const string ELEMENT = "[]";
+        private const string ARRAY = "System.Array";
 
         internal static IrCollectionCall? Of(IMethodSymbol method)
         {
@@ -3285,6 +3466,14 @@ public static class IrLowering
             if (type == KEY_VALUE_PAIR)
             {
                 return method.Name is ".ctor" or "get_Key" or "get_Value" or "Deconstruct"
+                    ? Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None)
+                    : null;
+            }
+            // An entry is what the non-generic `IDictionary` hands out for a pair, and its key and value are read as the pair's are
+            // (ADR 0010, amendment of the phase 5b third run).
+            if (type == DICTIONARY_ENTRY)
+            {
+                return method.Name is "get_Key" or "get_Value"
                     ? Effects(method, type, false, IrCollectionEffect.None, IrCollectionEffect.None)
                     : null;
             }
@@ -3412,7 +3601,7 @@ public static class IrLowering
 
         private static bool IsModelled(string type) =>
             type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG or HASH_SET or QUEUE or
-                STACK or LINKED_LIST or LINKED_LIST_NODE or KEY_VALUE_PAIR;
+                STACK or LINKED_LIST or LINKED_LIST_NODE or KEY_VALUE_PAIR or DICTIONARY_ENTRY;
 
         /// <summary>The view type declaring a member, <c>KeyCollection</c> or <c>ValueCollection</c> of a <c>Dictionary</c>; null for
         /// every other type, the views' own enumerators among them.</summary>
@@ -3436,20 +3625,177 @@ public static class IrLowering
             (type.SpecialType == SpecialType.System_Collections_IEnumerable ||
              type.AllInterfaces.Any(@interface => @interface.SpecialType == SpecialType.System_Collections_IEnumerable));
 
-        /// <summary>A member of the collection a <c>ConcurrentDictionary</c> view hands out, which is a snapshot of its own: counted and
-        /// enumerated as a list is, through whatever interface the call names. Any other member of it stays an ordinary call.</summary>
-        internal static IrCollectionCall? OfSnapshot(IMethodSymbol method) =>
-            method.ContainingType?.TypeKind == TypeKind.Interface
-                ? method.Name switch
-                {
-                    "GetEnumerator" => new IrCollectionCall($"{LIST}.GetEnumerator", IrCollectionEffect.Read, IrCollectionEffect.Read, null, false),
-                    "get_Count" => new IrCollectionCall($"{LIST}.get_Count", IrCollectionEffect.Read, IrCollectionEffect.None, null, false),
-                    _ => null
-                }
-                : null;
+        /// <summary>The types an interface call may be decided on, by the kind their objects are to the heap and by metadata name.</summary>
+        private static readonly (string Kind, string MetadataName)[] Implementers =
+        [
+            .. new[] { LIST, DICTIONARY, CONCURRENT_DICTIONARY, CONCURRENT_QUEUE, CONCURRENT_STACK, CONCURRENT_BAG, HASH_SET, QUEUE, STACK, LINKED_LIST }
+                   .Select(type => (type[..type.IndexOf('`')], type)),
+            ("System.Collections.Generic.Dictionary.KeyCollection", "System.Collections.Generic.Dictionary`2+KeyCollection"),
+            ("System.Collections.Generic.Dictionary.ValueCollection", "System.Collections.Generic.Dictionary`2+ValueCollection")
+        ];
 
-        /// <summary>Whether a member takes the snapshot a <c>ConcurrentDictionary</c> view is.</summary>
-        internal static bool IsSnapshot(IrCollectionCall? member) => member is { View: not null, IsAtomic: true };
+        /// <summary>
+        /// What a call of an interface member is on each kind of object (ADR 0010, amendment of the phase 5b third run): on an object of a
+        /// type of the table or a <c>Dictionary</c> view, the member that type implements it with, found through the type's interface
+        /// map, an explicit implementation taken as the public member of the table it stands for; on a <c>ConcurrentDictionary</c>
+        /// snapshot, a list's count and enumeration alone; on an array, what the same code does to the array directly. A kind whose
+        /// member the table does not model is left out, and the call stays what a direct call of that member is on its objects.
+        /// </summary>
+        internal static IReadOnlyList<IrImplementation> ImplementationsOf(IMethodSymbol method, Compilation compilation)
+        {
+            if (method is not { IsStatic: false, ContainingType: { TypeKind: TypeKind.Interface } called })
+                return [];
+
+            var implementations = new List<IrImplementation>();
+            foreach (var (kind, metadataName) in Implementers)
+            {
+                if (compilation.GetTypeByMetadataName(metadataName) is { } type && ImplementationOf(method, called, type) is { } implementation)
+                    implementations.Add(implementation with { Kind = kind });
+            }
+
+            // A snapshot is a list of its own that decides nothing but its count and its enumeration, whatever interface names them.
+            if (implementations.FirstOrDefault(implementation => implementation.Kind == CollectionObjects.LIST) is { } listed &&
+                listed.Member.Member is $"{LIST}.get_Count" or $"{LIST}.GetEnumerator")
+            {
+                implementations.Add(listed with { Kind = CollectionObjects.SNAPSHOT });
+            }
+
+            foreach (var (kind, rank) in new[] { (CollectionObjects.ARRAY, 1), (CollectionObjects.MULTIDIMENSIONAL_ARRAY, 2) })
+            {
+                var array = compilation.CreateArrayTypeSymbol(compilation.GetSpecialType(SpecialType.System_Object), rank);
+                if (array.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition, called.OriginalDefinition)) &&
+                    ArrayMember(method, called, rank) is { } member)
+                {
+                    implementations.Add(new IrImplementation(kind, member));
+                }
+            }
+
+            return implementations;
+        }
+
+        /// <summary>The member of the table <paramref name="type"/> implements an interface member with, as a direct call of it is; null
+        /// where the type does not implement the interface or the table does not model the member.</summary>
+        private static IrImplementation? ImplementationOf(IMethodSymbol method, INamedTypeSymbol called, INamedTypeSymbol type)
+        {
+            foreach (var implemented in type.AllInterfaces.Where(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition,
+                                                                                                                   called.OriginalDefinition)))
+            {
+                var member = implemented.GetMembers(method.Name).OfType<IMethodSymbol>()
+                                        .FirstOrDefault(candidate => SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, method.OriginalDefinition));
+                if (member is null || type.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation)
+                    continue;
+
+                // An accessor of an explicitly implemented property is explicit as a method is, whatever kind of method it is.
+                var explicitly = implementation.ExplicitInterfaceImplementations.Length != 0;
+                var target = explicitly ? PublicCounterpart(implementation, type) : implementation;
+                if (target is null || Of(target) is not { } effects)
+                    return null;
+
+                // An explicit implementation names the cell the public member names only where it takes the same key: `Add` of a pair
+                // names no cell, while the non-generic indexer of a list names the one its index does, and `Remove(key)` of a
+                // `ConcurrentDictionary` the one `TryRemove(key, out value)` does.
+                if (explicitly && effects.KeyArgument is int key &&
+                    (key >= implementation.Parameters.Length || implementation.Parameters[key].Name != target.Parameters[key].Name))
+                {
+                    effects = effects with { KeyArgument = null };
+                }
+
+                return new IrImplementation("", effects)
+                {
+                    ViewType = effects.View is null ? null : ViewTypeOf(target, implemented, called),
+                    TakesPair = explicitly && implementation.Parameters.Length == 1 && target.Parameters.Length > 1 &&
+                                Bcl.TypeName(implementation.Parameters[0].Type) == KEY_VALUE_PAIR
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>The public member of the table an explicit implementation stands for: the member of its type with the same name, or the
+        /// one <see cref="Counterparts"/> names where the implementation calls a member of another name, and, where there are several, the
+        /// one taking the implementation's parameters by name, then the one taking as many.</summary>
+        private static IMethodSymbol? PublicCounterpart(IMethodSymbol implementation, INamedTypeSymbol type)
+        {
+            var name = implementation.Name[(implementation.Name.LastIndexOf('.') + 1)..];
+            if (implementation.ExplicitInterfaceImplementations.FirstOrDefault() is { } implemented &&
+                Counterparts.TryGetValue((Bcl.TypeName(type) ?? "", Bcl.TypeName(implemented.ContainingType) ?? "", name), out var counterpart))
+            {
+                name = counterpart;
+            }
+
+            var candidates = type.GetMembers(name).OfType<IMethodSymbol>()
+                                 .Where(candidate => candidate is { IsStatic: false, DeclaredAccessibility: Accessibility.Public })
+                                 .ToArray();
+            bool Takes(IMethodSymbol candidate) =>
+                candidate.Parameters.Length >= implementation.Parameters.Length &&
+                implementation.Parameters.Select(parameter => parameter.Name)
+                              .SequenceEqual(candidate.Parameters.Take(implementation.Parameters.Length).Select(parameter => parameter.Name));
+            return candidates.FirstOrDefault(candidate => candidate.Parameters.Length == implementation.Parameters.Length && Takes(candidate)) ??
+                   candidates.FirstOrDefault(Takes) ??
+                   candidates.FirstOrDefault(candidate => candidate.Parameters.Length == implementation.Parameters.Length) ??
+                   candidates.FirstOrDefault();
+        }
+
+        /// <summary>The public member an explicit implementation calls where its name is not the implementation's own, by the type, the
+        /// interface and the member's name (ADR 0010, amendment of the phase 5b third run).</summary>
+        private static readonly Dictionary<(string Type, string Interface, string Member), string> Counterparts = new()
+        {
+            [(DICTIONARY, "System.Collections.IDictionary", "Contains")] = "ContainsKey",
+            [(CONCURRENT_DICTIONARY, "System.Collections.IDictionary", "Contains")] = "ContainsKey",
+            [(CONCURRENT_DICTIONARY, "System.Collections.Generic.IDictionary`2", "Add")] = "TryAdd",
+            [(CONCURRENT_DICTIONARY, "System.Collections.IDictionary", "Add")] = "TryAdd",
+            [(CONCURRENT_DICTIONARY, "System.Collections.Generic.ICollection`1", "Add")] = "TryAdd",
+            [(CONCURRENT_DICTIONARY, "System.Collections.Generic.IDictionary`2", "Remove")] = "TryRemove",
+            [(CONCURRENT_DICTIONARY, "System.Collections.IDictionary", "Remove")] = "TryRemove",
+            [(CONCURRENT_DICTIONARY, "System.Collections.Generic.ICollection`1", "Remove")] = "TryRemove",
+            [(LINKED_LIST, "System.Collections.Generic.ICollection`1", "Add")] = "AddLast",
+            [(CONCURRENT_QUEUE, "System.Collections.Concurrent.IProducerConsumerCollection`1", "TryAdd")] = "Enqueue",
+            [(CONCURRENT_QUEUE, "System.Collections.Concurrent.IProducerConsumerCollection`1", "TryTake")] = "TryDequeue",
+            [(CONCURRENT_STACK, "System.Collections.Concurrent.IProducerConsumerCollection`1", "TryAdd")] = "Push",
+            [(CONCURRENT_STACK, "System.Collections.Concurrent.IProducerConsumerCollection`1", "TryTake")] = "TryPop",
+            [(CONCURRENT_BAG, "System.Collections.Concurrent.IProducerConsumerCollection`1", "TryAdd")] = "Add"
+        };
+
+        /// <summary>The type of the view a <c>Keys</c> or <c>Values</c> member of <paramref name="implemented"/>'s type hands out, with the
+        /// type arguments the call gives the interface.</summary>
+        private static string ViewTypeOf(IMethodSymbol target, INamedTypeSymbol implemented, INamedTypeSymbol called)
+        {
+            var type = target.ContainingType.OriginalDefinition;
+            var arguments = type.TypeParameters.Select(parameter => implemented.TypeArguments.IndexOf(parameter, 0, SymbolEqualityComparer.Default) is var ordinal and >= 0
+                                                           ? called.TypeArguments[ordinal]
+                                                           : parameter)
+                                .ToArray();
+            var constructed = type.Construct(arguments);
+            var member = constructed.GetMembers(target.Name).OfType<IMethodSymbol>()
+                                    .First(candidate => SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, target.OriginalDefinition));
+            return SymbolNames.Type(member.ReturnType);
+        }
+
+        /// <summary>What a member of an interface an array implements is on an array of <paramref name="rank"/>, as the same code does to
+        /// the array directly (ADR 0010, amendment of the phase 5b third run): the indexer of a single-dimensional array is its element,
+        /// <c>Contains</c> and <c>IndexOf</c> read every cell as a list's <c>Contains</c> and a <c>foreach</c> over the array do, with the
+        /// structure they read too, <c>Count</c> and <c>IsReadOnly</c> touch nothing, enumeration is a
+        /// <c>foreach</c> over the array, and a member the array refuses by throwing has no effect — among them the indexer, <c>Contains</c>
+        /// and <c>IndexOf</c> of a multi-dimensional one, which need rank one. Null for a member that stays what a direct call of it is:
+        /// <c>CopyTo</c>, the non-generic <c>Clear</c>, which is <c>Array.Clear</c>, and every other.</summary>
+        private static IrCollectionCall? ArrayMember(IMethodSymbol method, INamedTypeSymbol called, int rank)
+        {
+            var generic = called.IsGenericType;
+            (IrCollectionEffect Structure, IrCollectionEffect Element, bool Keyed)? effects = (method.Name, rank) switch
+            {
+                ("get_Item", 1) => (IrCollectionEffect.None, IrCollectionEffect.Read, true),
+                ("set_Item", 1) => (IrCollectionEffect.None, IrCollectionEffect.Write, true),
+                ("Contains" or "IndexOf", 1) => (IrCollectionEffect.Read, IrCollectionEffect.Read, false),
+                ("GetEnumerator", _) => (IrCollectionEffect.Read, IrCollectionEffect.Read, false),
+                ("get_Item" or "set_Item" or "Contains" or "IndexOf" or "get_Count" or "get_IsReadOnly" or "Add" or "Insert" or "Remove" or "RemoveAt", _) =>
+                    (IrCollectionEffect.None, IrCollectionEffect.None, false),
+                ("Clear", _) when generic => (IrCollectionEffect.None, IrCollectionEffect.None, false),
+                _ => null
+            };
+            return effects is var (structure, element, keyed)
+                ? new IrCollectionCall($"{ARRAY}.{method.Name}", structure, element, keyed ? 0 : null, false)
+                : null;
+        }
     }
 
     /// <summary>The library semantics table's word on a called member without a source declaration (TD-034a), with each effect

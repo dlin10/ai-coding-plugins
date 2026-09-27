@@ -37,9 +37,19 @@ public static class UnknownCalls
                 var isLocator = call.ServiceCall is { Kind: not IrServiceCallKind.ScopeCreation } && locators.Contains((instance.BodyId, call.OperationId));
                 if (!isLocator && modelled.Contains(instance.BodyId, call))
                     continue;
+                // A call through an interface is the member of the table each object it decides implements it with, and stays unresolved
+                // for the others alone (ADR 0010, amendment of the phase 5b third run).
+                var receivers = call.Receivers;
+                if (call.Implementations.Count != 0 && Undecided(scope, heap, instance, call.Receivers, call.Implementations) is { } undecided)
+                {
+                    if (undecided.Count == 0)
+                        continue;
+                    receivers = undecided;
+                }
+
                 // A constructor sees nothing through the object it creates: that object holds only what its arguments give it yet.
                 calls.Add(new UnknownCall(instance, call.OperationId, call.Callee, isLocator ? SemanticGapKinds.MODEL_GAP : KindOf(call.Callee),
-                                          call.IsConstructor ? new HashSet<AbstractValue>() : call.Receivers, call.DeclaringTypeKey, call.Arguments,
+                                          call.IsConstructor ? new HashSet<AbstractValue>() : receivers, call.DeclaringTypeKey, call.Arguments,
                                           call.Delegates)
                 {
                     Provenance = call.Provenance,
@@ -141,6 +151,19 @@ public static class UnknownCalls
             var member = callee[..(callee.IndexOf('(') is var open and >= 0 ? open : callee.Length)];
             return member[(member.LastIndexOf('.') + 1)..].StartsWith(MAPPING_PREFIX, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>The receiver objects an interface call does not decide, as regions; null where it decides none of them, or the heap knows
+    /// no receiver object at all, which leaves the call as undecided as any other.</summary>
+    private static IReadOnlySet<AbstractValue>? Undecided(ScopeProgram scope, HeapSolution heap, MethodInstance instance, IReadOnlySet<AbstractValue> receivers,
+                                                         IReadOnlyList<IrImplementation> implementations)
+    {
+        var regions = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+        var undecided = regions.Where(region => CollectionObjects.Decision(implementations, CollectionObjects.KindOf(heap.Regions[region], scope.Program,
+                                                                                                                  scope.Summaries)) is null)
+                               .Order(StringComparer.Ordinal)
+                               .ToArray();
+        return undecided.Length == regions.Length ? null : undecided.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet();
     }
 
     private const string MINIMAL_API = "minimal-api";

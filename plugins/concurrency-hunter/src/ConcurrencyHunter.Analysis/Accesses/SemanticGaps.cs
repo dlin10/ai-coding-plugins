@@ -77,11 +77,15 @@ public static class SemanticGaps
                    .ToArray();
     }
 
-    /// <summary>Whether the call writes its result into a shared region: one that is neither owned nor confined to one execution.</summary>
+    /// <summary>Whether the call writes its result into a shared region: one that is neither owned nor confined to one execution. An
+    /// interface call writes it only into the objects whose member holds it.</summary>
     private static bool FeedsShared(InterproceduralInput input, UnknownCall call, IEnumerable<SummaryResultStore> results) =>
         results.SelectMany(store => store.StaticField is { } field
                                ? [input.Heap.StaticRegionOf(call.Instance.Id, field)]
-                               : store.Targets.SelectMany(value => input.Heap.Resolve(call.Instance.Id, value)))
+                               : store.Targets.SelectMany(value => input.Heap.Resolve(call.Instance.Id, value))
+                                      .Where(region => store.TargetKinds is not { } kinds ||
+                                                       CollectionObjects.KindOf(input.Heap.Regions[region], input.Scope.Program, input.Scope.Summaries,
+                                                                                store.InterfaceMethod) is { } kind && kinds.Contains(kind)))
                .Any(region => IsShared(input, region));
 
     private static bool IsShared(InterproceduralInput input, string region) =>

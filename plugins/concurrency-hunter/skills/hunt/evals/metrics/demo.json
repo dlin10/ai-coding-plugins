@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
   "target": "demo/Demo.slnx",
-  "revision": "15f0c3ce483ed660924851602e50f58430f0114a",
+  "revision": "7c9e61652665ba1bf715d03a117354516de37b53",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-26T13:15:35.9354751\u002B00:00",
+  "recordedAt": "2026-09-27T11:03:11.0436495\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,91 +18,91 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.218
+        "seconds": 3.047
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.703
+        "seconds": 1.693
       },
       {
         "step": "program-index",
-        "seconds": 1.04
+        "seconds": 1.085
       },
       {
         "step": "lowering",
-        "seconds": 1.124
+        "seconds": 1.211
       },
       {
         "step": "reachable-set",
-        "seconds": 0.067
+        "seconds": 0.068
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.461
+        "seconds": 0.473
       },
       {
         "step": "executions",
-        "seconds": 0.203
+        "seconds": 0.209
       },
       {
         "step": "accesses",
-        "seconds": 0.585
+        "seconds": 0.588
       },
       {
         "step": "pairing",
-        "seconds": 0.051
+        "seconds": 0.049
       },
       {
         "step": "solver",
-        "seconds": 0.149
+        "seconds": 0.17
       },
       {
         "step": "findings",
-        "seconds": 0.04
+        "seconds": 0.036
       },
       {
         "step": "render",
-        "seconds": 0.098
+        "seconds": 0.14
       }
     ],
-    "totalSeconds": 10.942
+    "totalSeconds": 10.966
   },
-  "peakWorkingSetMb": 305.4,
+  "peakWorkingSetMb": 313.1,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 261,
+    "roots": 271,
     "rootsPerProvider": {
-      "aspnetcore": 104,
-      "hosting": 157
+      "aspnetcore": 109,
+      "hosting": 162
     },
-    "reachableBodies": 1003,
-    "summaries": 1003,
-    "regions": 649,
-    "instances": 1049,
-    "accesses": 1238,
+    "reachableBodies": 1037,
+    "summaries": 1037,
+    "regions": 670,
+    "instances": 1083,
+    "accesses": 1285,
     "pairs": {
-      "comparisons": 1369,
-      "cartesianBound": 389404,
+      "comparisons": 1408,
+      "cartesianBound": 413596,
       "largestBucket": 8,
-      "buckets": 540,
+      "buckets": 558,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 279,
+        "no-overlap": 284,
         "ordered": 21,
-        "read-read": 788,
+        "read-read": 808,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 182
+      "candidates": 196
     },
-    "findings": 170,
-    "occurrences": 179,
-    "groups": 139,
+    "findings": 183,
+    "occurrences": 193,
+    "groups": 145,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
@@ -121,6 +121,7 @@
       "19df32a1ba5e6929",
       "1aa17773c373f73a",
       "1b3a288043626abf",
+      "1dc28b91f14dde8f",
       "215abd8017e06962",
       "22f49fa00c6b6c6a",
       "23027766c83eb5c9",
@@ -130,15 +131,18 @@
       "2bdeb4f5cc9954f1",
       "2c8cd1cfcda5645d",
       "2cb16b8a1acdc46b",
+      "2d62573845e354a0",
       "2eb10dac39b1ab87",
       "2f2c498276cc327b",
       "2f670aa8284d3790",
       "33ef591448fde6b9",
       "34e840c7a707dbc5",
+      "35d7ff53c0761835",
       "3730bda85a8cc9a7",
       "386b91364073a8cc",
       "39e862e1c3353646",
       "39e9198b61d74724",
+      "3a12bfb7c6b686c6",
       "3b3cb21a0be99d2a",
       "3b8ef83bb3f43421",
       "48f2eedc42c0769b",
@@ -163,6 +167,7 @@
       "5f4e356ccf353d27",
       "601a2642cbab2ba1",
       "608cad26b11b15f2",
+      "60ff67a816854abe",
       "63130a58ff958b92",
       "644c6073c130aa6a",
       "64bdde19a43fcdbd",
@@ -180,6 +185,7 @@
       "76edbff6331ffb9e",
       "785b8001a21baff9",
       "7b1b888204c11572",
+      "7b44d0ade70055a5",
       "7b7626abc9fea1d5",
       "7c01557e3a6041af",
       "7c58babcede86c11",
@@ -238,9 +244,13 @@
       "bc9d90e7f9fff06e",
       "bda8f12f8f43d6a4",
       "bdb16ea449cce859",
+      "bf0b4a252795b6d0",
+      "c10111968c7b2e14",
+      "c3bcd924dbc500a3",
       "c4ee66fcea6d4204",
       "c5762a8c1e569106",
       "ca0546845082f399",
+      "cca05c084c463c60",
       "ccf7d4566101b2f8",
       "ce5268aa551cfe20",
       "cf4f4e9036edbaf8",
@@ -249,6 +259,7 @@
       "d4732743119bbd54",
       "d4ce6f8d939429b0",
       "d510164a9aa69fdb",
+      "d54b892f48834b33",
       "d5aa902d6448057f",
       "d855fe88c8d455ad",
       "d892f286b38913e5",
@@ -266,11 +277,13 @@
       "f00b4e69472bfc8a",
       "f0a8012f99a33d8a",
       "f15de3949b9f80f4",
+      "f17e1449dabfa5c1",
       "f238b54c4ee96922",
       "f49c13907cfd7721",
       "f5bc36108cf59d98",
       "f6a844fb679b5eb7",
       "f6beff54a3c25edf",
+      "f6f47a3be9cd8f5e",
       "fa80453e1156d2b0",
       "fd00541eeae2ce38",
       "ff6af698a226ea8c"
@@ -280,24 +293,24 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 104,
-        "hosting": 156
+        "aspnetcore": 109,
+        "hosting": 161
       },
-      "accesses": 882,
+      "accesses": 909,
       "counters": {
         "delegate-to-opaque": 7,
-        "element-operation": 24,
-        "known-call": 193,
+        "element-operation": 28,
+        "known-call": 200,
         "merged-context": 0,
         "no-receiver-object": 13,
-        "opaque-call": 883,
+        "opaque-call": 921,
         "out-of-range-call": 0,
-        "reachable-bodies": 1000,
+        "reachable-bodies": 1034,
         "scc-budget-exceeded": 0,
         "semantic-gap": 9,
         "solver-available": 1,
-        "solver-queries": 11,
-        "solver-sat": 7,
+        "solver-queries": 13,
+        "solver-sat": 9,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
         "unproven-reference": 8,
@@ -360,12 +373,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 10.942,
+      "actual": 10.966,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.298,
+      "actual": 0.306,
       "met": true
     }
   }

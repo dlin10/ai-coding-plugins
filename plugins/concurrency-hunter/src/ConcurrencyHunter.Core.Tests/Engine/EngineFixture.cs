@@ -113,6 +113,14 @@ public static class EngineFixture
 
     public static EngineRun AnalyzeScope(Solution solution, string scopeId) => Analyze(Execute(Solve(ReachScope(solution, scopeId))));
 
+    /// <summary>Runs the engine over one source file as far as its interprocedural accesses, coverage and gaps, without pairing them.</summary>
+    public static InterproceduralCollection Collect(string source)
+    {
+        var execution = Execute(source);
+        return InterproceduralAccesses.Collect(new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap,
+                                                                        execution.Analysis));
+    }
+
     private static EngineRun Analyze(ExecutionRun execution)
     {
         var input = new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);

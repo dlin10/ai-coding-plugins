@@ -191,6 +191,11 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// <summary>What the call does to the collection it is a member of, null for every other call (ADR 0010).</summary>
     public IrCollectionCall? Collection { get; init; }
 
+    /// <summary>For a call of an interface member: the member of the table each kind of object implements it with, which is what
+    /// the call is on an object of that kind (ADR 0010, amendment of the phase 5b third run). A kind missing here leaves the call
+    /// undecided on its objects, as it is on every object for any other call.</summary>
+    public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
+
     /// <summary>What the library semantics table says about the target, null for a target it does not describe (TD-034a). It
     /// decides only for a call that would otherwise be opaque: one whose dispatch may reach a source body runs that body.</summary>
     public IrLibraryCall? Library { get; init; }
@@ -251,6 +256,20 @@ public sealed record IrCollectionCall(string Member, IrCollectionEffect Structur
     /// <summary>The ordinal of the parameter whose collection the member copies, <c>AddRange</c> and a constructor from a collection:
     /// it enumerates that argument and holds what the enumeration yields. Null for every other member and overload.</summary>
     public int? Source { get; init; }
+}
+
+/// <summary>What an interface call is on an object of one kind (<c>CollectionObjects</c>): the member of the table
+/// that kind implements it with, an explicit implementation taken as the public member it stands for, or, for an array, what the same
+/// code does to the array directly. A member that touches nothing is decided all the same: an array's <c>Count</c>, or a member it
+/// refuses by throwing. <see cref="ViewType"/> is the type of the view a <c>Keys</c> or <c>Values</c> member hands out.</summary>
+public sealed record IrImplementation(string Kind, IrCollectionCall Member)
+{
+    public string? ViewType { get; init; }
+
+    /// <summary>Whether the interface member takes a dictionary's entry as one pair where the member it is takes the key and the value
+    /// apart, as <c>ICollection&lt;KeyValuePair&lt;TKey, TValue&gt;&gt;.Add</c> is <c>Add(key, value)</c>: the argument it is handed is that
+    /// pair, whatever type the call declares it as.</summary>
+    public bool TakesPair { get; init; }
 }
 
 /// <summary>What a factory of a <c>ConcurrentDictionary</c> member is handed for one of its parameters (R11).</summary>

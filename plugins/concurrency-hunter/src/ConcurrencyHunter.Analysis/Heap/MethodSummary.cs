@@ -239,6 +239,11 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// those held in the cells of what it holds. Null where every collection the field may hold is.</summary>
     public IReadOnlySet<string>? CollectionRegions { get; init; }
 
+    /// <summary>For the load of a field only an interface call reads, that call's candidates and interface member: the load is no access
+    /// of its own where every object the field holds is decided as a member of the table, as it is none before that member called on
+    /// the field directly, and stays one where the field may hold an array or an object the call does not decide (R4, R5).</summary>
+    public (IReadOnlyList<IrImplementation> Implementations, string Method)? InterfaceReceiver { get; init; }
+
     /// <summary>Whether the access touches a field of a fresh object: one it reaches directly through a value whose every
     /// definition is an allocation of the same body, which two invocations never share (R12).</summary>
     public bool IsFresh { get; init; }
@@ -323,6 +328,30 @@ public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind,
     /// <summary>The pair a copy into a collection that is no dictionary holds for each key and value a dictionary it enumerates holds;
     /// null for a copy into a dictionary, which holds keys and values apart itself.</summary>
     public AbstractValue? Pair { get; init; }
+
+    /// <summary>For a transfer an interface call makes on the objects it decides: the kinds of objects among <see cref="Arrays"/> it goes
+    /// into, and the kinds of objects among <see cref="Values"/> it puts there; null where every object counts (ADR 0010, amendment of
+    /// the phase 5b third run).</summary>
+    public IReadOnlySet<string>? ArrayKinds { get; init; }
+
+    /// <inheritdoc cref="ArrayKinds"/>
+    public IReadOnlySet<string>? ValueKinds { get; init; }
+
+    /// <summary>Where set, the kinds of objects among <see cref="Arrays"/> the transfer does not go into: every other object takes it, one
+    /// the interface call does not decide among them.</summary>
+    public IReadOnlySet<string>? ExceptKinds { get; init; }
+
+    /// <summary>The interface member an interface call's transfer is made for: an object whose type of the run's own implements it runs
+    /// that body and takes no transfer (ADR 0010, amendment of the phase 5b third run).</summary>
+    public string? InterfaceMethod { get; init; }
+
+    /// <summary>Where set, each object of <see cref="Arrays"/> puts what its own storage of this name holds into <see cref="Slot"/>: what
+    /// an interface call hands out of the objects it decides, and of those alone.</summary>
+    public string? FromSlot { get; init; }
+
+    /// <summary>Where set, each object of <see cref="Arrays"/> — a view an interface call makes — holds what the storage of this name holds
+    /// in each object of <see cref="CopiedFrom"/> of the kinds of <see cref="ValueKinds"/>.</summary>
+    public string? ViewOf { get; init; }
 }
 
 public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
@@ -461,6 +490,10 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
 
     /// <inheritdoc cref="SummaryOpaqueCall.Provenance"/>
     public IrProvenance? Provenance { get; init; }
+
+    /// <summary>What the call is on each kind of receiver object without a body of its own to dispatch to: a receiver object it decides
+    /// is no unresolved one (ADR 0010, amendment of the phase 5b third run).</summary>
+    public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
 }
 
 /// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked. The
@@ -482,6 +515,9 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     /// <summary>What the call does to the collection it is a member of (ADR 0010): a member that puts values into it tells a deep
     /// read which objects the collection holds.</summary>
     public IrCollectionCall? Collection { get; init; }
+
+    /// <inheritdoc cref="IrCallOperation.Implementations"/>
+    public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
 
     /// <inheritdoc cref="IrCallOperation.IsRecognized"/>
     public bool IsRecognized { get; init; }
@@ -513,7 +549,16 @@ public sealed record SummaryDynamicOperation(int OperationId, string Callee, IRe
 /// <summary>A write of the result of the call or <c>dynamic</c> operation <see cref="SourceOperationId"/> into a field or a cell of
 /// <see cref="Targets"/>, or into the static field <see cref="StaticField"/>: what makes an unresolved call a semantic gap when those
 /// are not owned (R4).</summary>
-public sealed record SummaryResultStore(int SourceOperationId, IReadOnlySet<AbstractValue> Targets, IrFieldRef? StaticField);
+public sealed record SummaryResultStore(int SourceOperationId, IReadOnlySet<AbstractValue> Targets, IrFieldRef? StaticField)
+{
+    /// <summary>For a write an interface call makes: the kinds of objects among <see cref="Targets"/> whose member holds the result, and
+    /// the interface member the call is of; every other object, and one whose type of the run's own implements that member, is written
+    /// nothing. Null where every object counts (ADR 0010, amendment of the phase 5b third run).</summary>
+    public IReadOnlySet<string>? TargetKinds { get; init; }
+
+    /// <inheritdoc cref="TargetKinds"/>
+    public string? InterfaceMethod { get; init; }
+}
 
 /// <summary>What a known call does to one argument (R3), a deep read or a write: the objects the argument may be, or the collection
 /// or slice it is cut from, with the call's own place, locks and conditions. Collecting the accesses expands it over the solved
@@ -527,11 +572,46 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
     /// <summary>Whether the argument is a sequence of the objects the effect is on (<see cref="IrLibraryArgument.IsSequence"/>).</summary>
     public bool IsSequence { get; init; }
 
-    /// <summary>The member of a node or a live view whose receiver no field of the calling body names: the effect is that member's own
-    /// accesses, made on the collection the receiver stands for in the heap — the list a node was added to, the dictionary a view is
-    /// of — where a field holds it (ADR 0010, phase 5b second run). Null for every other effect.</summary>
+    /// <summary>The member of the table whose receiver no field of the calling body names: the effect is that member's own accesses,
+    /// made on each collection the receiver is or stands for in the heap — a collection handed over or returned, the list a node was
+    /// added to, the dictionary a view is of — where a field holds it (ADR 0010, phase 5b second and third runs). Null for every other
+    /// effect.</summary>
     public IrCollectionCall? Member { get; init; }
+
+    /// <summary>For a call of an interface member, what it is on each kind of object in place of <see cref="Member"/>, which is then
+    /// the effects of all of them together (ADR 0010, amendment of the phase 5b third run).</summary>
+    public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
+
+    /// <summary>The interface member a call of one is a call of: an object whose type of the run's own implements it runs that body, and
+    /// is no object <see cref="Implementations"/> decide. Null for every other effect.</summary>
+    public string? InterfaceMethod { get; init; }
+
+    /// <summary>The cell the key of <see cref="Member"/> names, read where the call stands as a direct access's is; null for a member
+    /// with no key, which reaches every cell.</summary>
+    public ElementSelector? MemberSelector { get; init; }
+
+    /// <summary>The expression the key is, bound where the call stands as an element access's index is, and the parameter it comes
+    /// from with the width it passes through (TD-092): what an element of an array reached through an interface names its cell by.</summary>
+    public ValueTerm? MemberSelectorTerm { get; init; }
+
+    /// <inheritdoc cref="MemberSelectorTerm"/>
+    public int? MemberSelectorParameter { get; init; }
+
+    /// <inheritdoc cref="MemberSelectorTerm"/>
+    public int? MemberSelectorWidth { get; init; }
+
+    /// <summary>The reads of a collection in this body that the change of <see cref="Member"/> depends on, each with the cell it names:
+    /// a check before the change is one compound operation with it on each collection both resolve to, which only the heap says
+    /// (ADR 0010).</summary>
+    public IReadOnlyList<SummaryMemberCheck> MemberChecks { get; init; } = [];
+
+    /// <summary>What the values <see cref="Member"/> is handed depend on, the key aside: a write of an array's element through an
+    /// interface is fed by every read of the cell it depends on, as the same write on the array is (R5).</summary>
+    public IReadOnlySet<ValueDependency> MemberValueDependencies { get; init; } = new HashSet<ValueDependency>();
 }
+
+/// <summary>A read of a collection a change depends on: the operation making it and the cell its key names, null for none.</summary>
+public sealed record SummaryMemberCheck(int OperationId, ElementSelector? Selector);
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
 public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlySet<AbstractValue> Values,
