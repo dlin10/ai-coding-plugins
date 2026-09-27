@@ -882,7 +882,7 @@ Contract tests каждой реализации: positive/negative discovery, s
 6. **Path/solver tests:** exact/symbolic/range/unknown selectors, key equality, SAT/UNSAT/UNKNOWN, timeout, недоступный solver.
 7. **Provider tests:** общий fixture для ASP.NET Core, hosting и synthetic provider.
 8. **Resolver evals:** пропуск при пустой очереди, пакет на callee, materiality, accepted/rejected/late, второй round, отсутствие третьего.
-8a. **Model evals:** судьбы делегатов и эффекты на эталоне членов библиотек, размеченном по их исходникам нужных версий (49 членов за gaps eShop и выборки из пакетов); число опасных сужений — сгенерированная судьба уже истинной — равно нулю; правило открытого мира: делегат, удержанный библиотекой и вызываемый фреймворком, не теряет находку; синтез драйвера и компиляция декомпилированного кода по пакетам.
+8a. **Model evals:** судьбы делегатов и эффекты на эталоне членов библиотек, размеченном по их исходникам нужных версий (`skills/hunt/evals/models/`: 49 членов за gaps eShop; дальше выборки из пакетов); число опасных сужений — сгенерированная судьба уже истинной — равно нулю; правило открытого мира: делегат, удержанный библиотекой и вызываемый фреймворком, не теряет находку; синтез драйвера и компиляция декомпилированного кода по пакетам.
 9. **Composer evals:** grounding по evidence ids, отказ invented locations/events, `verify manually`, полнота High/Medium, пометка Low без narrative.
 10. **Plugin tests:** tool contract, lifecycle, deadline, cancellation, bundle, schema compatibility, stable fingerprints, suppressions обоих видов.
 11. **Corpus snapshots:** behaviour snapshots на eShopOnContainers, nopCommerce, OrchardCore, eShopOnAbp; перезапись только осознанная; фаза 2b: `EShopSnapshotTests` под `CH_ESHOP_ROOT` и `MetricsCommandTests` сравнивают counts и coverage eShop и demo со снапшотами.
@@ -975,6 +975,7 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 8. Формат JSON моделей, `models.lock.json` и схема provenance (5c).
 9. Бюджет генерации моделей в ране и пересмотр целей PRD 6.1 с генерацией (5d).
 10. Пакет вопроса AI о члене библиотеки и его валидация (5e).
+11. Материалы исследования семантики библиотек 2026-09-27 — временные: `docs/research/library-models.md` (замеры, рецепт синтеза драйверов, ловушки, семантика из исходников) и `docs/research/library-models/` (прототипы и сырые результаты). Их читают перед планом 5c, 5d и 5e и удаляют вместе, когда 5e закрыта и их содержание живёт в коде, тестах и этом документе; ссылку на них в `skills/hunt/evals/models/README.md` удаляют тогда же. Эталон `skills/hunt/evals/models/` остаётся: это model evals (12.1).
 
 ### 14.2. Отдельная будущая версия: deadlock detection
 
@@ -1004,6 +1005,8 @@ High findings eShopOnContainers и nopCommerce разбираются вручн
 | **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14 |
 | **7** | Масштаб: nopCommerce, OrchardCore, eShopOnAbp до terminal status; performance targets; ручной triage High на eShop и nopCommerce; прогон skill в трёх hosts | `metrics` по PRD 6.1; `evals/*/expected.json` |
 | **8** | По PRD 8: summary hashes входов и зависимостей, incremental cache, кэш inferred facts TD-111, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
+
+План 5c, 5d и 5e начинается с чтения `docs/research/library-models.md` (14.1 п. 11).
 
 Фаза 5 разбита на подфазы 4b и 5a–5e 2026-09-23: единый план фазы не сошёлся за 14 раундов plan review в двух forge-ранах. Подфазы идут в порядке таблицы: известные вызовы описываются до того, как неизвестные перестают быть вызовами без эффекта, чтобы gaps от ILogger, сериализации и EF не заливали eShop в промежуточном состоянии. Порядок после 5b пересмотрен 2026-09-27 по исследованию семантики библиотек (ADR 0012): 132 из 142 gaps eShop после 5b — вызовы, которым передан делегат, поэтому модели и генератор (5c, 5d) идут до resolver (5e, 5f), и resolver строится на gaps, которые остались. 5g ни от чего после 5b не зависит, и до неё её вызовы остаются обычными gaps. В подфазах skill прогоняется в одном хосте и только по правилу раздела 9.6; три хоста остаются проверкой релиза.
 

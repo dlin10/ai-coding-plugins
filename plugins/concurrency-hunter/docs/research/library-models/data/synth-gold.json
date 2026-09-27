@@ -1,0 +1,256 @@
+[
+ {
+  "Member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 5.1601013,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 3.8178635,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 1.8813796,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 1.5627012,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "invoke-now",
+   "elementSelector": "invoke-now"
+  },
+  "Seconds": 1.4608917,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 1.4516971,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 1.3802728,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "framework-event(open world)"
+  },
+  "Seconds": 1.2592476,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "framework-event(open world)"
+  },
+  "Seconds": 1.1963894,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator",
+   "elementSelector": "iterator",
+   "resultSelector": "framework-event(open world)"
+  },
+  "Seconds": 1.2039134,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 4,
+  "Labels": {
+   "match": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 0.2646836,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Execute(System.Action)",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 11.9282933,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 4.4799707,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+   "onRetry": "holder(void Policy.Execute(Action action); void Policy.Execute(Action<Context> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 16.0650289,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+   "onRetry": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 7.6037576,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "sleepDurationProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)",
+   "onRetry": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 9.80415,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
+  "Library": "Google.Protobuf",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 10,
+  "Labels": {},
+  "Seconds": 2.6654753,
+  "EngineError": "InvalidOperationException: No SSA definition was planned for 'reference2'."
+ },
+ {
+  "Member": "M:Google.Protobuf.FieldCodec.ForMessage``1(System.UInt32,Google.Protobuf.MessageParser{``0})",
+  "Library": "Google.Protobuf",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 3,
+  "Labels": {},
+  "Seconds": 1.8183924,
+  "EngineError": "InvalidOperationException: No SSA definition was planned for 'reference2'."
+ }
+]

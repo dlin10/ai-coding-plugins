@@ -1,0 +1,236 @@
+[
+  {
+    "key": "All",
+    "gold": "invoke-now",
+    "perParameter": {
+      "predicate": "invoke-now"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "FirstOrDefault",
+    "gold": "invoke-now",
+    "perParameter": {
+      "predicate": "invoke-now"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "SingleOrDefault",
+    "gold": "invoke-now",
+    "perParameter": {
+      "predicate": "invoke-now"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "Sum",
+    "gold": "invoke-now",
+    "perParameter": {
+      "selector": "invoke-now"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "ToDictionary",
+    "gold": "invoke-now",
+    "perParameter": {
+      "keySelector": "invoke-now",
+      "elementSelector": "invoke-now"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "Where",
+    "gold": "iterator",
+    "perParameter": {
+      "predicate": "unknown(UnknownDelegateCall)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "Select",
+    "gold": "iterator",
+    "perParameter": {
+      "selector": "unknown(UnknownDelegateCall)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "SelectMany",
+    "gold": "iterator",
+    "perParameter": {
+      "selector": "framework-event(open world)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "OrderBy",
+    "gold": "iterator",
+    "perParameter": {
+      "keySelector": "framework-event(open world)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "GroupBy",
+    "gold": "iterator",
+    "perParameter": {
+      "keySelector": "framework-event(open world)",
+      "elementSelector": "framework-event(open world)",
+      "resultSelector": "framework-event(open world)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "FindFirst",
+    "gold": "invoke-now",
+    "perParameter": {
+      "match": "unknown(UnknownDelegateCall)"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "PolicyExecute",
+    "gold": "invoke-now",
+    "perParameter": {
+      "action": "invoke-now*"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "AsyncPolicyExecuteAsync",
+    "gold": "invoke-now",
+    "perParameter": {
+      "action": "invoke-now\u002Bspawn*"
+    },
+    "triggersTried": []
+  },
+  {
+    "key": "WaitAndRetry",
+    "gold": "holder",
+    "perParameter": {
+      "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+      "onRetry": "holder(PolicyResult Policy.ExecuteAndCapture(Action action), PolicyResult Policy.ExecuteAndCapture(Action\u003CContext\u003E action, IDictionary\u003Cstring, object\u003E contextData), PolicyResult Policy.ExecuteAndCapture(Action\u003CContext\u003E action, Context context), \u002B3)"
+    },
+    "triggersTried": [
+      "Policy Policy.WithPolicyKey(string policyKey)",
+      "void Policy.Execute(Action action)",
+      "void Policy.Execute(Action\u003CContext\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "void Policy.Execute(Action\u003CContext\u003E action, Context context)",
+      "void Policy.Execute(Action\u003CCancellationToken\u003E action, CancellationToken cancellationToken)",
+      "void Policy.Execute(Action\u003CContext, CancellationToken\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "void Policy.Execute(Action\u003CContext, CancellationToken\u003E action, Context context, CancellationToken cancellationToken)",
+      "PolicyResult Policy.ExecuteAndCapture(Action action)",
+      "PolicyResult Policy.ExecuteAndCapture(Action\u003CContext\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "PolicyResult Policy.ExecuteAndCapture(Action\u003CContext\u003E action, Context context)",
+      "PolicyResult Policy.ExecuteAndCapture(Action\u003CCancellationToken\u003E action, CancellationToken cancellationToken)",
+      "PolicyResult Policy.ExecuteAndCapture(Action\u003CContext, CancellationToken\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "PolicyResult Policy.ExecuteAndCapture(Action\u003CContext, CancellationToken\u003E action, Context context, CancellationToken cancellationToken)",
+      "PolicyWrap Policy.Wrap(ISyncPolicy innerPolicy)"
+    ]
+  },
+  {
+    "key": "WaitAndRetryAsync",
+    "gold": "holder",
+    "perParameter": {
+      "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+      "onRetry": "holder(Task AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E action), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, Context context), \u002B15)"
+    },
+    "triggersTried": [
+      "AsyncPolicy AsyncPolicy.WithPolicyKey(string policyKey)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E action)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, Context context)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CTask\u003E action)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, Task\u003E action, Context context)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "AsyncPolicyWrap AsyncPolicy.WrapAsync(IAsyncPolicy innerPolicy)"
+    ]
+  },
+  {
+    "key": "WaitAndRetryForeverAsync",
+    "gold": "holder",
+    "perParameter": {
+      "sleepDurationProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E action), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, Context context), \u002B15)",
+      "onRetry": "holder(Task AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E action), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData), Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, Context context), \u002B15)"
+    },
+    "triggersTried": [
+      "AsyncPolicy AsyncPolicy.WithPolicyKey(string policyKey)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E action)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, Task\u003E action, Context context)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task AsyncPolicy.ExecuteAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CTask\u003E action)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, Task\u003E action, Context context)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CCancellationToken, Task\u003E action, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, IDictionary\u003Cstring, object\u003E contextData, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "Task\u003CPolicyResult\u003E AsyncPolicy.ExecuteAndCaptureAsync(Func\u003CContext, CancellationToken, Task\u003E action, Context context, CancellationToken cancellationToken, bool continueOnCapturedContext)",
+      "AsyncPolicyWrap AsyncPolicy.WrapAsync(IAsyncPolicy innerPolicy)"
+    ]
+  },
+  {
+    "key": "MessageParserCtor",
+    "gold": "holder",
+    "perParameter": {
+      "factory": "holder(Msg MessageParser\u003CMsg\u003E.ParseFrom(byte[] data), Msg MessageParser\u003CMsg\u003E.ParseFrom(byte[] data, int offset, int length), Msg MessageParser\u003CMsg\u003E.ParseFrom(ByteString data), \u002B13)"
+    },
+    "triggersTried": [
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(byte[] data)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(byte[] data, int offset, int length)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(ByteString data)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(Stream input)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(ReadOnlySequence\u003Cbyte\u003E data)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(ReadOnlySpan\u003Cbyte\u003E data)",
+      "Msg MessageParser\u003CMsg\u003E.ParseDelimitedFrom(Stream input)",
+      "Msg MessageParser\u003CMsg\u003E.ParseFrom(CodedInputStream input)",
+      "Msg MessageParser\u003CMsg\u003E.ParseJson(string json)",
+      "MessageParser\u003CMsg\u003E MessageParser\u003CMsg\u003E.WithDiscardUnknownFields(bool discardUnknownFields)",
+      "MessageParser\u003CMsg\u003E MessageParser\u003CMsg\u003E.WithExtensionRegistry(ExtensionRegistry registry)",
+      "IMessage MessageParser.ParseFrom(byte[] data)",
+      "IMessage MessageParser.ParseFrom(byte[] data, int offset, int length)",
+      "IMessage MessageParser.ParseFrom(ByteString data)",
+      "IMessage MessageParser.ParseFrom(Stream input)",
+      "IMessage MessageParser.ParseFrom(ReadOnlySequence\u003Cbyte\u003E data)",
+      "IMessage MessageParser.ParseFrom(ReadOnlySpan\u003Cbyte\u003E data)",
+      "IMessage MessageParser.ParseDelimitedFrom(Stream input)",
+      "IMessage MessageParser.ParseFrom(CodedInputStream input)",
+      "IMessage MessageParser.ParseJson(string json)",
+      "MessageParser MessageParser.WithDiscardUnknownFields(bool discardUnknownFields)",
+      "MessageParser MessageParser.WithExtensionRegistry(ExtensionRegistry registry)"
+    ]
+  },
+  {
+    "key": "ForMessage",
+    "gold": "holder",
+    "perParameter": {
+      "parser": "holder(Msg FieldCodec\u003CMsg\u003E.Read(CodedInputStream input))"
+    },
+    "triggersTried": [
+      "void FieldCodec\u003CMsg\u003E.WriteTagAndValue(CodedOutputStream output, Msg value)",
+      "Msg FieldCodec\u003CMsg\u003E.Read(CodedInputStream input)",
+      "int FieldCodec\u003CMsg\u003E.CalculateSizeWithTag(Msg value)"
+    ]
+  }
+]

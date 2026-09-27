@@ -1,0 +1,737 @@
+[
+  {
+    "key": "All",
+    "id": "M:System.Linq.Enumerable.All\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})",
+    "gold": "invoke-now",
+    "probe": {
+      "predicate": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.All"
+        ]
+      }
+    }
+  },
+  {
+    "key": "FirstOrDefault",
+    "id": "M:System.Linq.Enumerable.FirstOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})",
+    "gold": "invoke-now",
+    "probe": {
+      "predicate": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.TryGetFirst"
+        ]
+      }
+    }
+  },
+  {
+    "key": "SingleOrDefault",
+    "id": "M:System.Linq.Enumerable.SingleOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})",
+    "gold": "invoke-now",
+    "probe": {
+      "predicate": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.TryGetSingle"
+        ]
+      }
+    }
+  },
+  {
+    "key": "Sum",
+    "id": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})",
+    "gold": "invoke-now",
+    "probe": {
+      "selector": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.Sum"
+        ]
+      }
+    }
+  },
+  {
+    "key": "ToDictionary",
+    "id": "M:System.Linq.Enumerable.ToDictionary\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602})",
+    "gold": "invoke-now",
+    "probe": {
+      "keySelector": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.ToDictionary"
+        ]
+      },
+      "elementSelector": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Linq.Enumerable.ToDictionary"
+        ]
+      }
+    }
+  },
+  {
+    "key": "Where",
+    "id": "M:System.Linq.Enumerable.Where\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})",
+    "gold": "iterator",
+    "probe": {
+      "predicate": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "Select",
+    "id": "M:System.Linq.Enumerable.Select\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})",
+    "gold": "iterator",
+    "probe": {
+      "selector": {
+        "label": "iterator",
+        "clean": false,
+        "events": [
+          "Escaped: System.Linq.Enumerable.Iterator\u00601.Select (too many implementations)",
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "SelectMany",
+    "id": "M:System.Linq.Enumerable.SelectMany\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Collections.Generic.IEnumerable{\u0060\u00601}})",
+    "gold": "iterator",
+    "probe": {
+      "selector": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "OrderBy",
+    "id": "M:System.Linq.Enumerable.OrderBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})",
+    "gold": "iterator",
+    "probe": {
+      "keySelector": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "GroupBy",
+    "id": "M:System.Linq.Enumerable.GroupBy\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,System.Collections.Generic.IEnumerable{\u0060\u00602},\u0060\u00603})",
+    "gold": "iterator",
+    "probe": {
+      "keySelector": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      },
+      "elementSelector": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      },
+      "resultSelector": {
+        "label": "iterator",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "FindFirst",
+    "id": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
+    "gold": "invoke-now",
+    "probe": {
+      "match": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: System.Security.Claims.ClaimsIdentity.FindFirst"
+        ]
+      }
+    }
+  },
+  {
+    "key": "Register",
+    "id": "M:System.Threading.CancellationToken.Register(System.Action)",
+    "gold": "framework-event",
+    "probe": {
+      "callback": {
+        "label": "holder",
+        "clean": false,
+        "events": [
+          "Escaped: argument of a delegate call in System.Threading.CancellationTokenSource.Invoke",
+          "Escaped: System.Threading.Interlocked.CompareExchange",
+          "Escaped: System.Threading.Interlocked.Exchange",
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "PolicyExecute",
+    "id": "M:Polly.Policy.Execute(System.Action)",
+    "gold": "invoke-now",
+    "probe": {
+      "action": {
+        "label": "escaped",
+        "clean": false,
+        "events": [
+          "Escaped: Polly.Policy.Implementation (too many implementations)"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AsyncPolicyExecuteAsync",
+    "id": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})",
+    "gold": "invoke-now",
+    "probe": {
+      "action": {
+        "label": "holder",
+        "clean": false,
+        "events": [
+          "Escaped: System.Runtime.CompilerServices.IAsyncStateMachine.MoveNext (too many implementations)",
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "WaitAndRetry",
+    "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+    "gold": "holder",
+    "probe": {
+      "sleepDurationProvider": {
+        "label": "holder",
+        "clean": false,
+        "events": [
+          "Escaped: System.Linq.Enumerable.Iterator\u00601.Select (too many implementations)",
+          "Returned"
+        ]
+      },
+      "onRetry": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "WaitAndRetryAsync",
+    "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+    "gold": "holder",
+    "probe": {
+      "sleepDurationProvider": {
+        "label": "holder",
+        "clean": false,
+        "events": [
+          "Escaped: System.Linq.Enumerable.Iterator\u00601.Select (too many implementations)",
+          "Returned"
+        ]
+      },
+      "onRetry": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "WaitAndRetryForeverAsync",
+    "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
+    "gold": "holder",
+    "probe": {
+      "sleepDurationProvider": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      },
+      "onRetry": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "EfExecuteAsync",
+    "id": "M:Microsoft.EntityFrameworkCore.ExecutionStrategyExtensions.ExecuteAsync(Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy,System.Func{System.Threading.Tasks.Task})",
+    "gold": "invoke-now",
+    "probe": {
+      "operation": {
+        "label": "holder",
+        "clean": false,
+        "events": [
+          "Escaped: argument of a delegate call in Microsoft.EntityFrameworkCore.Storage.NonRetryingExecutionStrategy.ExecuteAsync",
+          "Escaped: System.Runtime.CompilerServices.IAsyncStateMachine.MoveNext (too many implementations)",
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddDbContext",
+    "id": "M:Microsoft.Extensions.DependencyInjection.EntityFrameworkServiceCollectionExtensions.AddDbContext\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.EntityFrameworkCore.DbContextOptionsBuilder},Microsoft.Extensions.DependencyInjection.ServiceLifetime,Microsoft.Extensions.DependencyInjection.ServiceLifetime)",
+    "gold": "di-registration",
+    "probe": {
+      "optionsAction": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "MessageParserCtor",
+    "id": "M:Google.Protobuf.MessageParser\u00601.#ctor(System.Func{\u00600})",
+    "gold": "holder",
+    "probe": {
+      "factory": {
+        "label": "stored",
+        "clean": true,
+        "events": [
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "ForMessage",
+    "id": "M:Google.Protobuf.FieldCodec.ForMessage\u0060\u00601(System.UInt32,Google.Protobuf.MessageParser{\u0060\u00600})",
+    "gold": "holder",
+    "probe": {
+      "parser": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AuthAddPolicy",
+    "id": "M:Microsoft.AspNetCore.Authorization.AuthorizationOptions.AddPolicy(System.String,System.Action{Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder})",
+    "gold": "invoke-now",
+    "probe": {
+      "configurePolicy": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Authorization.AuthorizationOptions.AddPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "key": "CorsAddPolicy",
+    "id": "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy(System.String,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder})",
+    "gold": "invoke-now",
+    "probe": {
+      "configurePolicy": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy"
+        ]
+      }
+    }
+  },
+  {
+    "key": "SetIsOriginAllowed",
+    "id": "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(System.Func{System.String,System.Boolean})",
+    "gold": "framework-event",
+    "probe": {
+      "isOriginAllowed": {
+        "label": "stored",
+        "clean": true,
+        "events": [
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "HealthPredicate",
+    "id": "P:Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.Predicate",
+    "gold": "framework-event",
+    "probe": {
+      "value": {
+        "label": "stored",
+        "clean": true,
+        "events": [
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "HealthResponseWriter",
+    "id": "P:Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.ResponseWriter",
+    "gold": "framework-event",
+    "probe": {
+      "value": {
+        "label": "stored",
+        "clean": true,
+        "events": [
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "OnMessageReceived",
+    "id": "P:Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents.OnMessageReceived",
+    "gold": "framework-event",
+    "probe": {
+      "value": {
+        "label": "stored",
+        "clean": true,
+        "events": [
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "IWebHostBuilderConfigureAppConfiguration",
+    "id": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configureDelegate": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureAppConfiguration",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureAppConfiguration",
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "IWebHostBuilderConfigureServices",
+    "id": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.DependencyInjection.IServiceCollection})",
+    "gold": "startup",
+    "probe": {
+      "configureServices": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureServices",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureServices",
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "WebHostConfigureAppConfiguration",
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configureDelegate": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureAppConfiguration",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureAppConfiguration",
+          "StoredInArg: 0"
+        ]
+      }
+    }
+  },
+  {
+    "key": "WebHostConfigureLogging",
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Logging.ILoggingBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configureLogging": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureServices",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureServices",
+          "StoredInArg: 0"
+        ]
+      }
+    }
+  },
+  {
+    "key": "ConfigureKestrel",
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "options": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureServices",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureServices",
+          "StoredInArg: 0"
+        ]
+      }
+    }
+  },
+  {
+    "key": "KestrelListen",
+    "id": "M:Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(System.Net.IPAddress,System.Int32,System.Action{Microsoft.AspNetCore.Server.Kestrel.Core.ListenOptions})",
+    "gold": "invoke-now",
+    "probe": {
+      "configure": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen"
+        ]
+      }
+    }
+  },
+  {
+    "key": "Ok",
+    "id": "M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok(System.Object)",
+    "gold": "non-delegate",
+    "probe": {
+      "value": {
+        "label": "holder",
+        "clean": true,
+        "events": [
+          "Returned"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddCors",
+    "id": "M:Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "setupAction": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddAuthorization",
+    "id": "M:Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Authorization.AuthorizationOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "configure": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddJwtBearer",
+    "id": "M:Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(Microsoft.AspNetCore.Authentication.AuthenticationBuilder,System.Action{Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "configureOptions": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddJsonOptions",
+    "id": "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddJsonOptions(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Action{Microsoft.AspNetCore.Mvc.JsonOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "configure": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddControllers",
+    "id": "M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Mvc.MvcOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "configure": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddGrpc",
+    "id": "M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Grpc.AspNetCore.Server.GrpcServiceOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "configureOptions": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddSwaggerGen",
+    "id": "M:Microsoft.Extensions.DependencyInjection.SwaggerGenServiceCollectionExtensions.AddSwaggerGen(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Swashbuckle.AspNetCore.SwaggerGen.SwaggerGenOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "setupAction": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddIdentityServer",
+    "id": "M:Microsoft.Extensions.DependencyInjection.IdentityServerServiceCollectionExtensions.AddIdentityServer(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Duende.IdentityServer.Configuration.IdentityServerOptions})",
+    "gold": "di-registration",
+    "probe": {
+      "setupAction": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "AddCheck",
+    "id": "M:Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder,System.String,System.Func{Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult},System.Collections.Generic.IEnumerable{System.String},System.Nullable{System.TimeSpan})",
+    "gold": "framework-event",
+    "probe": {
+      "check": {
+        "label": "di-registration",
+        "clean": true,
+        "events": [
+          "RegisteredDI: Microsoft.Extensions.DependencyInjection.ServiceDescriptor..ctor"
+        ]
+      }
+    }
+  },
+  {
+    "key": "ConfigureWebHostDefaults",
+    "id": "M:Microsoft.Extensions.Hosting.GenericHostBuilderExtensions.ConfigureWebHostDefaults(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.IWebHostBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configure": {
+        "label": "invoke-now",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.Extensions.Hosting.GenericHostWebHostBuilderExtensions.ConfigureWebHost"
+        ]
+      }
+    }
+  },
+  {
+    "key": "HostConfigureLogging",
+    "id": "M:Microsoft.Extensions.Hosting.HostingHostBuilderExtensions.ConfigureLogging(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.Logging.ILoggingBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configureLogging": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureServices",
+          "StoredInArg: 0"
+        ]
+      }
+    }
+  },
+  {
+    "key": "IHostBuilderConfigureAppConfiguration",
+    "id": "M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "gold": "startup",
+    "probe": {
+      "configureDelegate": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureAppConfiguration",
+          "StoredInReceiver"
+        ]
+      }
+    }
+  },
+  {
+    "key": "UseSerilog",
+    "id": "M:Serilog.SerilogWebHostBuilderExtensions.UseSerilog(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Serilog.LoggerConfiguration},System.Boolean,System.Boolean)",
+    "gold": "startup",
+    "probe": {
+      "configureLogger": {
+        "label": "invoke-now\u002Bstored",
+        "clean": true,
+        "events": [
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureHostBuilder.ConfigureServices",
+          "Invoked: Microsoft.AspNetCore.Builder.ConfigureWebHostBuilder.ConfigureServices",
+          "StoredInArg: 0"
+        ]
+      }
+    }
+  },
+  {
+    "key": "OptionsValue",
+    "id": "P:Microsoft.Extensions.Options.IOptions\u00601.Value",
+    "gold": "non-delegate",
+    "probe": "skipped"
+  },
+  {
+    "key": "AssemblyNameName",
+    "id": "P:System.Reflection.AssemblyName.Name",
+    "gold": "non-delegate",
+    "probe": "skipped"
+  }
+]

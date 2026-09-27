@@ -1,0 +1,394 @@
+[
+  {
+    "n": 1,
+    "id": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/AnyAll.cs",
+    "path": "All -> foreach over source, predicate(element) until the first false",
+    "notes": "Synchronous, on the caller's thread, 0..n times (stops at the first element that fails). Not stored."
+  },
+  {
+    "n": 2,
+    "id": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/First.cs",
+    "path": "FirstOrDefault -> TryGetFirst(source, predicate, out _) -> foreach, predicate(element) until the first true",
+    "notes": "Synchronous, 0..n calls, stops at the first match. In 8.0 there is no special-casing of the predicate overload for Iterator/IPartition sources; it always enumerates source. Not stored."
+  },
+  {
+    "n": 3,
+    "id": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/Single.cs",
+    "path": "SingleOrDefault -> TryGetSingle(source, predicate, out _) -> enumerator loop, predicate(e.Current); after the first match keeps calling predicate on the rest to detect a second match",
+    "notes": "Synchronous; after a match it keeps scanning to the end, so on success it is called for every element; throws on a second match. Not stored."
+  },
+  {
+    "n": 4,
+    "id": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/Sum.cs",
+    "path": "Sum(source, Func<TSource,int>) -> Sum<TSource,int,int>(source, selector) -> foreach, checked sum += selector(value)",
+    "notes": "Synchronous, once per element, on the caller's thread. Not stored."
+  },
+  {
+    "n": 5,
+    "id": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/ToCollection.cs",
+    "path": "ToDictionary(source, keySelector, elementSelector) -> ToDictionary(..., comparer: null) -> array/List/IEnumerable branch -> d.Add(keySelector(x), elementSelector(x)) per element",
+    "notes": "Both selectors run synchronously, once per element, keySelector then elementSelector for each element in turn. Empty ICollection returns early without any call. Neither is stored."
+  },
+  {
+    "n": 6,
+    "id": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+    "label": "iterator",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/Where.cs",
+    "path": "Where -> iterator.Where(predicate) | new WhereArrayIterator / WhereListIterator / WhereEnumerableIterator(source, predicate) -> _predicate(item) in MoveNext (and in the SpeedOpt ToArray/ToList/Count overrides)",
+    "notes": "Never called during Where itself. Called on each enumeration, by whoever enumerates (foreach, ToList, Count...). Chained Where/Select combine the delegates into one iterator (CombinePredicates / WhereSelect*). A second GetEnumerator (or one from another thread) gets a Clone that shares the same delegate, so concurrent enumerations call it concurrently."
+  },
+  {
+    "n": 7,
+    "id": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+    "label": "iterator",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/Select.cs",
+    "path": "Select -> iterator.Select(selector) | SelectArrayIterator / SelectListIterator / SelectIListIterator / IPartition path / SelectEnumerableIterator -> _selector(current) in MoveNext",
+    "notes": "Not called by Select. Runs per element, each time the result is enumerated. The SpeedOpt partition iterators also call it from ElementAt/First/Last/ToArray on the result, still only when the sequence is consumed."
+  },
+  {
+    "n": 8,
+    "id": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})",
+    "label": "iterator",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/SelectMany.cs",
+    "path": "SelectMany -> new SelectManySingleSelectorIterator(source, selector) -> MoveNext: _selector(element).GetEnumerator() per source element",
+    "notes": "Lazy: called once per source element as enumeration reaches it, on each enumeration of the result."
+  },
+  {
+    "n": 9,
+    "id": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+    "label": "iterator",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/OrderedEnumerable.cs",
+    "path": "OrderBy -> new OrderedEnumerable<TSource,TKey>(source, keySelector, ...) -> GetEnumerator: Buffer(source) -> SortedMap -> EnumerableSorter.ComputeKeys -> keySelector(element)",
+    "notes": "Stored in the returned IOrderedEnumerable. On every enumeration, keys for all elements are computed up front when GetEnumerator starts (first MoveNext), not lazily per yielded item. First/Last/ElementAt on the ordered sequence call it through CachingComparer. ThenBy keeps it through the parent chain."
+  },
+  {
+    "n": 10,
+    "id": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
+    "label": "iterator",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Linq/src/System/Linq/Grouping.cs",
+    "path": "GroupBy -> new GroupedResultEnumerable(source, keySelector, elementSelector, resultSelector) -> GetEnumerator: Lookup.Create(source, keySelector, elementSelector) then lookup.ApplyResultSelector(resultSelector)",
+    "notes": "All three are kept by the returned sequence. When GetEnumerator is called (each enumeration), keySelector and elementSelector run eagerly for every source element (Lookup.Create in Lookup.cs), before the first item. resultSelector runs lazily, once per group per MoveNext (ApplyResultSelector is a yield iterator)."
+  },
+  {
+    "n": 11,
+    "id": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Security.Claims/src/System/Security/Claims/ClaimsPrincipal.cs",
+    "path": "ClaimsPrincipal.FindFirst(match) -> foreach identity in Identities -> ClaimsIdentity.FindFirst(match) -> foreach claim in Claims, match(claim)",
+    "notes": "Synchronous, stops at the first match; called on claims across all identities in order. Both methods are virtual, so a derived principal or identity can change this. Not stored."
+  },
+  {
+    "n": 12,
+    "id": "M:System.Threading.CancellationToken.Register(System.Action)",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Private.CoreLib/src/System/Threading/CancellationTokenSource.cs",
+    "path": "Register(Action) -> Register(callback, useSynchronizationContext:false) -> Register(shunt, callback, false, useExecutionContext:true) -> CancellationTokenSource.Register -> stored in Registrations; ExecuteCallbackHandlers on Cancel",
+    "notes": "Stored in the source's registration list and invoked once, on the thread that calls Cancel(), or a timer thread for CancelAfter or a linked parent's cancel. It runs under the ExecutionContext captured at Register. Special cases: if already canceled, it runs synchronously inside Register on the caller's thread. For a token with no source (default/None) it is never stored or run. Disposing the returned registration removes it."
+  },
+  {
+    "n": 13,
+    "id": "M:Polly.Policy.Execute(System.Action)",
+    "label": "invoke-now",
+    "evidence": "https://github.com/App-vNext/Polly/blob/7.2.3%2B24/src/Polly/Policy.ExecuteOverloads.cs",
+    "path": "Execute(action) -> Execute((_, _) => action(), new Context(), DefaultCancellationToken) -> Implementation(...) -> e.g. RetryEngine.Implementation loop calling action(context, token)",
+    "notes": "Called 0..n times before Execute returns: retry calls it repeatedly, while an open circuit, bulkhead rejection or an already-canceled token means 0 calls. Surprise: with TimeoutPolicy in Pessimistic mode (TimeoutEngine.cs), the action runs through Task.Run on a thread-pool thread. When the timeout fires, Execute throws TimeoutRejectedException and the action may keep running. Not stored. Git tag for 7.2.3 is '7.2.3+24'."
+  },
+  {
+    "n": 14,
+    "id": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/App-vNext/Polly/blob/7.2.3%2B24/src/Polly/AsyncPolicy.ExecuteOverloads.cs",
+    "path": "ExecuteAsync(action) -> ExecuteAsync((_, _) => action(), new Context(), token, continueOnCapturedContext:false) -> ImplementationAsync -> e.g. AsyncRetryEngine.ImplementationAsync awaiting action(...) in a loop",
+    "notes": "The first attempt starts synchronously inside the ExecuteAsync call. Retries run on the await continuation, usually a pool thread because ConfigureAwait(false). All attempts are sequential and finish before the returned Task completes. Exception: pessimistic AsyncTimeoutPolicy uses Task.WhenAny, so the returned Task can fault with TimeoutRejectedException while the action's task keeps running. Not stored."
+  },
+  {
+    "n": 15,
+    "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+    "label": "holder",
+    "evidence": "https://github.com/App-vNext/Polly/blob/7.2.3%2B24/src/Polly/Retry/RetrySyntax.cs",
+    "path": "WaitAndRetry -> sleepDurations = Enumerable.Range(1, retryCount).Select(sleepDurationProvider) -> new RetryPolicy(builder, onRetry, retryCount, sleepDurationsEnumerable) -> RetryPolicy.Implementation -> RetryEngine.Implementation: sleepDurationsEnumerator.MoveNext() (runs provider), then onRetry(...)",
+    "notes": "Neither runs at the call. Both are held by the returned RetryPolicy and run inside Execute/ExecuteAndCapture: once per retry, on the executing thread, before the sleep. Surprise: sleepDurationProvider is not stored as a Func but as a lazy LINQ Select sequence. Each execution enumerates a fresh copy of it (RetryEngine.cs). Policies are usually shared, so concurrent Executes call both delegates concurrently."
+  },
+  {
+    "n": 16,
+    "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+    "label": "holder",
+    "evidence": "https://github.com/App-vNext/Polly/blob/7.2.3%2B24/src/Polly/Retry/AsyncRetrySyntax.cs",
+    "path": "WaitAndRetryAsync(..., onRetry) -> WaitAndRetryAsync(retryCount, sleepDurationProvider, onRetryAsync: async (...) => onRetry(...)) -> Enumerable.Range(1, retryCount).Select(sleepDurationProvider) -> new AsyncRetryPolicy -> AsyncRetryEngine.ImplementationAsync",
+    "notes": "Held by the returned AsyncRetryPolicy and run inside ExecuteAsync/ExecuteAndCaptureAsync, once per retry, before the returned Task completes. They run on the continuation thread after the failed attempt was awaited, often a pool thread. The provider is again a lazy LINQ Select, enumerated per execution. The sync onRetry is wrapped in a lambda that runs synchronously."
+  },
+  {
+    "n": 17,
+    "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
+    "label": "holder",
+    "evidence": "https://github.com/App-vNext/Polly/blob/7.2.3%2B24/src/Polly/Retry/AsyncRetrySyntax.cs",
+    "path": "WaitAndRetryForeverAsync(provider, onRetry) -> (Func<int,Context,TimeSpan>, Action<...,Context>) -> (..., async onRetryAsync) -> (Func<int,Exception,Context,TimeSpan>, ...) -> new AsyncRetryPolicy(builder, onRetryAsync, sleepDurationProvider:) -> AsyncRetryEngine: sleepDurationProvider?.Invoke(tryCount, ...), await onRetryAsync(...)",
+    "notes": "Held by the returned AsyncRetryPolicy, wrapped in several adapter lambdas. Unlike #16, the provider is stored as a Func and called directly by the engine. Both run on every retry inside ExecuteAsync, with no upper bound on the count, until success, an unhandled exception or cancellation. They run on the continuation thread."
+  },
+  {
+    "n": 18,
+    "id": "M:Microsoft.EntityFrameworkCore.ExecutionStrategyExtensions.ExecuteAsync(Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy,System.Func{System.Threading.Tasks.Task})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/efcore/blob/v8.0.0/src/EFCore/Storage/ExecutionStrategy.cs",
+    "path": "ExecutionStrategyExtensions.ExecuteAsync(strategy, operation) -> strategy.ExecuteAsync(operation, (op, _) => op(), default) -> ExecuteAsync(state, op, verifySucceeded:null, ct) -> ExecutionStrategy.ExecuteAsync -> ExecuteImplementationAsync while(true) { await operation(...) } | NonRetryingExecutionStrategy: operation(...) once",
+    "notes": "Called 1..n times, one after another, before the returned Task completes. A retrying strategy re-runs it after Task.Delay on transient failures, and it resumes with ConfigureAwait(true). The non-retrying default, or a nested call (Current != null), calls it once directly. Not stored. Custom IExecutionStrategy implementations could differ. Extension source: src/EFCore/Storage/ExecutionStrategyExtensions.cs at v8.0.0."
+  },
+  {
+    "n": 19,
+    "id": "M:Microsoft.Extensions.DependencyInjection.EntityFrameworkServiceCollectionExtensions.AddDbContext``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.EntityFrameworkCore.DbContextOptionsBuilder},Microsoft.Extensions.DependencyInjection.ServiceLifetime,Microsoft.Extensions.DependencyInjection.ServiceLifetime)",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/efcore/blob/v8.0.0/src/EFCore/Extensions/EntityFrameworkServiceCollectionExtensions.cs",
+    "path": "AddDbContext<TContext> -> AddDbContext<TContext,TContext>(..., (_, b) => optionsAction(b), ...) -> AddCoreServices -> TryAdd(ServiceDescriptor(DbContextOptions<TContext>, p => CreateDbContextOptions(p, optionsAction), optionsLifetime)) -> CreateDbContextOptions: optionsAction(sp, builder)",
+    "notes": "Surprise: this is not IConfigureOptions. It is a factory registration for DbContextOptions<TContext>, and the delegate runs every time the options service is created. optionsLifetime defaults to Scoped, so it runs once per DI scope (per request in ASP.NET Core) that resolves the context. It is once per container only if optionsLifetime is Singleton, which is forced when contextLifetime is Singleton. Registration uses TryAdd, so a second AddDbContext for the same TContext keeps the first factory and silently drops the later optionsAction."
+  },
+  {
+    "n": 20,
+    "id": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
+    "label": "holder",
+    "evidence": "https://github.com/protocolbuffers/protobuf/blob/v21.9/csharp/src/Google.Protobuf/MessageParser.cs",
+    "path": "MessageParser<T>(factory) -> this(factory, false, null) -> base(() => factory(), ...) and this.factory = factory -> factory() in ParseFrom(*), ParseDelimitedFrom, ParseJson, internal CreateTemplate",
+    "notes": "Stored in the constructed parser, and also in the non-generic base through a wrapper lambda. It runs once per parse call, from ParseFrom (all overloads), ParseDelimitedFrom or ParseJson on the generic or base parser. It also runs from CreateTemplate, which FieldCodec readers use. WithDiscardUnknownFields/WithExtensionRegistry create new parsers that share the same factory. Generated code keeps the parser in a static field, so concurrent parses call it concurrently."
+  },
+  {
+    "n": 21,
+    "id": "M:Google.Protobuf.FieldCodec.ForMessage``1(System.UInt32,Google.Protobuf.MessageParser{``0})",
+    "label": "holder",
+    "evidence": "https://github.com/protocolbuffers/protobuf/blob/v21.9/csharp/src/Google.Protobuf/FieldCodec.cs",
+    "path": "ForMessage(tag, parser) -> new FieldCodec<T>(reader: ctx => parser.CreateTemplate() + ReadMessage, merger: v ??= parser.CreateTemplate(), ...) -> FieldCodec<T>.Read / ValueReader / ValueMerger (used by RepeatedField/MapField AddEntriesFrom and generated MergeFrom)",
+    "notes": "The parameter is a holder, not a delegate. The parser is captured in the returned FieldCodec's reader and merger lambdas, and nothing runs at the call. Its factory runs through CreateTemplate when the codec reads or merges a message: FieldCodec<T>.Read(CodedInputStream / ref ParseContext), RepeatedField.AddEntriesFrom, and MapField codecs. Generated code keeps codecs in static fields."
+  },
+  {
+    "n": 22,
+    "id": "M:Microsoft.AspNetCore.Authorization.AuthorizationOptions.AddPolicy(System.String,System.Action{Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Security/Authorization/Core/src/AuthorizationOptions.cs",
+    "path": "AddPolicy(name, configurePolicy) -> new AuthorizationPolicyBuilder(); configurePolicy(builder); PolicyMap[name] = Task.FromResult(builder.Build())",
+    "notes": "Called once, synchronously. Only the built policy is stored. AddPolicy itself usually runs inside an AddAuthorization(o => ...) options delegate (#36), so in practice it runs when AuthorizationOptions is first created. Delegates the builder stores, such as RequireAssertion, run later per authorization."
+  },
+  {
+    "n": 23,
+    "id": "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions.AddPolicy(System.String,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Middleware/CORS/src/Infrastructure/CorsOptions.cs",
+    "path": "AddPolicy(name, configurePolicy) -> new CorsPolicyBuilder(); configurePolicy(builder); policy = builder.Build(); PolicyMap[name] = (policy, Task.FromResult(policy))",
+    "notes": "Called once, synchronously. Not stored, but any delegate it sets on the builder stays in the policy (see #24). It usually runs inside an AddCors(o => ...) options delegate (#35)."
+  },
+  {
+    "n": 24,
+    "id": "M:Microsoft.AspNetCore.Cors.Infrastructure.CorsPolicyBuilder.SetIsOriginAllowed(System.Func{System.String,System.Boolean})",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Middleware/CORS/src/Infrastructure/CorsService.cs",
+    "path": "SetIsOriginAllowed -> _policy.IsOriginAllowed = isOriginAllowed (CorsPolicyBuilder.cs) -> Build() returns that same CorsPolicy -> CorsMiddleware -> CorsService.EvaluatePolicy -> IsOriginAllowed(policy, origin) -> policy.IsOriginAllowed(originString)",
+    "notes": "Stored on the builder's CorsPolicy, which Build returns and CorsOptions.PolicyMap keeps. It runs per CORS request that has an Origin header and a policy without AllowAnyOrigin, preflight and actual requests alike. It runs on request threads, possibly concurrently, since one policy is shared by all requests. It is holder-like too: any code that calls CorsPolicy.IsOriginAllowed runs it."
+  },
+  {
+    "n": 25,
+    "id": "P:Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.Predicate",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Middleware/HealthChecks/src/HealthCheckMiddleware.cs",
+    "path": "setter stores the Func -> MapHealthChecks/UseHealthChecks wrap options with Options.Create -> HealthCheckMiddleware.InvokeAsync -> HealthCheckService.CheckHealthAsync(_healthCheckOptions.Predicate, ...) -> DefaultHealthCheckService: registrations.Where(predicate).ToArray()",
+    "notes": "The setter only stores the delegate. It runs on every health-endpoint request, once per registration, synchronously on the request's flow before the checks start. Concurrent requests call it concurrently."
+  },
+  {
+    "n": 26,
+    "id": "P:Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.ResponseWriter",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Middleware/HealthChecks/src/HealthCheckMiddleware.cs",
+    "path": "setter stores the Func -> HealthCheckMiddleware.InvokeAsync -> after CheckHealthAsync and status mapping: await _healthCheckOptions.ResponseWriter(httpContext, result)",
+    "notes": "Runs once per health-endpoint request, after all checks complete, on the request's async flow. One options instance per mapped endpoint, so concurrent requests call it concurrently. The default is HealthCheckResponseWriters.WriteMinimalPlaintext."
+  },
+  {
+    "n": 27,
+    "id": "P:Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents.OnMessageReceived",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/v8.0.0/src/Security/Authentication/JwtBearer/src/JwtBearerHandler.cs",
+    "path": "setter stores the Func -> JwtBearerEvents.MessageReceived(ctx) => OnMessageReceived(ctx) -> JwtBearerHandler.HandleAuthenticateAsync -> await Events.MessageReceived(messageReceivedContext)",
+    "notes": "Runs on each authentication of the scheme, at most about once per request per scheme, at the start of token extraction. AuthenticationHandler.InitializeEventsAsync takes Events from Options.Events, and those options are cached by IOptionsMonitor. So unless EventsType is set, one JwtBearerEvents instance and this delegate serve all requests concurrently."
+  },
+  {
+    "n": 28,
+    "id": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Hosting/Hosting/src/GenericHost/WebHostBuilderBase.cs",
+    "path": "Interface member; implementations: GenericWebHostBuilder (WebHostBuilderBase) -> _builder.ConfigureAppConfiguration(wrapper) -> HostBuilder list, run in Build(); WebHostBuilder -> _configureAppConfigurationBuilder += d, run in Build() -> BuildCommonServices; HostingStartupWebHostBuilder -> stored; ConfigureWebHostBuilder -> configureDelegate(_context, _configuration) immediately",
+    "notes": "Runs once, at host build. When depends on the implementation: Build() for the classic WebHostBuilder and for ConfigureWebHost/ConfigureWebHostDefaults. Under WebApplicationBuilder.WebHost (ConfigureWebHostBuilder) it runs at the call, and it throws NotSupportedException if the delegate changes host-level settings. Never per request."
+  },
+  {
+    "n": 29,
+    "id": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.DependencyInjection.IServiceCollection})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/DefaultBuilder/src/ConfigureWebHostBuilder.cs",
+    "path": "Interface member; WebHostBuilder -> ConfigureServices((_, s) => d(s)) -> _configureServices += ..., run in Build() -> BuildCommonServices; WebHostBuilderBase (GenericWebHostBuilder) -> IHostBuilder.ConfigureServices, run in HostBuilder.Build(); ConfigureWebHostBuilder -> configureServices(_context, _services) immediately",
+    "notes": "Runs once during host construction: at Build() for WebHostBuilder and the generic host, or at the call for WebApplicationBuilder.WebHost. Registrations made inside it are then subject to their own DI lifetimes."
+  },
+  {
+    "n": 30,
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Hosting/Hosting/src/WebHostBuilderExtensions.cs",
+    "path": "ConfigureAppConfiguration(hostBuilder, d) -> hostBuilder.ConfigureAppConfiguration((context, builder) => d(builder)) -> see #28",
+    "notes": "A thin wrapper around #28, with the same timing: at Build() for WebHostBuilder and the generic host, at the call for ConfigureWebHostBuilder. Once."
+  },
+  {
+    "n": 31,
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Logging.ILoggingBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Hosting/Hosting/src/WebHostBuilderExtensions.cs",
+    "path": "ConfigureLogging -> hostBuilder.ConfigureServices((ctx, services) => services.AddLogging(b => configureLogging(ctx, b))) -> AddLogging: configure(new LoggingBuilder(services)) synchronously (Microsoft.Extensions.Logging LoggingServiceCollectionExtensions.cs)",
+    "notes": "Runs once, when the ConfigureServices callback runs: at Build() for WebHostBuilder and the generic host, or at the call for WebApplicationBuilder.WebHost. It is not deferred into DI: AddLogging calls it immediately."
+  },
+  {
+    "n": 32,
+    "id": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Servers/Kestrel/Kestrel/src/WebHostBuilderKestrelExtensions.cs",
+    "path": "ConfigureKestrel -> hostBuilder.ConfigureServices(services => { TryAddEnumerable(KestrelServerOptionsSetup); services.Configure(options); }) -> ConfigureNamedOptions<KestrelServerOptions> -> OptionsFactory.Create on first IOptions<KestrelServerOptions>.Value -> KestrelServerImpl ctor (singleton IServer)",
+    "notes": "This happens in two stages. First the registration itself is deferred as a startup ConfigureServices callback (see #29). Then the delegate runs once, when the singleton IOptions<KestrelServerOptions> is first read. KestrelServerImpl.CreateServiceContext does that while the server is constructed during host start. Once per process."
+  },
+  {
+    "n": 33,
+    "id": "M:Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(System.Net.IPAddress,System.Int32,System.Action{Microsoft.AspNetCore.Server.Kestrel.Core.ListenOptions})",
+    "label": "invoke-now",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Servers/Kestrel/Core/src/KestrelServerOptions.cs",
+    "path": "Listen(address, port, configure) -> Listen(new IPEndPoint(...), configure) -> Listen((EndPoint)ep, configure) -> new ListenOptions; ApplyEndpointDefaults; configure(listenOptions); CodeBackedListenOptions.Add",
+    "notes": "Called once, synchronously, after the endpoint defaults are applied. Only the configured ListenOptions is kept. Listen itself usually runs inside a ConfigureKestrel options delegate (#32), so in practice it runs when the Kestrel options are created. Connection middleware registered on the ListenOptions runs per connection later."
+  },
+  {
+    "n": 34,
+    "id": "M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok(System.Object)",
+    "label": "non-delegate",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Mvc/Mvc.Core/src/ControllerBase.cs",
+    "path": "Ok(value) -> new OkObjectResult(value) -> ObjectResult(value): Value = value; StatusCode = 200",
+    "notes": "The argument is stored in the returned OkObjectResult.Value and not read at the call. MVC reads and serializes it later, after the action returns: ObjectResult.ExecuteResultAsync -> IActionResultExecutor<ObjectResult> -> output formatter, still within the same request. So a shared mutable object is read after the action returns."
+  },
+  {
+    "n": 35,
+    "id": "M:Microsoft.Extensions.DependencyInjection.CorsServiceCollectionExtensions.AddCors(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Middleware/CORS/src/CorsServiceCollectionExtensions.cs",
+    "path": "AddCors(services, setupAction) -> AddCors() (transient CorsService, DefaultCorsPolicyProvider) -> services.Configure(setupAction) -> ConfigureNamedOptions<CorsOptions> -> IOptions<CorsOptions>.Value in CorsService / DefaultCorsPolicyProvider ctors",
+    "notes": "Singleton IOptions<CorsOptions>, so it runs once, when the first CorsService or DefaultCorsPolicyProvider is constructed. That is normally when CorsMiddleware is created while the pipeline is built. The consumers are transient but read the cached IOptions value."
+  },
+  {
+    "n": 36,
+    "id": "M:Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Authorization.AuthorizationOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Security/Authorization/Core/src/AuthorizationServiceCollectionExtensions.cs",
+    "path": "AddAuthorization(services, configure) -> AddAuthorizationCore(configure) -> services.Configure(configure) -> ConfigureNamedOptions<AuthorizationOptions> -> IOptions<AuthorizationOptions>.Value (e.g. DefaultAuthorizationPolicyProvider ctor)",
+    "notes": "Singleton IOptions, so it runs once, when AuthorizationOptions is first read. DefaultAuthorizationPolicyProvider is transient but gets the cached value. The Policy-package overload adds AddAuthorizationPolicyEvaluator and AuthorizationPolicyCache."
+  },
+  {
+    "n": 37,
+    "id": "M:Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(Microsoft.AspNetCore.Authentication.AuthenticationBuilder,System.Action{Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/v8.0.0/src/Security/Authentication/JwtBearer/src/JwtBearerExtensions.cs",
+    "path": "AddJwtBearer(builder, configureOptions) -> AddJwtBearer(\"Bearer\", configureOptions) -> AddJwtBearer(scheme, null, configureOptions) -> AddScheme<JwtBearerOptions, JwtBearerHandler> -> AuthenticationBuilder.AddSchemeHelper -> Services.Configure(scheme, configureOptions) -> AuthenticationHandler.InitializeAsync: OptionsMonitor.Get(scheme)",
+    "notes": "This is a named options configuration for the 'Bearer' scheme. It is read through IOptionsMonitor<JwtBearerOptions>.Get, whose OptionsCache is a singleton, so it runs once per scheme, on the first request that authenticates with it. It runs again only if a change-token source for JwtBearerOptions invalidates the cache. The handler is transient per request but shares the cached options, including Options.Events (#27)."
+  },
+  {
+    "n": 38,
+    "id": "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddJsonOptions(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Action{Microsoft.AspNetCore.Mvc.JsonOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Mvc/Mvc.Core/src/DependencyInjection/MvcCoreMvcBuilderExtensions.cs",
+    "path": "AddJsonOptions(builder, configure) -> builder.Services.Configure(configure) -> ConfigureNamedOptions<JsonOptions> -> IOptions<JsonOptions>.Value (e.g. MvcCoreMvcOptionsSetup when MvcOptions is built)",
+    "notes": "Singleton IOptions<JsonOptions>, so once, the first time JsonOptions is read (typically while MvcOptions is being configured)."
+  },
+  {
+    "n": 39,
+    "id": "M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Mvc.MvcOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Mvc/Mvc/src/MvcServiceCollectionExtensions.cs",
+    "path": "AddControllers(services, configure) -> AddControllersCore(services) -> builder.AddMvcOptions(configure) -> MvcCoreMvcCoreBuilderExtensions.AddMvcOptions -> builder.Services.Configure(setupAction) -> IOptions<MvcOptions>.Value",
+    "notes": "Singleton IOptions<MvcOptions>, so once, the first time MvcOptions is read (building the MVC infrastructure). A null configure registers nothing."
+  },
+  {
+    "n": 40,
+    "id": "M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Grpc.AspNetCore.Server.GrpcServiceOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/grpc/grpc-dotnet/blob/v2.50.0/src/Grpc.AspNetCore.Server/GrpcServiceExtensions.cs",
+    "path": "AddGrpc(services, configureOptions) -> services.Configure(configureOptions).AddGrpc() -> ConfigureNamedOptions<GrpcServiceOptions> -> IOptions<GrpcServiceOptions>.Value in ServerCallHandlerFactory<TService> ctor (singleton) and GrpcServiceOptionsSetup<TService>",
+    "notes": "Singleton IOptions, so once. The file is GrpcServiceExtensions.cs (the class is GrpcServicesExtensions). Its first read is when a service's ServerCallHandlerFactory is created at endpoint mapping."
+  },
+  {
+    "n": 41,
+    "id": "M:Microsoft.Extensions.DependencyInjection.SwaggerGenServiceCollectionExtensions.AddSwaggerGen(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Swashbuckle.AspNetCore.SwaggerGen.SwaggerGenOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/domaindrivendev/Swashbuckle.AspNetCore/blob/v6.4.0/src/Swashbuckle.AspNetCore.SwaggerGen/DependencyInjection/SwaggerGenServiceCollectionExtensions.cs",
+    "path": "AddSwaggerGen(services, setupAction) -> ConfigureSwaggerGen(setupAction) -> services.Configure(setupAction) -> IOptions<SwaggerGenOptions>.Value read in ConfigureSwaggerGeneratorOptions / ConfigureSchemaGeneratorOptions (transient IConfigureOptions) -> IOptions<SwaggerGeneratorOptions>.Value -> SwaggerGenerator (transient ISwaggerProvider)",
+    "notes": "Singleton IOptions<SwaggerGenOptions>, so once. It runs lazily, not at startup. SwaggerMiddleware.Invoke takes ISwaggerProvider as a parameter resolved per request (Swashbuckle.AspNetCore.Swagger v6.4.0), so the first request through UseSwagger runs it, on a request thread. Filters and predicates it stores in SwaggerGenOptions run later on each document generation."
+  },
+  {
+    "n": 42,
+    "id": "M:Microsoft.Extensions.DependencyInjection.IdentityServerServiceCollectionExtensions.AddIdentityServer(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Duende.IdentityServer.Configuration.IdentityServerOptions})",
+    "label": "di-registration",
+    "evidence": "https://github.com/DuendeSoftware/products/blob/d923c6c10f11013223f6998059c20f2ac26ba44a/src/IdentityServer/Configuration/DependencyInjection/IdentityServerServiceCollectionExtensions.cs",
+    "path": "AddIdentityServer(services, setupAction) -> services.Configure(setupAction); services.AddIdentityServer() -> AddRequiredPlatformServices: AddSingleton(sp => IOptions<IdentityServerOptions>.Value) (BuilderExtensions/Core.cs)",
+    "notes": "Singleton IOptions, and IdentityServerOptions itself is also registered as a singleton, so it runs once, on first resolution. The repo moved from DuendeSoftware/IdentityServer to DuendeSoftware/products; the tag is 'is/6.2.0' at commit d923c6c."
+  },
+  {
+    "n": 43,
+    "id": "M:Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder,System.String,System.Func{Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult},System.Collections.Generic.IEnumerable{System.String},System.Nullable{System.TimeSpan})",
+    "label": "framework-event",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/HealthChecks/HealthChecks/src/DefaultHealthCheckService.cs",
+    "path": "AddCheck -> new DelegateHealthCheck(ct => Task.FromResult(check())) -> builder.Add(new HealthCheckRegistration(name, instance, ...)) -> Services.Configure<HealthCheckServiceOptions>(o => o.Registrations.Add(reg)) -> DefaultHealthCheckService.CheckHealthAsync -> Task.Run(RunCheckAsync) -> healthCheck.CheckHealthAsync -> check()",
+    "notes": "The delegate is wrapped in one DelegateHealthCheck instance, reached through options. It runs on every health-check run, on a thread-pool thread (Task.Run). Runs come from each health-endpoint request and from each HealthCheckPublisherHostedService timer tick if a publisher is registered. The same delegate can run concurrently. In .NET 8 this package's source is in dotnet/aspnetcore, not dotnet/runtime."
+  },
+  {
+    "n": 44,
+    "id": "M:Microsoft.Extensions.Hosting.GenericHostBuilderExtensions.ConfigureWebHostDefaults(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.IWebHostBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/aspnetcore/blob/release/8.0/src/Hosting/Hosting/src/GenericHostWebHostBuilderExtensions.cs",
+    "path": "ConfigureWebHostDefaults(builder, configure) -> ConfigureWebHostDefaults(configure, _ => {}) -> builder.ConfigureWebHost(wb => { WebHost.ConfigureWebDefaults(wb); configure(wb); }, opts) -> private ConfigureWebHost: new GenericWebHostBuilder(...); configure(webhostBuilder)",
+    "notes": "Runs once, synchronously at the call, not deferred to Build(). Calls it makes on the IWebHostBuilder (ConfigureServices, UseStartup...) queue their own delegates for Build(). If builder is WebApplicationBuilder.Host (ConfigureHostBuilder, which implements ISupportsConfigureWebHost), it throws NotSupportedException and configure never runs. Entry source: src/DefaultBuilder/src/GenericHostBuilderExtensions.cs."
+  },
+  {
+    "n": 45,
+    "id": "M:Microsoft.Extensions.Hosting.HostingHostBuilderExtensions.ConfigureLogging(Microsoft.Extensions.Hosting.IHostBuilder,System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.Logging.ILoggingBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/Microsoft.Extensions.Hosting/src/HostingHostBuilderExtensions.cs",
+    "path": "ConfigureLogging -> hostBuilder.ConfigureServices((ctx, services) => services.AddLogging(b => configureLogging(ctx, b))) -> HostBuilder: _configureServicesActions, run in Build() -> InitializeServiceProvider -> AddLogging invokes configure immediately",
+    "notes": "Runs once: at Build() for HostBuilder, or at the call for WebApplicationBuilder.Host (ConfigureHostBuilder.ConfigureServices runs immediately)."
+  },
+  {
+    "n": 46,
+    "id": "M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+    "label": "startup",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/Microsoft.Extensions.Hosting/src/HostBuilder.cs",
+    "path": "Interface member; HostBuilder -> _configureAppConfigActions.Add(d) -> Build() -> InitializeAppConfiguration -> buildAction(context, configBuilder); ConfigureHostBuilder (aspnetcore DefaultBuilder) -> configureDelegate(_context, _configuration) immediately",
+    "notes": "Runs once: at Build() for HostBuilder, or at the call under WebApplicationBuilder.Host. The results are additive across calls."
+  },
+  {
+    "n": 47,
+    "id": "M:Serilog.SerilogWebHostBuilderExtensions.UseSerilog(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Serilog.LoggerConfiguration},System.Boolean,System.Boolean)",
+    "label": "startup",
+    "evidence": "https://github.com/serilog/serilog-aspnetcore/blob/v6.1.0/src/Serilog.AspNetCore/SerilogWebHostBuilderExtensions.cs",
+    "path": "UseSerilog(builder, configureLogger, ...) -> builder.ConfigureServices((context, collection) => { new LoggerConfiguration(); configureLogger(context, cfg); cfg.CreateLogger(); ... AddSingleton<ILoggerFactory>(...) })",
+    "notes": "Runs once, inside the ConfigureServices callback: at Build() for WebHostBuilder and the generic host, at the call for ConfigureWebHostBuilder (see #29). Side effect: it sets the static Log.Logger unless preserveStaticLogger. The method is [Obsolete] in favour of UseSerilog on IHostBuilder. Read at tag v6.1.0; the input's 6.1.0-dev-00289 build has no tag of its own."
+  },
+  {
+    "n": 48,
+    "id": "P:Microsoft.Extensions.Options.IOptions`1.Value",
+    "label": "non-delegate",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/Microsoft.Extensions.Options/src/UnnamedOptionsManager.cs",
+    "path": "IOptions<T> is registered by AddOptions as singleton UnnamedOptionsManager<T> -> Value: fast path returns cached _value; else lock, then _value ??= _factory.Create(DefaultName) -> OptionsFactory.Create runs every IConfigureOptions/IConfigureNamedOptions, IPostConfigureOptions and IValidateOptions",
+    "notes": "Takes no delegate. The first read in the container runs, synchronously on the reading thread under a lock, all configuration delegates registered via services.Configure/PostConfigure/Validate for the default name. This is where the di-registration delegates of #32, #35-#42 actually execute. Later reads return the same cached, shared instance without running anything. Other IOptions implementations, such as OptionsWrapper from Options.Create, just return a stored value."
+  },
+  {
+    "n": 49,
+    "id": "P:System.Reflection.AssemblyName.Name",
+    "label": "non-delegate",
+    "evidence": "https://github.com/dotnet/runtime/blob/release/8.0/src/libraries/System.Private.CoreLib/src/System/Reflection/AssemblyName.cs",
+    "path": "Name { get => _name; set => _name = value; }",
+    "notes": "Plain field read (the getter) or write (the setter) on the AssemblyName instance, with no other side effects and no delegate."
+  }
+]

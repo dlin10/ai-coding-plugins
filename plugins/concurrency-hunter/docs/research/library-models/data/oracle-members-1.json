@@ -1,0 +1,356 @@
+[
+ {
+  "key": "M:Google.Protobuf.FieldCodec.ForEnum``1(System.UInt32,System.Func{``0,System.Int32},System.Func{System.Int32,``0},``0)~Google.Protobuf.FieldCodec{``0}",
+  "id": "M:Google.Protobuf.FieldCodec.ForEnum``1(System.UInt32,System.Func{``0,System.Int32},System.Func{System.Int32,``0},``0)",
+  "assembly": "Google.Protobuf",
+  "version": "",
+  "delegateParams": [
+   "toInt32",
+   "fromInt32"
+  ],
+  "label": "",
+  "generator": {
+   "toInt32": "holder(void FieldCodec<int>.WriteTagAndValue(CodedOutputStream output, int value); int FieldCodec<int>.CalculateSizeWithTag(int value))",
+   "fromInt32": "holder(int FieldCodec<int>.Read(CodedInputStream input))"
+  }
+ },
+ {
+  "key": "M:System.Security.Claims.ClaimsPrincipal.HasClaim(System.Predicate{System.Security.Claims.Claim})~System.Boolean",
+  "id": "M:System.Security.Claims.ClaimsPrincipal.HasClaim(System.Predicate{System.Security.Claims.Claim})",
+  "assembly": "System.Security.Claims",
+  "version": "",
+  "delegateParams": [
+   "match"
+  ],
+  "label": "",
+  "generator": {
+   "match": "holder(void ClaimsPrincipal.AddIdentity(ClaimsIdentity identity))"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncCircuitBreakerSyntax.CircuitBreakerAsync(Polly.PolicyBuilder,System.Int32,System.TimeSpan,System.Action{System.Exception,Polly.CircuitBreaker.CircuitState,System.TimeSpan,Polly.Context},System.Action{Polly.Context},System.Action)~Polly.CircuitBreaker.AsyncCircuitBreakerPolicy",
+  "id": "M:Polly.AsyncCircuitBreakerSyntax.CircuitBreakerAsync(Polly.PolicyBuilder,System.Int32,System.TimeSpan,System.Action{System.Exception,Polly.CircuitBreaker.CircuitState,System.TimeSpan,Polly.Context},System.Action{Polly.Context},System.Action)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onBreak",
+   "onHalfOpen"
+  ],
+  "label": "",
+  "generator": {
+   "onBreak": "holder(void AsyncCircuitBreakerPolicy.Isolate())",
+   "onHalfOpen": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},Polly.Context,System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult{``0}}",
+  "id": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},Polly.Context,System.Threading.CancellationToken,System.Boolean)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncPolicy`1.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object})~System.Threading.Tasks.Task{Polly.PolicyResult{`0}}",
+  "id": "M:Polly.AsyncPolicy`1.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Func{System.Exception,System.TimeSpan,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy",
+  "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Func{System.Exception,System.TimeSpan,System.Threading.Tasks.Task})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onRetryAsync"
+  ],
+  "label": "",
+  "generator": {
+   "onRetryAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryAsync``1(Polly.PolicyBuilder{``0},System.Int32,System.Func{System.Int32,System.TimeSpan},System.Func{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "id": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryAsync``1(Polly.PolicyBuilder{``0},System.Int32,System.Func{System.Int32,System.TimeSpan},System.Func{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onRetryAsync"
+  ],
+  "label": "",
+  "generator": {
+   "onRetryAsync": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.CircuitBreakerTResultSyntax.CircuitBreaker``1(Polly.PolicyBuilder{``0},System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)~Polly.CircuitBreaker.CircuitBreakerPolicy{``0}",
+  "id": "M:Polly.CircuitBreakerTResultSyntax.CircuitBreaker``1(Polly.PolicyBuilder{``0},System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onBreak"
+  ],
+  "label": "",
+  "generator": {
+   "onBreak": "holder(void CircuitBreakerPolicy<int>.Isolate())"
+  }
+ },
+ {
+  "key": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},System.Func{Polly.DelegateResult{``0},Polly.Context,System.Threading.CancellationToken,``0},System.Action{Polly.DelegateResult{``0},Polly.Context})~Polly.Fallback.FallbackPolicy{``0}",
+  "id": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},System.Func{Polly.DelegateResult{``0},Polly.Context,System.Threading.CancellationToken,``0},System.Action{Polly.DelegateResult{``0},Polly.Context})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "fallbackAction",
+   "onFallback"
+  ],
+  "label": "",
+  "generator": {
+   "fallbackAction": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onFallback": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  }
+ },
+ {
+  "key": "M:Polly.IAsyncPolicy.ExecuteAsync``1(System.Func{Polly.Context,System.Threading.Tasks.Task{``0}},Polly.Context)~System.Threading.Tasks.Task{``0}",
+  "id": "M:Polly.IAsyncPolicy.ExecuteAsync``1(System.Func{Polly.Context,System.Threading.Tasks.Task{``0}},Polly.Context)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.ISyncPolicy.ExecuteAndCapture(System.Action)~Polly.PolicyResult",
+  "id": "M:Polly.ISyncPolicy.ExecuteAndCapture(System.Action)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.Cache``1(Polly.Caching.ISyncCacheProvider{``0},Polly.Caching.ITtlStrategy{``0},System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy{``0}",
+  "id": "M:Polly.Policy.Cache``1(Polly.Caching.ISyncCacheProvider{``0},Polly.Caching.ITtlStrategy{``0},System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "cacheKeyStrategy",
+   "onCacheGet",
+   "onCacheMiss",
+   "onCachePut",
+   "onCacheGetError",
+   "onCachePutError"
+  ],
+  "label": "",
+  "generator": {
+   "cacheKeyStrategy": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGet": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheMiss": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePut": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGetError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePutError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.Execute(System.Action{Polly.Context},System.Collections.Generic.IDictionary{System.String,System.Object})",
+  "id": "M:Polly.Policy.Execute(System.Action{Polly.Context},System.Collections.Generic.IDictionary{System.String,System.Object})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.Timeout``1(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Action{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception})~Polly.Timeout.TimeoutPolicy{``0}",
+  "id": "M:Polly.Policy.Timeout``1(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Action{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onTimeout"
+  ],
+  "label": "",
+  "generator": {
+   "onTimeout": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.TimeoutAsync(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Func{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception,System.Threading.Tasks.Task})~Polly.Timeout.AsyncTimeoutPolicy",
+  "id": "M:Polly.Policy.TimeoutAsync(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Func{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception,System.Threading.Tasks.Task})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onTimeoutAsync"
+  ],
+  "label": "",
+  "generator": {
+   "onTimeoutAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Double}",
+  "id": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+  "id": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "predicate"
+  ],
+  "label": "",
+  "generator": {
+   "predicate": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2})~System.Collections.Generic.IEnumerable{``2}",
+  "id": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "iterator"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+  "id": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "predicate"
+  ],
+  "label": "",
+  "generator": {
+   "predicate": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+  "id": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+  "id": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+  "id": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+  "id": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.MinBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
+  "id": "M:System.Linq.Enumerable.MinBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+  "id": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Linq.ILookup{``1,``0}",
+  "id": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "invoke-now"
+  }
+ }
+]

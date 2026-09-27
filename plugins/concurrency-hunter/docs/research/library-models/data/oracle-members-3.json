@@ -1,0 +1,350 @@
+[
+ {
+  "key": "M:System.Security.Claims.ClaimsIdentity.FindFirst(System.Predicate{System.Security.Claims.Claim})~System.Security.Claims.Claim",
+  "id": "M:System.Security.Claims.ClaimsIdentity.FindFirst(System.Predicate{System.Security.Claims.Claim})",
+  "assembly": "System.Security.Claims",
+  "version": "",
+  "delegateParams": [
+   "match"
+  ],
+  "label": "",
+  "generator": {
+   "match": "invoke-now*"
+  }
+ },
+ {
+  "key": "M:Polly.AdvancedCircuitBreakerTResultSyntax.AdvancedCircuitBreaker``1(Polly.PolicyBuilder{``0},System.Double,System.TimeSpan,System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)~Polly.CircuitBreaker.CircuitBreakerPolicy{``0}",
+  "id": "M:Polly.AdvancedCircuitBreakerTResultSyntax.AdvancedCircuitBreaker``1(Polly.PolicyBuilder{``0},System.Double,System.TimeSpan,System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onBreak"
+  ],
+  "label": "",
+  "generator": {
+   "onBreak": "holder(void CircuitBreakerPolicy<int>.Isolate())"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task},Polly.Context,System.Threading.CancellationToken)~System.Threading.Tasks.Task{Polly.PolicyResult}",
+  "id": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task},Polly.Context,System.Threading.CancellationToken)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{Polly.Context,System.Threading.Tasks.Task},System.Collections.Generic.IDictionary{System.String,System.Object})~System.Threading.Tasks.Task",
+  "id": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{Polly.Context,System.Threading.Tasks.Task},System.Collections.Generic.IDictionary{System.String,System.Object})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncPolicy`1.ExecuteAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~System.Threading.Tasks.Task{`0}",
+  "id": "M:Polly.AsyncPolicy`1.ExecuteAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.Exception,Polly.Context,System.TimeSpan},System.Func{System.Exception,System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy",
+  "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.Exception,Polly.Context,System.TimeSpan},System.Func{System.Exception,System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "sleepDurationProvider",
+   "onRetryAsync"
+  ],
+  "label": "",
+  "generator": {
+   "sleepDurationProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)",
+   "onRetryAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryForeverAsync``1(Polly.PolicyBuilder{``0},System.Func{System.Int32,System.TimeSpan},System.Action{Polly.DelegateResult{``0},System.Int32,System.TimeSpan})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "id": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryForeverAsync``1(Polly.PolicyBuilder{``0},System.Func{System.Int32,System.TimeSpan},System.Action{Polly.DelegateResult{``0},System.Int32,System.TimeSpan})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "sleepDurationProvider",
+   "onRetry"
+  ],
+  "label": "",
+  "generator": {
+   "sleepDurationProvider": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onRetry": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},``0,System.Action{Polly.DelegateResult{``0}})~Polly.Fallback.FallbackPolicy{``0}",
+  "id": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},``0,System.Action{Polly.DelegateResult{``0}})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onFallback"
+  ],
+  "label": "",
+  "generator": {
+   "onFallback": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  }
+ },
+ {
+  "key": "M:Polly.IAsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult{``0}}",
+  "id": "M:Polly.IAsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken,System.Boolean)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.ISyncPolicy.Execute(System.Action{Polly.Context,System.Threading.CancellationToken},Polly.Context,System.Threading.CancellationToken)",
+  "id": "M:Polly.ISyncPolicy.Execute(System.Action{Polly.Context,System.Threading.CancellationToken},Polly.Context,System.Threading.CancellationToken)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.ISyncPolicy`1.ExecuteAndCapture(System.Func{Polly.Context,System.Threading.CancellationToken,`0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~Polly.PolicyResult{`0}",
+  "id": "M:Polly.ISyncPolicy`1.ExecuteAndCapture(System.Func{Polly.Context,System.Threading.CancellationToken,`0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.CacheAsync``1(Polly.Caching.IAsyncCacheProvider,System.TimeSpan,System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.AsyncCachePolicy{``0}",
+  "id": "M:Polly.Policy.CacheAsync``1(Polly.Caching.IAsyncCacheProvider,System.TimeSpan,System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "cacheKeyStrategy",
+   "onCacheError"
+  ],
+  "label": "",
+  "generator": {
+   "cacheKeyStrategy": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onCacheError": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.Execute``1(System.Func{Polly.Context,System.Threading.CancellationToken,``0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~``0",
+  "id": "M:Polly.Policy.Execute``1(System.Func{Polly.Context,System.Threading.CancellationToken,``0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "action"
+  ],
+  "label": "",
+  "generator": {
+   "action": "invoke-now"
+  }
+ },
+ {
+  "key": "M:Polly.Policy.TimeoutAsync(System.Func{System.TimeSpan})~Polly.Timeout.AsyncTimeoutPolicy",
+  "id": "M:Polly.Policy.TimeoutAsync(System.Func{System.TimeSpan})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "timeoutProvider"
+  ],
+  "label": "",
+  "generator": {
+   "timeoutProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  }
+ },
+ {
+  "key": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Action{System.Exception,System.TimeSpan,Polly.Context})~Polly.Retry.RetryPolicy",
+  "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Action{System.Exception,System.TimeSpan,Polly.Context})",
+  "assembly": "Polly",
+  "version": "",
+  "delegateParams": [
+   "onRetry"
+  ],
+  "label": "",
+  "generator": {
+   "onRetry": "holder(void Policy.Execute(Action action); void Policy.Execute(Action<Context> action, IDictionary<string, object> contextData); +10)"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "id": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.GroupBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``0}}",
+  "id": "M:System.Linq.Enumerable.GroupBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "iterator"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})~System.Collections.Generic.IEnumerable{``3}",
+  "id": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector",
+   "elementSelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "iterator",
+   "elementSelector": "iterator"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+  "id": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+  "id": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Max``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
+  "id": "M:System.Linq.Enumerable.Max``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+  "id": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "id": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+  "id": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "selector"
+  ],
+  "label": "",
+  "generator": {
+   "selector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.ToDictionary``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.Dictionary{``1,``0}",
+  "id": "M:System.Linq.Enumerable.ToDictionary``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "invoke-now"
+  }
+ },
+ {
+  "key": "M:System.Linq.Enumerable.ToLookup``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Linq.ILookup{``1,``2}",
+  "id": "M:System.Linq.Enumerable.ToLookup``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
+  "assembly": "System.Linq",
+  "version": "",
+  "delegateParams": [
+   "keySelector",
+   "elementSelector"
+  ],
+  "label": "",
+  "generator": {
+   "keySelector": "invoke-now",
+   "elementSelector": "invoke-now"
+  }
+ }
+]

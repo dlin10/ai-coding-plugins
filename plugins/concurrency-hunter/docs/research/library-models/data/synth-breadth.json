@@ -1,0 +1,1887 @@
+[
+ {
+  "Member": "M:Google.Protobuf.FieldCodec.ForEnum``1(System.UInt32,System.Func{``0,System.Int32},System.Func{System.Int32,``0})~Google.Protobuf.FieldCodec{``0}",
+  "Library": "Google.Protobuf",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 3,
+  "Labels": {
+   "toInt32": "holder(void FieldCodec<int>.WriteTagAndValue(CodedOutputStream output, int value); int FieldCodec<int>.CalculateSizeWithTag(int value))",
+   "fromInt32": "holder(int FieldCodec<int>.Read(CodedInputStream input))"
+  },
+  "Seconds": 6.0611867,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Google.Protobuf.FieldCodec.ForEnum``1(System.UInt32,System.Func{``0,System.Int32},System.Func{System.Int32,``0},``0)~Google.Protobuf.FieldCodec{``0}",
+  "Library": "Google.Protobuf",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 3,
+  "Labels": {
+   "toInt32": "holder(void FieldCodec<int>.WriteTagAndValue(CodedOutputStream output, int value); int FieldCodec<int>.CalculateSizeWithTag(int value))",
+   "fromInt32": "holder(int FieldCodec<int>.Read(CodedInputStream input))"
+  },
+  "Seconds": 3.1793645,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
+  "Library": "Google.Protobuf",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 10,
+  "Labels": {},
+  "Seconds": 3.3492503,
+  "EngineError": "InvalidOperationException: No SSA definition was planned for 'reference2'."
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsIdentity.FindAll(System.Predicate{System.Security.Claims.Claim})~System.Collections.Generic.IEnumerable{System.Security.Claims.Claim}",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 3,
+  "Triggers": 11,
+  "Labels": {
+   "match": "iterator"
+  },
+  "Seconds": 0.9664103,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsIdentity.FindFirst(System.Predicate{System.Security.Claims.Claim})~System.Security.Claims.Claim",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 4,
+  "Labels": {
+   "match": "invoke-now*"
+  },
+  "Seconds": 0.4547715,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsIdentity.HasClaim(System.Predicate{System.Security.Claims.Claim})~System.Boolean",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 3,
+  "Triggers": 11,
+  "Labels": {
+   "match": "invoke-now*"
+  },
+  "Seconds": 0.8626886,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsPrincipal.FindAll(System.Predicate{System.Security.Claims.Claim})~System.Collections.Generic.IEnumerable{System.Security.Claims.Claim}",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 10,
+  "Labels": {
+   "match": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 0.3961834,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})~System.Security.Claims.Claim",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 4,
+  "Labels": {
+   "match": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 0.2081836,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Security.Claims.ClaimsPrincipal.HasClaim(System.Predicate{System.Security.Claims.Claim})~System.Boolean",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 10,
+  "Labels": {
+   "match": "holder(void ClaimsPrincipal.AddIdentity(ClaimsIdentity identity))"
+  },
+  "Seconds": 0.3556347,
+  "EngineError": null
+ },
+ {
+  "Member": "P:System.Security.Claims.ClaimsPrincipal.ClaimsPrincipalSelector",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "value": "framework-event(open world)"
+  },
+  "Seconds": 0.0962786,
+  "EngineError": null
+ },
+ {
+  "Member": "P:System.Security.Claims.ClaimsPrincipal.PrimaryIdentitySelector",
+  "Library": "System.Security.Claims",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "value": "framework-event(open world)"
+  },
+  "Seconds": 0.094553,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AdvancedCircuitBreakerSyntax.AdvancedCircuitBreaker(Polly.PolicyBuilder,System.Double,System.TimeSpan,System.Int32,System.TimeSpan,System.Action{System.Exception,System.TimeSpan,Polly.Context},System.Action{Polly.Context})~Polly.CircuitBreaker.CircuitBreakerPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 16,
+  "Labels": {
+   "onBreak": "holder(void CircuitBreakerPolicy.Isolate())",
+   "onReset": "framework-event(kept, also now)"
+  },
+  "Seconds": 4.2434224,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AdvancedCircuitBreakerTResultSyntax.AdvancedCircuitBreaker``1(Polly.PolicyBuilder{``0},System.Double,System.TimeSpan,System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)~Polly.CircuitBreaker.CircuitBreakerPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 17,
+  "Labels": {
+   "onBreak": "holder(void CircuitBreakerPolicy<int>.Isolate())",
+   "onReset": "framework-event(kept, also now)"
+  },
+  "Seconds": 8.2709891,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncAdvancedCircuitBreakerTResultSyntax.AdvancedCircuitBreakerAsync``1(Polly.PolicyBuilder{``0},System.Double,System.TimeSpan,System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context},System.Action{Polly.Context},System.Action)~Polly.CircuitBreaker.AsyncCircuitBreakerPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 23,
+  "Labels": {
+   "onBreak": "holder(void AsyncCircuitBreakerPolicy<int>.Isolate())",
+   "onReset": "framework-event(kept, also now)",
+   "onHalfOpen": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 11.9367329,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncCircuitBreakerSyntax.CircuitBreakerAsync(Polly.PolicyBuilder,System.Int32,System.TimeSpan,System.Action{System.Exception,Polly.CircuitBreaker.CircuitState,System.TimeSpan,Polly.Context},System.Action{Polly.Context},System.Action)~Polly.CircuitBreaker.AsyncCircuitBreakerPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 22,
+  "Labels": {
+   "onBreak": "holder(void AsyncCircuitBreakerPolicy.Isolate())",
+   "onReset": "framework-event(kept, also now)",
+   "onHalfOpen": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 38.7455341,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncFallbackSyntax.FallbackAsync(Polly.PolicyBuilder,System.Func{System.Threading.CancellationToken,System.Threading.Tasks.Task},System.Func{System.Exception,System.Threading.Tasks.Task})~Polly.Fallback.AsyncFallbackPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "fallbackAction": "framework-event(open world)",
+   "onFallbackAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 4.4990348,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task},Polly.Context,System.Threading.CancellationToken)~System.Threading.Tasks.Task{Polly.PolicyResult}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.836954,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync(System.Func{System.Threading.CancellationToken,System.Threading.Tasks.Task},System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8323065,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},Polly.Context,System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult{``0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8151345,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{System.Threading.Tasks.Task{``0}})~System.Threading.Tasks.Task{Polly.PolicyResult{``0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8144285,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{Polly.Context,System.Threading.Tasks.Task},System.Collections.Generic.IDictionary{System.String,System.Object})~System.Threading.Tasks.Task",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 4.5718114,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy`1.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult{`0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8873847,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy`1.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object})~System.Threading.Tasks.Task{Polly.PolicyResult{`0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8841214,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy`1.ExecuteAndCaptureAsync(System.Func{System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{Polly.PolicyResult{`0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8506522,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncPolicy`1.ExecuteAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~System.Threading.Tasks.Task{`0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 5.1586912,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.RetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Exception,System.Int32,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "onRetryAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 7.0563308,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Func{System.Exception,System.TimeSpan,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "onRetryAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 6.9118597,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,Polly.Context})~Polly.Retry.AsyncRetryPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+   "onRetry": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 6.9106025,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.Exception,Polly.Context,System.TimeSpan},System.Func{System.Exception,System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "sleepDurationProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)",
+   "onRetryAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 6.1220225,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryAsync``1(Polly.PolicyBuilder{``0},System.Collections.Generic.IEnumerable{System.TimeSpan},System.Func{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "onRetryAsync": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 10.6696977,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryAsync``1(Polly.PolicyBuilder{``0},System.Int32,System.Func{System.Int32,System.TimeSpan},System.Func{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "sleepDurationProvider": "unknown(UnknownDelegateCall)",
+   "onRetryAsync": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 10.6994736,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryAsync``1(Polly.PolicyBuilder{``0},System.Int32,System.Func{System.Int32,System.TimeSpan})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "sleepDurationProvider": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 8.9038012,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryForeverAsync``1(Polly.PolicyBuilder{``0},System.Func{System.Int32,Polly.DelegateResult{``0},Polly.Context,System.TimeSpan},System.Func{Polly.DelegateResult{``0},System.TimeSpan,Polly.Context,System.Threading.Tasks.Task})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "sleepDurationProvider": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onRetryAsync": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 10.4819471,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryForeverAsync``1(Polly.PolicyBuilder{``0},System.Func{System.Int32,System.TimeSpan},System.Action{Polly.DelegateResult{``0},System.Int32,System.TimeSpan})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "sleepDurationProvider": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onRetry": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 12.4535015,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.AsyncRetryTResultSyntax.WaitAndRetryForeverAsync``1(Polly.PolicyBuilder{``0},System.Func{System.Int32,System.TimeSpan},System.Action{Polly.DelegateResult{``0},System.TimeSpan})~Polly.Retry.AsyncRetryPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "sleepDurationProvider": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onRetry": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 12.3498039,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.CircuitBreakerTResultSyntax.CircuitBreaker``1(Polly.PolicyBuilder{``0},System.Int32,System.TimeSpan,System.Action{Polly.DelegateResult{``0},System.TimeSpan},System.Action)~Polly.CircuitBreaker.CircuitBreakerPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 17,
+  "Labels": {
+   "onBreak": "holder(void CircuitBreakerPolicy<int>.Isolate())",
+   "onReset": "framework-event(kept, also now)"
+  },
+  "Seconds": 6.8269716,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.FallbackSyntax.Fallback(Polly.PolicyBuilder,System.Action{System.Exception,Polly.Context,System.Threading.CancellationToken},System.Action{System.Exception,Polly.Context})~Polly.Fallback.FallbackPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "fallbackAction": "holder(void Policy.Execute(Action action); void Policy.Execute(Action<Context> action, IDictionary<string, object> contextData); +10)",
+   "onFallback": "holder(void Policy.Execute(Action action); void Policy.Execute(Action<Context> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 4.3027585,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},``0,System.Action{Polly.DelegateResult{``0}})~Polly.Fallback.FallbackPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 15,
+  "Labels": {
+   "onFallback": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 1.8950956,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},System.Func{``0})~Polly.Fallback.FallbackPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 15,
+  "Labels": {
+   "fallbackAction": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 2.1025157,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.FallbackTResultSyntax.Fallback``1(Polly.PolicyBuilder{``0},System.Func{Polly.DelegateResult{``0},Polly.Context,System.Threading.CancellationToken,``0},System.Action{Polly.DelegateResult{``0},Polly.Context})~Polly.Fallback.FallbackPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 15,
+  "Labels": {
+   "fallbackAction": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onFallback": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 4.8868711,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.IAsyncPolicy.ExecuteAndCaptureAsync(System.Func{Polly.Context,System.Threading.Tasks.Task},Polly.Context)~System.Threading.Tasks.Task{Polly.PolicyResult}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.9207095,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.IAsyncPolicy.ExecuteAndCaptureAsync``1(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{``0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{Polly.PolicyResult{``0}}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.9548175,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.IAsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})~System.Threading.Tasks.Task",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 18,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 3.9948287,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.IAsyncPolicy.ExecuteAsync``1(System.Func{Polly.Context,System.Threading.Tasks.Task{``0}},Polly.Context)~System.Threading.Tasks.Task{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 19,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 4.5576765,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.IAsyncPolicy`1.ExecuteAsync(System.Func{Polly.Context,System.Threading.CancellationToken,System.Threading.Tasks.Task{`0}},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken,System.Boolean)~System.Threading.Tasks.Task{`0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 18,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 4.3606055,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.ISyncPolicy.Execute(System.Action{Polly.Context,System.Threading.CancellationToken},Polly.Context,System.Threading.CancellationToken)",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 12,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 6.4526339,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.ISyncPolicy.Execute``1(System.Func{Polly.Context,System.Threading.CancellationToken,``0},Polly.Context,System.Threading.CancellationToken)~``0",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 13,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 7.0932085,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.ISyncPolicy.ExecuteAndCapture(System.Action)~Polly.PolicyResult",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8696428,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.ISyncPolicy`1.ExecuteAndCapture(System.Func{Polly.Context,`0},System.Collections.Generic.IDictionary{System.String,System.Object})~Polly.PolicyResult{`0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8811261,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.ISyncPolicy`1.ExecuteAndCapture(System.Func{Polly.Context,System.Threading.CancellationToken,`0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~Polly.PolicyResult{`0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 0.8658231,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Cache(Polly.Caching.ISyncCacheProvider,System.TimeSpan,System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 30,
+  "Triggers": 14,
+  "Labels": {
+   "onCacheError": "framework-event(open world)"
+  },
+  "Seconds": 1.2978715,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Cache(Polly.Caching.ISyncCacheProvider,System.TimeSpan,System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 30,
+  "Triggers": 14,
+  "Labels": {
+   "onCacheGet": "framework-event(open world)",
+   "onCacheMiss": "framework-event(open world)",
+   "onCachePut": "framework-event(open world)",
+   "onCacheGetError": "framework-event(open world)",
+   "onCachePutError": "framework-event(open world)"
+  },
+  "Seconds": 1.3218797,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Cache(Polly.Caching.ISyncCacheProvider,System.TimeSpan,System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 30,
+  "Triggers": 14,
+  "Labels": {
+   "cacheKeyStrategy": "framework-event(open world)",
+   "onCacheError": "framework-event(open world)"
+  },
+  "Seconds": 1.3712342,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Cache``1(Polly.Caching.ISyncCacheProvider{``0},Polly.Caching.ITtlStrategy,System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 32,
+  "Triggers": 15,
+  "Labels": {
+   "cacheKeyStrategy": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGet": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheMiss": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePut": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGetError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePutError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 6.4216816,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Cache``1(Polly.Caching.ISyncCacheProvider{``0},Polly.Caching.ITtlStrategy{``0},System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.CachePolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 48,
+  "Triggers": 15,
+  "Labels": {
+   "cacheKeyStrategy": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGet": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheMiss": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePut": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCacheGetError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)",
+   "onCachePutError": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 5.4628347,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.CacheAsync``1(Polly.Caching.IAsyncCacheProvider,Polly.Caching.ITtlStrategy,System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.AsyncCachePolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 44,
+  "Triggers": 21,
+  "Labels": {
+   "onCacheError": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 16.4807896,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.CacheAsync``1(Polly.Caching.IAsyncCacheProvider,System.TimeSpan,System.Func{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.AsyncCachePolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 44,
+  "Triggers": 21,
+  "Labels": {
+   "cacheKeyStrategy": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onCacheError": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 4.4228537,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.CacheAsync``1(Polly.Caching.IAsyncCacheProvider{``0},System.TimeSpan,System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String},System.Action{Polly.Context,System.String,System.Exception},System.Action{Polly.Context,System.String,System.Exception})~Polly.Caching.AsyncCachePolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 44,
+  "Triggers": 21,
+  "Labels": {
+   "onCacheGet": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onCacheMiss": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onCachePut": "framework-event(open world)",
+   "onCacheGetError": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)",
+   "onCachePutError": "framework-event(open world)"
+  },
+  "Seconds": 5.0014523,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Execute(System.Action{Polly.Context},System.Collections.Generic.IDictionary{System.String,System.Object})",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 10.1156707,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Execute``1(System.Func{Polly.Context,``0},Polly.Context)~``0",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "action": "invoke-now*"
+  },
+  "Seconds": 8.8572488,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Execute``1(System.Func{Polly.Context,System.Threading.CancellationToken,``0},System.Collections.Generic.IDictionary{System.String,System.Object},System.Threading.CancellationToken)~``0",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "action": "invoke-now"
+  },
+  "Seconds": 9.9491695,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Timeout``1(System.Int32,Polly.Timeout.TimeoutStrategy,System.Action{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception})~Polly.Timeout.TimeoutPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 15,
+  "Labels": {
+   "onTimeout": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 1.378518,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.Timeout``1(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Action{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception})~Polly.Timeout.TimeoutPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 15,
+  "Labels": {
+   "onTimeout": "holder(int Policy<int>.Execute(Func<int> action); int Policy<int>.Execute(Func<Context, int> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 1.3974661,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.TimeoutAsync(System.Func{Polly.Context,System.TimeSpan})~Polly.Timeout.AsyncTimeoutPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "timeoutProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 2.6407232,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.TimeoutAsync(System.Func{System.TimeSpan})~Polly.Timeout.AsyncTimeoutPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "timeoutProvider": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 3.4167413,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.TimeoutAsync(System.Int32,Polly.Timeout.TimeoutStrategy,System.Func{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Threading.Tasks.Task})~Polly.Timeout.AsyncTimeoutPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "onTimeoutAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 2.7327144,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.TimeoutAsync(System.TimeSpan,Polly.Timeout.TimeoutStrategy,System.Func{Polly.Context,System.TimeSpan,System.Threading.Tasks.Task,System.Exception,System.Threading.Tasks.Task})~Polly.Timeout.AsyncTimeoutPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 20,
+  "Labels": {
+   "onTimeoutAsync": "holder(Task AsyncPolicy.ExecuteAsync(Func<Task> action); Task AsyncPolicy.ExecuteAsync(Func<Context, Task> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 2.6708742,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Policy.TimeoutAsync``1(System.Func{System.TimeSpan})~Polly.Timeout.AsyncTimeoutPolicy{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 21,
+  "Labels": {
+   "timeoutProvider": "holder(Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Task<int>> action); Task<int> AsyncPolicy<int>.ExecuteAsync(Func<Context, Task<int>> action, IDictionary<string, object> contextData); +16)"
+  },
+  "Seconds": 3.7305683,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.PolicyBuilder.OrInner``1(System.Func{``0,System.Boolean})~Polly.PolicyBuilder",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 4,
+  "Labels": {
+   "exceptionPredicate": "framework-event(open world)"
+  },
+  "Seconds": 0.7397755,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan},System.Action{System.Exception,System.TimeSpan,Polly.Context})~Polly.Retry.RetryPolicy",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 14,
+  "Labels": {
+   "onRetry": "holder(void Policy.Execute(Action action); void Policy.Execute(Action<Context> action, IDictionary<string, object> contextData); +10)"
+  },
+  "Seconds": 1.7144047,
+  "EngineError": null
+ },
+ {
+  "Member": "M:Polly.Wrap.IPolicyWrapExtension.GetPolicies``1(Polly.Wrap.IPolicyWrap,System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "Polly",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "filter": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 0.7412504,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 1.1255901,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Double}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9750124,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9346463,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.941439,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int32",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9001794,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.DistinctBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9499772,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.924746,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "framework-event(open world)"
+  },
+  "Seconds": 0.95336,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9400931,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9317112,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``0}}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator"
+  },
+  "Seconds": 0.9868074,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{``2}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator",
+   "resultSelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9440562,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2})~System.Collections.Generic.IEnumerable{``2}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator",
+   "resultSelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9733752,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{``3}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator",
+   "elementSelector": "iterator",
+   "resultSelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9943362,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})~System.Collections.Generic.IEnumerable{``3}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "iterator",
+   "elementSelector": "iterator",
+   "resultSelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9543806,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.GroupJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,System.Collections.Generic.IEnumerable{``1},``3},System.Collections.Generic.IEqualityComparer{``2})~System.Collections.Generic.IEnumerable{``3}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "outerKeySelector": "unknown(UnknownEnumeration)",
+   "innerKeySelector": "unknown(UnknownEnumeration)",
+   "resultSelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9933604,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Join``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3},System.Collections.Generic.IEqualityComparer{``2})~System.Collections.Generic.IEnumerable{``3}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "outerKeySelector": "unknown(UnknownEnumeration)",
+   "innerKeySelector": "unknown(UnknownEnumeration)",
+   "resultSelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9964203,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Join``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "outerKeySelector": "unknown(UnknownEnumeration)",
+   "innerKeySelector": "unknown(UnknownEnumeration)",
+   "resultSelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 1.0128069,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9169317,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9472546,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int64",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9695557,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9187005,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.975266,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9320224,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9852361,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9516577,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 1.0002503,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9402027,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9761344,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Max``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.942913,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.MaxBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IComparer{``1})~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 1,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "invoke-now"
+  },
+  "Seconds": 0.9592301,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9410454,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9858848,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.8990766,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9328821,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.8910711,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9384941,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9060929,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Min``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9371219,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.MinBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "invoke-now"
+  },
+  "Seconds": 0.9458088,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.OrderByDescending``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "framework-event(open world)"
+  },
+  "Seconds": 0.9664133,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,``1})~System.Collections.Generic.IEnumerable{``1}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.910126,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})~System.Collections.Generic.IEnumerable{``1}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "framework-event(open world)"
+  },
+  "Seconds": 0.9365832,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.SelectMany``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Collections.Generic.IEnumerable{``1}},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "collectionSelector": "unknown(UnknownEnumeration)",
+   "resultSelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9601426,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "invoke-now"
+  },
+  "Seconds": 0.9561453,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9449892,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.8916598,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.9257974,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "selector": "invoke-now"
+  },
+  "Seconds": 0.8909311,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9342305,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9120449,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ThenByDescending``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "framework-event(open world)"
+  },
+  "Seconds": 1.0182178,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToDictionary``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.Dictionary{``1,``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "invoke-now"
+  },
+  "Seconds": 0.922078,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.Dictionary{``1,``2}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "invoke-now",
+   "elementSelector": "invoke-now"
+  },
+  "Seconds": 0.9596118,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Linq.ILookup{``1,``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 3,
+  "Triggers": 1,
+  "Labels": {
+   "keySelector": "invoke-now"
+  },
+  "Seconds": 1.0403259,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.ILookup{``1,``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 1,
+  "Labels": {
+   "keySelector": "invoke-now"
+  },
+  "Seconds": 1.0469015,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.ToLookup``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Linq.ILookup{``1,``2}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 1,
+  "Labels": {
+   "keySelector": "invoke-now",
+   "elementSelector": "invoke-now"
+  },
+  "Seconds": 1.0457135,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.UnionBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IEqualityComparer{``1})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 2,
+  "Triggers": 0,
+  "Labels": {
+   "keySelector": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9122276,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "unknown(UnknownDelegateCall)"
+  },
+  "Seconds": 0.9600303,
+  "EngineError": null
+ },
+ {
+  "Member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+  "Library": "System.Linq",
+  "Compiled": true,
+  "CompileError": null,
+  "ReceiverNull": false,
+  "NullFallbacks": 0,
+  "Triggers": 0,
+  "Labels": {
+   "predicate": "unknown(UnknownEnumeration)"
+  },
+  "Seconds": 0.9351783,
+  "EngineError": null
+ }
+]
