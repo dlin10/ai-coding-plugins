@@ -196,12 +196,12 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// undecided on its objects, as it is on every object for any other call.</summary>
     public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
 
-    /// <summary>What the library semantics table says about the target, null for a target it does not describe (TD-034a). It
+    /// <summary>What the library model says about the target, null for a target it does not describe (TD-034a). It
     /// decides only for a call that would otherwise be opaque: one whose dispatch may reach a source body runs that body.</summary>
     public IrLibraryCall? Library { get; init; }
 
     /// <summary>Whether a recognizer of phases 1-4 already models the target: a member of a type one owns
-    /// (<c>LibrarySemanticsTable.RecognizedTypes</c>) or the creation of a framework slice. Such a call is never an unresolved one
+    /// (<c>LibraryModels.RecognizedTypes</c>) or the creation of a framework slice. Such a call is never an unresolved one
     /// and never a semantic gap (R1).</summary>
     public bool IsRecognized { get; init; }
 
@@ -280,10 +280,13 @@ public enum IrFactoryInput
     Argument
 }
 
-/// <summary>A member the library semantics table describes (TD-034a): its documentation id, whether the assembly it was found in
-/// is inside the table's version range, and its effects on its arguments. Out of range the call stays opaque and is counted
+/// <summary>A member the library model describes (TD-034a): its documentation id, whether the assembly it was found in
+/// is inside the library model's version range, and its effects on its arguments. Out of range the call stays opaque and is counted
 /// apart.</summary>
-public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects);
+public enum IrModelLayer { BuiltIn, Project }
+
+public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects,
+                                   IrModelLayer Layer = IrModelLayer.BuiltIn, bool DeclaredOpaque = false);
 
 /// <summary>What a known call does to the argument bound to the parameter with <see cref="ParameterOrdinal"/>.
 /// <see cref="Arguments"/> are the values it does it to: the argument itself, or each element of a <c>params</c> array or slice

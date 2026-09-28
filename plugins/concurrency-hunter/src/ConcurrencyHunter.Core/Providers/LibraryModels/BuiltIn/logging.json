@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "note": "Microsoft.Extensions.Logging.Abstractions: every logging extension reads each element of args deep, as the formatter would, and nothing else. ILogger.Log<TState> takes a formatter delegate and stays opaque; configuration is not modeled.",
+  "assemblies": [
+    "Microsoft.Extensions.Logging.Abstractions"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[])",
+      "effects": {
+        "args": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.ILogger.IsEnabled(Microsoft.Extensions.Logging.LogLevel)~System.Boolean",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger\u0060\u00601(Microsoft.Extensions.Logging.ILoggerFactory)~Microsoft.Extensions.Logging.ILogger{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger(Microsoft.Extensions.Logging.ILoggerFactory,System.Type)~Microsoft.Extensions.Logging.ILogger",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.ILoggerFactory.CreateLogger(System.String)~Microsoft.Extensions.Logging.ILogger",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.EventId.#ctor(System.Int32,System.String)",
+      "effects": {}
+    }
+  ]
+}

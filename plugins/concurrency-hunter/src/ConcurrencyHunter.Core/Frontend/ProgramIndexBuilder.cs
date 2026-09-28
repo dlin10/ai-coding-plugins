@@ -1,6 +1,6 @@
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Ir;
-using ConcurrencyHunter.Providers.LibrarySemantics;
+using ConcurrencyHunter.Providers.LibraryModels;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -44,7 +44,7 @@ public static class ProgramIndexBuilder
         var immutableTypeKeys = new HashSet<string>(StringComparer.Ordinal);
         void AddImmutable(ITypeSymbol? type)
         {
-            if (type is not null && LibrarySemanticsTable.BuiltIn.IsImmutable(type))
+            if (type is not null && LibraryModels.BuiltIn.IsImmutable(type))
                 immutableTypeKeys.Add(SymbolNames.TypeKey(type));
         }
 

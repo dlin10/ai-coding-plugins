@@ -1,6 +1,6 @@
 ﻿using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Providers;
-using ConcurrencyHunter.Providers.LibrarySemantics;
+using ConcurrencyHunter.Providers.LibraryModels;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -8,19 +8,19 @@ using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Providers;
 
-/// <summary>The contract tests of the library semantics table (R4): the table against the real metadata of the shared runtime,
+/// <summary>The contract tests of the library model (R4): the table against the real metadata of the shared runtime,
 /// its reference pack and the packages this project references, and the self-check its construction runs.</summary>
 public sealed class LibrarySemanticsTableTests
 {
-    private static readonly LibrarySemanticsTable Table = LibrarySemanticsTable.BuiltIn;
+    private static readonly LibraryModels Table = LibraryModels.BuiltIn;
 
     private static readonly string RuntimeDirectory = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
 
     // The real packages are never compiled beside a stub of the same name: the stub only ever joins the runtime alone.
     private static readonly Lazy<CSharpCompilation> Real = new(() => Compile("", StubAssemblies.PlatformWithout([]).Concat(LibraryPackages.All)));
 
-    /// <summary>The phase 5a list (R2), read off "Состав таблицы" against the real metadata: every member by its id with its effects,
-    /// and every immutable type, the one that covers its derived types marked so.</summary>
+    /// <summary>The phase 5a list (R2) plus the phase 5c array shape members, against the real metadata: every member by its id with
+    /// its effects, and every immutable type, the one that covers its derived types marked so.</summary>
     private static readonly (string Id, string Effects)[] Phase5aList =
     [
         ("M:Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker.Entries``1~System.Collections.Generic.IEnumerable{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0}}", ""),
@@ -170,7 +170,14 @@ public sealed class LibrarySemanticsTableTests
         ("M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonSerializerSettings)~System.String", "DeepRead:value"),
         ("M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String", "DeepRead:value"),
         ("M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.String", "DeepRead:value"),
+        ("M:System.Array.GetLength(System.Int32)~System.Int32", ""),
+        ("M:System.Array.GetLongLength(System.Int32)~System.Int64", ""),
+        ("M:System.Array.GetLowerBound(System.Int32)~System.Int32", ""),
+        ("M:System.Array.GetUpperBound(System.Int32)~System.Int32", ""),
         ("M:System.Array.IndexOf``1(``0[],``0)~System.Int32", "DeepRead:array,DeepRead:value"),
+        ("M:System.Array.get_Length~System.Int32", ""),
+        ("M:System.Array.get_LongLength~System.Int64", ""),
+        ("M:System.Array.get_Rank~System.Int32", ""),
         ("M:System.Environment.get_ProcessorCount~System.Int32", ""),
         ("M:System.Environment.get_TickCount~System.Int32", ""),
         // Phase 5b's one exception to the census (TD-034a): a sink tests keep values alive with, whose semantics are known exactly.
@@ -382,7 +389,7 @@ public sealed class LibrarySemanticsTableTests
     }
 
     [Fact]
-    public void Table_is_exactly_the_phase_5a_list()
+    public void Table_is_exactly_the_phase_5a_list_and_the_array_shape_members()
     {
         var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
@@ -580,7 +587,7 @@ public sealed class LibrarySemanticsTableTests
     [Fact]
     public void Repeated_member_fails_the_build()
     {
-        var exception = Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member(), Member()], []));
+        var exception = Assert.Throws<LibraryModelException>(() => new LibraryModels([Member(), Member()], []));
 
         Assert.Contains("twice", exception.Message);
     }
@@ -588,8 +595,8 @@ public sealed class LibrarySemanticsTableTests
     [Fact]
     public void Empty_assembly_name_fails_the_build()
     {
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Assemblies = [SupportedAssemblyVersion.Framework(" ")] }], []));
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([], [new ImmutableLibraryType("T:Library.Value", [SupportedAssemblyVersion.Framework("")])]));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Assemblies = [SupportedAssemblyVersion.Framework(" ")] }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([], [new ImmutableLibraryType("T:Library.Value", [SupportedAssemblyVersion.Framework("")])]));
     }
 
     [Fact]
@@ -598,14 +605,14 @@ public sealed class LibrarySemanticsTableTests
         var empty = new SupportedAssemblyVersion("Library", new Version(13, 0, 0, 0), new Version(13, 0, 0, 0));
         var inverted = new SupportedAssemblyVersion("Library", new Version(14, 0, 0, 0), new Version(13, 0, 0, 0));
 
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Assemblies = [empty] }], []));
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Assemblies = [inverted] }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Assemblies = [empty] }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Assemblies = [inverted] }], []));
     }
 
     [Fact]
     public void Effect_without_a_parameter_name_fails_the_build()
     {
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Effects = [LibraryEffect.DeepReadOf("")] }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Effects = [LibraryEffect.DeepReadOf("")] }], []));
     }
 
     [Fact]
@@ -614,16 +621,16 @@ public sealed class LibrarySemanticsTableTests
         var repeated = Member() with { Effects = [LibraryEffect.DeepReadOf("value"), LibraryEffect.DeepReadOf("value")] };
         var distinct = Member() with { Effects = [LibraryEffect.DeepReadOf("value"), LibraryEffect.WriteOf("value")] };
 
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([repeated], []));
-        Assert.Single(new LibrarySemanticsTable([distinct], []).Members);
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([repeated], []));
+        Assert.Single(new LibraryModels([distinct], []).Members);
     }
 
     [Fact]
     public void Type_a_phase_3_or_4_recognizer_owns_fails_the_build()
     {
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Id = "M:System.Threading.Tasks.Task.Run(System.Action)~System.Threading.Tasks.Task" }], []));
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([Member() with { Id = "M:System.Threading.Interlocked.Increment(System.Int32@)~System.Int32" }], []));
-        Assert.Throws<LibrarySemanticsException>(() => new LibrarySemanticsTable([], [new ImmutableLibraryType("T:System.Collections.Generic.List`1", [SupportedAssemblyVersion.Framework("System.Runtime")])]));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Id = "M:System.Threading.Tasks.Task.Run(System.Action)~System.Threading.Tasks.Task" }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([Member() with { Id = "M:System.Threading.Interlocked.Increment(System.Int32@)~System.Int32" }], []));
+        Assert.Throws<LibraryModelException>(() => new LibraryModels([], [new ImmutableLibraryType("T:System.Collections.Generic.List`1", [SupportedAssemblyVersion.Framework("System.Runtime")])]));
     }
 
     // ---- identity at a call ----
@@ -771,7 +778,7 @@ public sealed class LibrarySemanticsTableTests
     private static (string Assembly, string Parameter) Summary(LibraryMatch match) =>
         (match.Assembly.Name, Assert.Single(match.Effects, effect => effect.Kind == LibraryEffectKind.DeepRead).Parameter);
 
-    private static LibraryMember Member() =>
+    private static LibraryModel Member() =>
         new("M:Library.Api.Read(System.Object)", [new SupportedAssemblyVersion("Library", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], []);
 
     /// <summary>Every public or protected method of the listed immutable types, derived types of <c>Exception</c> left out.</summary>

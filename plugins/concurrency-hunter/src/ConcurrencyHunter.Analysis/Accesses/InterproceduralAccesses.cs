@@ -14,6 +14,10 @@ public static class CoverageCounters
     public const string SCC_BUDGET_EXCEEDED = "scc-budget-exceeded";
     public const string OPAQUE_CALL = "opaque-call";
     public const string KNOWN_CALL = "known-call";
+    public const string KNOWN_CALL_BUILT_IN = "known-call-built-in";
+    public const string KNOWN_CALL_PROJECT = "known-call-project";
+    public const string OPAQUE_BY_PROJECT = "opaque-by-project";
+    public const string MODEL_ENTRY_REJECTED = "model-entry-rejected";
     public const string OUT_OF_RANGE_CALL = "out-of-range-call";
     public const string DELEGATE_TO_OPAQUE = "delegate-to-opaque";
     public const string ELEMENT_OPERATION = "element-operation";
@@ -127,7 +131,8 @@ public static class InterproceduralAccesses
         // A known call leaves the opaque list only here: it is counted apart and named nowhere as opaque (R1, R5).
         var opaque = summaries.SelectMany(summary => summary.OpaqueCalls.Where(call => !call.IsKnown).Select(call => (summary.BodyId, Call: call)))
                               .ToArray();
-        var known = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown));
+        var knownBuiltIn = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown && call.Library?.Layer == IrModelLayer.BuiltIn));
+        var knownProject = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown && call.Library?.Layer == IrModelLayer.Project));
         var reachedMembers = input.Scope.Reachable.Members.Select(member => member.MemberId).ToHashSet(StringComparer.Ordinal);
         var memberOf = input.Scope.Program.Methods.SelectMany(method => method.NestedBodyIds.Select(nested => (Nested: nested, method.MethodId)))
                             .GroupBy(pair => pair.Nested, StringComparer.Ordinal)
@@ -143,8 +148,12 @@ public static class InterproceduralAccesses
             [CoverageCounters.REACHABLE_BODIES] = heap.ReachableBodies.Count,
             [CoverageCounters.SCC_BUDGET_EXCEEDED] = heap.Counters.GetValueOrDefault(HeapCounters.SCC_BUDGET_EXCEEDED),
             [CoverageCounters.OPAQUE_CALL] = opaque.Length + decided.Opaque,
-            [CoverageCounters.KNOWN_CALL] = known,
-            [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false }),
+            [CoverageCounters.KNOWN_CALL] = knownBuiltIn + knownProject,
+            [CoverageCounters.KNOWN_CALL_BUILT_IN] = knownBuiltIn,
+            [CoverageCounters.KNOWN_CALL_PROJECT] = knownProject,
+            [CoverageCounters.OPAQUE_BY_PROJECT] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.Project }),
+            [CoverageCounters.MODEL_ENTRY_REJECTED] = 0,
+            [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false, DeclaredOpaque: false }),
             // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate. A factory
             // `GetOrAdd` or `AddOrUpdate` runs where it is called is handed to no opaque call (R11).
             [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.Where(item => !factorySites.Contains((memberOf.GetValueOrDefault(item.BodyId) ?? item.BodyId, item.Call.OperationId)) &&

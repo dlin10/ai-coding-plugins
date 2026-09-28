@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "note": "Newtonsoft.Json 13 mirrors System.Text.Json: every SerializeObject reads its value deep, every DeserializeObject touches nothing. Converters and settings run no user code in the effect.",
+  "assemblies": [
+    "Newtonsoft.Json"
+  ],
+  "versions": {
+    "minimum": "13.0.0.0",
+    "maximumExclusive": "14.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonConverter[])~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonConverter[])~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonSerializerSettings)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String)~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,Newtonsoft.Json.JsonSerializerSettings)~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type)~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String)~\u0060\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String,Newtonsoft.Json.JsonConverter[])~\u0060\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String,Newtonsoft.Json.JsonSerializerSettings)~\u0060\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonConverter[])~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.Object",
+      "effects": {}
+    }
+  ]
+}

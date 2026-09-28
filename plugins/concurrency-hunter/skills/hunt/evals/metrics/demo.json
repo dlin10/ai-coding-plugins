@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
   "target": "demo/Demo.slnx",
-  "revision": "7c9e61652665ba1bf715d03a117354516de37b53",
+  "revision": "d57fc6b7d96fa4ac466114687946eeae389d109c",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-27T11:03:11.0436495\u002B00:00",
+  "recordedAt": "2026-09-27T23:08:55.6058184\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,91 +18,91 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.047
+        "seconds": 3.281
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.693
+        "seconds": 1.931
       },
       {
         "step": "program-index",
-        "seconds": 1.085
+        "seconds": 1.198
       },
       {
         "step": "lowering",
-        "seconds": 1.211
+        "seconds": 1.326
       },
       {
         "step": "reachable-set",
-        "seconds": 0.068
+        "seconds": 0.074
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.473
+        "seconds": 0.468
       },
       {
         "step": "executions",
-        "seconds": 0.209
+        "seconds": 0.206
       },
       {
         "step": "accesses",
-        "seconds": 0.588
+        "seconds": 0.592
       },
       {
         "step": "pairing",
-        "seconds": 0.049
+        "seconds": 0.047
       },
       {
         "step": "solver",
-        "seconds": 0.17
+        "seconds": 0.194
       },
       {
         "step": "findings",
-        "seconds": 0.036
+        "seconds": 0.043
       },
       {
         "step": "render",
-        "seconds": 0.14
+        "seconds": 0.092
       }
     ],
-    "totalSeconds": 10.966
+    "totalSeconds": 11.796
   },
-  "peakWorkingSetMb": 313.1,
+  "peakWorkingSetMb": 322.6,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 271,
+    "roots": 277,
     "rootsPerProvider": {
-      "aspnetcore": 109,
-      "hosting": 162
+      "aspnetcore": 112,
+      "hosting": 165
     },
-    "reachableBodies": 1037,
-    "summaries": 1037,
-    "regions": 670,
-    "instances": 1083,
-    "accesses": 1285,
+    "reachableBodies": 1056,
+    "summaries": 1056,
+    "regions": 680,
+    "instances": 1103,
+    "accesses": 1311,
     "pairs": {
-      "comparisons": 1408,
-      "cartesianBound": 413596,
+      "comparisons": 1437,
+      "cartesianBound": 430129,
       "largestBucket": 8,
-      "buckets": 558,
+      "buckets": 568,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 284,
+        "no-overlap": 287,
         "ordered": 21,
-        "read-read": 808,
+        "read-read": 829,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 196
+      "candidates": 201
     },
-    "findings": 183,
-    "occurrences": 193,
-    "groups": 145,
+    "findings": 188,
+    "occurrences": 198,
+    "groups": 148,
     "fingerprints": [
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
@@ -123,6 +123,7 @@
       "1b3a288043626abf",
       "1dc28b91f14dde8f",
       "215abd8017e06962",
+      "215f0556b47a8d0a",
       "22f49fa00c6b6c6a",
       "23027766c83eb5c9",
       "243e5f431bb28527",
@@ -188,6 +189,7 @@
       "7b44d0ade70055a5",
       "7b7626abc9fea1d5",
       "7c01557e3a6041af",
+      "7c1e0d0780913a52",
       "7c58babcede86c11",
       "7c968dbe5ed393ec",
       "7cd08d7f68d4e172",
@@ -202,6 +204,7 @@
       "893c3ba82483c84a",
       "89f506f876385f53",
       "8c63cabb09990496",
+      "8d43c4d75331fdb3",
       "901a6f7ff986900e",
       "914b4f529557f822",
       "91eb8facff869387",
@@ -236,6 +239,7 @@
       "afb2328274e72b56",
       "afe1beea221354c6",
       "b3015545d26764ec",
+      "b3e61e5ae6739424",
       "b47351dfaefa4142",
       "b4d4a1932d5dec8c",
       "b7202c887ed7d777",
@@ -268,6 +272,7 @@
       "db47c80433ee81bd",
       "dd548fa2ebbf85ef",
       "df22a46d682100b3",
+      "e021f6ef56e624b8",
       "e10e862e0c08ed5c",
       "e16132ce934681c0",
       "e4691f7e6749aadb",
@@ -293,27 +298,31 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 109,
-        "hosting": 161
+        "aspnetcore": 112,
+        "hosting": 164
       },
-      "accesses": 909,
+      "accesses": 927,
       "counters": {
         "delegate-to-opaque": 7,
-        "element-operation": 28,
-        "known-call": 200,
+        "element-operation": 32,
+        "known-call": 205,
+        "known-call-built-in": 205,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 13,
-        "opaque-call": 921,
+        "opaque-by-project": 1,
+        "opaque-call": 937,
         "out-of-range-call": 0,
-        "reachable-bodies": 1034,
+        "reachable-bodies": 1053,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 9,
+        "semantic-gap": 10,
         "solver-available": 1,
-        "solver-queries": 13,
-        "solver-sat": 9,
+        "solver-queries": 15,
+        "solver-sat": 11,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 8,
+        "unproven-reference": 10,
         "unresolved-locator": 2,
         "wildcard-access": 8
       },
@@ -331,6 +340,7 @@
         "System.Console.Write(object)",
         "System.Console.WriteLine(object)",
         "System.Runtime.InteropServices.CollectionsMarshal.SetCount\u003CT\u003E(List\u003Cstring\u003E, int)",
+        "System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u003CTValue\u003E(Payload, JsonSerializerOptions)",
         "System.Threading.CancellationToken.Register(Action)",
         "System.Threading.Channels.Channel.CreateUnbounded\u003CT\u003E()",
         "System.Threading.Channels.ChannelWriter\u003CDemo.Web.Cases.ChannelHandoff.Order\u003E.TryWrite(Order)"
@@ -347,8 +357,12 @@
         "delegate-to-opaque": 0,
         "element-operation": 0,
         "known-call": 0,
+        "known-call-built-in": 0,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 0,
+        "opaque-by-project": 0,
         "opaque-call": 7,
         "out-of-range-call": 0,
         "reachable-bodies": 3,
@@ -373,12 +387,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 10.966,
+      "actual": 11.796,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.306,
+      "actual": 0.315,
       "met": true
     }
   }

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "note": "System.Text.Json: serialization reads its value deep; deserialization from a string touches nothing. Stream, writer, reader, pipe, span, node, element, document, type info and context overloads are not known.",
+  "assemblies": [
+    "System.Text.Json"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:System.Text.Json.JsonSerializer.Serialize\u0060\u00601(\u0060\u00600,System.Text.Json.JsonSerializerOptions)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.String",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u0060\u00601(\u0060\u00600,System.Text.Json.JsonSerializerOptions)~System.Byte[]",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.Byte[]",
+      "effects": {
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.Deserialize\u0060\u00601(System.String,System.Text.Json.JsonSerializerOptions)~\u0060\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerDefaults)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonDocument.Parse(System.String,System.Text.Json.JsonDocumentOptions)~System.Text.Json.JsonDocument",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonDocument.get_RootElement~System.Text.Json.JsonElement",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonElement.GetProperty(System.String)~System.Text.Json.JsonElement",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonElement.ToString~System.String",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonElement.EnumerateArray~System.Text.Json.JsonElement.ArrayEnumerator",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.Utf8JsonReader.get_TokenType~System.Text.Json.JsonTokenType",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.Utf8JsonReader.GetInt32~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.Utf8JsonReader.GetString~System.String",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor(System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor(System.String,System.Exception)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64})",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64},System.Exception)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Text.Json.JsonException.#ctor(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)",
+      "effects": {}
+    }
+  ]
+}

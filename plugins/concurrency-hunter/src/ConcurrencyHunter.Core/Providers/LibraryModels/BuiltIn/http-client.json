@@ -1,0 +1,319 @@
+{
+  "schemaVersion": 1,
+  "note": "HttpClient: a request reads its content or request message deep; reading a response, request properties or headers touches nothing. Members changing a client's, request's or header's state are not known because library object state is no resource. DelegatingHandler.SendAsync may call a user's inner handler and is not known. The client factory is declared in Microsoft.Extensions.Http.",
+  "assemblies": [
+    "System.Net.Http"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.String)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.String)~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri)~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "content": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "request": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "request": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "request": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+      "effects": {
+        "request": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Net.Http.HttpClient.get_DefaultRequestHeaders~System.Net.Http.Headers.HttpRequestHeaders",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.EnsureSuccessStatusCode~System.Net.Http.HttpResponseMessage",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_Content~System.Net.Http.HttpContent",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_StatusCode~System.Net.HttpStatusCode",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_IsSuccessStatusCode~System.Boolean",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_ReasonPhrase~System.String",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_RequestMessage~System.Net.Http.HttpRequestMessage",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpResponseMessage.get_Headers~System.Net.Http.Headers.HttpResponseHeaders",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpContent.ReadAsStringAsync~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpContent.ReadAsStringAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.get_Headers~System.Net.Http.Headers.HttpRequestHeaders",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.get_Method~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.get_RequestUri~System.Uri",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.#ctor(System.Net.Http.HttpMethod,System.Uri)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpRequestMessage.#ctor(System.Net.Http.HttpMethod,System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Connect~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Delete~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Get~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Head~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Options~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Patch~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Post~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Put~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Query~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpMethod.get_Trace~System.Net.Http.HttpMethod",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.Headers.HttpHeaders.Contains(System.String)~System.Boolean",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.Headers.HttpHeaders.TryGetValues(System.String,System.Collections.Generic.IEnumerable{System.String}@)~System.Boolean",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.StringContent.#ctor(System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.StringContent.#ctor(System.String,System.Net.Http.Headers.MediaTypeHeaderValue)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding,System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding,System.Net.Http.Headers.MediaTypeHeaderValue)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.Headers.AuthenticationHeaderValue.#ctor(System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.Headers.AuthenticationHeaderValue.#ctor(System.String,System.String)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.DelegatingHandler.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.DelegatingHandler.#ctor(System.Net.Http.HttpMessageHandler)",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.IHttpClientFactory.CreateClient(System.String)~System.Net.Http.HttpClient",
+      "assemblies": [
+        "Microsoft.Extensions.Http"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Net.Http.HttpClientFactoryExtensions.CreateClient(System.Net.Http.IHttpClientFactory)~System.Net.Http.HttpClient",
+      "assemblies": [
+        "Microsoft.Extensions.Http"
+      ],
+      "effects": {}
+    }
+  ]
+}

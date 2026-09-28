@@ -12,9 +12,9 @@ Two things must hold. Every case the rewrite lost must be paired with a case the
 same test renamed - the same class, and a method name that carries the lost one's own name from the start, in whole
 words. Any new case in the class is not that: it lets a deleted test hide behind an unrelated arrival, which is what this
 exists to catch. Where two gained cases carry the name equally well, nothing says which one is the rename, and the
-pairing is refused rather than decided alphabetically. And none of the lost cases may carry phase_5b_expectation in its
-name: the demo matcher of phase 5b, which the first run of the phase renamed from its phase 5a name and the second run keeps.
-The marker is longer than the phase alone because -match ignores case, and phase_5b_ would also catch other tests that name
+pairing is refused rather than decided alphabetically. And none of the lost cases may carry phase_5c_expectation in its
+name: the demo matcher of phase 5c, renamed from its phase 5b name in this run.
+The marker is longer than the phase alone because -match ignores case, and phase_5c_ would also catch other tests that name
 the phase and are free to be renamed.
 
 The plan wrote the first rule as "exactly one case may be lost", counting only that matcher. Four further renames had
@@ -29,7 +29,7 @@ lets an honest rename through.
 $ErrorActionPreference = 'Stop'
 
 $COMMITTED = 'HEAD:plugins/concurrency-hunter/build/test-baseline.txt'
-$KEPT_MATCHER = 'phase_5b_expectation'
+$KEPT_MATCHER = 'phase_5c_expectation'
 
 # How much of its name a replacement has to carry for the pairing to say "renamed" rather than "something else arrived". The
 # five renames of the phase carry 18 characters and more; a pair of unrelated tests in one class carries a word or none.

@@ -84,7 +84,7 @@ public sealed class ProgramIndex
     public IReadOnlyList<ClosedGenericType> ClosedGenericTypes { get; }
 
     /// <summary>The type keys source creates objects of whose values can be neither changed nor used to reach anything that can
-    /// (the library table's immutable types): a known call's effect on such an object touches nothing (R3).</summary>
+    /// (the library model's immutable types): a known call's effect on such an object touches nothing (R3).</summary>
     public IReadOnlySet<string> ImmutableTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
     public ProgramMethod? Method(string methodId) => _methods.GetValueOrDefault(methodId);

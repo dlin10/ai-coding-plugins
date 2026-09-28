@@ -506,11 +506,11 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     public IReadOnlyList<CallArgument> Arguments { get; init; } = [];
     public IrServiceCall? ServiceCall { get; init; }
 
-    /// <summary>The table's word on the callee (TD-034a). A call it knows in range is a known call: coverage counts it apart from
+    /// <summary>The library model's word on the callee (TD-034a). A call it knows in range is a known call: coverage counts it apart from
     /// the opaque ones, and every other reader of <see cref="MethodSummary.OpaqueCalls"/> treats it exactly as before (R1).</summary>
     public IrLibraryCall? Library { get; init; }
 
-    public bool IsKnown => Library is { InRange: true };
+    public bool IsKnown => Library is { InRange: true, DeclaredOpaque: false };
 
     /// <summary>What the call does to the collection it is a member of (ADR 0010): a member that puts values into it tells a deep
     /// read which objects the collection holds.</summary>

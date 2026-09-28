@@ -1,8 +1,10 @@
 using Microsoft.CodeAnalysis;
 
-namespace ConcurrencyHunter.Providers.LibrarySemantics;
+namespace ConcurrencyHunter.Providers.LibraryModels;
 
-public sealed class LibrarySemanticsException(string message) : Exception(message);
+public sealed class LibraryModelException(string message) : Exception(message);
+
+public enum ModelLayer { BuiltIn, Project }
 
 /// <summary>What a known call does to one of its arguments, named by the parameter it is bound to (TD-034a).</summary>
 public enum LibraryEffectKind
@@ -21,9 +23,10 @@ public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
     public static LibraryEffect WriteOf(string parameter) => new(LibraryEffectKind.WriteArgument, parameter);
 }
 
-/// <summary>One member the table describes: the <see cref="DocumentationCommentId"/> of its original definition, the assemblies it
+/// <summary>One member the library model describes: the <see cref="DocumentationCommentId"/> of its original definition, the assemblies it
 /// may be declared in with their version ranges, and its effects; a member with none touches nothing.</summary>
-public sealed record LibraryMember(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects);
+public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects,
+                                  ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null);
 
 /// <summary>A type every one of whose members is known without effect when it takes only immutable arguments (R2). With
 /// <see cref="IncludesDerived"/> the rule covers every type of the framework that derives from it: one declared in the same
@@ -33,24 +36,25 @@ public sealed record ImmutableLibraryType(string Id, IReadOnlyList<SupportedAsse
 public enum LibraryMatchKind
 {
     Known,
+    Opaque,
 
-    /// <summary>A member the table describes, declared in an assembly of the right name at a version outside its range: an
+    /// <summary>A member the library model describes, declared in an assembly of the right name at a version outside its range: an
     /// opaque call, counted apart.</summary>
     OutOfRange
 }
 
-/// <summary>A call the table recognizes: the member's id, its effects, and the assembly it was found in with the range the table
+/// <summary>A call a library model recognizes: the member's id, its effects, and the assembly it was found in with the range the model
 /// supports for that assembly.</summary>
 public sealed record LibraryMatch(LibraryMatchKind Kind, string MemberId, IReadOnlyList<LibraryEffect> Effects, AssemblyIdentity Assembly,
-                                  SupportedAssemblyVersion Range);
+                                  SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false);
 
-/// <summary>The library semantics table of TD-034a: known calls by exact member identity, assembly name and version range, built
-/// from its families and checked as it is built (TD-123).</summary>
-public sealed class LibrarySemanticsTable
+/// <summary>The built-in library models of TD-034a: known calls by exact member identity, assembly name and version range,
+/// checked as they are loaded (TD-123).</summary>
+public sealed class LibraryModels
 {
     // The types the recognizers of phases 3-4 own, by metadata name: the collections of ADR 0010, spawn, timers and tasks, the
     // synchronization primitives, Interlocked and Volatile, and the DI locator (IrLowering). Their members match by name in every
-    // supported framework (TD-122), and a table entry for one would describe the same call twice.
+    // supported framework (TD-122), and a library model entry for one would describe the same call twice.
     private static readonly HashSet<string> RecognizedTypes = new(StringComparer.Ordinal)
     {
         "System.Collections.Generic.List`1",
@@ -92,10 +96,11 @@ public sealed class LibrarySemanticsTable
         "Microsoft.Extensions.DependencyInjection.AsyncServiceScope"
     };
 
-    private readonly Dictionary<string, LibraryMember> _members = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LibraryModel> _members = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LibraryModel[]> _projectMembers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ImmutableLibraryType> _types = new(StringComparer.Ordinal);
 
-    public LibrarySemanticsTable(IEnumerable<LibraryMember> members, IEnumerable<ImmutableLibraryType> immutableTypes)
+    public LibraryModels(IEnumerable<LibraryModel> members, IEnumerable<ImmutableLibraryType> immutableTypes)
     {
         foreach (var member in members)
         {
@@ -104,40 +109,59 @@ public sealed class LibrarySemanticsTable
             foreach (var effect in member.Effects)
             {
                 if (string.IsNullOrWhiteSpace(effect.Parameter))
-                    throw new LibrarySemanticsException($"{member.Id} declares a {effect.Kind} effect with no parameter name.");
+                    throw new LibraryModelException($"{member.Id} declares a {effect.Kind} effect with no parameter name.");
                 if (!effects.Add(effect))
-                    throw new LibrarySemanticsException($"{member.Id} declares {effect.Kind} of '{effect.Parameter}' twice.");
+                    throw new LibraryModelException($"{member.Id} declares {effect.Kind} of '{effect.Parameter}' twice.");
             }
 
             if (!_members.TryAdd(member.Id, member))
-                throw new LibrarySemanticsException($"{member.Id} is described twice.");
+                throw new LibraryModelException($"{member.Id} is described twice.");
         }
 
         foreach (var type in immutableTypes)
         {
             Check(type.Id, type.Assemblies);
             if (!_types.TryAdd(type.Id, type))
-                throw new LibrarySemanticsException($"{type.Id} is described twice.");
+                throw new LibraryModelException($"{type.Id} is described twice.");
         }
 
         Members = _members.Values.ToArray();
         ImmutableTypes = _types.Values.ToArray();
     }
 
-    /// <summary>The table of phase 5a; its families are listed here and nowhere else.</summary>
-    public static LibrarySemanticsTable BuiltIn { get; } = new(
-        [
-            .. SystemFamily.Members,
-            .. SystemTextJsonFamily.Members,
-            .. NewtonsoftJsonFamily.Members,
-            .. LoggingFamily.Members,
-            .. HttpClientFamily.Members,
-            .. EntityFrameworkFamily.Members,
-            .. LinqFamily.Members
-        ],
-        SystemFamily.ImmutableTypes);
+    private LibraryModels(LibraryModels builtIn, IEnumerable<LibraryModel> project) : this(builtIn.Members, builtIn.ImmutableTypes)
+    {
+        var projectMembers = project.ToArray();
+        foreach (var group in projectMembers.GroupBy(member => member.Id, StringComparer.Ordinal))
+            _projectMembers.Add(group.Key, group.ToArray());
+        Members = builtIn.Members.Concat(projectMembers).ToArray();
+    }
 
-    public IReadOnlyList<LibraryMember> Members { get; }
+    internal static LibraryModels WithProject(IEnumerable<LibraryModel> project) => new(BuiltIn, project);
+
+    /// <summary>The built-in library models, read from the seven embedded files once per process.</summary>
+    public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
+
+    private static LibraryModels LoadBuiltIn()
+    {
+        var assembly = typeof(LibraryModels).Assembly;
+        var members = new List<LibraryModel>();
+        var types = new List<ImmutableLibraryType>();
+        foreach (var file in new[] { "system.json", "system-text-json.json", "newtonsoft-json.json", "logging.json",
+                                     "http-client.json", "entity-framework.json", "linq.json" })
+        {
+            using var stream = assembly.GetManifestResourceStream("LibraryModels.BuiltIn." + file) ??
+                               throw new LibraryModelException($"Missing built-in library model {file}.");
+            using var bytes = new MemoryStream();
+            stream.CopyTo(bytes);
+            var model = BuiltInModelReader.Read(bytes.ToArray());
+            members.AddRange(model.Members);
+            types.AddRange(model.ImmutableTypes);
+        }
+        return new LibraryModels(members, types);
+    }
+
+    public IReadOnlyList<LibraryModel> Members { get; }
 
     public IReadOnlyList<ImmutableLibraryType> ImmutableTypes { get; }
 
@@ -145,7 +169,7 @@ public sealed class LibrarySemanticsTable
     /// of those phases and is never an unresolved call (R1).</summary>
     public static bool IsRecognizedType(string metadataName) => RecognizedTypes.Contains(metadataName);
 
-    /// <summary>What the table says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
+    /// <summary>What a library model says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
     /// or null for a member it does not describe. A member it describes by its immutable type only is known when every parameter
     /// is immutable and passed by value or <c>out</c>, and it is a method, a constructor, an operator or a getter.</summary>
     public LibraryMatch? Find(IMethodSymbol method)
@@ -153,19 +177,27 @@ public sealed class LibrarySemanticsTable
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
         if (DocumentationCommentId.CreateDeclarationId(definition) is not { } id)
             return null;
+        if (_projectMembers.TryGetValue(id, out var projectMembers))
+        {
+            var project = projectMembers.FirstOrDefault(member => member.ResolvedVersion == definition.ContainingAssembly.Identity.Version &&
+                member.Assemblies.Any(range => range.AssemblyName == definition.ContainingAssembly.Identity.Name &&
+                                               range.Contains(definition.ContainingAssembly.Identity.Version)));
+            if (project is not null)
+                return Match(project.Assemblies, definition.ContainingAssembly, id, project.Effects, project.Layer, project.DeclaredOpaque);
+        }
         if (_members.TryGetValue(id, out var member))
-            return Match(member.Assemblies, definition.ContainingAssembly, id, member.Effects);
+            return Match(member.Assemblies, definition.ContainingAssembly, id, member.Effects, member.Layer, member.DeclaredOpaque);
         if (ImmutableTypeOf(definition.ContainingType) is not { } type || !IsImmutableShape(definition))
             return null;
         return Match(RangeOf(type, definition.ContainingAssembly), definition.ContainingAssembly, id, []);
     }
 
-    /// <summary>The assemblies of the table that <paramref name="compilation"/> references at a version outside their range, one per
-    /// assembly name: every call of theirs the table describes is an opaque call there (R5). They are the assemblies the table
+    /// <summary>The assemblies of built-in models that <paramref name="compilation"/> references at a version outside their range, one per
+    /// assembly name: every call of theirs those models describe is an opaque call there (R5). They are the assemblies the models
     /// names, and any other <c>System</c> assembly declaring a type a rule for derived types covers.</summary>
     public IEnumerable<(AssemblyIdentity Assembly, SupportedAssemblyVersion Range)> OutOfRangeReferences(Compilation compilation)
     {
-        var named = Members.SelectMany(member => member.Assemblies)
+        var named = _members.Values.SelectMany(member => member.Assemblies)
                            .Concat(ImmutableTypes.SelectMany(type => type.Assemblies))
                            .DistinctBy(range => range.AssemblyName, StringComparer.Ordinal)
                            .ToArray();
@@ -201,7 +233,7 @@ public sealed class LibrarySemanticsTable
     }
 
     /// <summary>Whether a value of <paramref name="type"/> can be neither changed nor used to reach anything that can: a string, a
-    /// primitive, an enum, an immutable type of the table whose type arguments are immutable too, and, inside the members of
+    /// primitive, an enum, an immutable type of the built-in models whose type arguments are immutable too, and, inside the members of
     /// <paramref name="owner"/>, one of its own type parameters.</summary>
     public bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner = null) => IsImmutable(type, owner, inRange: true);
 
@@ -246,20 +278,24 @@ public sealed class LibrarySemanticsTable
                                            IsImmutable(parameter.Type, method.ContainingType, inRange: false));
 
     private static LibraryMatch? Match(IReadOnlyList<SupportedAssemblyVersion> ranges, IAssemblySymbol? assembly, string id,
-                                       IReadOnlyList<LibraryEffect> effects) =>
-        Match(RangeOf(ranges, assembly), assembly, id, effects);
+                                       IReadOnlyList<LibraryEffect> effects, ModelLayer layer, bool declaredOpaque) =>
+        Match(RangeOf(ranges, assembly), assembly, id, effects, layer, declaredOpaque);
 
     private static LibraryMatch? Match(SupportedAssemblyVersion? range, IAssemblySymbol? assembly, string id,
-                                       IReadOnlyList<LibraryEffect> effects)
+                                       IReadOnlyList<LibraryEffect> effects, ModelLayer layer = ModelLayer.BuiltIn,
+                                       bool declaredOpaque = false)
     {
         if (range is null)
             return null;
-        var kind = range.Contains(assembly!.Identity.Version) ? LibraryMatchKind.Known : LibraryMatchKind.OutOfRange;
-        return new LibraryMatch(kind, id, effects, assembly.Identity, range);
+        var kind = !range.Contains(assembly!.Identity.Version) ? LibraryMatchKind.OutOfRange :
+                   declaredOpaque ? LibraryMatchKind.Opaque : LibraryMatchKind.Known;
+        return new LibraryMatch(kind, id, effects, assembly!.Identity, range, layer, declaredOpaque);
     }
 
     private static SupportedAssemblyVersion? RangeOf(IReadOnlyList<SupportedAssemblyVersion> ranges, IAssemblySymbol? assembly) =>
-        assembly is null ? null : ranges.FirstOrDefault(range => range.AssemblyName == assembly.Identity.Name);
+        assembly is null ? null : ranges.FirstOrDefault(range => range.AssemblyName == assembly.Identity.Name &&
+                                                              range.Contains(assembly.Identity.Version)) ??
+                                    ranges.FirstOrDefault(range => range.AssemblyName == assembly.Identity.Name);
 
     /// <summary>The range an immutable type's rule holds for in <paramref name="assembly"/>: one of its own assemblies, or, for a
     /// rule that covers derived types, any other <c>System</c> assembly of the framework at the framework's range.</summary>
@@ -272,20 +308,20 @@ public sealed class LibrarySemanticsTable
     private static void Check(string id, IReadOnlyList<SupportedAssemblyVersion> assemblies)
     {
         if (assemblies.Count == 0)
-            throw new LibrarySemanticsException($"{id} names no assembly.");
+            throw new LibraryModelException($"{id} names no assembly.");
         foreach (var range in assemblies)
         {
             if (string.IsNullOrWhiteSpace(range.AssemblyName))
-                throw new LibrarySemanticsException($"{id} names an assembly with an empty name.");
+                throw new LibraryModelException($"{id} names an assembly with an empty name.");
             if (range.Minimum >= range.MaximumExclusive)
             {
-                throw new LibrarySemanticsException(
+                throw new LibraryModelException(
                     $"{id} declares {range.AssemblyName} {range.Minimum} up to {range.MaximumExclusive}, whose minimum is not below its exclusive maximum.");
             }
         }
 
         if (RecognizedTypes.Contains(TypeOf(id)))
-            throw new LibrarySemanticsException($"{id} belongs to {TypeOf(id)}, which a recognizer of phases 3-4 already owns.");
+            throw new LibraryModelException($"{id} belongs to {TypeOf(id)}, which a recognizer of phases 3-4 already owns.");
     }
 
     /// <summary>The metadata name of the type an id names or declares a member of: <c>T:System.String</c> names

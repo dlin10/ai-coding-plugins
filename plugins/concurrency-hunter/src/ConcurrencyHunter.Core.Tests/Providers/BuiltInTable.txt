@@ -1,0 +1,317 @@
+M M:Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker.Entries``1~System.Collections.Generic.IEnumerable{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0}} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry`1.Collection``1(System.Linq.Expressions.Expression{System.Func{`0,System.Collections.Generic.IEnumerable{``0}}})~Microsoft.EntityFrameworkCore.ChangeTracking.CollectionEntry{`0,``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry`1.Reference``1(System.Linq.Expressions.Expression{System.Func{`0,``0}})~Microsoft.EntityFrameworkCore.ChangeTracking.ReferenceEntry{`0,``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry`1.get_Entity~`0 |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.#ctor |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.#ctor(Microsoft.EntityFrameworkCore.DbContextOptions) |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Add(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddAsync(System.Object,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddAsync``1(``0,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0}} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddRange(System.Collections.Generic.IEnumerable{System.Object}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddRange(System.Object[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddRangeAsync(System.Collections.Generic.IEnumerable{System.Object},System.Threading.CancellationToken)~System.Threading.Tasks.Task | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AddRangeAsync(System.Object[])~System.Threading.Tasks.Task | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Add``1(``0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Attach(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AttachRange(System.Collections.Generic.IEnumerable{System.Object}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.AttachRange(System.Object[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Attach``1(``0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Dispose |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.DisposeAsync~System.Threading.Tasks.ValueTask |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Entry(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Entry``1(``0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Find(System.Type,System.Object[])~System.Object |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.FindAsync(System.Type,System.Object[])~System.Threading.Tasks.ValueTask{System.Object} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.FindAsync(System.Type,System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Object} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.FindAsync``1(System.Object[])~System.Threading.Tasks.ValueTask{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.FindAsync``1(System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Find``1(System.Object[])~``0 |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Remove(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.RemoveRange(System.Collections.Generic.IEnumerable{System.Object}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.RemoveRange(System.Object[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Remove``1(``0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.SaveChanges(System.Boolean)~System.Int32 |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(System.Boolean,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.SaveChanges~System.Int32 |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Update(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.UpdateRange(System.Collections.Generic.IEnumerable{System.Object}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.UpdateRange(System.Object[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.Update``1(``0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{``0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.get_ChangeTracker~Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbContext.get_Database~Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Add(`0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AddAsync(`0,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0}} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AddRange(System.Collections.Generic.IEnumerable{`0}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AddRange(`0[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AddRangeAsync(System.Collections.Generic.IEnumerable{`0},System.Threading.CancellationToken)~System.Threading.Tasks.Task | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AddRangeAsync(`0[])~System.Threading.Tasks.Task | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Attach(`0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AttachRange(System.Collections.Generic.IEnumerable{`0}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.AttachRange(`0[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Entry(`0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Find(System.Object[])~`0 |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.FindAsync(System.Object[])~System.Threading.Tasks.ValueTask{`0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.FindAsync(System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{`0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Remove(`0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.RemoveRange(System.Collections.Generic.IEnumerable{`0}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.RemoveRange(`0[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.Update(`0)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{`0} | reads-deep:entity,writes-arg:entity | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.UpdateRange(System.Collections.Generic.IEnumerable{`0}) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.UpdateRange(`0[]) | reads-deep:entities,writes-arg:entities | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.DbSet`1.get_Local~Microsoft.EntityFrameworkCore.ChangeTracking.LocalView{`0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Boolean} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Boolean} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.Include``1(System.Linq.IQueryable{``0},System.String)~System.Linq.IQueryable{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.Include``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}})~Microsoft.EntityFrameworkCore.Query.IIncludableQueryable{``0,``1} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.LongCountAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int64} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.LongCountAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int64} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleOrDefaultAsync``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleOrDefaultAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToArrayAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{``0[]} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync``1(System.Linq.IQueryable{``0},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Collections.Generic.List{``0}} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.BeginTransactionAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction} |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.BeginTransaction~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.CreateExecutionStrategy~Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.get_CurrentTransaction~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.BeginTransactionAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.IsolationLevel,System.Threading.CancellationToken)~System.Threading.Tasks.Task{Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction} |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.GetDbConnection(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade)~System.Data.Common.DbConnection |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.Migrate(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade) |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.Migrate(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.String) |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.MigrateAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.MigrateAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Threading.CancellationToken)~System.Threading.Tasks.Task |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.UseTransaction(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.Common.DbTransaction)~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.UseTransaction(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.Common.DbTransaction,System.Guid)~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction)~System.Data.Common.DbTransaction |  | Microsoft.EntityFrameworkCore.Relational@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.Commit |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.CommitAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.Rollback |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.RollbackAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.get_TransactionId~System.Guid |  | Microsoft.EntityFrameworkCore@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.EventId.#ctor(System.Int32,System.String) |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.ILogger.IsEnabled(Microsoft.Extensions.Logging.LogLevel)~System.Boolean |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.ILoggerFactory.CreateLogger(System.String)~Microsoft.Extensions.Logging.ILogger |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.Log(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.LogLevel,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogCritical(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogDebug(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogError(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogTrace(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,Microsoft.Extensions.Logging.EventId,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,System.Exception,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger(Microsoft.Extensions.Logging.ILoggerFactory,System.Type)~Microsoft.Extensions.Logging.ILogger |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger``1(Microsoft.Extensions.Logging.ILoggerFactory)~Microsoft.Extensions.Logging.ILogger{``0} |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonConverter[])~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonConverter[])~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonSerializerSettings)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonConverter[])~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonConverter[])~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:System.Array.GetLength(System.Int32)~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.GetLongLength(System.Int32)~System.Int64 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.GetLowerBound(System.Int32)~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.GetUpperBound(System.Int32)~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.IndexOf``1(``0[],``0)~System.Int32 | reads-deep:array,reads-deep:value | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.get_Length~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.get_LongLength~System.Int64 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.get_Rank~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Environment.get_ProcessorCount~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Environment.get_TickCount~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.GC.KeepAlive(System.Object) |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.AsEnumerable``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Cast``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Contains``1(System.Collections.Generic.IEnumerable{``0},``0)~System.Boolean | reads-deep:source,reads-deep:value | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})~System.Int32 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Empty``1~System.Collections.Generic.IEnumerable{``0} |  | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0})~System.Int64 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.OfType``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.SequenceEqual``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Boolean | reads-deep:first,reads-deep:second | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Single``1(System.Collections.Generic.IEnumerable{``0})~``0 | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Range)~System.Collections.Generic.IEnumerable{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.ToArray``1(System.Collections.Generic.IEnumerable{``0})~``0[] | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.List{``0} | reads-deep:source | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Enumerable.Union``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0} | reads-deep:first,reads-deep:second | System.Linq@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0})~System.Boolean |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Boolean |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}})~System.Linq.IOrderedQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}},System.Collections.Generic.IComparer{``1})~System.Linq.IOrderedQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0})~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},``0)~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},``0)~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0})~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0 |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Skip``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Range)~System.Linq.IQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Linq.IQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Int32,System.Boolean}})~System.Linq.IQueryable{``0} |  | System.Linq.Queryable@8.0.0.0-11.0.0.0
+M M:System.Net.Http.DelegatingHandler.#ctor |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.DelegatingHandler.#ctor(System.Net.Http.HttpMessageHandler) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.Headers.AuthenticationHeaderValue.#ctor(System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.Headers.AuthenticationHeaderValue.#ctor(System.String,System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.Headers.HttpHeaders.Contains(System.String)~System.Boolean |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.Headers.HttpHeaders.TryGetValues(System.String,System.Collections.Generic.IEnumerable{System.String}@)~System.Boolean |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.String)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.Uri)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetStringAsync(System.String)~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetStringAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetStringAsync(System.Uri)~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.GetStringAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:content | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:request | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:request | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:request | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage} | reads-deep:request | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClient.get_DefaultRequestHeaders~System.Net.Http.Headers.HttpRequestHeaders |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpClientFactoryExtensions.CreateClient(System.Net.Http.IHttpClientFactory)~System.Net.Http.HttpClient |  | Microsoft.Extensions.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpContent.ReadAsStringAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpContent.ReadAsStringAsync~System.Threading.Tasks.Task{System.String} |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Connect~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Delete~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Get~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Head~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Options~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Patch~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Post~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Put~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Query~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpMethod.get_Trace~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.#ctor |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.#ctor(System.Net.Http.HttpMethod,System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.#ctor(System.Net.Http.HttpMethod,System.Uri) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.get_Headers~System.Net.Http.Headers.HttpRequestHeaders |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.get_Method~System.Net.Http.HttpMethod |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpRequestMessage.get_RequestUri~System.Uri |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.EnsureSuccessStatusCode~System.Net.Http.HttpResponseMessage |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_Content~System.Net.Http.HttpContent |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_Headers~System.Net.Http.Headers.HttpResponseHeaders |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_IsSuccessStatusCode~System.Boolean |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_ReasonPhrase~System.String |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_RequestMessage~System.Net.Http.HttpRequestMessage |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.HttpResponseMessage.get_StatusCode~System.Net.HttpStatusCode |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.IHttpClientFactory.CreateClient(System.String)~System.Net.Http.HttpClient |  | Microsoft.Extensions.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.StringContent.#ctor(System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.StringContent.#ctor(System.String,System.Net.Http.Headers.MediaTypeHeaderValue) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding,System.Net.Http.Headers.MediaTypeHeaderValue) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Net.Http.StringContent.#ctor(System.String,System.Text.Encoding,System.String) |  | System.Net.Http@8.0.0.0-11.0.0.0
+M M:System.Object.#ctor |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Object.GetType~System.Type |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Object.ReferenceEquals(System.Object,System.Object)~System.Boolean |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.String.Concat(System.ReadOnlySpan{System.String})~System.String | reads-deep:values | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.String.Concat(System.String[])~System.String | reads-deep:values | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Text.Encoding.GetString(System.Byte[])~System.String | reads-deep:bytes | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Text.Encoding.GetString(System.ReadOnlySpan{System.Byte})~System.String | reads-deep:bytes | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonDocument.Parse(System.String,System.Text.Json.JsonDocumentOptions)~System.Text.Json.JsonDocument |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonDocument.get_RootElement~System.Text.Json.JsonElement |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonElement.EnumerateArray~System.Text.Json.JsonElement.ArrayEnumerator |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonElement.GetProperty(System.String)~System.Text.Json.JsonElement |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonElement.ToString~System.String |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor(System.String) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor(System.String,System.Exception) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64}) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64},System.Exception) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)~System.Object |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions)~``0 |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.String | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.Byte[] | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)~System.Byte[] | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions)~System.String | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializerOptions.#ctor |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerDefaults) |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.Utf8JsonReader.GetInt32~System.Int32 |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.Utf8JsonReader.GetString~System.String |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.Utf8JsonReader.get_TokenType~System.Text.Json.JsonTokenType |  | System.Text.Json@8.0.0.0-11.0.0.0
+T T:System.Boolean | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Byte | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Char | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Collections.Generic.KeyValuePair`2 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Convert | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.DateOnly | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.DateTime | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.DateTimeOffset | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Decimal | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Double | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Enum | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Exception | derived=true | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Guid | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Int16 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Int32 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Int64 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Math | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Nullable`1 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.SByte | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Single | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.String | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.StringComparer | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Text.Encoding | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.TimeOnly | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.TimeSpan | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Type | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.UInt16 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.UInt32 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.UInt64 | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Uri | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+T T:System.Version | derived=false | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0

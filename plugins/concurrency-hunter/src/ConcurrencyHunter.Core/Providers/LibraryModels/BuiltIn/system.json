@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "note": "System.*: immutable types and the members with a mutable parameter met by the census. Types occur in System.Runtime reference assemblies and System.Private.CoreLib or System.Private.Uri at run time. Object.Equals(Object, Object) is absent because it calls an overridden Equals.",
+  "assemblies": [
+    "System.Runtime",
+    "System.Private.CoreLib",
+    "System.Private.Uri"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:System.Object.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Object.ReferenceEquals(System.Object,System.Object)~System.Boolean",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Object.GetType~System.Type",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Environment.get_ProcessorCount~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Environment.get_TickCount~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.GC.KeepAlive(System.Object)",
+      "effects": {},
+      "note": "Not met by the census: phase 5b made this exception. Tests use it as a sink keeping a value alive; its behavior is known exactly."
+    },
+    {
+      "member": "M:System.String.Concat(System.String[])~System.String",
+      "effects": {
+        "values": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.String.Concat(System.ReadOnlySpan{System.String})~System.String",
+      "effects": {
+        "values": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Encoding.GetString(System.Byte[])~System.String",
+      "effects": {
+        "bytes": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Encoding.GetString(System.ReadOnlySpan{System.Byte})~System.String",
+      "effects": {
+        "bytes": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.GetLength(System.Int32)~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.GetLongLength(System.Int32)~System.Int64",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.GetLowerBound(System.Int32)~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.GetUpperBound(System.Int32)~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.get_Length~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.get_LongLength~System.Int64",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.get_Rank~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Array.IndexOf\u0060\u00601(\u0060\u00600[],\u0060\u00600)~System.Int32",
+      "effects": {
+        "array": [
+          "reads-deep"
+        ],
+        "value": [
+          "reads-deep"
+        ]
+      }
+    }
+  ],
+  "immutableTypes": [
+    {
+      "type": "T:System.String"
+    },
+    {
+      "type": "T:System.Boolean"
+    },
+    {
+      "type": "T:System.Char"
+    },
+    {
+      "type": "T:System.SByte"
+    },
+    {
+      "type": "T:System.Byte"
+    },
+    {
+      "type": "T:System.Int16"
+    },
+    {
+      "type": "T:System.UInt16"
+    },
+    {
+      "type": "T:System.Int32"
+    },
+    {
+      "type": "T:System.UInt32"
+    },
+    {
+      "type": "T:System.Int64"
+    },
+    {
+      "type": "T:System.UInt64"
+    },
+    {
+      "type": "T:System.Single"
+    },
+    {
+      "type": "T:System.Double"
+    },
+    {
+      "type": "T:System.Decimal"
+    },
+    {
+      "type": "T:System.Guid"
+    },
+    {
+      "type": "T:System.DateTime"
+    },
+    {
+      "type": "T:System.DateTimeOffset"
+    },
+    {
+      "type": "T:System.TimeSpan"
+    },
+    {
+      "type": "T:System.DateOnly"
+    },
+    {
+      "type": "T:System.TimeOnly"
+    },
+    {
+      "type": "T:System.Uri"
+    },
+    {
+      "type": "T:System.Version"
+    },
+    {
+      "type": "T:System.Nullable\u00601"
+    },
+    {
+      "type": "T:System.Collections.Generic.KeyValuePair\u00602"
+    },
+    {
+      "type": "T:System.Type"
+    },
+    {
+      "type": "T:System.Enum"
+    },
+    {
+      "type": "T:System.Math"
+    },
+    {
+      "type": "T:System.Convert"
+    },
+    {
+      "type": "T:System.StringComparer"
+    },
+    {
+      "type": "T:System.Text.Encoding"
+    },
+    {
+      "type": "T:System.Exception",
+      "includesDerived": true
+    }
+  ]
+}

@@ -3,7 +3,7 @@ using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Accesses;
 
-/// <summary>An unresolved call of one instance (R1): an opaque call the library table does not describe, a dispatch with no receiver
+/// <summary>An unresolved call of one instance (R1): an opaque call no library model describes, a dispatch with no receiver
 /// object, an operation on a <c>dynamic</c> value, or a locator nothing resolves. <see cref="Receivers"/> are seen only through the
 /// state of <see cref="DeclaringTypeKey"/>; <see cref="Arguments"/> are seen whole. A locator makes a semantic gap and has no unknown
 /// effect: the DI model keeps it (R1, R4).</summary>

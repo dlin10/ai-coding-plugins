@@ -9,7 +9,7 @@ using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
-/// <summary>Known calls in the engine and in coverage (R1, R5): a call the library table describes is counted apart from the opaque
+/// <summary>Known calls in the engine and in coverage (R1, R5): a call the library model describes is counted apart from the opaque
 /// ones and otherwise treated as the opaque call it was, and a call the table describes for another version stays opaque.</summary>
 public sealed class KnownCallCoverageTests
 {
@@ -309,8 +309,8 @@ public sealed class KnownCallCoverageTests
         var lines = ReportRenderer.Render(ReportingTestData.CreateReport(result)).ReportMarkdown.Split('\n');
 
         var known = Assert.Single(lines, line => line.StartsWith($"  - {CoverageCounters.KNOWN_CALL} ", StringComparison.Ordinal));
-        Assert.Matches(@"^  - known-call [1-9]\d*: calls without a source body that the library semantics table describes", known);
-        Assert.Matches(@"^  - out-of-range-call 0: opaque calls of a member the table describes, in an assembly version outside its supported range$",
+        Assert.Matches(@"^  - known-call [1-9]\d*: calls without a source body that a library model describes", known);
+        Assert.Matches(@"^  - out-of-range-call 0: opaque calls of a member a built-in library model describes, in an assembly version outside its supported range$",
                        Assert.Single(lines, line => line.StartsWith($"  - {CoverageCounters.OUT_OF_RANGE_CALL} ", StringComparison.Ordinal)));
     }
 
@@ -329,7 +329,7 @@ public sealed class KnownCallCoverageTests
 
     private static string[] OutOfRange(AnalysisResult result) =>
         result.Coverage.SelectMany(coverage => coverage.Diagnostics)
-              .Where(diagnostic => diagnostic.StartsWith("library-semantics: ", StringComparison.Ordinal))
+              .Where(diagnostic => diagnostic.StartsWith("library-models: ", StringComparison.Ordinal))
               .ToArray();
 
     private static EngineRun Run(string work, FixtureOptions? options = null, string extraTypes = "", string registrations = "") =>

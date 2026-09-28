@@ -1958,6 +1958,61 @@
         { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" },
         { "symbol": "Demo.Web.Cases.InterfaceAddAndCount.DrawerController.Post()", "operation": "write" }
       ]
+    },
+    {
+      "id": "ref-call-target-assignment/post-self",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefCallTargetAssignment.Counter@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefCallTargetAssignment.RefCallTargetController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RefCallTargetAssignment.RefCallTargetController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "ref-call-target-assignment/post-worker",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefCallTargetAssignment.Counter@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefCallTargetAssignment.RefCallTargetController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RefCallTargetAssignment.RefCallTargetWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "array-length-loop-bound/post-self",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayLengthLoopBound.SlotBoard@Singleton", "accessPath": ["Slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArrayLengthLoopBound.SlotController.Post(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ArrayLengthLoopBound.SlotController.Post(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "array-length-loop-bound/post-worker",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArrayLengthLoopBound.SlotBoard@Singleton", "accessPath": ["Slots", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArrayLengthLoopBound.SlotController.Post(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ArrayLengthLoopBound.SlotWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "project-model-overrides-built-in",
+      "phase": "5c",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.ProjectModelOverridesBuiltIn.Payload@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectModelOverridesBuiltIn.PayloadController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.ProjectModelOverridesBuiltIn.PayloadWorker.ExecuteAsync(CancellationToken)", "operation": "unknown-effect" }
+      ]
     }
   ],
   "notDefects": [

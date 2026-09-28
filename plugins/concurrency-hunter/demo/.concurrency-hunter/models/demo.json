@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "note": "The project-model-overrides-built-in case makes serialization opaque to demonstrate a project decision over the built-in model.",
+  "assemblies": ["System.Text.Json"],
+  "versions": { "minimum": "8.0.0.0", "maximumExclusive": "11.0.0.0" },
+  "models": [
+    {
+      "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u0060\u00601(\u0060\u00600,System.Text.Json.JsonSerializerOptions)~System.Byte[]",
+      "opaque": true
+    }
+  ]
+}

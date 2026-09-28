@@ -3,7 +3,7 @@ using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
-using ConcurrencyHunter.Providers.LibrarySemantics;
+using ConcurrencyHunter.Providers.LibraryModels;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -26,7 +26,11 @@ public static class IrLowering
     /// <c>this(...)</c>), then the base or <c>this</c> call, then its own body; a type initializer runs the static initializers,
     /// then the static constructor body; an auto-property accessor loads or stores its backing field.</summary>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
-                                        CancellationToken cancellationToken)
+                                        CancellationToken cancellationToken) =>
+        Lower(method, compilation, rootDirectory, cancellationToken, LibraryModels.BuiltIn);
+
+    public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
+                                        CancellationToken cancellationToken, LibraryModels libraryModels)
     {
         var plan = Plan(method, compilation, cancellationToken);
         var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
@@ -40,7 +44,7 @@ public static class IrLowering
         }
 
         var context = new LoweringContext(plan.BodyId, new SiteOrdinals(plan.Roots, compilation, cancellationToken), rootDirectory,
-                                          compilation, cancellationToken);
+                                          compilation, cancellationToken, libraryModels);
         var ownerSymbol = SymbolNames.Method(method);
         var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
         var nestedBodies = new List<IrBody>();
@@ -418,7 +422,7 @@ public static class IrLowering
     private sealed record AutoAccessorSegment(IPropertySymbol Property, SyntaxNode Syntax) : Segment;
 
     private sealed record LoweringContext(string RootBodyId, SiteOrdinals SiteOrdinals, string RootDirectory,
-                                          Compilation Compilation, CancellationToken CancellationToken);
+                                          Compilation Compilation, CancellationToken CancellationToken, LibraryModels LibraryModels);
 
     /// <summary>The 1-based source order of each allocation among those of its created type, and of each delegate creation,
     /// within one member: its roots in segment order, then span start, then operation-tree order.</summary>
@@ -1988,7 +1992,7 @@ public static class IrLowering
         }
 
         /// <summary>A base call runs the base member itself, never an override of it (R1): an exact call of that member, which runs
-        /// its source body where it has one and is the opaque call the library table may know where it has none.</summary>
+        /// its source body where it has one and follows a library model where one describes it without a source body.</summary>
         private static IrCallOperation AsBaseCall(IrCallOperation call, bool isVirtual) =>
             !isVirtual && call.CallKind == IrCallKind.Virtual ? call with { CallKind = IrCallKind.Instance } : call;
 
@@ -2241,7 +2245,7 @@ public static class IrLowering
             static IOperation Unwrapped(IOperation value) => value is IConversionOperation conversion ? Unwrapped(conversion.Operand) : value;
 
             static bool IsImmutableValue(IOperation value) =>
-                Unwrapped(value).Type is not { } type || LibrarySemanticsTable.BuiltIn.IsImmutable(type);
+                Unwrapped(value).Type is not { } type || LibraryModels.BuiltIn.IsImmutable(type);
 
             static bool IsFrameworkSlice(ITypeSymbol type) => Bcl.TypeName(type) is "System.Span`1" or "System.ReadOnlySpan`1";
 
@@ -2311,7 +2315,7 @@ public static class IrLowering
                 // A call through an interface is decided by the object its receiver points to, which only the heap knows: it carries
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
                 Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation) : [],
-                Library = nestedId is null ? LibraryCalls.Of(method) : null,
+                Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels) : null,
                 IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
@@ -2323,7 +2327,7 @@ public static class IrLowering
         /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor.</summary>
         private static bool IsRecognized(IMethodSymbol method) =>
             Bcl.TypeOf(method) is { } type &&
-            (LibrarySemanticsTable.IsRecognizedType(type) ||
+            (LibraryModels.IsRecognizedType(type) ||
              SpanTypes.Names(type) && (method.MethodKind == MethodKind.Constructor
                                            ? type is "System.Span`1" or "System.ReadOnlySpan`1"
                                            : method.Name is "AsSpan" or "AsMemory" or "Slice"));
@@ -3798,21 +3802,23 @@ public static class IrLowering
         }
     }
 
-    /// <summary>The library semantics table's word on a called member without a source declaration (TD-034a), with each effect
+    /// <summary>The library model's word on a called member without a source declaration (TD-034a), with each effect
     /// bound to the ordinal of the parameter it names; a member of this compilation is never the library's.</summary>
     private static class LibraryCalls
     {
-        internal static IrLibraryCall? Of(IMethodSymbol method)
+        internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels)
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
             if (definition.Locations.Any(location => location.IsInSource) ||
-                LibrarySemanticsTable.BuiltIn.Find(definition) is not { } match)
+                libraryModels.Find(definition) is not { } match)
                 return null;
             var effects = match.Effects.Select(effect => new IrLibraryEffect(
                                                effect.Kind == LibraryEffectKind.DeepRead ? IrLibraryEffectKind.DeepRead : IrLibraryEffectKind.WriteArgument,
                                                definition.Parameters.Single(parameter => parameter.Name == effect.Parameter).Ordinal))
                                    .ToArray();
-            return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects);
+            return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
+                                     match.Layer == ModelLayer.Project ? IrModelLayer.Project : IrModelLayer.BuiltIn,
+                                     match.DeclaredOpaque);
         }
     }
 

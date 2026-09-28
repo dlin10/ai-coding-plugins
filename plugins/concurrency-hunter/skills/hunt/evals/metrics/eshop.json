@@ -4,7 +4,7 @@
   "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
   "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-27T11:47:51.4911566\u002B00:00",
+  "recordedAt": "2026-09-27T23:11:20.5082504\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,43 +18,43 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 10.7
+        "seconds": 10.532
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.717
+        "seconds": 4.721
       },
       {
         "step": "program-index",
-        "seconds": 6.703
+        "seconds": 6.684
       },
       {
         "step": "lowering",
-        "seconds": 3.143
+        "seconds": 3.255
       },
       {
         "step": "reachable-set",
-        "seconds": 0.124
+        "seconds": 0.132
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.871
+        "seconds": 0.877
       },
       {
         "step": "executions",
-        "seconds": 0.204
+        "seconds": 0.179
       },
       {
         "step": "accesses",
-        "seconds": 1.378
+        "seconds": 1.32
       },
       {
         "step": "pairing",
-        "seconds": 0.045
+        "seconds": 0.044
       },
       {
         "step": "solver",
-        "seconds": 0.009
+        "seconds": 0.007
       },
       {
         "step": "findings",
@@ -62,12 +62,12 @@
       },
       {
         "step": "render",
-        "seconds": 0.066
+        "seconds": 0.069
       }
     ],
-    "totalSeconds": 30.839
+    "totalSeconds": 30.86
   },
-  "peakWorkingSetMb": 471.4,
+  "peakWorkingSetMb": 474.9,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -128,8 +128,12 @@
         "delegate-to-opaque": 21,
         "element-operation": 9,
         "known-call": 33,
+        "known-call-built-in": 33,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 14,
+        "opaque-by-project": 0,
         "opaque-call": 190,
         "out-of-range-call": 0,
         "reachable-bodies": 66,
@@ -181,8 +185,12 @@
         "delegate-to-opaque": 28,
         "element-operation": 47,
         "known-call": 234,
+        "known-call-built-in": 234,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 21,
+        "opaque-by-project": 0,
         "opaque-call": 232,
         "out-of-range-call": 0,
         "reachable-bodies": 136,
@@ -236,8 +244,12 @@
         "delegate-to-opaque": 28,
         "element-operation": 16,
         "known-call": 95,
+        "known-call-built-in": 95,
+        "known-call-project": 0,
         "merged-context": 1,
+        "model-entry-rejected": 0,
         "no-receiver-object": 8,
+        "opaque-by-project": 0,
         "opaque-call": 900,
         "out-of-range-call": 0,
         "reachable-bodies": 115,
@@ -286,8 +298,12 @@
         "delegate-to-opaque": 23,
         "element-operation": 6,
         "known-call": 30,
+        "known-call-built-in": 30,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 14,
+        "opaque-by-project": 0,
         "opaque-call": 74,
         "out-of-range-call": 0,
         "reachable-bodies": 78,
@@ -339,8 +355,12 @@
         "delegate-to-opaque": 19,
         "element-operation": 37,
         "known-call": 97,
+        "known-call-built-in": 97,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 23,
+        "opaque-by-project": 0,
         "opaque-call": 158,
         "out-of-range-call": 0,
         "reachable-bodies": 91,
@@ -389,8 +409,12 @@
         "delegate-to-opaque": 4,
         "element-operation": 4,
         "known-call": 17,
+        "known-call-built-in": 17,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 3,
+        "opaque-by-project": 0,
         "opaque-call": 60,
         "out-of-range-call": 0,
         "reachable-bodies": 15,
@@ -429,8 +453,12 @@
         "delegate-to-opaque": 9,
         "element-operation": 3,
         "known-call": 7,
+        "known-call-built-in": 7,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 2,
+        "opaque-by-project": 0,
         "opaque-call": 96,
         "out-of-range-call": 0,
         "reachable-bodies": 19,
@@ -472,8 +500,12 @@
         "delegate-to-opaque": 2,
         "element-operation": 2,
         "known-call": 7,
+        "known-call-built-in": 7,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 2,
+        "opaque-by-project": 0,
         "opaque-call": 70,
         "out-of-range-call": 0,
         "reachable-bodies": 11,
@@ -508,8 +540,12 @@
         "delegate-to-opaque": 24,
         "element-operation": 10,
         "known-call": 34,
+        "known-call-built-in": 34,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 14,
+        "opaque-by-project": 0,
         "opaque-call": 75,
         "out-of-range-call": 0,
         "reachable-bodies": 79,
@@ -561,8 +597,12 @@
         "delegate-to-opaque": 16,
         "element-operation": 2,
         "known-call": 36,
+        "known-call-built-in": 36,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 16,
+        "opaque-by-project": 0,
         "opaque-call": 168,
         "out-of-range-call": 0,
         "reachable-bodies": 53,
@@ -597,8 +637,12 @@
         "delegate-to-opaque": 3,
         "element-operation": 0,
         "known-call": 0,
+        "known-call-built-in": 0,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 0,
+        "opaque-by-project": 0,
         "opaque-call": 30,
         "out-of-range-call": 0,
         "reachable-bodies": 7,
@@ -634,8 +678,12 @@
         "delegate-to-opaque": 7,
         "element-operation": 1,
         "known-call": 6,
+        "known-call-built-in": 6,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 0,
+        "opaque-by-project": 0,
         "opaque-call": 84,
         "out-of-range-call": 0,
         "reachable-bodies": 18,
@@ -673,8 +721,12 @@
         "delegate-to-opaque": 0,
         "element-operation": 3,
         "known-call": 7,
+        "known-call-built-in": 7,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 0,
+        "opaque-by-project": 0,
         "opaque-call": 30,
         "out-of-range-call": 0,
         "reachable-bodies": 10,
@@ -708,8 +760,12 @@
         "delegate-to-opaque": 5,
         "element-operation": 17,
         "known-call": 49,
+        "known-call-built-in": 49,
+        "known-call-project": 0,
         "merged-context": 0,
+        "model-entry-rejected": 0,
         "no-receiver-object": 1,
+        "opaque-by-project": 0,
         "opaque-call": 59,
         "out-of-range-call": 0,
         "reachable-bodies": 26,
@@ -739,12 +795,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 30.839,
+      "actual": 30.86,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.46,
+      "actual": 0.464,
       "met": true
     }
   }

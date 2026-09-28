@@ -6,6 +6,9 @@ using Demo.Web.Cases.AmbiguousRegistrationScopedWins;
 using Demo.Web.Cases.ArrayDisjointConstantIndices;
 using Demo.Web.Cases.ArrayDisjointGuardedRanges;
 using Demo.Web.Cases.ArrayElementIncrement;
+using Demo.Web.Cases.ArrayLengthLoopBound;
+using Demo.Web.Cases.RefCallTargetAssignment;
+using Demo.Web.Cases.ProjectModelOverridesBuiltIn;
 using Demo.Web.Cases.ArraySymbolicIndices;
 using Demo.Web.Cases.AsyncTailAcquisition;
 using Demo.Web.Cases.AsyncTailEntry;
@@ -321,6 +324,9 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddForeachOverListElementWrite()
                 .AddDictionaryPairKeyAndValue()
                 .AddArrayElementIncrement()
+                .AddArrayLengthLoopBound()
+                .AddRefCallTargetAssignment()
+                .AddProjectModelOverridesBuiltIn()
                 .AddDictionaryIndexerCompound()
                 .AddPropertyAccessorIncrement()
                 .AddInterfaceCountReadsOnly()

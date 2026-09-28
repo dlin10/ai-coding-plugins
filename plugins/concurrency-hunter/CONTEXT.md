@@ -35,6 +35,14 @@ The one word a run ends in: `CompleteWithFindings`, `CompleteClean`, `Incomplete
 `Cancelled`.
 _Avoid_: result, outcome, exit code
 
+**Repository root**:
+The folder whose `.concurrency-hunter/` holds what the team keeps for the analysis — suppressions and
+**Library models**: the nearest folder at or above the solution's that already has a
+`.concurrency-hunter/`, otherwise the root of the git work tree that holds the solution, otherwise
+the solution's own folder. A solution nested inside a larger repository gets its own by creating
+the folder beside it.
+_Avoid_: workspace root, solution folder, git root (each is only one of the three answers)
+
 ### Execution
 
 **Execution root**:
@@ -317,9 +325,19 @@ _Avoid_: library semantics table, built-in semantics, stub, annotation
 Where a **Library model** comes from, recorded as its provenance: built-in (shipped with the
 plugin), project (written by the team in the repository's `.concurrency-hunter/models/`), generated
 (by the **Model generator**, stored in the same folder and committed) and AI. A project model wins
-over every other layer, including by declaring a member opaque; the others apply in the order
-built-in, generated, AI.
+over every other layer, including by declaring a member opaque, and two project models that
+disagree about one member leave it opaque rather than handing it to another layer; the others apply
+in the order built-in, generated, AI.
 _Avoid_: source, tier, pack (a pack is how built-in models ship, not a layer)
+
+**Model lock**:
+The committed record, next to the project models, of which exact members each overload pattern of
+a project model stood for in each assembly version a run has met. A run adds the rows for a version
+it meets for the first time, drops the rows of a pattern no project model names any more, and never
+changes a row of a pattern that is still there, so a pattern that starts to match a new overload
+shows up as a new row in review rather than as a silent change of meaning. Built-in models name
+exact members and need no lock.
+_Avoid_: lockfile of packages, cache (the lock records a resolution, not a result)
 
 **Delegate fate**:
 Where a delegate handed to a **Known call** runs, named by an execution the engine already has:

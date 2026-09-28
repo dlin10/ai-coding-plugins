@@ -23,7 +23,7 @@ public sealed record SemanticGap(string Callee, string Kind, int Roots, int Regi
 }
 
 /// <summary>
-/// The semantic gaps of one scope (R4). An unresolved call — an opaque call the library table does not describe, a dispatch with no
+/// The semantic gaps of one scope (R4). An unresolved call — an opaque call no library model describes, a dispatch with no
 /// receiver object, an operation on a <c>dynamic</c> value, a locator nothing resolves — is a gap where what it may touch is not owned:
 /// its unknown effect reaches a mutable region, it is handed a delegate, or its result is written into a field or a cell of a region
 /// that is not owned. A call a recognizer of phases 1-4 models is not unresolved. Only the calls of bodies the heap reached count, and

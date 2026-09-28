@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "note": "LINQ: Enumerable operators without delegates or comparers read every sequence and value they are given deep, at the call, deferred or not. Queryable operators touch nothing because an expression tree is data. Operators taking delegates stay opaque until run B of phase 5c.",
+  "assemblies": [
+    "System.Linq"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:System.Linq.Enumerable.Any\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Boolean",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Count\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Int32",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LongCount\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Int64",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToList\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Collections.Generic.List{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToArray\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600[]",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.First\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Single\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Last\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Skip\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Int32)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Take\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Int32)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Take\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Range)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OfType\u0060\u00601(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Cast\u0060\u00601(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.AsEnumerable\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Contains\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},\u0060\u00600)~System.Boolean",
+      "effects": {
+        "source": [
+          "reads-deep"
+        ],
+        "value": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SequenceEqual\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Boolean",
+      "effects": {
+        "first": [
+          "reads-deep"
+        ],
+        "second": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Union\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "first": [
+          "reads-deep"
+        ],
+        "second": [
+          "reads-deep"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Empty\u0060\u00601~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Where\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}})~System.Linq.IQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Where\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Int32,System.Boolean}})~System.Linq.IQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Any\u0060\u00601(System.Linq.IQueryable{\u0060\u00600})~System.Boolean",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Any\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}})~System.Boolean",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Skip\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Int32)~System.Linq.IQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Take\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Int32)~System.Linq.IQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Take\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Range)~System.Linq.IQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.OrderBy\u0060\u00602(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,\u0060\u00601}})~System.Linq.IOrderedQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.OrderBy\u0060\u00602(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,\u0060\u00601}},System.Collections.Generic.IComparer{\u0060\u00601})~System.Linq.IOrderedQueryable{\u0060\u00600}",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Single\u0060\u00601(System.Linq.IQueryable{\u0060\u00600})~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.Single\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}})~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault\u0060\u00601(System.Linq.IQueryable{\u0060\u00600})~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},\u0060\u00600)~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}})~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},\u0060\u00600)~\u0060\u00600",
+      "assemblies": [
+        "System.Linq.Queryable"
+      ],
+      "effects": {}
+    }
+  ]
+}

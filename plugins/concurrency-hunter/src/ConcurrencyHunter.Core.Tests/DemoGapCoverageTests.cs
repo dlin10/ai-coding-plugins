@@ -27,6 +27,28 @@ public sealed class DemoGapCoverageTests
     }
 
     [Fact]
+    public async Task Array_length_loop_bound_case_makes_no_gap()
+    {
+        var web = await Web();
+
+        Assert.DoesNotContain(web.Gaps, gap => gap.Sites.Any(site => InCase(site, "ArrayLengthLoopBound")));
+    }
+
+    [Fact]
+    public async Task Project_model_case_is_opaque_by_the_project_layer()
+    {
+        var web = await Web();
+        var gap = Assert.Single(web.Gaps, gap => gap.Callee.StartsWith("System.Text.Json.JsonSerializer.SerializeToUtf8Bytes", StringComparison.Ordinal) &&
+                                                     gap.Sites.Any(site => InCase(site, "ProjectModelOverridesBuiltIn")));
+
+        Assert.Equal(SemanticGapKinds.UNKNOWN_LIBRARY, gap.Kind);
+        Assert.Equal(1, web.Skips.GetValueOrDefault(CoverageCounters.OPAQUE_BY_PROJECT));
+        Assert.Equal(0, web.Skips.GetValueOrDefault(CoverageCounters.KNOWN_CALL_PROJECT));
+        Assert.Equal(0, web.Skips.GetValueOrDefault(CoverageCounters.MODEL_ENTRY_REJECTED));
+        Assert.DoesNotContain(web.Diagnostics, diagnostic => diagnostic.StartsWith("library-models:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Gap_reaching_three_roots_comes_before_gap_reaching_one()
     {
         var web = await Web();

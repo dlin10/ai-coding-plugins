@@ -255,6 +255,12 @@ internal sealed class SsaPlan
             return;
         }
 
+        if (target is IInvocationOperation invocation)
+        {
+            ScanCall(invocation, invocation.Arguments, blockOrdinal);
+            return;
+        }
+
         foreach (var child in target.ChildOperations)
             Scan(child, blockOrdinal);
     }

@@ -26,11 +26,15 @@ public static class ReportRenderer
     private static readonly Dictionary<string, string> COUNTER_MEANINGS = new(StringComparer.Ordinal)
     {
         [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
-        [CoverageCounters.OPAQUE_CALL] = "calls without a source body that the library semantics table does not describe, members of the types a recognizer " +
+        [CoverageCounters.OPAQUE_CALL] = "calls without a source body that no library model describes, members of the types a recognizer " +
                                          "models included; each one no recognizer models has an unknown effect on what its arguments reach and, " +
                                          "through a receiver, on the state of the type declaring the member",
-        [CoverageCounters.KNOWN_CALL] = "calls without a source body that the library semantics table describes, with the effects it gives them",
-        [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member the table describes, in an assembly version outside its supported range",
+        [CoverageCounters.KNOWN_CALL] = "calls without a source body that a library model describes, with the effects it gives them",
+        [CoverageCounters.KNOWN_CALL_BUILT_IN] = "known calls a built-in library model describes",
+        [CoverageCounters.KNOWN_CALL_PROJECT] = "known calls a project library model describes",
+        [CoverageCounters.OPAQUE_BY_PROJECT] = "opaque calls whose member a project model declares opaque",
+        [CoverageCounters.MODEL_ENTRY_REJECTED] = "project model files, entries and pattern overloads that were rejected; the library-models diagnostics name each and why",
+        [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member a built-in library model describes, in an assembly version outside its supported range",
         [CoverageCounters.DELEGATE_TO_OPAQUE] = "delegates handed to such calls other than the recognized spawn and timer APIs and DI factories, minimal API " +
                                                 "handlers included; each one a call no recognizer models is handed runs in an unknown execution",
         [CoverageCounters.ELEMENT_OPERATION] = "array element reads and writes; one on an array read from a field, handed in or returned by a call is " +

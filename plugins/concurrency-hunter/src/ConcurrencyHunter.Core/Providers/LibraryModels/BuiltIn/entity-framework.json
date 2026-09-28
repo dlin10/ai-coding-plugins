@@ -1,0 +1,622 @@
+{
+  "schemaVersion": 1,
+  "note": "EF Core as opaque persistence: handing an entity to a DbContext or DbSet reads it deep and writes its own fields, since tracking may set keys and navigations. Saving, querying and transactions touch nothing; context state is no resource until phase 5e. Model configuration, migrations, registration, ExecuteAsync with its delegate and loaders writing unnamed navigations are not known. An entity or collection handed over gets a deep read and a write of the argument.",
+  "assemblies": [
+    "Microsoft.EntityFrameworkCore"
+  ],
+  "versions": {
+    "minimum": "8.0.0.0",
+    "maximumExclusive": "11.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Add\u0060\u00601(\u0060\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Add(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddAsync\u0060\u00601(\u0060\u00600,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddAsync(System.Object,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Update\u0060\u00601(\u0060\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Update(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Attach\u0060\u00601(\u0060\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Attach(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Remove\u0060\u00601(\u0060\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Remove(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Entry\u0060\u00601(\u0060\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Entry(System.Object)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddRange(System.Object[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddRange(System.Collections.Generic.IEnumerable{System.Object})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AddRange(\u00600[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AddRange(System.Collections.Generic.IEnumerable{\u00600})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.UpdateRange(System.Object[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.UpdateRange(System.Collections.Generic.IEnumerable{System.Object})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.UpdateRange(\u00600[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.UpdateRange(System.Collections.Generic.IEnumerable{\u00600})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AttachRange(System.Object[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AttachRange(System.Collections.Generic.IEnumerable{System.Object})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AttachRange(\u00600[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AttachRange(System.Collections.Generic.IEnumerable{\u00600})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.RemoveRange(System.Object[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.RemoveRange(System.Collections.Generic.IEnumerable{System.Object})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.RemoveRange(\u00600[])",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.RemoveRange(System.Collections.Generic.IEnumerable{\u00600})",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddRangeAsync(System.Object[])~System.Threading.Tasks.Task",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.AddRangeAsync(System.Collections.Generic.IEnumerable{System.Object},System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AddRangeAsync(\u00600[])~System.Threading.Tasks.Task",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AddRangeAsync(System.Collections.Generic.IEnumerable{\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "effects": {
+        "entities": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Add(\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.AddAsync(\u00600,System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Update(\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Attach(\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Remove(\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Entry(\u00600)~Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u00600}",
+      "effects": {
+        "entity": [
+          "reads-deep",
+          "writes-arg"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.#ctor",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.#ctor(Microsoft.EntityFrameworkCore.DbContextOptions)",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.SaveChanges~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.SaveChanges(System.Boolean)~System.Int32",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(System.Boolean,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Find(System.Type,System.Object[])~System.Object",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Find\u0060\u00601(System.Object[])~\u0060\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.FindAsync(System.Type,System.Object[])~System.Threading.Tasks.ValueTask{System.Object}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.FindAsync(System.Type,System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{System.Object}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.FindAsync\u0060\u00601(System.Object[])~System.Threading.Tasks.ValueTask{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.FindAsync\u0060\u00601(System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.Find(System.Object[])~\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.FindAsync(System.Object[])~System.Threading.Tasks.ValueTask{\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.FindAsync(System.Object[],System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask{\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.get_Database~Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.get_ChangeTracker~Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbSet\u00601.get_Local~Microsoft.EntityFrameworkCore.ChangeTracking.LocalView{\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry\u00601.get_Entity~\u00600",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.Dispose",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.DbContext.DisposeAsync~System.Threading.Tasks.ValueTask",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker.Entries\u0060\u00601~System.Collections.Generic.IEnumerable{Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry{\u0060\u00600}}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry\u00601.Collection\u0060\u00601(System.Linq.Expressions.Expression{System.Func{\u00600,System.Collections.Generic.IEnumerable{\u0060\u00600}}})~Microsoft.EntityFrameworkCore.ChangeTracking.CollectionEntry{\u00600,\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry\u00601.Reference\u0060\u00601(System.Linq.Expressions.Expression{System.Func{\u00600,\u0060\u00600}})~Microsoft.EntityFrameworkCore.ChangeTracking.ReferenceEntry{\u00600,\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Collections.Generic.List{\u0060\u00600}}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToArrayAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600[]}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleOrDefaultAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleOrDefaultAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.SingleAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Boolean}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Boolean}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int32}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.LongCountAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int64}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.LongCountAsync\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}},System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Int64}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.Include\u0060\u00602(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,\u0060\u00601}})~Microsoft.EntityFrameworkCore.Query.IIncludableQueryable{\u0060\u00600,\u0060\u00601}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.Include\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.String)~System.Linq.IQueryable{\u0060\u00600}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.CreateExecutionStrategy~Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.BeginTransaction~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.BeginTransactionAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction}",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade.get_CurrentTransaction~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.get_TransactionId~System.Guid",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.Commit",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.CommitAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.Rollback",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction.RollbackAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.Migrate(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade)",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.Migrate(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.String)",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.MigrateAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.MigrateAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.GetDbConnection(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade)~System.Data.Common.DbConnection",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.UseTransaction(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.Common.DbTransaction)~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.UseTransaction(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.Common.DbTransaction,System.Guid)~Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.BeginTransactionAsync(Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade,System.Data.IsolationLevel,System.Threading.CancellationToken)~System.Threading.Tasks.Task{Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction}",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    },
+    {
+      "member": "M:Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction)~System.Data.Common.DbTransaction",
+      "assemblies": [
+        "Microsoft.EntityFrameworkCore.Relational"
+      ],
+      "effects": {}
+    }
+  ]
+}

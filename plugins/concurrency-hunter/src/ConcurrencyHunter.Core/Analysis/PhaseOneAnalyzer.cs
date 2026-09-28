@@ -6,7 +6,7 @@ using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
-using ConcurrencyHunter.Providers.LibrarySemantics;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Roots;
 using ConcurrencyHunter.Scopes;
 using ConcurrencyHunter.Solving;
@@ -70,7 +70,20 @@ public static class PhaseOneAnalyzer
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
-                                                            CancellationToken cancellationToken)
+                                                            CancellationToken cancellationToken) =>
+        await AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), registry, pairing, limits, solverFactory,
+                           cancellationToken);
+
+    internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
+                                                      CancellationToken cancellationToken) =>
+        AnalyzeAsync(solution, rootDirectory, repositoryRoot, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair,
+                     EnvironmentLimits(), Z3ConstraintSolver.Create, cancellationToken);
+
+    private static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
+                                                           ProviderRegistry registry,
+                                                           Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                           AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
+                                                           CancellationToken cancellationToken)
     {
         using var solver = solverFactory();
         // One budget for the whole run, spent scope by scope: the share of the deadline belongs to the run (TD-094).
@@ -78,9 +91,11 @@ public static class PhaseOneAnalyzer
         var timings = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
         var sizes = new List<ScopeSize>();
         var step = Stopwatch.StartNew();
+        var projectModels = ProjectModelFiles.Read(repositoryRoot);
+        var modelLock = ModelLock.Read(repositoryRoot, projectModels);
         var discovery = ProcessScopes.Discover(solution, rootDirectory);
         Record(timings, SCOPE_DISCOVERY, step);
-        var lowered = new Dictionary<(Compilation Compilation, string BodyId), IrLoweredMethod?>();
+        var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         var scopes = new List<ProcessScope>();
         var roots = new List<ExecutionRootDescriptor>();
         var accesses = new List<Access>();
@@ -116,6 +131,9 @@ public static class PhaseOneAnalyzer
                 }
             }
 
+            var (models, modelRejections) = ProjectModelResolver.Resolve(projectModels, compilations, modelLock);
+            diagnostics.AddRange(modelRejections.Select(rejection => rejection.Diagnostic));
+
             step.Restart();
             var index = DiIndexBuilder.Build(scope.Id, projectFiles, rootDirectory, cancellationToken);
             diagnostics.AddRange(index.Diagnostics.Select(diagnostic => $"di: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
@@ -149,19 +167,19 @@ public static class PhaseOneAnalyzer
             var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, cancellationToken);
             diagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
                                          .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
-            diagnostics.AddRange(compiledProjects.SelectMany(compiled => LibrarySemanticsTable.BuiltIn.OutOfRangeReferences(compiled.Compilation)
+            diagnostics.AddRange(compiledProjects.SelectMany(compiled => LibraryModels.BuiltIn.OutOfRangeReferences(compiled.Compilation)
                                                                                               .Where(reference => outOfRangeReported.Add((compiled.Project.Id, reference.Assembly.Name)))
                                                                                               .Select(reference =>
-                $"library-semantics: {RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion} {compiled.Project.Name}: " +
+                $"library-models: {RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion} {compiled.Project.Name}: " +
                 $"{reference.Assembly.Name} {reference.Assembly.Version}: {compiled.Project.Name} references {reference.Assembly.Name} " +
                 $"{reference.Assembly.Version}, outside the supported range {reference.Range.Minimum} up to {reference.Range.MaximumExclusive}; " +
-                "the calls of its members the library table describes are opaque calls.")));
+                "the calls of its members only the built-in models describe are opaque calls.")));
 
             Record(timings, SCOPE_DISCOVERY, step);
             var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
             Record(timings, PROGRAM_INDEX, step);
             var lowering = new Stopwatch();
-            var lower = Members(compilations, rootDirectory, lowered, diagnostics, cancellationToken);
+            var lower = Members(compilations, rootDirectory, models, lowered, diagnostics, cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
                 lowering.Start();
@@ -213,7 +231,7 @@ public static class PhaseOneAnalyzer
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
             coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count,
-                                           Merged(collection.Coverage.Counters, refined.Counters))
+                                           Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count))
             {
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
                 Gaps = collection.Coverage.Gaps,
@@ -227,6 +245,11 @@ public static class PhaseOneAnalyzer
                                               .ToArray()
             });
         }
+
+        modelLock.Write();
+        foreach (var scopeCoverage in coverage)
+            if (scopeCoverage.Diagnostics is List<string> scopeDiagnostics)
+                scopeDiagnostics.AddRange(modelLock.Diagnostics);
 
         step.Restart();
         var conflicts = ConflictFindings.Create(pairs, accesses, cancellationToken);
@@ -256,11 +279,12 @@ public static class PhaseOneAnalyzer
     /// <summary>Adds the step's elapsed time to its total and restarts the stopwatch for the next step.</summary>
     /// <summary>The scope's coverage counters with what the solver did to its candidates beside them.</summary>
     private static IReadOnlyDictionary<string, int> Merged(IReadOnlyDictionary<string, int> counters,
-                                                           IReadOnlyDictionary<string, int> solver)
+                                                           IReadOnlyDictionary<string, int> solver, int rejected)
     {
         var merged = new SortedDictionary<string, int>(counters.ToDictionary(), StringComparer.Ordinal);
         foreach (var (name, count) in solver)
             merged[name] = merged.GetValueOrDefault(name) + count;
+        merged[CoverageCounters.MODEL_ENTRY_REJECTED] = rejected;
         return merged;
     }
 
@@ -273,7 +297,8 @@ public static class PhaseOneAnalyzer
     /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,
     /// lowered once and cached by compilation, since two projects can share an assembly name and a declaration, not a body.</summary>
     private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
-                                                               Dictionary<(Compilation Compilation, string BodyId), IrLoweredMethod?> lowered,
+                                                               LibraryModels models,
+                                                               Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
     {
         var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
@@ -288,11 +313,12 @@ public static class PhaseOneAnalyzer
             cancellationToken.ThrowIfCancellationRequested();
             if (!methods.TryGetValue(bodyId, out var member))
                 return [];
-            if (!lowered.TryGetValue((member.Compilation, bodyId), out var loweredMethod))
+            if (!lowered.TryGetValue((member.Compilation, bodyId, models), out var loweredMethod))
             {
                 try
                 {
-                    loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken);
+                    loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
+                                                     models);
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 {
@@ -300,7 +326,7 @@ public static class PhaseOneAnalyzer
                     diagnostics.Add($"lowering: {bodyId}: {error.Message}");
                 }
 
-                lowered[(member.Compilation, bodyId)] = loweredMethod;
+                lowered[(member.Compilation, bodyId, models)] = loweredMethod;
             }
 
             return loweredMethod is null ? [] : loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();

@@ -459,12 +459,12 @@ public static class ReachableSet
 
                         // A delegate handed to a call the heap may leave unresolved runs in an unknown execution (R3): an opaque call no
                         // recognizer and no table entry models, or a dispatch that may find no receiver object.
-                        if (targets.Count == 0 ? !call.IsRecognized && call.Library is not { InRange: true } : call.CallKind is IrCallKind.Virtual or IrCallKind.Interface)
+                        if (targets.Count == 0 ? !call.IsRecognized && call.Library is not { InRange: true, DeclaredOpaque: false } : call.CallKind is IrCallKind.Virtual or IrCallKind.Interface)
                             ReachHandedDelegates(call.ArgumentValues.Where(value => work.GetValueOrDefault(call.Id)?.Contains(value) != true), values,
                                                  definitions, operations, reason);
                         // A delegate handed over as an object is followed by nothing that invokes it by type: whatever the callee hands it
                         // to may run it, so it is reached here, unless a table entry or a recognizer says what the call does (R3).
-                        else if (!call.IsRecognized && call.Library is not { InRange: true })
+                        else if (!call.IsRecognized && call.Library is not { InRange: true, DeclaredOpaque: false })
                         {
                             foreach (var untyped in call.ArgumentValues.Where(value => values.TryGetValue(value, out var argument) && IsUntyped(argument.Type))
                                                         .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>())

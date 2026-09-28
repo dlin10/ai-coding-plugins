@@ -519,7 +519,7 @@ public sealed class ReportSkeletonTests
         Assert.Contains($"  - Reachable bodies: {result.Coverage[0].Skips[CoverageCounters.REACHABLE_BODIES]}\n", coverage, StringComparison.Ordinal);
         var counters = typeof(CoverageCounters).GetFields().Select(field => (string)field.GetRawConstantValue()!)
                                                .Where(counter => counter != CoverageCounters.REACHABLE_BODIES).ToArray();
-        Assert.Equal(13, counters.Length);
+        Assert.Equal(17, counters.Length);
         foreach (var counter in counters)
             Assert.Matches($@"^  - {Regex.Escape(counter)} \d+: \S", Assert.Single(lines, line => line.StartsWith($"  - {counter} ", StringComparison.Ordinal)));
         // An element operation on shared storage is an access to its cell since phase 4 (issue #124).

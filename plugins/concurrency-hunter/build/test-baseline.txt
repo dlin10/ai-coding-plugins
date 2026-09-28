@@ -82,14 +82,16 @@ ConcurrencyHunter.Core.Tests.DemoCaseRuleTests.Calls_names_setters_and_the_base_
 ConcurrencyHunter.Core.Tests.DemoCaseRuleTests.Phase_5a_cases_make_no_gap_calls	Passed
 ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_counts_two_unresolved_locator_calls_and_no_unanalysed_registration_in_the_web_scope	Passed
 ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_findings_are_identical_with_and_without_the_candidate_index	Passed
-ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_matches_every_phase_5b_expectation_on_three_runs	Passed
+ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_matches_every_phase_5c_expectation_on_three_runs	Passed
 ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_shared_helper_is_one_finding_with_six_occurrences_in_one_group	Passed
 ConcurrencyHunter.Core.Tests.DemoExpectationTests.Demo_test_project_is_not_a_process_scope	Passed
+ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Array_length_loop_bound_case_makes_no_gap	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Calls_the_library_table_describes_make_no_gap	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Channel_handoff_is_a_gap_in_coverage_and_no_finding	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Gap_reaching_three_roots_comes_before_gap_reaching_one	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Interface_collection_cases_make_no_gap	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Interface_count_case_reads_the_structure_from_both_roots	Passed
+ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Project_model_case_is_opaque_by_the_project_layer	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Reflection_call_with_only_strings_and_numbers_makes_no_gap	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Access_carries_its_region_ownership_and_evidence_chain	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Access_through_a_member_inherited_from_a_closed_generic_base_is_bound	Passed
@@ -142,6 +144,12 @@ ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.C) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.Seq) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "System.ReadOnlySpan<Item> span = _state.C; foreach"···, write: "_ = _state.First.Value;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Array_length_is_a_known_call_without_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Length_on_a_shared_array_makes_no_gap	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.LongLength_and_GetLongLength_are_known_calls_without_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Loop_bound_on_Length_adds_no_pair_to_the_element_increment	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Multidimensional_GetLength_is_known	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Rank_and_bounds_are_known_calls_without_access	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Acquisition_after_the_first_await_does_not_protect_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Acquisition_in_the_synchronous_prefix_is_lifted_to_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.AsyncPrefixLiftTests.Async_body_without_an_await_hands_back_its_exit	Passed
@@ -3236,6 +3244,49 @@ ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Static_store_and_load_are
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_condition_on_the_read_with_an_independent_value_has_no_dependency	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_lock_carries_the_lock_values	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Thirteen_segment_path_collapses_to_a_wildcard_at_the_default_limit_only	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Failed_replace_keeps_the_previous_lock_whole	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.First_run_writes_the_rows_of_each_version_met	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Lock_is_sorted_without_bom_with_lf_and_a_final_newline	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Lock_with_a_bom_is_read_and_rewritten_once_without_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Lock_without_read_attributes_is_reported_unreadable	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Locked_member_the_version_lacks_is_rejected_alone	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Locked_row_decides_although_the_version_has_more_overloads	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.New_version_adds_rows_and_keeps_the_old_ones	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.No_pattern_and_no_lock_writes_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.No_row_is_dropped_while_a_project_file_is_rejected_whole	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Overload_missing_a_named_parameter_is_rejected_alone	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Overload_taking_a_delegate_is_rejected_alone	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_and_exact_entry_that_disagree_leave_the_member_opaque	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_does_not_match_inherited_members	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_matches_any_generic_arity	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_matching_nothing_is_rejected_and_locked_empty	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_names_constructors_and_getters	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Pattern_names_every_overload_of_the_member	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Rows_of_a_rejected_pattern_entry_are_kept	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Rows_of_a_removed_pattern_are_dropped	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unchanged_lock_is_not_rewritten	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "array", bytes: [91, 93])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "bad assembly", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "bad members", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "bad pattern", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "duplicate row", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "empty member return type", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "invalid UTF-8", bytes: [255])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "nested pattern parenthesis", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "no patterns", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "no version", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "not JSON", bytes: [110, 111])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "repeated row property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "repeated top property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "schema 2", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "short version", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "trailing comma", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "trailing member parameter comma", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "unknown row property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "unknown top property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "UTF-16", bytes: [123, 0, 34, 0, 115, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "wrong member", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unwritable_lock_keeps_the_resolution_in_memory_and_says_so	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Catch_handler_does_not_hold_a_lock_taken_inside_the_try	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Early_return_inside_a_lock_keeps_the_rest_of_the_body_held	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Finally_body_does_not_hold_a_lock_taken_inside_the_try	Passed
@@ -3400,6 +3451,99 @@ ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Method_of_a_closed_generic
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Nested_body_ids_are_listed_per_member	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Override_lookup_goes_through_two_levels	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Same_named_types_in_two_assemblies_are_kept_apart	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelIdentityTests.Exact_entry_checks_each_assembly_parameter	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelIdentityTests.Project_opaque_range_does_not_override_other_referenced_version	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelIdentityTests.Same_id_in_two_assemblies_keeps_distinct_effects	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelIdentityTests.Same_id_in_two_versions_keeps_each_project_range	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Analysis_reads_the_models_of_a_repository_root_above_the_solution	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Analysis_uses_the_nearest_folder_holding_the_directory	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Conversion_operator_without_its_return_type_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Declared_opaque_call_hands_its_delegate_to_an_unknown_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Directory_link_under_models_is_not_followed	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Effect_naming_a_missing_parameter_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Empty_effects_make_a_known_call_without_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entries_deciding_alike_in_another_order_count_once	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_assemblies_and_versions_override_the_file_defaults	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_for_an_assembly_the_scope_does_not_reference_is_ignored	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_of_another_assembly_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_outside_its_versions_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_without_the_return_type_suffix_matches	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Entry_without_versions_applies_to_every_version	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.File_rejection_is_counted_and_named_in_every_scope	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.File_versions_are_the_default_of_its_entries	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Generated_ai_and_lock_are_skipped_whatever_their_case	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Hidden_model_file_applies	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Id_resolving_to_nothing_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Known_call_counters_split_by_layer	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Malformed_entry_for_an_assembly_the_scope_does_not_reference_is_still_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Malformed_member_is_rejected_before_assembly_matching(member: "M:A-B.Store.Save(*)")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Malformed_member_is_rejected_before_assembly_matching(member: "M:A.B.Name((*)")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Malformed_member_is_rejected_before_assembly_matching(member: "M:A.B.Run((System.Int32)")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Malformed_member_is_rejected_before_assembly_matching(member: "M:A.B.Run(System.Int32,)")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Member_of_a_recognized_type_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Member_taking_a_delegate_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Member_with_a_body_in_the_run_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Model_file_in_a_nested_folder_applies	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Model_file_with_a_bom_applies	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.No_models_folder_reads_and_writes_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Parameter_with_two_effect_kinds_gets_both	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Project_entry_describes_a_member_no_built_in_model_covers	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Project_entry_overrides_the_built_in_effects	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Project_immutable_types_are_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Project_opaque_entry_makes_a_built_in_member_opaque_with_its_gap	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Project_opaque_entry_overrides_the_immutable_type_rule	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "assemblies not array", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "effect value not array", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "effects not object", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "empty kinds", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "empty return type", invalid: "{\"member\":\"M:A.B.Run~\",\"assemblies\":[\"Syste"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "id not M", invalid: "{\"member\":\"not-an-id\",\"assemblies\":[\"System"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "inverted version", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "member not string", invalid: "{\"member\":4,\"assemblies\":[\"System.Text.Json\""···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "neither", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "nested member parenthesis", invalid: "{\"member\":\"M:A.B.Run((System.Int32)\",\"assembl"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "nested pattern parenthesis", invalid: "{\"member\":\"M:A.B.Name((*)\",\"assemblies\":[\"S"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "no assembly", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "not object", invalid: "null")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "note not string", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "opaque and effects", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "opaque false", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "repeated kind", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "repeated parameter", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "repeated property", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "repeated version property", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "three-part version", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "two-part version", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "unknown kind", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "unknown property", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_entries(name: "version malformed", invalid: "{\"member\":\"M:System.Text.Json.JsonSerializer.Se"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "array", bytes: [91, 93])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "assemblies malformed", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "comment", bytes: [123, 47, 42, 99, 111, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "immutableTypes not array", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "invalid UTF-8", bytes: [255, 254, 128])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "missing models", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "missing schemaVersion", bytes: [123, 34, 109, 111, 100, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "models not array", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "not JSON", bytes: [110, 111, 116, 32, 74, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "note not string", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "null", bytes: [110, 117, 108, 108])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "repeated top property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "schemaVersion 2", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "string", bytes: [34, 116, 101, 120, 116, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "three-part version", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "trailing comma", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "two-part version", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "unknown top property", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "UTF-16", bytes: [123, 0, 34, 0, 115, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Rejected_project_files(name: "versions malformed", bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Report_explains_the_layer_counters	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Setter_entry_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Three_entries_with_one_disagreeing_reject_all_three	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Two_disagreeing_entries_leave_the_member_opaque	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Unlistable_models_folder_is_rejected_and_nothing_is_read_or_written	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Unlistable_models_subfolder_is_rejected_and_the_run_continues	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectModelTests.Unreadable_file_is_rejected_and_the_run_continues	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_folded_finding_reports_its_least_protected_occurrence	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_lock_around_only_the_write_of_a_read_modify_write_is_not_sufficient	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProtectionVerdictTests.A_lock_on_a_fresh_object_in_every_call_is_different_identity	Passed
@@ -3436,6 +3580,13 @@ ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Type_initializer_is_a_cand
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Type_initializer_referenced_only_from_an_override_is_a_candidate_with_that_override	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Unreferenced_method_and_its_lambda_are_outside_the_set_and_counted	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Virtual_method_group_invoked_through_a_delegate_reaches_every_override	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Body_with_a_ref_call_target_keeps_its_other_accesses	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Helper_with_a_ref_call_target_keeps_its_accesses	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Ref_call_target_makes_no_lowering_diagnostic	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Ref_returning_call_over_a_ref_local_as_target_lowers	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Ref_returning_call_over_a_ref_parameter_as_target_lowers	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Ref_returning_call_over_an_out_argument_as_target_lowers	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Unsafe_Add_over_a_ref_local_as_target_lowers	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Cell_of_a_fresh_collection_a_call_returns_is_no_resource	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Conditional_ref_local_reaches_each_proven_target	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Conditional_ref_return_reaches_each_proven_target	Passed
@@ -4095,6 +4246,14 @@ ConcurrencyHunter.Core.Tests.Providers.AspNetCoreRootProviderTests.AspNetCore_St
 ConcurrencyHunter.Core.Tests.Providers.AspNetCoreRootProviderTests.AspNetCore_TwoOutOfRangeCompilations_YieldTwoDiagnostics	Passed
 ConcurrencyHunter.Core.Tests.Providers.AspNetCoreRootProviderTests.AspNetCore_UnrelatedDispose_IsAction	Passed
 ConcurrencyHunter.Core.Tests.Providers.AspNetCoreRootProviderTests.AspNetCore_Version7_NotChecked	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Built_in_file_with_a_bom_loads	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Built_in_set_equals_the_recorded_table	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Entry_assemblies_override_the_file_default	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Every_family_is_one_embedded_file	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Notes_are_ignored	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Parameter_with_two_effect_kinds_keeps_both_in_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [123, 34, 115, 99, 104, ···])	Passed
+ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [255])	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_registers_one_singleton_hosted_service	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_with_a_singleton_hosted_service_is_unknown_in_either_order(body: "services.AddHostedService<Worker>(); services.AddS"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_with_a_singleton_hosted_service_is_unknown_in_either_order(body: "services.AddSingleton<IHostedService, Worker>(); s"···)	Passed
@@ -4210,7 +4369,7 @@ ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Repeated_effec
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Repeated_member_fails_the_build	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Same_member_out_of_range_is_not_known_and_is_named_out_of_range	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Same_named_member_of_another_assembly_is_not_known	Passed
-ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Table_is_exactly_the_phase_5a_list	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Table_is_exactly_the_phase_5a_list_and_the_array_shape_members	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Type_a_phase_3_or_4_recognizer_owns_fails_the_build	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_is_a_scope_of_itself_and_its_transitive_project_references	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_test_project_is_not_a_scope(testFramework: "Microsoft.Testing.Platform")	Passed
@@ -4239,6 +4398,12 @@ ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Provider_with_no_ve
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Valid_providers_are_registered_in_order	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Version_range_whose_minimum_is_not_below_its_exclusive_maximum_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Version_range_with_an_empty_assembly_name_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_file_marks_a_work_tree_root	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_work_tree_root_when_no_folder_holds_one	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Missing_folder_walks_up_without_failing	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Nearest_folder_holding_the_directory_wins	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_itself_counts	Passed
+ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_when_outside_git	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 10)	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 8)	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 9)	Passed

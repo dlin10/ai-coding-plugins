@@ -9,6 +9,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Providers\LibraryModels\BuiltIn\*.json" LogicalName="LibraryModels.BuiltIn.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     <!-- The solver lives here rather than in ConcurrencyHunter.Analysis, which carries no reference of
          any kind: Analysis owns the query and the degradation, this project binds them to Z3. See

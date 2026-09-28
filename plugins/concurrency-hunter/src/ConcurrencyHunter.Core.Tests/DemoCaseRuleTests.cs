@@ -1,7 +1,7 @@
 using Common.Roslyn;
 using ConcurrencyHunter.Core.Tests.Expectations;
 using ConcurrencyHunter.Core.Tests.Fixtures;
-using ConcurrencyHunter.Providers.LibrarySemantics;
+using ConcurrencyHunter.Providers.LibraryModels;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -40,7 +40,7 @@ public sealed class DemoCaseRuleTests
             var model = (await document.GetSemanticModelAsync())!;
             foreach (var method in Calls(model).Where(method => !method.Locations.Any(location => location.IsInSource)))
             {
-                if (LibrarySemanticsTable.BuiltIn.Find(method) is not { Kind: LibraryMatchKind.Known } && !IsFrame(method))
+                if (LibraryModels.BuiltIn.Find(method) is not { Kind: LibraryMatchKind.Known } && !IsFrame(method))
                     violations.Add($"{name}.cs calls {method.ToDisplayString()} of {method.ContainingAssembly.Identity}, neither known nor frame");
             }
         }
