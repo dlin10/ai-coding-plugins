@@ -2013,6 +2013,116 @@
         { "symbol": "Demo.Web.Cases.ProjectModelOverridesBuiltIn.PayloadController.Get()", "operation": "read" },
         { "symbol": "Demo.Web.Cases.ProjectModelOverridesBuiltIn.PayloadWorker.ExecuteAsync(CancellationToken)", "operation": "unknown-effect" }
       ]
+    },
+    {
+      "id": "comparer-create-runs-at-compare",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ComparerCreateRunsAtCompare.Ranking@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ComparerCreateRunsAtCompare.Ranking..ctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ComparerCreateRunsAtCompare.Ranking..ctor()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "project-model-holder-fate",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ProjectModelHolderFate.Registry@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectModelHolderFate.Registry..ctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ProjectModelHolderFate.Registry..ctor()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "linq-predicate-runs-now",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LinqPredicateRunsNow.Tally@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqPredicateRunsNow.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LinqPredicateRunsNow.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "linq-where-runs-on-enumeration",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LinqWhereRunsOnEnumeration.Filter@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqWhereRunsOnEnumeration.Filter..ctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LinqWhereRunsOnEnumeration.Filter..ctor()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "linq-where-tolist-runs-in-caller",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LinqWhereTolistRunsInCaller.Screen@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqWhereTolistRunsInCaller.ScreenController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LinqWhereTolistRunsInCaller.ScreenController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "linq-take-keeps-elements",
+      "phase": "5c",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.LinqTakeKeepsElements.Shelf..ctor()#Demo.Web.Cases.LinqTakeKeepsElements.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "linq-take-keeps-elements/self-pair",
+      "phase": "5c",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.LinqTakeKeepsElements.Shelf..ctor()#Demo.Web.Cases.LinqTakeKeepsElements.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "linq-take-keeps-elements/deep-read",
+      "phase": "5c",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.LinqTakeKeepsElements.Shelf..ctor()#Demo.Web.Cases.LinqTakeKeepsElements.Slot", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfController.Post()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.LinqTakeKeepsElements.ShelfController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "linq-groupby-key-and-elements/key",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.LinqGroupbyKeyAndElements.Stock..ctor()#Demo.Web.Cases.LinqGroupbyKeyAndElements.Bin", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "linq-groupby-key-and-elements/elements",
+      "phase": "5c",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.LinqGroupbyKeyAndElements.Stock..ctor()#Demo.Web.Cases.LinqGroupbyKeyAndElements.Item", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2521,6 +2631,11 @@
       "id": "interface-count-reads-only",
       "phase": "5b",
       "resource": { "region": "di:Demo.Web.Cases.InterfaceCountReadsOnly.Shelf@Singleton", "accessPath": ["Items"] }
+    },
+    {
+      "id": "linq-where-tolist-runs-in-caller/worker-once",
+      "phase": "5c",
+      "resource": { "region": "di:Demo.Web.Cases.LinqWhereTolistRunsInCaller.Screen@Singleton", "accessPath": ["Scans"] }
     }
   ]
 }

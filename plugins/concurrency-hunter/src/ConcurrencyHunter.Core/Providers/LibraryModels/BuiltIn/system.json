@@ -106,6 +106,216 @@
           "reads-deep"
         ]
       }
+    },
+    {
+      "member": "M:System.Collections.Generic.Comparer`1.Create(System.Comparison{`0})~System.Collections.Generic.Comparer{`0}",
+      "assemblies": [
+        "System.Collections",
+        "System.Private.CoreLib"
+      ],
+      "effects": {},
+      "fates": {
+        "comparison": {
+          "fate": "holder",
+          "holder": "result",
+          "inputs": [
+            [
+              "holder-arg:0"
+            ],
+            [
+              "holder-arg:1"
+            ]
+          ]
+        }
+      },
+      "note": "Phase 5c run B: the comparer keeps the comparison and runs it at each call of one of its members, handed that call's two arguments. Comparer<T> is declared in System.Collections in the reference packs of .NET 8 to 10 and in System.Private.CoreLib at run time."
+    },
+    {
+      "member": "M:System.Array.ForEach``1(``0[],System.Action{``0})",
+      "effects": {},
+      "fates": {
+        "action": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      },
+      "note": "Phase 5c run B: the System.Array statics that take a delegate and no comparer run it during the call, handed the array's cells. Sort<T>(T[], Comparison<T>) stays opaque: no effect writes an array's cells."
+    },
+    {
+      "member": "M:System.Array.Exists``1(``0[],System.Predicate{``0})~System.Boolean",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.TrueForAll``1(``0[],System.Predicate{``0})~System.Boolean",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.Find``1(``0[],System.Predicate{``0})~``0",
+      "effects": {},
+      "result": "[elements(arg:array)]",
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindLast``1(``0[],System.Predicate{``0})~``0",
+      "effects": {},
+      "result": "[elements(arg:array)]",
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindIndex``1(``0[],System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindIndex``1(``0[],System.Int32,System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindIndex``1(``0[],System.Int32,System.Int32,System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindLastIndex``1(``0[],System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindLastIndex``1(``0[],System.Int32,System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindLastIndex``1(``0[],System.Int32,System.Int32,System.Predicate{``0})~System.Int32",
+      "effects": {},
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.FindAll``1(``0[],System.Predicate{``0})~``0[]",
+      "effects": {},
+      "result": "collection(elements(arg:array))",
+      "fates": {
+        "match": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Array.ConvertAll``2(``0[],System.Converter{``0,``1})~``1[]",
+      "effects": {},
+      "result": "collection(returns:converter)",
+      "fates": {
+        "converter": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
     }
   ],
   "immutableTypes": [

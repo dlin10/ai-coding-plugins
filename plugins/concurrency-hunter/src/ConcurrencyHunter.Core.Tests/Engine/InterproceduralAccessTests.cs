@@ -409,7 +409,7 @@ public sealed class InterproceduralAccessTests
                     var slots = new object?[1];
                     slots[0] = rates;
                     Task.Run(() => { });
-                    GC.KeepAlive(System.Linq.Enumerable.Aggregate(slots, 0, (total, slot) => total, total => total));
+                    GC.KeepAlive(System.Linq.Enumerable.ToDictionary(slots, slot => slot!, slot => slot, null));
                     GC.KeepAlive(slots);
                     payload.Touch();
                 }
@@ -419,7 +419,8 @@ public sealed class InterproceduralAccessTests
         var coverage = run.Collection.Coverage;
         Assert.Equal(run.Execution.Heap.Heap.ReachableBodies.Count, run.Counter(CoverageCounters.REACHABLE_BODIES));
         Assert.Equal(1, run.Counter(CoverageCounters.ELEMENT_OPERATION));
-        // The two delegates Aggregate takes: the counter counts the delegates, not the calls that take them, and Task.Run's work runs.
+        // The two delegates ToDictionary takes, which its comparer leaves opaque (R6): the counter counts the delegates, not the calls
+        // that take them, and Task.Run's work runs.
         Assert.Equal(2, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
         Assert.Equal(0, run.Counter(CoverageCounters.UNANALYSED_REGISTRATION));
         Assert.Equal(1, run.Counter(CoverageCounters.NO_RECEIVER_OBJECT));

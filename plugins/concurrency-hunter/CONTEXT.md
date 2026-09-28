@@ -68,7 +68,8 @@ _Avoid_: unawaited call, dropped task, background task
 
 **Unknown execution**:
 An execution the analysis knows will run some code without knowing which root or spawn runs it —
-the enumeration of an iterator that escaped to where the analysis cannot follow it, or the
+the enumeration of an iterator or a **Library sequence** that escaped to where the analysis cannot
+follow it, or the
 invocation of a delegate handed to an **Opaque call**. It may overlap every execution of its
 process scope, itself included, and nothing orders it but the end of startup, and that only when
 every execution that hands the delegate over, or creates the iterator, starts after startup. The
@@ -254,7 +255,9 @@ _Avoid_: library call, recognized call, BCL call (a method is known by its model
 What a **Known call** does to an argument it consumes whole, as a serializer or a formatter does: a
 read of every field of every region reachable from that argument, up to the depth the summaries are
 bounded by, and a wildcard read beyond it. It reads private fields as well, because it stands for
-whatever the argument's getters could read without running them.
+whatever the argument's getters could read without running them. Reading every element is
+enumerating, so an iterator or a **Library sequence** among what it reads is enumerated there, in the
+caller's execution.
 _Avoid_: serialization read, full read, recursive read
 
 **Opaque call**:
@@ -317,8 +320,10 @@ _Avoid_: scope, completeness score
 
 **Library model**:
 What the analysis knows about one member of one assembly version it has no body for: for each
-argument, whether the member reads it deep, writes it or leaves it alone, and for each delegate it
-receives, that delegate's **Delegate fate**. A model belongs to exactly one **Model layer**.
+argument, whether the member reads it deep, writes it or leaves it alone; what it returns — the
+argument itself, one of its elements, a new collection holding them, or a **Library sequence** that
+yields them when enumerated; and for each delegate it receives, that delegate's **Delegate fate**. A model belongs to exactly one **Model
+layer**.
 _Avoid_: library semantics table, built-in semantics, stub, annotation
 
 **Model layer**:
@@ -345,14 +350,29 @@ Where a delegate handed to a **Known call** runs, named by an execution the engi
 the returned sequence is enumerated, by whoever enumerates it), `holder` (wherever a member of the
 object that keeps it runs), `di-factory` (where the service it builds is resolved, as often as its
 lifetime says), `startup` (in startup), or `unknown-execution` (in an **Unknown execution**, as the
-model's known answer rather than a gap).
+model's known answer rather than a gap). A fate also says what each of the delegate's parameters is
+handed — an argument of the call, the elements of one, what another delegate returned — and whether
+what the delegate returns is part of what the call returns; what it does not name, the delegate is
+handed nothing known.
 _Avoid_: callback kind, invocation mode, effect (an effect is what happens to an argument)
 
+**Library sequence**:
+The sequence a **Known call** returns without enumerating anything yet, as a LINQ operator such as
+`Where`, `Select` or `Take` does: it keeps the delegates whose fate is `iterator` and the sequences it
+was built from, and yields what its model says. It is enumerated as an iterator is: whoever
+enumerates it — a `foreach`, a **Deep read**, a copy into a collection — runs its delegates and
+enumerates its sources in their own execution, and what its model says the call does to its
+arguments happens there, not at the call. One that escapes to where the analysis cannot follow it is
+enumerated, in addition, by an **Unknown execution**.
+_Avoid_: lazy result, deferred query, LINQ iterator (the iterator is the user's `yield` method)
+
 **Holder**:
-A library object that keeps a delegate it was given. Its delegate runs wherever any member of the
-holder runs, because only code that reaches the holder can reach the delegate; a holder the heap
-cannot follow any more — handed to an **Opaque call**, stored where a timer or the framework reads
-it — makes the delegate's fate `unknown-execution`.
+A library object that keeps a delegate it was given: the object the call returns — for a
+constructor, the object it creates — or the object the call is made on. Its delegate runs wherever
+any member of the holder runs, because only code that reaches the holder can reach the delegate; a
+holder the heap cannot follow any more — handed to a call without a body other than as the object it
+is called on, stored where a timer or the framework reads it — makes the delegate's fate
+`unknown-execution` as well.
 _Avoid_: container, owner (an owner is an execution, see **Ownership**)
 
 **Model generator**:

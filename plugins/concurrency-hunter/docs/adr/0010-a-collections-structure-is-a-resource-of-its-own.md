@@ -103,7 +103,8 @@ carries the storage over: `AddRange`, a constructor from a collection, and the `
 views. Escape follows the cells as it follows an array's, so an element of a shared collection is no
 longer owned by whoever created it. The deep read and the argument writes of phase 5a read the same
 storage; the separate record of insertions they used goes. The operators of LINQ are not members of
-this table and stay with open question 29.
+this table: they are library models (ADR 0012), and what they return holds the elements of their
+sources as their models say.
 
 The members this adds follow the rules above. `AddRange` is an insertion at an index nobody names: it
 writes the structure and the unknown cell, enumerates its argument with the effects enumeration has on
@@ -114,12 +115,22 @@ structure and every cell, and its `Count` reads the structure. Those of a `Concu
 snapshots: taking one is an atomic read of the structure and every cell, and it returns a collection of
 its own holding the keys or the values. Any other member of a view stays unresolved.
 
-The factories of `GetOrAdd` and `AddOrUpdate` run where the call stands, in the calling execution, as
-a call of the delegate would: the key parameter is the key argument, the current value an update
+A delegate a member of the table takes runs where the call stands, in the calling execution, as a call
+of the delegate would — `invoke-now` in the words of ADR 0012 — and is never held. The factories of
+`GetOrAdd` and `AddOrUpdate`: the key parameter is the key argument, the current value an update
 factory is given is what the value storage holds, and the argument of the overloads that take one is
-that argument. What a factory returns is held and handed out; the delegate itself never is. What the
-factory's body does is its own and not atomic, because the dictionary runs a factory outside its lock.
-Until this run no factory ran at all, so neither its accesses nor what it made were seen.
+that argument; what a factory returns is held and handed out. The members of `List<T>` that take a
+delegate — `ForEach`, `Sort` with a `Comparison<T>`, `RemoveAll`, `Exists`, `TrueForAll`, `Find`,
+`FindLast`, `FindIndex`, `FindLastIndex`, `FindAll` and `ConvertAll` — and `RemoveWhere` of a
+`HashSet<T>` hand each parameter of their delegate what the element storage holds, a comparison two of
+them. Each has the accesses of what it does: all of them read the structure and every cell they
+visit; `RemoveAll` and `RemoveWhere` write the structure and every cell, as `Clear` does, and `Sort`
+the structure and every cell, since it moves them all. `Find` and `FindLast` return one of the held
+values, `FindAll` a list of its own holding them, and `ConvertAll` a list of its own holding what the
+converter returned. What a delegate's body does is its own and not atomic: the dictionary runs a
+factory outside its lock, and no other collection holds one. Until phase 5b no factory ran at all,
+and until phase 5c no other delegate of the table did, and the members that take one made no access
+of their own, so neither what they touched nor what their delegates did or made was seen.
 
 A dictionary holds its keys apart from its values. A key is held, so a key object escapes with its
 dictionary and a deep read reaches it, but it is not a cell: no selector names it, and a key lookup

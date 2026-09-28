@@ -24,9 +24,14 @@ public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
 }
 
 /// <summary>One member the library model describes: the <see cref="DocumentationCommentId"/> of its original definition, the assemblies it
-/// may be declared in with their version ranges, and its effects; a member with none touches nothing.</summary>
+/// may be declared in with their version ranges, and its effects; a member with none touches nothing. <see cref="Result"/> and
+/// <see cref="Fates"/> say what the call returns and where the delegates it receives run.</summary>
 public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects,
-                                  ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null);
+                                  ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null)
+{
+    public LibraryResult? Result { get; init; }
+    public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+}
 
 /// <summary>A type every one of whose members is known without effect when it takes only immutable arguments (R2). With
 /// <see cref="IncludesDerived"/> the rule covers every type of the framework that derives from it: one declared in the same
@@ -46,7 +51,11 @@ public enum LibraryMatchKind
 /// <summary>A call a library model recognizes: the member's id, its effects, and the assembly it was found in with the range the model
 /// supports for that assembly.</summary>
 public sealed record LibraryMatch(LibraryMatchKind Kind, string MemberId, IReadOnlyList<LibraryEffect> Effects, AssemblyIdentity Assembly,
-                                  SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false);
+                                  SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false)
+{
+    public LibraryResult? Result { get; init; }
+    public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+}
 
 /// <summary>The built-in library models of TD-034a: known calls by exact member identity, assembly name and version range,
 /// checked as they are loaded (TD-123).</summary>
@@ -183,10 +192,10 @@ public sealed class LibraryModels
                 member.Assemblies.Any(range => range.AssemblyName == definition.ContainingAssembly.Identity.Name &&
                                                range.Contains(definition.ContainingAssembly.Identity.Version)));
             if (project is not null)
-                return Match(project.Assemblies, definition.ContainingAssembly, id, project.Effects, project.Layer, project.DeclaredOpaque);
+                return Match(project, definition.ContainingAssembly, id);
         }
         if (_members.TryGetValue(id, out var member))
-            return Match(member.Assemblies, definition.ContainingAssembly, id, member.Effects, member.Layer, member.DeclaredOpaque);
+            return Match(member, definition.ContainingAssembly, id);
         if (ImmutableTypeOf(definition.ContainingType) is not { } type || !IsImmutableShape(definition))
             return null;
         return Match(RangeOf(type, definition.ContainingAssembly), definition.ContainingAssembly, id, []);
@@ -277,9 +286,10 @@ public sealed class LibraryModels
         method.Parameters.All(parameter => parameter.RefKind is RefKind.None or RefKind.Out &&
                                            IsImmutable(parameter.Type, method.ContainingType, inRange: false));
 
-    private static LibraryMatch? Match(IReadOnlyList<SupportedAssemblyVersion> ranges, IAssemblySymbol? assembly, string id,
-                                       IReadOnlyList<LibraryEffect> effects, ModelLayer layer, bool declaredOpaque) =>
-        Match(RangeOf(ranges, assembly), assembly, id, effects, layer, declaredOpaque);
+    private static LibraryMatch? Match(LibraryModel model, IAssemblySymbol? assembly, string id) =>
+        Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
+            ? match with { Result = model.Result, Fates = model.Fates }
+            : null;
 
     private static LibraryMatch? Match(SupportedAssemblyVersion? range, IAssemblySymbol? assembly, string id,
                                        IReadOnlyList<LibraryEffect> effects, ModelLayer layer = ModelLayer.BuiltIn,

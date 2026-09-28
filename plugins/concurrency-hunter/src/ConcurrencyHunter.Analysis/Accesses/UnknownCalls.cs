@@ -13,6 +13,10 @@ public sealed record UnknownCall(MethodInstance Instance, int OperationId, strin
     public IrProvenance? Provenance { get; init; }
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
     public bool IsLocator => Kind == SemanticGapKinds.MODEL_GAP;
+
+    /// <summary>The escaped library sequence whose unknown enumeration makes this call, an unresolved iterator delegate of it or of a
+    /// sequence it enumerates; null for a call made where it stands (R3, R5).</summary>
+    public string? EnumeratedSequence { get; init; }
 }
 
 /// <summary>The unresolved calls of a scope and what their unknown effects reach (R1). A call a recognizer of phases 1-4 models is not
@@ -45,6 +49,23 @@ public static class UnknownCalls
                     if (undecided.Count == 0)
                         continue;
                     receivers = undecided;
+                }
+
+                // A holder decides the call as those objects do: its member runs what it keeps, and the call stays unresolved for any
+                // other object alone (R4). A grouping decides its `Key`: it is what the model says (R5).
+                if ((heap.Holders.Count != 0 || call.IsGroupingKey) && !call.IsConstructor)
+                {
+                    var regions = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+                    var held = regions.Where(region => heap.Holders.Contains(region) ||
+                                                       call.IsGroupingKey && heap.LibrarySequences.TryGetValue(region, out var grouping) && grouping.IsGrouping)
+                                      .ToArray();
+                    if (held.Length != 0)
+                    {
+                        if (held.Length == regions.Length)
+                            continue;
+                        receivers = regions.Except(held, StringComparer.Ordinal).Order(StringComparer.Ordinal)
+                                           .Select(region => (AbstractValue)new RegionValue(region)).ToHashSet();
+                    }
                 }
 
                 // A constructor sees nothing through the object it creates: that object holds only what its arguments give it yet.
@@ -109,6 +130,29 @@ public static class UnknownCalls
                                         }));
             }
 
+            // A delegate a known call runs by its model's fate, or a holder's member runs, with no body the heap has is an unresolved
+            // dispatch at the call, as a call of it there would be, which sees what that delegate is handed (R3, R4).
+            foreach (var call in summary.OpaqueCalls.Where(call => heap.UnresolvedFateInputs.ContainsKey((instance.Id, call.OperationId)) &&
+                                                                   heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
+            {
+                var inputs = heap.UnresolvedFateInputs.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<string>();
+                IReadOnlyList<CallArgument> handed = inputs.Count == 0
+                    ? []
+                    : [new CallArgument(-1, inputs.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet())];
+                var receivers = heap.UnresolvedDispatchReceivers.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<(string, string?)>();
+                calls.AddRange(receivers.GroupBy(receiver => receiver.DeclaringTypeKey)
+                                        .Select(group => (Receivers: (IReadOnlySet<AbstractValue>)group.Select(receiver => (AbstractValue)new RegionValue(receiver.Region))
+                                                                                                          .ToHashSet(),
+                                                          DeclaringTypeKey: group.Key))
+                                        .DefaultIfEmpty((new HashSet<AbstractValue>(), null))
+                                        .Select(group => new UnknownCall(instance, call.OperationId, call.Callee, SemanticGapKinds.UNRESOLVED_DISPATCH,
+                                                                         group.Receivers, group.DeclaringTypeKey, handed, [])
+                                        {
+                                            Provenance = call.Provenance,
+                                            Conditions = call.Conditions
+                                        }));
+            }
+
             // A `dynamic` receiver is seen whole, like the arguments and the value assigned: all of them are the operation's operands.
             calls.AddRange(summary.DynamicOperations.Select(operation => new UnknownCall(instance, operation.OperationId, operation.Callee, SemanticGapKinds.DYNAMIC,
                                                                                             new HashSet<AbstractValue>(), null,
@@ -119,7 +163,50 @@ public static class UnknownCalls
                                                         }));
         }
 
+        // An escaped library sequence is enumerated by an unknown execution as well, and there each iterator delegate no body resolves,
+        // of it or of a sequence it enumerates, is an unresolved dispatch as at every other enumeration (R3, R5).
+        foreach (var escaped in heap.LibrarySequences.Values.Where(sequence => !sequence.IsGrouping && heap.UnknownIterators.Contains(sequence.RegionId))
+                                    .OrderBy(sequence => sequence.RegionId, StringComparer.Ordinal))
+        {
+            foreach (var sequence in EnumeratedSequences(heap, escaped.RegionId, new HashSet<string>(StringComparer.Ordinal)))
+            {
+                if (!heap.Instances.TryGetValue(sequence.CreatorInstance, out var creator))
+                    continue;
+                var provenance = creator.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == sequence.CreatorOperation)?.Provenance;
+                foreach (var dispatch in sequence.Unresolved)
+                {
+                    IReadOnlyList<CallArgument> handed = dispatch.Inputs.Count == 0
+                        ? []
+                        : [new CallArgument(-1, dispatch.Inputs.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet())];
+                    calls.AddRange(dispatch.Receivers.GroupBy(receiver => receiver.DeclaringTypeKey)
+                                           .Select(group => (Receivers: (IReadOnlySet<AbstractValue>)group.Select(receiver => (AbstractValue)new RegionValue(receiver.Region))
+                                                                                                             .ToHashSet(),
+                                                             DeclaringTypeKey: group.Key))
+                                           .DefaultIfEmpty((new HashSet<AbstractValue>(), null))
+                                           .Select(group => new UnknownCall(creator, sequence.CreatorOperation, dispatch.Callee, SemanticGapKinds.UNRESOLVED_DISPATCH,
+                                                                            group.Receivers, group.DeclaringTypeKey, handed, [])
+                                           {
+                                               Provenance = provenance,
+                                               EnumeratedSequence = escaped.RegionId
+                                           }));
+                }
+            }
+        }
+
         return calls.OrderBy(call => call.Instance.Id, StringComparer.Ordinal).ThenBy(call => call.OperationId).ToArray();
+    }
+
+    /// <summary>A library sequence and every library sequence enumerating it enumerates, through its sources.</summary>
+    internal static IEnumerable<LibrarySequence> EnumeratedSequences(HeapSolution heap, string region, HashSet<string> visited)
+    {
+        if (!visited.Add(region) || !heap.LibrarySequences.TryGetValue(region, out var sequence) || sequence.IsGrouping)
+            yield break;
+        yield return sequence;
+        foreach (var source in sequence.Sources)
+        {
+            foreach (var enumerated in EnumeratedSequences(heap, source, visited))
+                yield return enumerated;
+        }
     }
 
     /// <summary>The opaque calls a recognizer of phases 1-4 models, which are no unresolved calls (R1): a member of a type one owns or a

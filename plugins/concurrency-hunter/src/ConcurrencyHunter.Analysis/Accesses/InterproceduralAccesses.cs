@@ -108,8 +108,13 @@ public static class InterproceduralAccesses
         var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
         foreach (var execution in input.Executions.Executions)
         {
-            if (!input.Executions.Entries.TryGetValue(execution.Id, out var entries))
+            // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5).
+            if (!input.Executions.Entries.TryGetValue(execution.Id, out var entries) &&
+                !(execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject)))
+            {
                 continue;
+            }
+            entries ??= [];
             var collector = new ExecutionCollector(input, execution, entries, graph, discoveries, holders, origins, unknownCalls, reach);
             accesses.AddRange(collector.Collect());
             unproven.UnionWith(collector.UnprovenReferences);
@@ -487,6 +492,7 @@ public static class InterproceduralAccesses
     /// in and the key it files it under. What a member removes is not held, nor the value <c>TryUpdate</c> compares against, nor the
     /// argument <c>GetOrAdd</c> or <c>AddOrUpdate</c> hands its factory, nor a factory itself: what it makes is held, never it.</summary>
     private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode`1";
+    private const string LIST = "System.Collections.Generic.List`1.";
     private const string KEY_VALUE_PAIR = "System.Collections.Generic.KeyValuePair`2";
     private const string DICTIONARY_ENTRY = "System.Collections.DictionaryEntry.";
 
@@ -509,11 +515,10 @@ public static class InterproceduralAccesses
             _ => false
         };
 
-    /// <summary>Whether a member runs the factories it is handed where it is called: <c>GetOrAdd</c> and <c>AddOrUpdate</c> of a
-    /// <c>ConcurrentDictionary</c>, and no other recognized call (R11).</summary>
-    internal static bool RunsFactories(IrCollectionCall? member) =>
-        member is { Factories.Count: > 0 } &&
-        (member.Member.EndsWith(".GetOrAdd", StringComparison.Ordinal) || member.Member.EndsWith(".AddOrUpdate", StringComparison.Ordinal));
+    /// <summary>Whether a member runs the delegates it is handed where it is called: every member of the table that takes one, which is
+    /// <c>GetOrAdd</c> and <c>AddOrUpdate</c> of a <c>ConcurrentDictionary</c> (R11) and since phase 5c the delegate members of a
+    /// <c>List</c> and <c>RemoveWhere</c> of a <c>HashSet</c> (ADR 0010).</summary>
+    internal static bool RunsFactories(IrCollectionCall? member) => member is { Factories.Count: > 0 };
 
     /// <summary>The storage a held argument goes to: a dictionary files its key apart from its values, and every other held
     /// argument is a value in the cells (ADR 0010, phase 5b second run).</summary>
@@ -525,11 +530,13 @@ public static class InterproceduralAccesses
 
     /// <summary>Whether a member hands out a value its collection holds: through its result, or through every <c>out</c> argument it
     /// fills. A node's value is the value of its list's cell; <c>GetOrAdd</c> and <c>AddOrUpdate</c> return what the cell holds
-    /// once they ran (ADR 0010, phase 5b second run); a pair hands out its key and its value.</summary>
+    /// once they ran (ADR 0010, phase 5b second run); a pair hands out its key and its value; <c>Find</c> and <c>FindLast</c> of a
+    /// <c>List</c> one of its values (phase 5c), a <c>LinkedList</c>'s a node instead.</summary>
     internal static (bool Result, bool Out) HandsOutHeld(IrCollectionCall? member) =>
         member?.Member[(member.Member.LastIndexOf('.') + 1)..] switch
         {
             "get_Item" or "Peek" or "Dequeue" or "Pop" or "get_Value" or "get_Key" or "GetOrAdd" or "AddOrUpdate" => (true, false),
+            "Find" or "FindLast" when member.Member.StartsWith(LIST, StringComparison.Ordinal) => (true, false),
             "TryGetValue" or "TryPeek" or "TryDequeue" or "TryPop" or "TryTake" or "Remove" or "TryRemove" or "Deconstruct" => (false, true),
             _ => (false, false)
         };
@@ -635,13 +642,37 @@ public static class InterproceduralAccesses
         private readonly Dictionary<(string Instance, int Ordinal), HashSet<(string Instance, int Operation)>> _refParameterLoads = [];
         private readonly Dictionary<(string Owner, string Key), HashSet<(string Instance, int Operation)>> _cellLoads = [];
 
+        /// <summary>The visits that host what the unknown enumeration of an escaped library sequence does besides running bodies: each
+        /// the creator of the sequence or of one it enumerates, true for the escaped sequence's own, whose visit makes the enumeration's
+        /// effects (R5); every one makes the unresolved dispatches of its delegates there (R3). A host runs nothing of its body.</summary>
+        private readonly Dictionary<PathNode, bool> _hosts = [];
+
         internal IReadOnlyList<Access> Collect()
         {
             foreach (var entry in entries)
                 Visit(entry);
+            HostSequenceEnumeration();
             SolveLocks();
             SolveDependencies();
             return Emit();
+        }
+
+        private void HostSequenceEnumeration()
+        {
+            if (execution is not { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } || !_heap.LibrarySequences.TryGetValue(subject, out var escaped))
+                return;
+            var creators = new[] { escaped.CreatorInstance }
+                .Concat(unknownCalls.Values.SelectMany(calls => calls).Where(call => call.EnumeratedSequence == subject).Select(call => call.Instance.Id))
+                .Distinct(StringComparer.Ordinal);
+            foreach (var creator in creators.Where(_heap.Instances.ContainsKey))
+            {
+                var node = new PathNode(new State(creator, null, BodySegment.Whole), null, null);
+                var entry = new ExecutionEntry(creator, ExecutionEntryKind.UnknownEnumeration, null);
+                _visits.Add((entry, node));
+                _firstPaths.TryAdd(creator, (entry, node));
+                _bodyPaths.TryAdd(_heap.Instances[creator].BodyId, (entry, node));
+                _hosts[node] = creator == escaped.CreatorInstance;
+            }
         }
 
         /// <summary>Breadth-first over the walk's edges from one entry; a state is an instance with its construction interval, visited
@@ -1461,12 +1492,13 @@ public static class InterproceduralAccesses
             foreach (var (entry, node) in _visits)
             {
                 var instance = _heap.Instances[node.State.Instance];
+                var hosted = _hosts.TryGetValue(node, out var enumerates);
                 var direct = instance.Summary.Accesses
-                    .Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
+                    .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
                     .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false));
                 var references = new List<(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference)>();
                 foreach (var access in instance.Summary.ReferenceAccesses
-                             .Where(access => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId) &&
+                             .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId) &&
                                               !instance.Summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == access.OperationId)))
                 foreach (var target in ResolveReferences(access.Targets, instance, node))
                 {
@@ -1479,9 +1511,14 @@ public static class InterproceduralAccesses
 
                     references.Add((ReferenceAccess(access, target), target.Instance, target.Node, true));
                 }
-                // A known call's effects are reads and writes of the fields they reach, made where the call stands (R3).
-                var deepReads = instance.Summary.ArgumentEffects
-                                        .Where(effect => input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId))
+                // A known call's effects are reads and writes of the fields they reach, made where the call stands (R3); the unknown
+                // enumeration of an escaped library sequence makes what enumerating it makes, where the call that created it stands (R5).
+                var effects = hosted
+                    ? enumerates ? [SequenceEnumeration(instance)] : []
+                    : instance.Summary.ArgumentEffects
+                              .Where(effect => !effect.IsDeferred && input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId));
+                var deepReads = effects
+                                        .SelectMany(effect => Expanded(effect, instance, new HashSet<string>(StringComparer.Ordinal)))
                                         .GroupBy(effect => effect.OperationId)
                                         .SelectMany(call => WithoutReadsOfWrittenFields(
                                             call.SelectMany(effect => effect.Kind switch
@@ -1496,7 +1533,9 @@ public static class InterproceduralAccesses
                                         .ToArray();
                 // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
                 var unknownEffects = (unknownCalls.GetValueOrDefault(instance.Id) ?? [])
-                                     .Where(call => input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
+                                     .Where(call => hosted
+                                                        ? call.EnumeratedSequence == execution.Subject
+                                                        : call.EnumeratedSequence is null && input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
                                      .SelectMany(call => UnknownEffectAccesses(call, instance, node))
                                      .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false))
                                      .ToArray();
@@ -2078,6 +2117,83 @@ public static class InterproceduralAccesses
             return accesses;
         }
 
+        /// <summary>
+        /// What an effect on a library sequence or a grouping is, where the effect stands and under its locks (R5). Enumerating a
+        /// library sequence — a <c>foreach</c>, a copy, a known call reading it deep or naming its elements — makes the effects of the call
+        /// that returned it on that call's arguments, enumerating its sources among them, and enumerates the sources of one a model's value
+        /// built; a deep read or an argument write applies to what it yields, a grouping's key included. The object itself is no resource.
+        /// </summary>
+        /// <summary>The enumeration an unknown enumeration makes of the escaped sequence it is of, at the call that created it, holding
+        /// no lock and under no guard, as an execution nothing orders (R5).</summary>
+        private SummaryArgumentEffect SequenceEnumeration(MethodInstance creator)
+        {
+            var sequence = _heap.LibrarySequences[execution.Subject!];
+            var call = creator.Summary.OpaqueCalls.First(candidate => candidate.OperationId == sequence.CreatorOperation);
+            return new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, sequence.CreatorOperation,
+                                             new HashSet<AbstractValue> { new RegionValue(sequence.RegionId) }, null, false, call.Provenance!, []);
+        }
+
+        private IEnumerable<SummaryArgumentEffect> Expanded(SummaryArgumentEffect effect, MethodInstance instance, HashSet<string> visited)
+        {
+            if (_heap.LibrarySequences.Count == 0 || effect.Member is not null)
+                return [effect];
+            var regions = effect.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+            var sequences = regions.Where(_heap.LibrarySequences.ContainsKey).Order(StringComparer.Ordinal).ToArray();
+            if (sequences.Length == 0)
+                return [effect];
+
+            var expanded = new List<SummaryArgumentEffect>();
+            var others = regions.Except(sequences, StringComparer.Ordinal).ToArray();
+            if (others.Length != 0)
+                expanded.Add(effect with { Values = RegionValues(others), Collection = null });
+            foreach (var region in sequences.Where(visited.Add))
+            {
+                var sequence = _heap.LibrarySequences[region];
+                if (effect.Kind is IrLibraryEffectKind.DeepRead or IrLibraryEffectKind.WriteArgument)
+                {
+                    var yielded = effect.Kind == IrLibraryEffectKind.DeepRead ? sequence.Yields.Concat(sequence.Keys) : sequence.Yields;
+                    expanded.AddRange(Expanded(effect with { Values = RegionValues(yielded), Collection = null, IsSlice = false, IsSequence = false },
+                                               instance, visited));
+                }
+
+                if (effect.Kind == IrLibraryEffectKind.WriteArgument || sequence.IsGrouping)
+                    continue;
+                // What the call that returned it does to its arguments happens here, and so does the enumeration of what its delegates
+                // returned, which no argument effect names; a sequence a value built enumerates its sources.
+                IEnumerable<SummaryArgumentEffect> made = sequence.IsResult && _heap.Instances.TryGetValue(sequence.CreatorInstance, out var creator)
+                    ? creator.Summary.ArgumentEffects.Where(deferred => deferred.IsDeferred && deferred.OperationId == sequence.CreatorOperation)
+                             .Select(deferred => deferred with
+                             {
+                                 Values = RegionValues(deferred.Values.SelectMany(value => _heap.Resolve(creator.Id, value))),
+                                 Collection = null,
+                                 IsSlice = false
+                             })
+                             .Concat(sequence.ReturnedSources.Count == 0
+                                 ? []
+                                 : [effect with { Kind = IrLibraryEffectKind.Enumerate, Values = RegionValues(sequence.ReturnedSources), Collection = null, IsSlice = false }])
+                    : sequence.Sources.Count == 0
+                        ? []
+                        : [effect with { Kind = IrLibraryEffectKind.Enumerate, Values = RegionValues(sequence.Sources), Collection = null, IsSlice = false }];
+                foreach (var effectOfCall in made)
+                {
+                    var here = effectOfCall with
+                    {
+                        OperationId = effect.OperationId,
+                        Provenance = effect.Provenance,
+                        HeldLocks = effect.HeldLocks,
+                        Conditions = effect.Conditions,
+                        IsDeferred = false
+                    };
+                    expanded.AddRange(Expanded(here, instance, visited));
+                }
+            }
+
+            return expanded;
+
+            static IReadOnlySet<AbstractValue> RegionValues(IEnumerable<string> regions) =>
+                regions.Distinct(StringComparer.Ordinal).Select(region => (AbstractValue)new RegionValue(region)).ToHashSet();
+        }
+
         /// <summary>The accesses of one known call without its reads of a field it also writes on the same object: the write meets
         /// every access the read would, under the same rule, so the read would only report the same conflict twice.</summary>
         private static IEnumerable<SummaryAccess> WithoutReadsOfWrittenFields(IReadOnlyList<SummaryAccess> accesses)
@@ -2419,8 +2535,11 @@ public static class InterproceduralAccesses
                     ? (callerInstance, caller, call)
                     : null;
 
-            var regions = callerInstance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId)?
-                                        .Receivers.SelectMany(value => _heap.Resolve(callerInstance.Id, value)).ToHashSet(StringComparer.Ordinal) ?? [];
+            // A consumer other than a `foreach` is handed the iterator as an argument (R5).
+            var regions = callerInstance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } consumer
+                ? consumer.Receivers.Concat(consumer.Arguments.SelectMany(argument => argument.Values))
+                          .SelectMany(value => _heap.Resolve(callerInstance.Id, value)).ToHashSet(StringComparer.Ordinal)
+                : [];
             var creations = _heap.IteratorObjects.Where(iterator => regions.Contains(iterator.RegionId) &&
                                                                     iterator.Creation.CalleeInstance == edge.CalleeInstance)
                                                  .Select(iterator => iterator.Creation)

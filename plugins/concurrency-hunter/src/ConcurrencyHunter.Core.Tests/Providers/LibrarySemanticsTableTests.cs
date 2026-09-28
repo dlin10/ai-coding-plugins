@@ -378,27 +378,39 @@ public sealed class LibrarySemanticsTableTests
     }
 
     [Fact]
-    public void No_member_takes_a_delegate_or_is_a_setter()
+    public void No_member_takes_a_delegate_without_a_fate_or_is_a_setter()
     {
         Assert.All(Table.Members, member =>
         {
             var method = (IMethodSymbol)DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value).Single();
             Assert.NotEqual(MethodKind.PropertySet, method.MethodKind);
-            Assert.DoesNotContain(method.Parameters, parameter => parameter.Type.TypeKind == TypeKind.Delegate);
+            // A delegate a member takes has its fate since phase 5c run B.
+            Assert.DoesNotContain(method.Parameters, parameter => parameter.Type.TypeKind == TypeKind.Delegate &&
+                                                                  member.Fates.All(fate => fate.Parameter != parameter.Name));
         });
     }
 
     [Fact]
-    public void Table_is_exactly_the_phase_5a_list_and_the_array_shape_members()
+    public void Table_is_exactly_the_phase_5a_list_and_the_array_shape_members_and_the_run_b_families()
     {
+        // Phase 5c run B adds Comparer<T>.Create, every Enumerable operator taking a delegate and no comparer, only ExceptBy and
+        // IntersectBy with an effect, and the System.Array statics R7 names, and gives the phase 5a LINQ members R6 names a result
+        // without changing their effects.
+        var runB = RunBFamilies();
         var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
                          .ToHashSet();
-        var list = Phase5aList.ToHashSet();
+        var list = Phase5aList.Concat(runB).ToHashSet();
+        var resultOnly = Phase5aList.Select(entry => entry.Id)
+                                    .Where(id => R6Phase5aNames.Any(name => id.StartsWith($"M:System.Linq.Enumerable.{name}``", StringComparison.Ordinal)))
+                                    .ToArray();
+        var described = Table.Members.Where(member => member.Fates.Count != 0 || member.Result is not null).Select(member => member.Id);
 
-        Assert.Equal(Phase5aList.Length, list.Count);
+        Assert.Equal(Phase5aList.Length + runB.Length, list.Count);
         Assert.Empty(table.Except(list));
         Assert.Empty(list.Except(table));
+        Assert.Equal(15, resultOnly.Length);
+        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Order(StringComparer.Ordinal), described.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -762,7 +774,10 @@ public sealed class LibrarySemanticsTableTests
     /// <summary>The named rules an overload may be rejected by, in the order they are asked: the first that applies names it.</summary>
     private static (string Name, Func<IMethodSymbol, bool> Rejects)[] Rules(string[] excluded) =>
     [
-        ("a delegate parameter", method => method.Parameters.Any(parameter => parameter.Type.TypeKind == TypeKind.Delegate)),
+        // Since phase 5c run B an Enumerable operator with a delegate is listed unless a comparer rejects it (R6).
+        ("a delegate parameter outside the LINQ family",
+         method => method.ContainingType.ToDisplayString() != "System.Linq.Enumerable" &&
+                   method.Parameters.Any(parameter => parameter.Type.TypeKind == TypeKind.Delegate)),
         ("an IEqualityComparer parameter", method => method.Parameters.Any(parameter => parameter.Type.OriginalDefinition.Name == "IEqualityComparer")),
         ("a parameter type the family excludes",
          method => method.Parameters.Any(parameter => excluded.Contains(parameter.Type.ToDisplayString().TrimEnd('?'), StringComparer.Ordinal))),
@@ -770,6 +785,24 @@ public sealed class LibrarySemanticsTableTests
          method => method.Name == "Deserialize" && method.Parameters[0].Type.SpecialType != SpecialType.System_String),
         ("a setter", method => method.MethodKind == MethodKind.PropertySet)
     ];
+
+    /// <summary>The phase 5a LINQ members R6 gives a result: the lazy ones, AsEnumerable, the copies and the element operators.</summary>
+    private static readonly string[] R6Phase5aNames =
+        ["Skip", "Take", "Cast", "OfType", "Union", "AsEnumerable", "ToList", "ToArray", "First", "FirstOrDefault", "Single", "SingleOrDefault",
+         "Last", "LastOrDefault"];
+
+    /// <summary>The members phase 5c run B adds with their effects: <c>Comparer&lt;T&gt;.Create</c> and every public Enumerable method taking
+    /// a delegate and neither an <c>IEqualityComparer</c> nor an <c>IComparer</c>, of which ExceptBy and IntersectBy read their
+    /// <c>second</c> deep, and every public static of <c>System.Array</c> taking a delegate and no <c>IComparer</c> but <c>Sort</c>.</summary>
+    private static (string Id, string Effects)[] RunBFamilies() =>
+        new[] { "System.Linq.Enumerable", "System.Array" }
+            .SelectMany(type => Real.Value.GetTypeByMetadataName(type)!.GetMembers().OfType<IMethodSymbol>())
+            .Where(method => method.DeclaredAccessibility == Accessibility.Public && method.IsStatic && method.Name != "Sort" &&
+                             method.Parameters.Any(parameter => parameter.Type.TypeKind == TypeKind.Delegate) &&
+                             !method.Parameters.Any(parameter => parameter.Type.OriginalDefinition.Name is "IEqualityComparer" or "IComparer"))
+            .Select(method => (DocumentationCommentId.CreateDeclarationId(method)!, method.Name is "ExceptBy" or "IntersectBy" ? "DeepRead:second" : ""))
+            .Append(("M:System.Collections.Generic.Comparer`1.Create(System.Comparison{`0})~System.Collections.Generic.Comparer{`0}", ""))
+            .ToArray();
 
     private static string Effects(IEnumerable<LibraryEffect> effects) =>
         string.Join(",", effects.OrderBy(effect => effect.Kind).ThenBy(effect => effect.Parameter, StringComparer.Ordinal)

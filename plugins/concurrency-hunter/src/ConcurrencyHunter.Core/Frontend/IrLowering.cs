@@ -2316,6 +2316,7 @@ public static class IrLowering
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
                 Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation) : [],
                 Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels) : null,
+                IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
@@ -3545,6 +3546,18 @@ public static class IrLowering
                 // Its key is carried all the same: a check that names a cell decides where the sequence it guards is reported.
                 (_, "get_Count" or "ContainsKey") => Effects(method, type, keyed, IrCollectionEffect.Read, IrCollectionEffect.None),
                 (_, "Contains" or "GetEnumerator") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                // A member that takes a delegate runs it where the call stands, handed what the cells hold; it reads the structure and
+                // every cell it visits, and one that removes or moves cells writes both as `Clear` does. Only the `Sort` that takes a
+                // `Comparison<T>` is one of them (ADR 0010, phase 5c).
+                (LIST, "ForEach" or "Exists" or "TrueForAll" or "Find" or "FindLast" or "FindIndex" or "FindLastIndex") =>
+                    Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                (LIST, "FindAll" or "ConvertAll") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read) with
+                {
+                    ResultTypeKey = SymbolNames.TypeKey(method.ReturnType)
+                },
+                (LIST, "RemoveAll") or (HASH_SET, "RemoveWhere") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (LIST, "Sort") when method.Parameters is [{ Type: var comparison }] && Bcl.TypeName(comparison) == "System.Comparison`1" =>
+                    Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
                 _ => null
             };
         }
@@ -3591,11 +3604,12 @@ public static class IrLowering
                                   .Select(parameter => parameter.Ordinal)
                                   .ToArray(),
                 // A factory's parameter of the dictionary's first type parameter is the key, of its second the value the dictionary
-                // holds, and of the method's own the argument the overload hands it.
+                // holds, and of the method's own the argument the overload hands it; one of a list's or a set's type parameter is
+                // what its cells hold.
                 FactoryInputs = method.OriginalDefinition.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate)
                                       .Select(parameter => (IReadOnlyList<IrFactoryInput>)(((INamedTypeSymbol)parameter.Type).DelegateInvokeMethod?.Parameters ?? [])
                                                   .Select(input => input.Type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Type, Ordinal: var ordinal }
-                                                              ? ordinal == 0 ? IrFactoryInput.Key : IrFactoryInput.Held
+                                                              ? ordinal == 0 && type is DICTIONARY or CONCURRENT_DICTIONARY ? IrFactoryInput.Key : IrFactoryInput.Held
                                                               : IrFactoryInput.Argument)
                                                   .ToArray())
                                       .ToArray(),
@@ -3812,14 +3826,86 @@ public static class IrLowering
             if (definition.Locations.Any(location => location.IsInSource) ||
                 libraryModels.Find(definition) is not { } match)
                 return null;
+            // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.
+            var typed = method.ReducedFrom is null ? method : definition;
             var effects = match.Effects.Select(effect => new IrLibraryEffect(
                                                effect.Kind == LibraryEffectKind.DeepRead ? IrLibraryEffectKind.DeepRead : IrLibraryEffectKind.WriteArgument,
                                                definition.Parameters.Single(parameter => parameter.Name == effect.Parameter).Ordinal))
                                    .ToArray();
+            var fates = match.Fates.Select(fate =>
+            {
+                var parameter = typed.Parameters.Single(candidate => candidate.Name == fate.Parameter);
+                var arity = ((INamedTypeSymbol)parameter.Type).DelegateInvokeMethod!.Parameters.Length;
+                var inputs = fate.Inputs ?? Enumerable.Repeat<IReadOnlyList<LibraryValue>>([], arity).ToArray();
+                return new IrLibraryFate(parameter.Ordinal, fate.Kind switch
+                {
+                    LibraryFateKind.InvokeNow => IrFateKind.InvokeNow,
+                    LibraryFateKind.Iterator => IrFateKind.Iterator,
+                    LibraryFateKind.Holder => IrFateKind.Holder,
+                    LibraryFateKind.Startup => IrFateKind.Startup,
+                    _ => IrFateKind.UnknownExecution
+                }, fate.Holder switch
+                {
+                    LibraryHolderKind.Result => IrHolderKind.Result,
+                    LibraryHolderKind.This => IrHolderKind.This,
+                    _ => null
+                }, inputs.Select(input => (IReadOnlyList<IrModelValue>)input.Select(value => Value(typed, value)).ToArray()).ToArray());
+            }).ToArray();
             return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
                                      match.Layer == ModelLayer.Project ? IrModelLayer.Project : IrModelLayer.BuiltIn,
-                                     match.DeclaredOpaque);
+                                     match.DeclaredOpaque)
+            {
+                Fates = fates,
+                Result = match.Result is { } result
+                    ? new IrLibraryResult(result.Kind switch
+                    {
+                        LibraryResultKind.Sequence => IrResultKind.Sequence,
+                        LibraryResultKind.Collection => IrResultKind.Collection,
+                        LibraryResultKind.Dictionary => IrResultKind.Dictionary,
+                        _ => IrResultKind.OneOf
+                    }, result.Values.Select(value => Value(typed, value)).ToArray())
+                    : null,
+                ResultTypeKey = method.MethodKind == MethodKind.Constructor ? SymbolNames.TypeKey(method.ContainingType)
+                    : method.ReturnsVoid ? null
+                    : SymbolNames.TypeKey(method.ReturnType)
+            };
         }
+
+        private static IrModelValue Value(IMethodSymbol method, LibraryValue value) => value switch
+        {
+            ArgumentValue argument => new IrModelArgument(Parameter(method, argument.Parameter).Ordinal),
+            ReturnsValue returns => new IrModelReturns(Parameter(method, returns.Delegate).Ordinal),
+            HolderArgumentValue holder => new IrModelHolderArgument(holder.Index),
+            ElementsValue elements => new IrModelElements(Value(method, elements.Source), ElementTypeKey(StaticType(method, elements.Source))),
+            SequenceValue sequence => new IrModelSequence(sequence.Values.Select(item => Value(method, item)).ToArray()),
+            GroupingValue grouping => new IrModelGrouping(Value(method, grouping.Key), Value(method, grouping.Values)),
+            _ => throw new ArgumentOutOfRangeException(nameof(value))
+        };
+
+        private static IParameterSymbol Parameter(IMethodSymbol method, string name) => method.Parameters.Single(parameter => parameter.Name == name);
+
+        /// <summary>The type a value has as the call names it, null where it is none the model can say.</summary>
+        private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value) => value switch
+        {
+            ArgumentValue argument => Parameter(method, argument.Parameter).Type,
+            ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,
+            ElementsValue elements => ElementType(StaticType(method, elements.Source)),
+            _ => null
+        };
+
+        private static ITypeSymbol? ElementType(ITypeSymbol? type) =>
+            type is IArrayTypeSymbol array ? array.ElementType
+            : type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Collections_Generic_IEnumerable_T } enumerable
+                ? enumerable.TypeArguments[0]
+            : type?.AllInterfaces.FirstOrDefault(@interface => @interface.OriginalDefinition.SpecialType ==
+                                                               SpecialType.System_Collections_Generic_IEnumerable_T)?.TypeArguments[0];
+
+        /// <summary>The type of what enumerating a value of <paramref name="source"/> yields, where it narrows what that may be: none for
+        /// <c>object</c>, a type parameter or an unknown element type.</summary>
+        private static string? ElementTypeKey(ITypeSymbol? source) =>
+            ElementType(source) is { SpecialType: not SpecialType.System_Object } element and not ITypeParameterSymbol
+                ? SymbolNames.TypeKey(element)
+                : null;
     }
 
     /// <summary>The <c>Interlocked</c> and <c>Volatile</c> members that name one cell, with what each does to it (TD-082). The two

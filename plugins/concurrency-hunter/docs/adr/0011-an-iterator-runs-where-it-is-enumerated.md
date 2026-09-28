@@ -15,26 +15,45 @@ enumeration. A `foreach` over a value that may be the iterator — in the body t
 any body it reaches through the analysis's own points-to — runs the body at the loop: the locks held
 at the loop head are held on entry to each `MoveNext`, a lock the body holds at a `yield return` is
 held over the loop's body, and whatever the body still holds when it ends is held after the loop.
-An iterator that reaches a consumer the analysis cannot follow — an opaque call, a framework
-enumerator such as `ToList`, an explicit `GetEnumerator` it does not model, or a heap location it
-escapes through — is, in addition, enumerated by an **Unknown execution**: one that may overlap
-every execution of its process scope, itself included, and that holds no lock on entry. Nothing
-orders it but the end of startup, and that only when every execution that creates the iterator
-starts after startup ends: nobody can enumerate it before it exists, but one created during startup
-may be enumerated while startup is still running.
+A call that reads the whole sequence before it returns enumerates it there, in the caller's
+execution, as a `foreach` at the call would: a **Known call** that reads the iterator deep — `ToList`,
+`Count`, a serializer, a logger's arguments — and a copy into a collection, such as `AddRange` or a
+list constructor. Reading every element is enumerating, so a model that reads an argument deep has
+already said it enumerates it at the call. An iterator that reaches a consumer the analysis cannot
+follow — an opaque call, an explicit `GetEnumerator` it does not model, or a heap location it escapes
+through — is, in addition, enumerated by an **Unknown execution**: one that may overlap every
+execution of its process scope, itself included, and that holds no lock on entry. Nothing orders it
+but the end of startup, and that only when every execution that creates the iterator starts after
+startup ends: nobody can enumerate it before it exists, but one created during startup may be
+enumerated while startup is still running.
+
+A **Library sequence** is an iterator whose body is its model. `Where`, `Select`, `Take` and the other
+operators that return before enumerating anything build one; it keeps the delegates its model gives
+the `iterator` fate and the sequences it was built from. Enumerating it — by a `foreach`, a deep read,
+a copy, or the enumeration of another library sequence built from it — runs those delegates, enumerates
+those sources and makes the call's effects on its arguments, all at the enumeration and in the
+enumerating execution, never at the call. It escapes exactly as an iterator does, and an escaped one
+is enumerated, in addition, by an unknown execution. A chain `items.Where(p).Select(s).ToList()` is
+therefore one enumeration, in the caller, at `ToList`.
 
 Rejected: keeping the body at the call and only refusing to lift its locks there. It is simpler and
 closes the semaphore case, but leaves the lock around the creation protecting a body that runs
 outside it. Rejected: modelling only a `foreach` in the creating body and leaving an escaped
 iterator at its call without protection. It keeps the execution wrong — an iterator stored at
 startup and enumerated by every request would run in startup, ordered before all of them — and
-wrong executions lose races as silently as wrong locks.
+wrong executions lose races as silently as wrong locks. Rejected: an effect kind of its own,
+`enumerates`, set by hand on each consumer that enumerates at the call. It says what a deep read
+already says, and a consumer marked with one but not the other would read elements it never
+enumerated. Rejected: treating a library sequence as the result of an ordinary known call, read at
+the call. `Where` reads nothing when it is called; its predicate runs wherever the sequence is
+enumerated, which may be another execution entirely.
 
 The consequence to hold: an escaped iterator costs findings. Its body overlaps everything, so a
-shared helper that returns a lazy sequence the caller hands to LINQ can produce findings a reviewer
-may read as noise. That is the price of not knowing who enumerates it, and it is paid in the open —
-the finding names the unknown execution — rather than in a missed race. Phase 5 may narrow it once
-the library table knows which framework consumers enumerate synchronously in their caller.
+shared helper that returns a lazy sequence the caller hands to an opaque call, or keeps in a field,
+can produce findings a reviewer may read as noise. That is the price of not knowing who enumerates
+it, and it is paid in the open — the finding names the unknown execution — rather than in a missed
+race. A consumer whose library model reads its argument deep narrows it: the enumeration is at the
+call.
 
 ## Amendment, phase 5b: a delegate handed to an opaque call
 
@@ -51,11 +70,12 @@ after startup only when it is.
 
 Rejected: not invoking it and letting the call's unknown effect reach only what the delegate
 captures. It keeps today's counts, but the body's own accesses stay out of every pair, and a lambda
-that writes a singleton through a library the table does not describe would need an accepted AI
-fact to be seen at all. Rejected: invoking it synchronously at the call, as a LINQ operator would.
-That places the body in the caller's execution, under the caller's locks and ordered with the
-caller's code, which is a proof of protection and of order the analysis does not have for a callee
-it cannot read.
+that writes a singleton through a library no model describes would need an accepted AI fact to be
+seen at all. Rejected: invoking it synchronously at the call, as a LINQ operator would. That places
+the body in the caller's execution, under the caller's locks and ordered with the caller's code,
+which is a proof of protection and of order the analysis does not have for a callee it cannot read.
+A **Library model** that gives the delegate its **Delegate fate** is that proof, and a call it
+describes is not opaque (ADR 0012).
 
 What the delegate captures of the execution that handed it over — a per-request object the lambda
 fills — the unknown execution touches as that execution does, so those objects stay confined and
@@ -72,7 +92,8 @@ enumerate it, and nothing about where it was created says how often or by whom. 
 the narrowing still leaves the seed's Polly lambda overlapping itself, since the seed hands it both
 from startup and from the retry lambda of `MigrateDbContext`, which the analysis cannot tell apart.
 
-The consequence to hold: until the sub-phase that makes a library member known models its
-invocation — LINQ operators with delegates, retry policies, mediators in 5e — their lambdas run in
-unknown executions and cost findings, paid in the open as with iterators. An accepted inferred fact
-cannot remove such an execution (TD-038); it can only add what it proves.
+The consequence to hold: until a library model gives a member's delegates their fates — the
+operators of LINQ from phase 5c, retry policies and the rest from the generator of 5d and the AI
+models of 5e, mediators in 5g — their lambdas run in unknown executions and cost findings, paid in
+the open as with iterators. An accepted inferred fact cannot remove such an execution (TD-038); it
+can only add what it proves.

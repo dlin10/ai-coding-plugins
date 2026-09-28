@@ -56,7 +56,9 @@ public sealed class CollectionMemberEffectTests
     /// Since the phase 5b second run: <c>AddRange</c> writes the structure and a cell nobody names; a constructor touches nothing of
     /// the collection it makes; taking a view of a <c>Dictionary</c> touches nothing, enumerating one reads the structure and every
     /// cell and counting it the structure; a view of a <c>ConcurrentDictionary</c> is an atomic read of both; a pair touches nothing.
-    /// Since the third run, reading a <c>DictionaryEntry</c>'s key or value touches nothing, as a pair's does.</summary>
+    /// Since the third run, reading a <c>DictionaryEntry</c>'s key or value touches nothing, as a pair's does. Since phase 5c the members
+    /// of a <c>List</c> that take a delegate read the structure and every cell, <c>RemoveAll</c>, <c>RemoveWhere</c> of a <c>HashSet</c>
+    /// and the <c>Sort</c> taking a <c>Comparison</c> write both, as <c>Clear</c> does.</summary>
     private static readonly (string Type, string Member, IrCollectionEffect Structure, IrCollectionEffect Element, bool NamesCell, bool Atomic)[] Rows =
     [
         (LIST, "get_Count", Read, None, false, false),
@@ -71,6 +73,17 @@ public sealed class CollectionMemberEffectTests
         (LIST, "GetEnumerator", Read, Read, false, false),
         (LIST, "AddRange", Write, Write, false, false),
         (LIST, ".ctor", None, None, false, false),
+        (LIST, "ForEach", Read, Read, false, false),
+        (LIST, "Exists", Read, Read, false, false),
+        (LIST, "TrueForAll", Read, Read, false, false),
+        (LIST, "Find", Read, Read, false, false),
+        (LIST, "FindLast", Read, Read, false, false),
+        (LIST, "FindIndex", Read, Read, false, false),
+        (LIST, "FindLastIndex", Read, Read, false, false),
+        (LIST, "FindAll", Read, Read, false, false),
+        (LIST, "ConvertAll", Read, Read, false, false),
+        (LIST, "RemoveAll", Write, Write, false, false),
+        (LIST, "Sort", Write, Write, false, false),
 
         (DICTIONARY, "get_Count", Read, None, false, false),
         (DICTIONARY, "get_Item", Read, Read, true, false),
@@ -134,6 +147,7 @@ public sealed class CollectionMemberEffectTests
         (HASH_SET, "TryGetValue", Read, Read, false, false),
         (HASH_SET, "GetEnumerator", Read, Read, false, false),
         (HASH_SET, ".ctor", None, None, false, false),
+        (HASH_SET, "RemoveWhere", Write, Write, false, false),
 
         (QUEUE, "get_Count", Read, None, false, false),
         (QUEUE, "Enqueue", Write, Write, false, false),
@@ -233,6 +247,17 @@ public sealed class CollectionMemberEffectTests
         [$"{LIST}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{LIST}.AddRange"] = ["_state.Box.AddRange(_state.Others);"],
         [$"{LIST}..ctor"] = ["_ = new List<Item>(_state.Spare);"],
+        [$"{LIST}.ForEach"] = ["_state.Box.ForEach(item => { });"],
+        [$"{LIST}.Exists"] = ["_ = _state.Box.Exists(item => true);"],
+        [$"{LIST}.TrueForAll"] = ["_ = _state.Box.TrueForAll(item => true);"],
+        [$"{LIST}.Find"] = ["_ = _state.Box.Find(item => true);"],
+        [$"{LIST}.FindLast"] = ["_ = _state.Box.FindLast(item => true);"],
+        [$"{LIST}.FindIndex"] = ["_ = _state.Box.FindIndex(item => true);"],
+        [$"{LIST}.FindLastIndex"] = ["_ = _state.Box.FindLastIndex(item => true);"],
+        [$"{LIST}.FindAll"] = ["_ = _state.Box.FindAll(item => true);"],
+        [$"{LIST}.ConvertAll"] = ["_ = _state.Box.ConvertAll(item => item);"],
+        [$"{LIST}.RemoveAll"] = ["_state.Box.RemoveAll(item => true);"],
+        [$"{LIST}.Sort"] = ["_state.Box.Sort((a, b) => 0);"],
 
         [$"{DICTIONARY}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{DICTIONARY}.get_Item"] = ["_ = _state.Box[\"a\"];"],
@@ -296,6 +321,7 @@ public sealed class CollectionMemberEffectTests
         [$"{HASH_SET}.TryGetValue"] = ["_state.Box.TryGetValue(_state.First, out _);"],
         [$"{HASH_SET}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{HASH_SET}..ctor"] = ["_ = new HashSet<Item>(_state.Spare);"],
+        [$"{HASH_SET}.RemoveWhere"] = ["_state.Box.RemoveWhere(item => true);"],
 
         [$"{QUEUE}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{QUEUE}.Enqueue"] = ["_state.Box.Enqueue(_state.First);"],
@@ -382,7 +408,10 @@ public sealed class CollectionMemberEffectTests
     public void Member_makes_the_accesses_the_table_gives_it(string type, string member, IrCollectionEffect structure,
                                                              IrCollectionEffect element, bool namesCell, bool atomic)
     {
-        var overloads = PublicMethods(type).Where(method => method.Name == member).ToArray();
+        // Of a list's four `Sort` overloads only the one taking a `Comparison<T>` is in the table (ADR 0010, phase 5c).
+        var overloads = PublicMethods(type).Where(method => method.Name == member &&
+                                                            (member != "Sort" || method.Parameters is [{ Type.Name: "Comparison" }]))
+                                           .ToArray();
 
         Assert.NotEmpty(overloads);
         // The effect is the member's, so every overload of it makes the same accesses.

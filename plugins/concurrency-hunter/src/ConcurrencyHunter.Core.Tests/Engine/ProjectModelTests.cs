@@ -583,6 +583,8 @@ public sealed class ProjectModelTests
     [InlineData("M:A.B.Name((*)")]
     [InlineData("M:A.B.Run(System.Int32,)")]
     [InlineData("M:A-B.Store.Save(*)")]
+    [InlineData("M:A.B.Run!")]
+    [InlineData("M:A.B.Run!(*)")]
     public async Task Malformed_member_is_rejected_before_assembly_matching(string member)
     {
         using var repo = new Repository();

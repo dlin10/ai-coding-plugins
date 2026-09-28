@@ -39,7 +39,7 @@ internal static class ProjectModelResolver
                             rejections.Add(new ModelRejection(entry.Path, id, "locked member does not exist in this assembly version."));
                             continue;
                         }
-                        var rejectionReason = RejectReason(entry, resolvedMethod);
+                        var rejectionReason = RejectReason(entry, resolvedMethod, compilation);
                         if (rejectionReason is not null)
                         {
                             rejections.Add(new ModelRejection(entry.Path, id, rejectionReason));
@@ -59,17 +59,18 @@ internal static class ProjectModelResolver
                 continue;
             }
 
-            IMethodSymbol[] methods;
+            (IMethodSymbol Method, Compilation Compilation)[] methods;
             try
             {
-                methods = compilations.SelectMany(compilation => DocumentationCommentId.GetSymbolsForDeclarationId(entry.Member, compilation))
-                                      .OfType<IMethodSymbol>()
-                                      .Select(method => (method.ReducedFrom ?? method).OriginalDefinition)
-                                      .Where(method => inRange.Any(assembly =>
-                                          SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, assembly)))
-                                      .DistinctBy(method => (method.ContainingAssembly.Identity.Name,
-                                                              method.ContainingAssembly.Identity.Version,
-                                                              DocumentationCommentId.CreateDeclarationId(method))).ToArray();
+                methods = compilations.SelectMany(compilation => DocumentationCommentId.GetSymbolsForDeclarationId(entry.Member, compilation)
+                                                                                    .OfType<IMethodSymbol>()
+                                                                                    .Select(method => (Method: (method.ReducedFrom ?? method).OriginalDefinition,
+                                                                                                       Compilation: compilation)))
+                                      .Where(pair => inRange.Any(assembly =>
+                                          SymbolEqualityComparer.Default.Equals(pair.Method.ContainingAssembly, assembly)))
+                                      .DistinctBy(pair => (pair.Method.ContainingAssembly.Identity.Name,
+                                                           pair.Method.ContainingAssembly.Identity.Version,
+                                                           DocumentationCommentId.CreateDeclarationId(pair.Method))).ToArray();
             }
             catch (ArgumentException)
             {
@@ -81,9 +82,9 @@ internal static class ProjectModelResolver
                 rejections.Add(Rejected(entry, "member does not exist in a named referenced assembly and version."));
                 continue;
             }
-            foreach (var resolved in methods)
+            foreach (var (resolved, compilation) in methods)
             {
-                var reason = RejectReason(entry, resolved);
+                var reason = RejectReason(entry, resolved, compilation);
                 if (reason is not null)
                 {
                     rejections.Add(Rejected(entry, $"{resolved.ContainingAssembly.Identity.Name} " +
@@ -107,13 +108,17 @@ internal static class ProjectModelResolver
             }
             models.Add(new LibraryModel(group.Key.Id, group.Select(item => item.Range).Distinct().ToArray(),
                                         conflict ? [] : first.Effects, ModelLayer.Project, conflict || first.Opaque,
-                                        group.Key.ResolvedVersion));
+                                        group.Key.ResolvedVersion)
+            {
+                Result = conflict ? null : first.Result,
+                Fates = conflict ? [] : first.Fates
+            });
         }
         return (models.Count == 0 ? LibraryModels.BuiltIn : LibraryModels.WithProject(models), rejections);
     }
 
     private static bool Alike(ProjectModelEntry a, ProjectModelEntry b) => a.Opaque == b.Opaque &&
-        (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects));
+        (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates));
 
     private static SupportedAssemblyVersion Range(ProjectModelEntry entry, IAssemblySymbol assembly)
     {
@@ -121,14 +126,14 @@ internal static class ProjectModelResolver
         return new SupportedAssemblyVersion(assembly.Identity.Name, version.Item1, version.Item2);
     }
 
-    private static string? RejectReason(ProjectModelEntry entry, IMethodSymbol method)
+    private static string? RejectReason(ProjectModelEntry entry, IMethodSymbol method, Compilation compilation)
     {
         var typeName = method.ContainingType.ContainingNamespace.ToDisplayString() + "." + method.ContainingType.MetadataName;
         return entry.Versions is { } range && (method.ContainingAssembly.Identity.Version < range.Minimum ||
                                                 method.ContainingAssembly.Identity.Version >= range.Maximum) ?
                    "assembly version is outside the entry's versions." :
                method.MethodKind == MethodKind.PropertySet ? "setters are not supported." :
-               method.Parameters.Any(parameter => parameter.Type.TypeKind == TypeKind.Delegate) ? "delegate-typed parameters are not supported." :
+               LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation) is { } refusal ? refusal :
                LibraryModels.IsRecognizedType(typeName) ? "a phase 3-4 recognizer owns this type." :
                method.DeclaringSyntaxReferences.Length != 0 ? "member has a body in the run." :
                entry.Effects.Any(effect => method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?

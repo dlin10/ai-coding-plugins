@@ -7,6 +7,7 @@ using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -111,7 +112,8 @@ public static class EngineFixture
     /// <summary>Runs the whole engine over one source file.</summary>
     public static EngineRun Analyze(string source, AnalysisLimits? limits = null) => Analyze(Execute(source, limits));
 
-    public static EngineRun AnalyzeScope(Solution solution, string scopeId) => Analyze(Execute(Solve(ReachScope(solution, scopeId))));
+    public static EngineRun AnalyzeScope(Solution solution, string scopeId, LibraryModels? libraryModels = null) =>
+        Analyze(Execute(Solve(ReachScope(solution, scopeId, libraryModels))));
 
     /// <summary>Runs the engine over one source file as far as its interprocedural accesses, coverage and gaps, without pairing them.</summary>
     public static InterproceduralCollection Collect(string source)
@@ -150,7 +152,9 @@ public static class EngineFixture
     public static WholeProgramRun Reach(string source) =>
         ReachScope(FixtureSolution.Create(("Case.cs", Usings + source)), "scope:Fixture");
 
-    public static WholeProgramRun ReachScope(Solution solution, string scopeId)
+    /// <summary>Builds the reachable set of a scope, lowering calls with <paramref name="libraryModels"/> where given and with the
+    /// built-in models otherwise.</summary>
+    public static WholeProgramRun ReachScope(Solution solution, string scopeId, LibraryModels? libraryModels = null)
     {
         var compilations = solution.Projects.Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()!).ToArray();
         var index = DiIndexBuilder.Build(scopeId, compilations, ROOT_DIRECTORY, CancellationToken.None);
@@ -175,7 +179,9 @@ public static class EngineFixture
                 return [];
             try
             {
-                var result = IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None);
+                var result = libraryModels is null
+                    ? IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None)
+                    : IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None, libraryModels);
                 return result.NestedBodies.Prepend(result.Body).ToArray();
             }
             catch (ArgumentException)

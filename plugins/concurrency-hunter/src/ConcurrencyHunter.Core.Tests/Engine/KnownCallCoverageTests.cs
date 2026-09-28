@@ -16,20 +16,23 @@ public sealed class KnownCallCoverageTests
     // ---- every other reader of the opaque calls treats a known call as before ----
 
     [Fact]
-    public void Iterator_handed_to_Enumerable_ToList_still_gets_an_unknown_enumeration()
+    public void Iterator_handed_to_Enumerable_ToList_is_enumerated_in_the_caller()
     {
+        // A known call that reads its argument deep enumerates it where it stands, in the caller's execution (R5).
         var run = Run("System.Linq.Enumerable.ToList(_state.Walk());");
 
-        Assert.Contains(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.DoesNotContain(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.Contains(run.Execution.Heap.Heap.ExecutionEdges, edge => edge.Reason == "iterator-enumeration");
         Assert.Equal(1, Delta(run, Run(""), CoverageCounters.KNOWN_CALL));
     }
 
     [Fact]
-    public void Iterator_handed_to_JsonSerializer_Serialize_still_gets_an_unknown_enumeration()
+    public void Iterator_handed_to_JsonSerializer_Serialize_is_enumerated_in_the_caller()
     {
         var run = Run("System.Text.Json.JsonSerializer.Serialize(_state.Walk());");
 
-        Assert.Contains(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.DoesNotContain(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.Contains(run.Execution.Heap.Heap.ExecutionEdges, edge => edge.Reason == "iterator-enumeration");
         Assert.Equal(1, Delta(run, Run(""), CoverageCounters.KNOWN_CALL));
     }
 
@@ -93,14 +96,18 @@ public sealed class KnownCallCoverageTests
     }
 
     [Fact]
-    public void Linq_operator_with_a_delegate_stays_opaque_and_counts_its_delegate()
+    public void Linq_operator_with_a_delegate_is_known_and_runs_its_delegate()
     {
-        var run = Run("System.Linq.Enumerable.Any(_state.Items, item => item > 0);");
+        // Since phase 5c run B the built-in LINQ family fates Any's predicate invoke-now: it runs in the worker, at the call (R6).
+        var run = Run("System.Linq.Enumerable.Any(_state.Items, item => { _state.Count = item; return false; });");
         var without = Run("");
 
-        Assert.Equal(1, Delta(run, without, CoverageCounters.OPAQUE_CALL));
-        Assert.Equal(1, Delta(run, without, CoverageCounters.DELEGATE_TO_OPAQUE));
-        Assert.Equal(0, Delta(run, without, CoverageCounters.KNOWN_CALL));
+        Assert.Equal(1, Delta(run, without, CoverageCounters.KNOWN_CALL));
+        Assert.Equal(0, Delta(run, without, CoverageCounters.OPAQUE_CALL));
+        Assert.Equal(0, Delta(run, without, CoverageCounters.DELEGATE_TO_OPAQUE));
+        Assert.DoesNotContain(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownDelegateCall);
+        Assert.Contains(run.Accesses("Count"), access => access.Operation == AccessOperation.Write && access.Symbol.Contains("Worker", StringComparison.Ordinal));
+        Assert.Single(run.PairsOn("Count"), pair => pair.First.Symbol != pair.Second.Symbol);
     }
 
     [Fact]

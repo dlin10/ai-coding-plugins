@@ -512,6 +512,9 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
 
     public bool IsKnown => Library is { InRange: true, DeclaredOpaque: false };
 
+    /// <inheritdoc cref="IrCallOperation.IsGroupingKey"/>
+    public bool IsGroupingKey { get; init; }
+
     /// <summary>What the call does to the collection it is a member of (ADR 0010): a member that puts values into it tells a deep
     /// read which objects the collection holds.</summary>
     public IrCollectionCall? Collection { get; init; }
@@ -571,6 +574,10 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
 
     /// <summary>Whether the argument is a sequence of the objects the effect is on (<see cref="IrLibraryArgument.IsSequence"/>).</summary>
     public bool IsSequence { get; init; }
+
+    /// <summary>Whether the effect is one of a known call that returns a library sequence: it happens where that sequence is
+    /// enumerated, in the enumerating execution, and never at the call (R5).</summary>
+    public bool IsDeferred { get; init; }
 
     /// <summary>The member of the table whose receiver no field of the calling body names: the effect is that member's own accesses,
     /// made on each collection the receiver is or stands for in the heap — a collection handed over or returned, the list a node was
@@ -721,6 +728,10 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
     /// <summary>The collections the body returns by value, one per return: a field it read, a parameter it got, another call's
     /// result, or a place nothing proves. What a caller's element operation on the result is on (R3).</summary>
     public IReadOnlyList<ReferenceTarget> CollectionReturns { get; init; } = [];
+
+    /// <summary>What an iterator body's <c>yield return</c>s hand out: what a library model naming the elements of the iterator gets
+    /// (R3).</summary>
+    public IReadOnlySet<AbstractValue> Yields { get; init; } = new HashSet<AbstractValue>();
 
     public IReadOnlyList<LockTransfer> Locks { get; init; } = [];
     public IReadOnlyList<SummarySpawn> Spawns { get; init; } = [];

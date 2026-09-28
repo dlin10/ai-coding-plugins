@@ -24,7 +24,8 @@ public sealed class BuiltInModelFileTests
     {
         var lines = LibraryModels.BuiltIn.Members.Select(member =>
                 $"M {member.Id} | {string.Join(',', member.Effects.Select(effect => $"{(effect.Kind == LibraryEffectKind.DeepRead ? "reads-deep" : "writes-arg")}:{effect.Parameter}"))} | " +
-                string.Join(';', member.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}")))
+                string.Join(';', member.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}")) +
+                Vocabulary(member))
             .Concat(LibraryModels.BuiltIn.ImmutableTypes.Select(type =>
                 $"T {type.Id} | derived={type.IncludesDerived.ToString().ToLowerInvariant()} | " +
                 string.Join(';', type.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}"))))
@@ -33,6 +34,16 @@ public sealed class BuiltInModelFileTests
         var recorded = Path.GetFullPath("../../../Providers/BuiltInTable.txt", AppContext.BaseDirectory);
         Assert.Equal(File.ReadAllLines(recorded), lines);
     }
+
+    /// <summary>The line's tail for a result and fates: parameters in ordinal order, each delegate parameter's inputs in order with
+    /// their values sorted, and absent inputs as one empty list per parameter of the delegate.</summary>
+    private static string Vocabulary(LibraryModel member) =>
+        (member.Result is { } result ? $" | result={result}" : "") +
+        (member.Fates.Count == 0 ? "" : " | fates=" + string.Join(';', member.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal).Select(fate =>
+            $"{fate.Parameter}:{LibraryFate.Text(fate.Kind)}" +
+            (fate.Holder is { } holder ? "/" + (holder == LibraryHolderKind.Result ? "result" : "this") : "") +
+            string.Concat((fate.Inputs ?? Enumerable.Repeat<IReadOnlyList<LibraryValue>>([], ModelVocabularyTests.DelegateArity(member.Id, fate.Parameter)))
+                              .Select(input => "[" + string.Join(',', input.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]")))));
 
     [Fact]
     public void Parameter_with_two_effect_kinds_keeps_both_in_order()
@@ -83,6 +94,9 @@ public sealed class BuiltInModelFileTests
             Valid.Replace("M:A.B.Run", "M:A.B.Run~"),
             Valid.Replace("M:A.B.Run", "M:A.B.Run((System.Int32)"),
             Valid.Replace("M:A.B.Run", "M:A.B.Run(System.Int32,)"),
+            // These two lead with the property they change, so that their rows are named apart from the others'.
+            """{"models":[{"member":"M:A.B.Run!","effects":{}}],"schemaVersion":1,"assemblies":["A"],"versions":{"minimum":"1.0.0.0","maximumExclusive":"2.0.0.0"},"immutableTypes":[{"type":"T:A.B"}]}""",
+            """{"immutableTypes":[{"type":"T:A.B-C"}],"schemaVersion":1,"assemblies":["A"],"versions":{"minimum":"1.0.0.0","maximumExclusive":"2.0.0.0"},"models":[{"member":"M:A.B.Run","effects":{}}]}""",
             Valid.Replace("\"minimum\":\"1.0.0.0\"", "\"minimum\":\"2.0.0.0\""),
             Valid.Replace("1.0.0.0", "1.0"),
             Valid.Replace("1.0.0.0", "1.0.0"),

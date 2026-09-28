@@ -131,7 +131,7 @@ public sealed class HappensBeforeTests
     [Fact]
     public void Await_of_a_task_an_opaque_call_returned_orders_nothing()
     {
-        var run = Analyze(Worker("var t = Task.Run(() => F()); var same = System.Linq.Enumerable.First(new[] { t }); await same; P1();"));
+        var run = Analyze(Worker("var t = Task.Run(() => F()); var same = System.Linq.Enumerable.ElementAt(new[] { t }, 0); await same; P1();"));
 
         Assert.True(Overlap(run, "P1", "F"));
     }

@@ -155,11 +155,14 @@ public sealed class CollectionFactoryTests
     }
 
     [Fact]
-    public void Delegate_of_another_recognized_call_still_does_not_run()
+    public void Delegate_of_another_recognized_call_runs_where_the_table_says()
     {
+        // Since phase 5c the delegate members of a list run their delegate where the call stands, as a factory runs (ADR 0010).
         var run = Run("_state.Items.ForEach(item => _state.Count = 1); _state.Items.RemoveAll(item => { _state.Count = 2; return false; });");
 
-        Assert.Empty(run.Run.Of("Count"));
+        var writes = Worker(run, "Count");
+        Assert.Equal(2, writes.Select(access => access.Source.StartLine * 1000 + access.Source.StartColumn).Distinct().Count());
+        Assert.All(writes, access => Assert.Equal(ExecutionKind.Root, run.Run.Execution.Analysis.Execution(access.ExecutionId).Kind));
     }
 
     // ---- helpers ----

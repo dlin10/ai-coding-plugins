@@ -114,16 +114,9 @@ internal sealed class ModelLock
         }
     }
 
-    internal static bool Matches(string pattern, string member)
-    {
-        if (!BuiltInModelReader.IsMemberId(member))
-            return false;
-        var signature = member.IndexOfAny(['(', '~']);
-        var name = signature < 0 ? member[2..] : member[2..signature];
-        var separator = name.LastIndexOf('.');
-        return separator > 0 && name[..separator] == PatternType(pattern) &&
-               Regex.Replace(name[(separator + 1)..], @"``[0-9]+$", "") == PatternName(pattern);
-    }
+    internal static bool Matches(string pattern, string member) =>
+        BuiltInModelReader.MemberId(member) is { Member: { } parsed } id && id.TypeName == PatternType(pattern) &&
+        parsed.Name == PatternName(pattern);
 
     private void ReadRows(byte[] bytes)
     {

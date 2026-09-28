@@ -10,7 +10,6 @@ internal static class BuiltInModelReader
 {
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private static readonly Regex VersionText = new(@"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", RegexOptions.CultureInvariant);
-    private static readonly Regex TypeIdText = new(@"^T:[A-Za-z_][A-Za-z0-9_]*(?:`[0-9]+)?(?:[.+][A-Za-z_][A-Za-z0-9_]*(?:`[0-9]+)?)*$", RegexOptions.CultureInvariant);
 
     internal static (IReadOnlyList<LibraryModel> Members, IReadOnlyList<ImmutableLibraryType> ImmutableTypes) Read(byte[] bytes)
     {
@@ -48,13 +47,19 @@ internal static class BuiltInModelReader
                             _ => throw new LibraryModelException($"{entry.Member} has an unknown effect kind.")
                         });
                 }
+                var (result, fates) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
+                    new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray());
                 members.Add(new LibraryModel(entry.Member, assemblies.Select(name => new SupportedAssemblyVersion(name, version.Value.Minimum,
-                                                                                                          version.Value.Maximum)).ToArray(), effects));
+                                                                                                          version.Value.Maximum)).ToArray(), effects)
+                {
+                    Result = result,
+                    Fates = fates
+                });
             }
             var types = new List<ImmutableLibraryType>();
             foreach (var entry in file.ImmutableTypes ?? [])
             {
-                if (entry is null || entry.Type is null || !TypeIdText.IsMatch(entry.Type))
+                if (entry is null || entry.Type is null || DeclarationId.Parse(entry.Type) is not { IsType: true })
                     throw new LibraryModelException("An immutable type needs a T: declaration id.");
                 var assemblies = Assemblies(entry.Assemblies) ?? defaults;
                 var version = entry.Versions is null ? defaultVersion : Version(entry.Versions);
@@ -80,51 +85,16 @@ internal static class BuiltInModelReader
         return names;
     }
 
-    internal static bool IsMemberId(string id)
-    {
-        if (!id.StartsWith("M:", StringComparison.Ordinal) || id.EndsWith("(*)", StringComparison.Ordinal) ||
-            id.Any(char.IsWhiteSpace))
-            return false;
-        var returnType = id.IndexOf('~');
-        if (returnType >= 0 && (returnType == id.Length - 1 || id[(returnType + 1)..].Contains('~')))
-            return false;
-        var signature = id.IndexOfAny(['(', '~']);
-        var name = signature < 0 ? id[2..] : id[2..signature];
-        var separator = name.LastIndexOf('.');
-        if (separator <= 0 || separator == name.Length - 1 || !TypeIdText.IsMatch("T:" + name[..separator]) ||
-            name[(separator + 1)..].StartsWith("set_", StringComparison.Ordinal))
-            return false;
-        if ((name.EndsWith(".op_Implicit", StringComparison.Ordinal) || name.EndsWith(".op_Explicit", StringComparison.Ordinal)) &&
-            !id.Contains('~'))
-            return false;
-        var open = id.IndexOf('(');
-        var close = id.IndexOf(')');
-        if (open < 0)
-            return close < 0;
-        if (close <= open || id.LastIndexOf('(') != open || id.LastIndexOf(')') != close ||
-            close != id.Length - 1 && id[close + 1] != '~')
-            return false;
-        var braces = 0;
-        var brackets = 0;
-        var needsParameter = true;
-        foreach (var character in id.AsSpan(open + 1, close - open - 1))
-        {
-            if (character == '{') braces++;
-            else if (character == '}' && --braces < 0) return false;
-            else if (character == '[') brackets++;
-            else if (character == ']' && --brackets < 0) return false;
-            else if (character == ',' && braces == 0 && brackets == 0)
-            {
-                if (needsParameter)
-                    return false;
-                needsParameter = true;
-                continue;
-            }
-            if (braces == 0 && brackets == 0)
-                needsParameter = false;
-        }
-        return braces == 0 && brackets == 0 && !needsParameter;
-    }
+    internal static bool IsMemberId(string id) => MemberId(id) is not null;
+
+    /// <summary>The parsed member id, or null when <paramref name="id"/> is not one or breaks a member rule.</summary>
+    internal static DeclarationId? MemberId(string id) =>
+        DeclarationId.Parse(id) is { IsMember: true, Member: { } member } parsed && FollowsMemberRules(member) ? parsed : null;
+
+    /// <summary>No setter, and a conversion operator only with its return type.</summary>
+    internal static bool FollowsMemberRules(IdMember member) =>
+        !member.Name.StartsWith("set_", StringComparison.Ordinal) &&
+        !(member.Name is "op_Implicit" or "op_Explicit" && member.Arity == 0 && member.ReturnType is null);
 
     private static (Version Minimum, Version Maximum) Version(ModelVersionRange range)
     {
@@ -175,7 +145,18 @@ internal sealed class ModelEntry
     public string[]? Assemblies { get; set; }
     public ModelVersionRange? Versions { get; set; }
     public Dictionary<string, string[]>? Effects { get; set; }
+    public string? Result { get; set; }
+    public Dictionary<string, ModelFateEntry>? Fates { get; set; }
     public bool? Opaque { get; set; }
+    public string? Note { get; set; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed class ModelFateEntry
+{
+    public string? Fate { get; set; }
+    public string? Holder { get; set; }
+    public string[][]? Inputs { get; set; }
     public string? Note { get; set; }
 }
 

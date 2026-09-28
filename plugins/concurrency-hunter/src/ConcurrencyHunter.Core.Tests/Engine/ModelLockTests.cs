@@ -315,6 +315,8 @@ public sealed class ModelLockTests
         yield return DataRow("wrong member", LockJson(Row(SAVE, "1.0.0.0", "M:Tiny.Other.Save(System.Int32)")));
         yield return DataRow("empty member return type", LockJson(Row(SAVE, "1.0.0.0", "M:Tiny.Store.Save~")));
         yield return DataRow("trailing member parameter comma", LockJson(Row(SAVE, "1.0.0.0", "M:Tiny.Store.Save(System.Int32,)")));
+        yield return DataRow("member name outside the grammar", LockJson(Row("M:Tiny.Store.Invoke(*)", "1.0.0.0", "M:Tiny.Store.Invoke!")));
+        yield return DataRow("member parameter type outside the grammar", LockJson(Row(SAVE, "1.0.0.0", "M:Tiny.Store.Save(A-B)")));
         yield return DataRow("duplicate row", LockJson(Row(SAVE, "1.0.0.0"), Row(SAVE, "1.0.0.0")));
     }
 

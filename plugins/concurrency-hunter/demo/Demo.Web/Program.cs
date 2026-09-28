@@ -9,6 +9,13 @@ using Demo.Web.Cases.ArrayElementIncrement;
 using Demo.Web.Cases.ArrayLengthLoopBound;
 using Demo.Web.Cases.RefCallTargetAssignment;
 using Demo.Web.Cases.ProjectModelOverridesBuiltIn;
+using Demo.Web.Cases.ComparerCreateRunsAtCompare;
+using Demo.Web.Cases.ProjectModelHolderFate;
+using Demo.Web.Cases.LinqPredicateRunsNow;
+using Demo.Web.Cases.LinqWhereRunsOnEnumeration;
+using Demo.Web.Cases.LinqWhereTolistRunsInCaller;
+using Demo.Web.Cases.LinqTakeKeepsElements;
+using Demo.Web.Cases.LinqGroupbyKeyAndElements;
 using Demo.Web.Cases.ArraySymbolicIndices;
 using Demo.Web.Cases.AsyncTailAcquisition;
 using Demo.Web.Cases.AsyncTailEntry;
@@ -327,6 +334,13 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddArrayLengthLoopBound()
                 .AddRefCallTargetAssignment()
                 .AddProjectModelOverridesBuiltIn()
+                .AddComparerCreateRunsAtCompare()
+                .AddProjectModelHolderFate()
+                .AddLinqPredicateRunsNow()
+                .AddLinqWhereRunsOnEnumeration()
+                .AddLinqWhereTolistRunsInCaller()
+                .AddLinqTakeKeepsElements()
+                .AddLinqGroupbyKeyAndElements()
                 .AddDictionaryIndexerCompound()
                 .AddPropertyAccessorIncrement()
                 .AddInterfaceCountReadsOnly()

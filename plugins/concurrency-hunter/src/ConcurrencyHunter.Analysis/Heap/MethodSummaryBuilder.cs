@@ -120,6 +120,10 @@ public static class MethodSummaryBuilder
                         _enumerated[enumeration] = enumerated;
                         _enumerators[enumeration] = call;
                         break;
+                    // What a known call returns its model says, and the heap makes it so (R3).
+                    case IrCallOperation { Library: { InRange: true, DeclaredOpaque: false, Result: not null }, ResultValue: int modelled }:
+                        ModelCall(modelled);
+                        break;
                 }
             }
         }
@@ -151,6 +155,7 @@ public static class MethodSummaryBuilder
             var stores = new List<StoreTransfer>();
             var elements = new List<ElementTransfer>();
             var returns = new List<ReturnTransfer>();
+            var yields = new HashSet<AbstractValue>();
             var delegateTransfers = new List<DelegateTransfer>();
             var calls = new List<CallTransfer>();
             var opaqueCalls = new List<SummaryOpaqueCall>();
@@ -253,6 +258,9 @@ public static class MethodSummaryBuilder
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Load, Final(Points(element.ReceiverValue), delegates),
                                                          Final(Points(element.ResultValue), delegates)));
                         break;
+                    case IrYieldOperation { Value: int yielded }:
+                        yields.UnionWith(Final(Points(yielded), delegates));
+                        break;
                     case IrReturnOperation { Value: int returned, IsByRef: true }:
                         referenceReturns.AddRange(References(returned));
                         break;
@@ -281,6 +289,7 @@ public static class MethodSummaryBuilder
                             Arguments = Arguments(call, delegates),
                             ServiceCall = call.ServiceCall,
                             Library = call.Library,
+                            IsGroupingKey = call.IsGroupingKey,
                             Collection = call.Collection,
                             Implementations = call.Implementations,
                             IsRecognized = call.IsRecognized,
@@ -291,13 +300,31 @@ public static class MethodSummaryBuilder
                         });
                         if (call.Library is { InRange: true } library)
                         {
+                            // A call that returns a library sequence does nothing to its arguments where it stands: its effects and the
+                            // enumeration of what it names the elements of happen where the sequence is enumerated (R5).
+                            var deferred = library.Result?.Kind == IrResultKind.Sequence;
                             argumentEffects.AddRange(library.Effects.SelectMany(effect => effect.Arguments, (effect, argument) =>
                                                                                     new SummaryArgumentEffect(effect.Kind, call.Id,
                                                                                      Final(Points(argument.Value), delegates), Collection(argument.Value),
                                                                                      argument.IsSlice, call.Provenance, locks)
                                                                                     {
-                                                                                        IsSequence = argument.IsSequence
+                                                                                        IsSequence = argument.IsSequence,
+                                                                                        IsDeferred = deferred
                                                                                     }));
+                            // An argument the model names the elements of is enumerated at the call as a `foreach` enumerates it, once
+                            // however often the model names it; a deep read of it already reads what an enumeration would (R3).
+                            foreach (var ordinal in library.EnumeratedArguments())
+                            {
+                                if (library.Effects.Any(effect => effect.Kind == IrLibraryEffectKind.DeepRead && effect.ParameterOrdinal == ordinal) ||
+                                    call.ArgumentAt(ordinal) is not int sequence)
+                                    continue;
+                                argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, call.Id, Final(Points(sequence), delegates),
+                                                                              Collection(sequence), SpanTypes.Names(_values[sequence].Type),
+                                                                              call.Provenance, locks)
+                                {
+                                    IsDeferred = deferred
+                                });
+                            }
                         }
 
                         if (call is { Collection: { } member, ReceiverValue: int collection })
@@ -459,6 +486,7 @@ public static class MethodSummaryBuilder
                 ArgumentEffects = argumentEffects,
                 ReferenceReturns = referenceReturns,
                 CollectionReturns = collectionReturns,
+                Yields = yields,
                 Locks = lockTransfers,
                 Spawns = _operations.OfType<IrSpawnOperation>().Select(spawn => Spawn(spawn, delegates)).ToArray(),
                 ThreadWorks = _operations.OfType<IrThreadWorkOperation>()

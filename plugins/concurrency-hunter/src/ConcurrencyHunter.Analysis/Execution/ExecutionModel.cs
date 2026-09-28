@@ -52,7 +52,10 @@ public enum ExecutionEntryKind
     TypeInitializer,
     Spawn,
     UnknownEnumeration,
-    UnknownDelegateCall
+    UnknownDelegateCall,
+
+    /// <summary>A delegate a known call startup makes runs by its model's <c>startup</c> fate (R3).</summary>
+    StartupDelegate
 }
 
 /// <summary>Which operations of a body an execution runs: all of them, those an async body runs before its first await, or those it
@@ -289,6 +292,13 @@ public static class ExecutionModel
         private readonly Dictionary<string, List<CallEdge>> _edges = heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                         .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _instanceExecutions = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, DelegateHandoff> _handoffs = heap.DelegateHandoffs.ToDictionary(handoff => handoff.RegionId, StringComparer.Ordinal);
+        private readonly Dictionary<string, StartupDelegate[]> _startupDelegates = heap.StartupDelegates.GroupBy(fated => fated.CallerInstance, StringComparer.Ordinal)
+                                                                                        .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+
+        /// <summary>For each delegate a known call runs by a <c>startup</c> fate, the executions other than startup that make that call,
+        /// with its site: each hands the delegate to its unknown call as an unresolved call would.</summary>
+        private readonly Dictionary<string, HashSet<(string Execution, string BodyId, int OperationId)>> _fateHandings = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _chains = new(StringComparer.Ordinal);
         private readonly HashSet<(string Execution, string Instance, string Intervals, BodySegment Segment, string? Tail)> _visits = [];
         private readonly List<(string Execution, string Instance, HashSet<string> Intervals, BodySegment Segment)> _visitList = [];
@@ -343,17 +353,23 @@ public static class ExecutionModel
                 Entry(id, new ExecutionEntry(iterator.Creation.CalleeInstance, ExecutionEntryKind.UnknownEnumeration, null));
             }
 
+            // A library sequence that escaped is enumerated by an unknown execution as well: its delegates run there, and so does what
+            // enumerating its sources runs (R5).
+            foreach (var sequence in heap.LibrarySequences.Values.Where(sequence => !sequence.IsGrouping && heap.UnknownIterators.Contains(sequence.RegionId))
+                                         .OrderBy(sequence => sequence.RegionId, StringComparer.Ordinal))
+            {
+                var id = Add(new ExecutionInstance($"unknown-enumeration:{sequence.RegionId}", ExecutionKind.UnknownEnumeration,
+                                                   $"unknown enumeration of {heap.Regions[sequence.RegionId].Display}", REPEATED, null, sequence.RegionId));
+                foreach (var instance in sequence.EnumerationInstances)
+                    Entry(id, new ExecutionEntry(instance, ExecutionEntryKind.UnknownEnumeration, null));
+            }
+
             // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders
             // but the end of startup when only executions after startup hand it over, and which holds no lock on entry (R3, ADR 0011).
             foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0))
             {
-                // A lambda has no name of its own: it is named by the member it is written in and its place.
-                var body = scope.Reachable.Bodies[heap.Instances[handoff.Callees[0]].BodyId];
-                var named = body.Kind == IrBodyKind.Lambda
-                    ? $"lambda in {body.OwnerSymbol}{At(body.Blocks.SelectMany(block => block.Operations).FirstOrDefault()?.Provenance.Span)}"
-                    : body.MethodSymbol;
                 var id = Add(new ExecutionInstance(UnknownDelegateCallId(handoff.RegionId), ExecutionKind.UnknownDelegateCall,
-                                                   $"unknown call of the delegate {named}", REPEATED, null, handoff.RegionId));
+                                                   $"unknown call of the delegate {DelegateName(handoff.Callees[0])}", REPEATED, null, handoff.RegionId));
                 foreach (var callee in handoff.Callees)
                     Entry(id, new ExecutionEntry(callee, ExecutionEntryKind.UnknownDelegateCall, null));
             }
@@ -636,18 +652,55 @@ public static class ExecutionModel
         /// overlap itself.</summary>
         private void FinishUnknownDelegateCalls()
         {
-            foreach (var handoff in heap.DelegateHandoffs)
+            foreach (var region in HandedRegions())
             {
-                if (!_executions.TryGetValue(UnknownDelegateCallId(handoff.RegionId), out var execution))
+                if (!_executions.TryGetValue(UnknownDelegateCallId(region), out var execution))
                     continue;
-                var handings = handoff.Sites.SelectMany(site => (_instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? [])
-                                                            .Select(handing => (Execution: handing, heap.Instances[site.CallerInstance].BodyId,
-                                                                                site.OperationId)))
-                                      .Distinct()
-                                      .ToArray();
+                var handings = Handings(region).Distinct().ToArray();
                 if (handings is [var (handing, bodyId, operationId)] && RunsOnce(handing) && SiteOnce(handing, bodyId, operationId))
                     _executions[execution.Id] = execution with { Policy = SERIALIZED };
             }
+        }
+
+        /// <summary>The delegate regions an unknown call of a delegate runs: those handed to unresolved calls or run by a known call's
+        /// <c>unknown-execution</c> fate, and those a call outside startup runs by a <c>startup</c> fate.</summary>
+        private IEnumerable<string> HandedRegions() => _handoffs.Keys.Concat(_fateHandings.Keys).Distinct(StringComparer.Ordinal);
+
+        /// <summary>The executions that hand a delegate region to its unknown call, each with the site it hands it at.</summary>
+        private IEnumerable<(string Execution, string BodyId, int OperationId)> Handings(string region) =>
+            (_handoffs.TryGetValue(region, out var handoff)
+                ? handoff.Sites.SelectMany(site => (_instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? [])
+                                               .Select(handing => (handing, heap.Instances[site.CallerInstance].BodyId, site.OperationId)))
+                : [])
+            .Concat(_fateHandings.GetValueOrDefault(region) ?? []);
+
+        /// <summary>How an unknown call of a delegate names what it runs: a lambda, which has no name of its own, by the member it is
+        /// written in and its place, anything else by its method.</summary>
+        private string DelegateName(string calleeInstance)
+        {
+            var body = scope.Reachable.Bodies[heap.Instances[calleeInstance].BodyId];
+            return body.Kind == IrBodyKind.Lambda
+                ? $"lambda in {body.OwnerSymbol}{At(body.Blocks.SelectMany(block => block.Operations).FirstOrDefault()?.Provenance.Span)}"
+                : body.MethodSymbol;
+        }
+
+        /// <summary>A delegate a known call runs by a <c>startup</c> fate runs in startup when startup makes the call. Any other
+        /// execution making it does so once startup has ended for it, so the delegate runs, for that call, in an unknown execution, as an
+        /// <c>unknown-execution</c> fate's does (R3).</summary>
+        private void StartupDelegate(string execution, MethodInstance caller, StartupDelegate fated)
+        {
+            if (execution == STARTUP)
+            {
+                Entry(STARTUP, new ExecutionEntry(fated.CalleeInstance, ExecutionEntryKind.StartupDelegate, null));
+                return;
+            }
+
+            var id = Add(new ExecutionInstance(UnknownDelegateCallId(fated.RegionId), ExecutionKind.UnknownDelegateCall,
+                                               $"unknown call of the delegate {DelegateName(fated.CalleeInstance)}", REPEATED, null, fated.RegionId));
+            if (!_fateHandings.TryGetValue(fated.RegionId, out var handings))
+                _fateHandings.Add(fated.RegionId, handings = []);
+            handings.Add((execution, caller.BodyId, fated.OperationId));
+            Entry(id, new ExecutionEntry(fated.CalleeInstance, ExecutionEntryKind.UnknownDelegateCall, null));
         }
 
         /// <summary>The executions that may start before startup ends: startup and what it starts, and an unknown execution with what it
@@ -657,14 +710,15 @@ public static class ExecutionModel
         /// only they hand over or create (issue #123).</summary>
         private HashSet<string> DuringStartup()
         {
-            var handoffs = heap.DelegateHandoffs.ToDictionary(handoff => handoff.RegionId, StringComparer.Ordinal);
-            var creators = heap.IteratorObjects.ToDictionary(iterator => iterator.RegionId, iterator => iterator.Creation.CallerInstance, StringComparer.Ordinal);
+            var creators = heap.IteratorObjects.Select(iterator => (iterator.RegionId, Creator: iterator.Creation.CallerInstance))
+                               .Concat(heap.LibrarySequences.Values.Where(sequence => !sequence.IsGrouping)
+                                           .Select(sequence => (sequence.RegionId, Creator: sequence.CreatorInstance)))
+                               .ToDictionary(item => item.RegionId, item => item.Creator, StringComparer.Ordinal);
             var starters = _executions.Values.Where(execution => execution.Kind is ExecutionKind.UnknownDelegateCall or ExecutionKind.UnknownEnumeration)
                                       .ToDictionary(execution => execution.Id,
                                                     execution => (execution.Kind == ExecutionKind.UnknownDelegateCall
-                                                                      ? handoffs[execution.Subject!].Sites.Select(site => site.CallerInstance)
-                                                                      : [creators[execution.Subject!]])
-                                                                 .SelectMany(instance => _instanceExecutions.GetValueOrDefault(instance) ?? [])
+                                                                      ? Handings(execution.Subject!).Select(handing => handing.Execution)
+                                                                      : _instanceExecutions.GetValueOrDefault(creators[execution.Subject!]) ?? [])
                                                                  .ToHashSet(StringComparer.Ordinal),
                                                     StringComparer.Ordinal);
 
@@ -1026,6 +1080,12 @@ public static class ExecutionModel
                         Timer(execution, instance, site, site.OperationId);
                 }
 
+                foreach (var fated in _startupDelegates.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    if (_segments.Runs(instance.BodyId, item.Segment, fated.OperationId))
+                        StartupDelegate(execution, instance, fated);
+                }
+
                 if (!_instanceExecutions.TryGetValue(item.Instance, out var executions))
                     _instanceExecutions.Add(item.Instance, executions = new HashSet<string>(StringComparer.Ordinal));
                 executions.Add(execution);
@@ -1222,9 +1282,9 @@ public static class ExecutionModel
         {
             // What the unknown execution of a handed delegate touches it touches as the executions that handed it over, so their own
             // objects stay theirs and only what is shared overlaps everything (R3).
-            var handedBy = heap.DelegateHandoffs.ToDictionary(
-                handoff => UnknownDelegateCallId(handoff.RegionId),
-                handoff => handoff.Sites.SelectMany(site => _instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? []).ToHashSet(StringComparer.Ordinal),
+            var handedBy = HandedRegions().ToDictionary(
+                region => UnknownDelegateCallId(region),
+                region => Handings(region).Select(handing => handing.Execution).ToHashSet(StringComparer.Ordinal),
                 StringComparer.Ordinal);
             // A delegate handed over inside the unknown call of another is attributed through it to where the outer one was handed.
             HashSet<string> Attributed(IEnumerable<string> executions)

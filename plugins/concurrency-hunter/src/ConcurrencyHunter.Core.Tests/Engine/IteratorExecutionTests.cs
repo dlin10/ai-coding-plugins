@@ -133,10 +133,14 @@ public sealed class IteratorExecutionTests
     }
 
     [Fact]
-    public void Opaque_consumer_adds_unknown_enumeration()
+    public void Opaque_consumer_known_by_a_model_enumerates_in_the_caller()
     {
+        // `ToList` is a known call that reads its argument deep, so it enumerates the iterator where it stands, in the caller's
+        // execution, and no unknown enumeration does (R5); the iterator's write meets the other worker's there.
         var run = Analyze(Case("System.Linq.Enumerable.ToList(_state.Walk());", "", "_state.Value = 2;"));
-        Assert.Contains(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.DoesNotContain(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.Contains(run.Accesses("Value"), access => access.Operation == AccessOperation.Write && access.Symbol.StartsWith("State.Walk", StringComparison.Ordinal) &&
+                                                         run.Execution.Analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Root);
     }
 
     [Fact]

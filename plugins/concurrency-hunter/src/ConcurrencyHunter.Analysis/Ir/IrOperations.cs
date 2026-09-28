@@ -214,6 +214,10 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
 
     public IrEnumerationRole EnumerationRole { get; init; }
     public int? EnumerationId { get; init; }
+
+    /// <summary>Whether the call reads <c>IGrouping&lt;TKey, TElement&gt;.Key</c>: on a grouping a known call made, what its model says
+    /// the key is (R5).</summary>
+    public bool IsGroupingKey { get; init; }
 }
 
 public enum IrEnumerationRole
@@ -248,6 +252,10 @@ public sealed record IrCollectionCall(string Member, IrCollectionEffect Structur
     /// <summary>The ordinal of the parameter whose argument an overload hands its factories, null where it takes none.</summary>
     public int? FactoryArgument { get; init; }
 
+    /// <summary>The type of the list of its own a member creates and returns, <c>FindAll</c> and <c>ConvertAll</c> of a <c>List</c>
+    /// (ADR 0010, phase 5c); null for every other member.</summary>
+    public string? ResultTypeKey { get; init; }
+
     /// <summary>The storage a <c>Keys</c> or <c>Values</c> view of a dictionary hands out, <c>[keys]</c> or <c>[]</c>; null for every
     /// other member. A view of a <c>Dictionary</c> is live and stands for the dictionary; one of a <c>ConcurrentDictionary</c>
     /// (<see cref="IsAtomic"/>) is a snapshot, a collection of its own (ADR 0010, phase 5b second run).</summary>
@@ -272,7 +280,8 @@ public sealed record IrImplementation(string Kind, IrCollectionCall Member)
     public bool TakesPair { get; init; }
 }
 
-/// <summary>What a factory of a <c>ConcurrentDictionary</c> member is handed for one of its parameters (R11).</summary>
+/// <summary>What a delegate a member of the table takes is handed for one of its parameters (R11): the key, what the element storage
+/// holds, or the overload's argument.</summary>
 public enum IrFactoryInput
 {
     Key,
@@ -286,7 +295,91 @@ public enum IrFactoryInput
 public enum IrModelLayer { BuiltIn, Project }
 
 public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects,
-                                   IrModelLayer Layer = IrModelLayer.BuiltIn, bool DeclaredOpaque = false);
+                                   IrModelLayer Layer = IrModelLayer.BuiltIn, bool DeclaredOpaque = false)
+{
+    /// <summary>Where each delegate the call receives runs and what it is handed (ADR 0012).</summary>
+    public IReadOnlyList<IrLibraryFate> Fates { get; init; } = [];
+
+    /// <summary>What the call returns, null where the model says nothing: the result is then linked to nothing.</summary>
+    public IrLibraryResult? Result { get; init; }
+
+    /// <summary>The type key of what the call returns: the type of a new collection a <c>collection(…)</c> or <c>dictionary(…)</c>
+    /// result creates.</summary>
+    public string? ResultTypeKey { get; init; }
+
+    /// <summary>The ordinals of the parameters whose argument the model names the elements of in its inputs or its result, outside a
+    /// <c>sequence(…)</c> a value builds: the call enumerates each once (R3). What a built sequence names the elements of, that sequence
+    /// enumerates where it is enumerated (R5).</summary>
+    public IEnumerable<int> EnumeratedArguments() => EnumeratedArguments(Values());
+
+    /// <summary>The ordinals of the parameters whose argument the model names the elements of anywhere, a built sequence included: the
+    /// call enumerates each or keeps it for a sequence that will.</summary>
+    public IEnumerable<int> NamedArguments() => Values().SelectMany(value => Enumerated(value, intoSequences: true)).OfType<IrModelArgument>()
+                                                        .Select(argument => argument.ParameterOrdinal).Distinct();
+
+    /// <summary>The ordinals of the delegate parameters whose returns the model names the elements of, outside a built sequence.</summary>
+    public IEnumerable<int> EnumeratedReturns() => EnumeratedReturns(Values());
+
+    /// <summary>The ordinals of the parameters whose argument <paramref name="values"/> name the elements of, outside a built sequence.</summary>
+    public static IEnumerable<int> EnumeratedArguments(IEnumerable<IrModelValue> values) =>
+        values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelArgument>().Select(argument => argument.ParameterOrdinal).Distinct();
+
+    /// <summary>The ordinals of the delegate parameters whose returns <paramref name="values"/> name the elements of, outside a built
+    /// sequence.</summary>
+    public static IEnumerable<int> EnumeratedReturns(IEnumerable<IrModelValue> values) =>
+        values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelReturns>().Select(returned => returned.ParameterOrdinal).Distinct();
+
+    private IEnumerable<IrModelValue> Values() => Fates.SelectMany(fate => fate.Inputs).SelectMany(input => input).Concat(Result?.Values ?? []);
+
+    /// <summary>The arguments and delegate returns a value names the elements of. A grouping holds its values from the moment it is built;
+    /// a built sequence yields its own only where it is enumerated, which the elements of it are.</summary>
+    private static IEnumerable<IrModelValue> Enumerated(IrModelValue value, bool intoSequences) => value switch
+    {
+        IrModelElements { Source: IrModelArgument or IrModelReturns } elements => [elements.Source],
+        IrModelElements { Source: IrModelSequence sequence } => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
+        IrModelElements elements => Enumerated(elements.Source, intoSequences),
+        IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
+        IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
+        _ => []
+    };
+}
+
+public enum IrFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution }
+
+public enum IrHolderKind { Result, This }
+
+/// <summary>The fate of the delegate bound to the parameter with <see cref="ParameterOrdinal"/>: one input list per parameter of its
+/// <c>Invoke</c>, each the values that parameter is handed, possibly none.</summary>
+public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHolderKind? Holder, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs);
+
+/// <summary>A value of a library model, with the parameters it names by ordinal: a set of objects a delegate is handed or the call
+/// returns.</summary>
+public abstract record IrModelValue;
+
+/// <summary>What the argument of a parameter points to.</summary>
+public sealed record IrModelArgument(int ParameterOrdinal) : IrModelValue;
+
+/// <summary>Every object any run of the delegate bound to a parameter returns.</summary>
+public sealed record IrModelReturns(int ParameterOrdinal) : IrModelValue;
+
+/// <summary>The argument of a call of a holder's member at an index.</summary>
+public sealed record IrModelHolderArgument(int Index) : IrModelValue;
+
+/// <summary>What enumerating a value yields. <see cref="ElementTypeKey"/> is the type of what it yields where that type narrows it, null
+/// where it may be anything: a sequence the analysis cannot enumerate yields every object it reaches of that type.</summary>
+public sealed record IrModelElements(IrModelValue Source, string? ElementTypeKey) : IrModelValue;
+
+/// <summary>A new library sequence yielding the values.</summary>
+public sealed record IrModelSequence(IReadOnlyList<IrModelValue> Values) : IrModelValue;
+
+/// <summary>A new grouping whose key is <see cref="Key"/> and which yields <see cref="Values"/>.</summary>
+public sealed record IrModelGrouping(IrModelValue Key, IrModelValue Values) : IrModelValue;
+
+public enum IrResultKind { Sequence, Collection, Dictionary, OneOf }
+
+/// <summary>What a known call returns: a new library sequence, a new collection holding the values, a new dictionary holding keys and
+/// values apart, or one of the objects the values name.</summary>
+public sealed record IrLibraryResult(IrResultKind Kind, IReadOnlyList<IrModelValue> Values);
 
 /// <summary>What a known call does to the argument bound to the parameter with <see cref="ParameterOrdinal"/>.
 /// <see cref="Arguments"/> are the values it does it to: the argument itself, or each element of a <c>params</c> array or slice

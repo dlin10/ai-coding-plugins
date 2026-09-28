@@ -87,6 +87,8 @@ public sealed class CollectionElementStorageMatrixTests
             ],
             [
                 new("indexer", Storage.Element, "_state.Box[0].Hits = 1;", "List.get_Item"),
+                new("Find", Storage.Element, "_state.Box.Find(item => true)!.Hits = 1;", "List.Find"),
+                new("FindLast", Storage.Element, "_state.Box.FindLast(item => true)!.Hits = 1;", "List.FindLast"),
                 Each("List")
             ]),
         new("Dictionary", "Dictionary<Item, Item>",

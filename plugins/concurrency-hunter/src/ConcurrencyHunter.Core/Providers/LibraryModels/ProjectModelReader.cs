@@ -6,7 +6,11 @@ namespace ConcurrencyHunter.Providers.LibraryModels;
 
 internal sealed record ProjectModelEntry(string Path, int Position, string Member, IReadOnlyList<string> Assemblies,
                                          (Version Minimum, Version Maximum)? Versions, IReadOnlyList<LibraryEffect> Effects,
-                                         bool Opaque);
+                                         bool Opaque)
+{
+    public LibraryResult? Result { get; init; }
+    public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+}
 
 internal sealed record ModelRejection(string Path, string? Entry, string Reason)
 {
@@ -156,7 +160,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
     private static ProjectModelEntry ParseEntry(JsonElement entry, string path, int position, IReadOnlyList<string>? defaults,
                                                 (Version Minimum, Version Maximum)? defaultVersions)
     {
-        Properties(entry, ["member", "assemblies", "versions", "effects", "opaque", "note"]);
+        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "opaque", "note"]);
         if (!entry.TryGetProperty("member", out var memberValue) || memberValue.ValueKind != JsonValueKind.String ||
             memberValue.GetString() is not { } member ||
             !BuiltInModelReader.IsMemberId(member) && !IsPattern(member))
@@ -198,7 +202,46 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                 }
             }
         }
-        return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque);
+        var hasResult = entry.TryGetProperty("result", out var resultValue);
+        var hasFates = entry.TryGetProperty("fates", out var fatesValue);
+        if (hasOpaque && (hasResult || hasFates))
+            throw new FormatException("result and fates go only with effects.");
+        if (hasResult && resultValue.ValueKind != JsonValueKind.String)
+            throw new FormatException("result must be a string.");
+        var fates = new List<RawFate>();
+        if (hasFates)
+        {
+            Properties(fatesValue, null);
+            foreach (var fate in fatesValue.EnumerateObject())
+                fates.Add(Fate(fate));
+        }
+        var (result, parsedFates) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates);
+        return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque)
+        {
+            Result = result,
+            Fates = parsedFates
+        };
+    }
+
+    private static RawFate Fate(JsonProperty fate)
+    {
+        Properties(fate.Value, ["fate", "holder", "inputs", "note"]);
+        string? Text(string name) => !fate.Value.TryGetProperty(name, out var value) ? null :
+                                     value.ValueKind == JsonValueKind.String ? value.GetString() :
+                                     throw new FormatException($"fate of '{fate.Name}': {name} must be a string.");
+        Text("note");
+        List<IReadOnlyList<string>>? inputs = null;
+        if (fate.Value.TryGetProperty("inputs", out var inputsValue))
+        {
+            if (inputsValue.ValueKind != JsonValueKind.Array ||
+                inputsValue.EnumerateArray().Any(input => input.ValueKind != JsonValueKind.Array ||
+                                                          input.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String)))
+                throw new FormatException($"fate of '{fate.Name}': inputs must be an array of arrays of strings.");
+            inputs = inputsValue.EnumerateArray().Select(input => (IReadOnlyList<string>)input.EnumerateArray()
+                                                                                                 .Select(value => value.GetString()!).ToArray())
+                                .ToList();
+        }
+        return new RawFate(fate.Name, Text("fate"), Text("holder"), inputs);
     }
 
     private static void Properties(JsonElement element, string[]? allowed)
@@ -246,7 +289,6 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         return true;
     }
 
-    internal static bool IsPattern(string id) => id.StartsWith("M:", StringComparison.Ordinal) && id.EndsWith("(*)", StringComparison.Ordinal) &&
-                                                !id[(id.LastIndexOf('.', id.Length - 4) + 1)..^3].Contains('`') &&
-                                                BuiltInModelReader.IsMemberId(id[..^3] + "(System.Int32)");
+    internal static bool IsPattern(string id) => DeclarationId.Parse(id) is { IsPattern: true, Member: { Arity: 0 } member } &&
+                                                BuiltInModelReader.FollowsMemberRules(member);
 }

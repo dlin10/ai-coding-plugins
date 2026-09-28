@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "LINQ: Enumerable operators without delegates or comparers read every sequence and value they are given deep, at the call, deferred or not. Queryable operators touch nothing because an expression tree is data. Operators taking delegates stay opaque until run B of phase 5c.",
+  "note": "LINQ: Enumerable operators without delegates or comparers read every sequence and value they are given deep: the eager ones at the call, and Skip, Take, Cast, OfType and Union, which return a library sequence of their sources\u0027 elements, where that sequence is enumerated. Every Enumerable operator that takes a delegate and no comparer is described (phase 5c run B): its delegates run where the sequence it returns is enumerated (iterator) or, for any other operator, during the call (invoke-now), each handed the elements of its sources, and its result is what it yields or returns. Operators taking a comparer, CountBy and AggregateBy among them, stay opaque. Queryable operators touch nothing because an expression tree is data.",
   "assemblies": [
     "System.Linq"
   ],
@@ -39,7 +39,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "collection(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.ToArray\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600[]",
@@ -47,7 +48,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "collection(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.First\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -55,7 +57,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -63,7 +66,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.Single\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -71,7 +75,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -79,7 +84,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.Last\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -87,7 +93,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.LastOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~\u0060\u00600",
@@ -95,7 +102,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[elements(arg:source)]"
     },
     {
       "member": "M:System.Linq.Enumerable.Skip\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Int32)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -103,7 +111,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.Take\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Int32)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -111,7 +120,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.Take\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Range)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -119,7 +129,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.OfType\u0060\u00601(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -127,7 +138,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.Cast\u0060\u00601(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -135,7 +147,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:source))"
     },
     {
       "member": "M:System.Linq.Enumerable.AsEnumerable\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
@@ -143,7 +156,8 @@
         "source": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "[arg:source]"
     },
     {
       "member": "M:System.Linq.Enumerable.Contains\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},\u0060\u00600)~System.Boolean",
@@ -176,11 +190,1552 @@
         "second": [
           "reads-deep"
         ]
-      }
+      },
+      "result": "sequence(elements(arg:first),elements(arg:second))"
     },
     {
       "member": "M:System.Linq.Enumerable.Empty\u0060\u00601~System.Collections.Generic.IEnumerable{\u0060\u00600}",
       "effects": {}
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00600,\u0060\u00600})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source),returns:func]",
+      "fates": {
+        "func": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)",
+              "returns:func"
+            ],
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},\u0060\u00601,System.Func{\u0060\u00601,\u0060\u00600,\u0060\u00601})~\u0060\u00601",
+      "effects": {},
+      "result": "[arg:seed,returns:func]",
+      "fates": {
+        "func": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "arg:seed",
+              "returns:func"
+            ],
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},\u0060\u00601,System.Func{\u0060\u00601,\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00601,\u0060\u00602})~\u0060\u00602",
+      "effects": {},
+      "result": "[returns:resultSelector]",
+      "fates": {
+        "func": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "arg:seed",
+              "returns:func"
+            ],
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "arg:seed",
+              "returns:func"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.All\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Boolean",
+      "effects": {},
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Any\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Boolean",
+      "effects": {},
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Decimal})~System.Decimal",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Double})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int64})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int32}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int64}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Single})~System.Single",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Count\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Int32",
+      "effects": {},
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.DistinctBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ExceptBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "second": [
+          "reads-deep"
+        ]
+      },
+      "result": "sequence(elements(arg:first))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:first)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.First\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean},\u0060\u00600)~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source),arg:defaultValue]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{\u0060\u00601,\u0060\u00600}}",
+      "effects": {},
+      "result": "sequence(grouping(returns:keySelector,elements(arg:source)))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{\u0060\u00601,\u0060\u00602}}",
+      "effects": {},
+      "result": "sequence(grouping(returns:keySelector,returns:elementSelector))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "elementSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00601,System.Collections.Generic.IEnumerable{\u0060\u00600},\u0060\u00602})~System.Collections.Generic.IEnumerable{\u0060\u00602}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "returns:keySelector"
+            ],
+            [
+              "sequence(elements(arg:source))"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,System.Collections.Generic.IEnumerable{\u0060\u00602},\u0060\u00603})~System.Collections.Generic.IEnumerable{\u0060\u00603}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "elementSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "returns:keySelector"
+            ],
+            [
+              "sequence(returns:elementSelector)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupJoin\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,\u0060\u00602},System.Func{\u0060\u00600,System.Collections.Generic.IEnumerable{\u0060\u00601},\u0060\u00603})~System.Collections.Generic.IEnumerable{\u0060\u00603}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "outerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ]
+          ]
+        },
+        "innerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ],
+            [
+              "sequence(elements(arg:inner))"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.IntersectBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {
+        "second": [
+          "reads-deep"
+        ]
+      },
+      "result": "sequence(elements(arg:first))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:first)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Join\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,\u0060\u00602},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00603})~System.Collections.Generic.IEnumerable{\u0060\u00603}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "outerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ]
+          ]
+        },
+        "innerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ],
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Last\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean},\u0060\u00600)~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source),arg:defaultValue]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LeftJoin\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,\u0060\u00602},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00603})~System.Collections.Generic.IEnumerable{\u0060\u00603}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "outerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ]
+          ]
+        },
+        "innerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ],
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LongCount\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Int64",
+      "effects": {},
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Decimal})~System.Decimal",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Double})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})~System.Int32",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int64})~System.Int64",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Single})~System.Single",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~\u0060\u00601",
+      "effects": {},
+      "result": "[returns:selector]",
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.MaxBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Decimal})~System.Decimal",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Double})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})~System.Int32",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int64})~System.Int64",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Single})~System.Single",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~\u0060\u00601",
+      "effects": {},
+      "result": "[returns:selector]",
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.MinBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Linq.IOrderedEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderByDescending\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Linq.IOrderedEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.RightJoin\u0060\u00604(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602},System.Func{\u0060\u00601,\u0060\u00602},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00603})~System.Collections.Generic.IEnumerable{\u0060\u00603}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "outerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ]
+          ]
+        },
+        "innerKeySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:outer)"
+            ],
+            [
+              "elements(arg:inner)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Select\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00601}",
+      "effects": {},
+      "result": "sequence(returns:selector)",
+      "fates": {
+        "selector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Select\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00601}",
+      "effects": {},
+      "result": "sequence(returns:selector)",
+      "fates": {
+        "selector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Collections.Generic.IEnumerable{\u0060\u00601}})~System.Collections.Generic.IEnumerable{\u0060\u00601}",
+      "effects": {},
+      "result": "sequence(elements(returns:selector))",
+      "fates": {
+        "selector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,System.Collections.Generic.IEnumerable{\u0060\u00601}})~System.Collections.Generic.IEnumerable{\u0060\u00601}",
+      "effects": {},
+      "result": "sequence(elements(returns:selector))",
+      "fates": {
+        "selector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Collections.Generic.IEnumerable{\u0060\u00601}},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00602})~System.Collections.Generic.IEnumerable{\u0060\u00602}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "collectionSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            [
+              "elements(returns:collectionSelector)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,System.Collections.Generic.IEnumerable{\u0060\u00601}},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00602})~System.Collections.Generic.IEnumerable{\u0060\u00602}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "collectionSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            [
+              "elements(returns:collectionSelector)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Single\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source)]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean},\u0060\u00600)~\u0060\u00600",
+      "effects": {},
+      "result": "[elements(arg:source),arg:defaultValue]",
+      "fates": {
+        "predicate": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SkipWhile\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SkipWhile\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Decimal})~System.Decimal",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Double})~System.Double",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32})~System.Int32",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int64})~System.Int64",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Single})~System.Single",
+      "effects": {},
+      "fates": {
+        "selector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.TakeWhile\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.TakeWhile\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ThenBy\u0060\u00602(System.Linq.IOrderedEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Linq.IOrderedEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ThenByDescending\u0060\u00602(System.Linq.IOrderedEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Linq.IOrderedEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToDictionary\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.Dictionary{\u0060\u00601,\u0060\u00600}",
+      "effects": {},
+      "result": "dictionary(returns:keySelector,elements(arg:source))",
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToDictionary\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602})~System.Collections.Generic.Dictionary{\u0060\u00601,\u0060\u00602}",
+      "effects": {},
+      "result": "dictionary(returns:keySelector,returns:elementSelector)",
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "elementSelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToLookup\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Linq.ILookup{\u0060\u00601,\u0060\u00600}",
+      "effects": {},
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToLookup\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00602})~System.Linq.ILookup{\u0060\u00601,\u0060\u00602}",
+      "effects": {},
+      "fates": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        },
+        "elementSelector": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.UnionBy\u0060\u00602(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,\u0060\u00601})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:first),elements(arg:second))",
+      "fates": {
+        "keySelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:first)",
+              "elements(arg:second)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Where\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Where\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Func{\u0060\u00600,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{\u0060\u00600}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:source)"
+            ],
+            []
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Zip\u0060\u00603(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Collections.Generic.IEnumerable{\u0060\u00601},System.Func{\u0060\u00600,\u0060\u00601,\u0060\u00602})~System.Collections.Generic.IEnumerable{\u0060\u00602}",
+      "effects": {},
+      "result": "sequence(returns:resultSelector)",
+      "fates": {
+        "resultSelector": {
+          "fate": "iterator",
+          "inputs": [
+            [
+              "elements(arg:first)"
+            ],
+            [
+              "elements(arg:second)"
+            ]
+          ]
+        }
+      }
     },
     {
       "member": "M:System.Linq.Queryable.Where\u0060\u00601(System.Linq.IQueryable{\u0060\u00600},System.Linq.Expressions.Expression{System.Func{\u0060\u00600,System.Boolean}})~System.Linq.IQueryable{\u0060\u00600}",

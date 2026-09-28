@@ -7,6 +7,16 @@
     {
       "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u0060\u00601(\u0060\u00600,System.Text.Json.JsonSerializerOptions)~System.Byte[]",
       "opaque": true
+    },
+    {
+      "member": "M:System.Collections.Generic.EqualityComparer`1.Create(System.Func{`0,`0,System.Boolean},System.Func{`0,System.Int32})~System.Collections.Generic.EqualityComparer{`0}",
+      "assemblies": ["System.Collections", "System.Private.CoreLib"],
+      "effects": {},
+      "fates": {
+        "equals": { "fate": "holder", "holder": "result", "inputs": [["holder-arg:0"], ["holder-arg:1"]] },
+        "getHashCode": { "fate": "holder", "holder": "result", "inputs": [["holder-arg:0"]] }
+      },
+      "note": "The project-model-holder-fate case: the comparer keeps both delegates and runs them wherever one of its members is called."
     }
   ]
 }

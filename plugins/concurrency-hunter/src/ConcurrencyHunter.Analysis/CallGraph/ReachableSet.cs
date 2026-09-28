@@ -455,6 +455,20 @@ public static class ReachableSet
                                         AddDelegateInvocation(factoryValue.Type, $"delegate:{bodyId}:{call.Id}");
                                 }
                             }
+
+                            // The delegates a known call runs by its model's fates are reached as those factories are (R3).
+                            if (call.Library is { InRange: true, DeclaredOpaque: false } library)
+                            {
+                                foreach (var fate in library.Fates)
+                                {
+                                    if (call.ArgumentAt(fate.ParameterOrdinal) is not int handed)
+                                        continue;
+                                    if (DelegateCreation(handed, definitions) is { } creation)
+                                        ReachDelegateTargets(creation, reason);
+                                    else if (values.TryGetValue(handed, out var handedValue))
+                                        AddDelegateInvocation(handedValue.Type, $"delegate:{bodyId}:{call.Id}");
+                                }
+                            }
                         }
 
                         // A delegate handed to a call the heap may leave unresolved runs in an unknown execution (R3): an opaque call no

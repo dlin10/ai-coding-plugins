@@ -110,6 +110,30 @@ public sealed record AsyncSpawnSite(string CallerInstance, int OperationId, IrSp
 /// instances running its target. These are not call edges: the body runs in an unknown execution of its own.</summary>
 public sealed record DelegateHandoff(string RegionId, IReadOnlyList<(string CallerInstance, int OperationId)> Sites, IReadOnlyList<string> Callees);
 
+/// <summary>A library sequence a known call returned, or one a value of its model created, or a grouping (R5). The call that created it,
+/// its deferred effects being that call's in its summary where it is the call's result; the sources its enumeration enumerates; what it
+/// yields and, for a grouping, its key; and the instances an unknown enumeration of it runs.</summary>
+public sealed record LibrarySequence(string RegionId, string CreatorInstance, int CreatorOperation, bool IsResult, bool IsGrouping,
+                                     IReadOnlyList<string> Sources, IReadOnlyList<string> Yields, IReadOnlyList<string> Keys,
+                                     IReadOnlyList<string> EnumerationInstances)
+{
+    /// <summary>The sources that are what a delegate of the call returned, among <see cref="Sources"/>: no argument effect of the call's
+    /// summary names them, so its enumeration enumerates them itself.</summary>
+    public IReadOnlyList<string> ReturnedSources { get; init; } = [];
+
+    /// <summary>The iterator delegates no body the run has resolves: an unresolved dispatch wherever the sequence is enumerated, its
+    /// unknown enumeration included (R3).</summary>
+    public IReadOnlyList<SequenceDispatch> Unresolved { get; init; } = [];
+}
+
+/// <summary>An unresolved iterator delegate of a library sequence: the callee, the objects its inputs hand it and the receivers its
+/// captures are seen through.</summary>
+public sealed record SequenceDispatch(string Callee, IReadOnlyList<string> Inputs, IReadOnlyList<(string Region, string? DeclaringTypeKey)> Receivers);
+
+/// <summary>A delegate region a known call runs by its <c>startup</c> fate, the call by caller instance and operation, and one instance
+/// running its target.</summary>
+public sealed record StartupDelegate(string CallerInstance, int OperationId, string RegionId, string CalleeInstance);
+
 /// <summary>The tasks a <c>Task.WhenAll</c> result completes after, or that they are unknown.</summary>
 public sealed record TaskGroup(IReadOnlySet<string> Members, bool MembersKnown);
 
@@ -199,8 +223,25 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<IrFactoryInput>> UnresolvedFactoryInputs { get; init; } =
         new Dictionary<(string, int), IReadOnlySet<IrFactoryInput>>();
 
-    /// <summary>The delegates handed to unresolved calls, each run in an unknown execution of its own (R3), by region.</summary>
+    /// <summary>For each known call a fated delegate of which is an unresolved dispatch, the objects those delegates are handed (R1, R3).</summary>
+    public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<string>> UnresolvedFateInputs { get; init; } =
+        new Dictionary<(string, int), IReadOnlySet<string>>();
+
+    /// <summary>The delegates handed to unresolved calls, each run in an unknown execution of its own (R3), by region; and those a
+    /// known call runs in one by its model's <c>unknown-execution</c> fate.</summary>
     public IReadOnlyList<DelegateHandoff> DelegateHandoffs { get; init; } = [];
+
+    /// <summary>The delegates known calls run by their model's <c>startup</c> fate: in startup for a call startup makes, in an unknown
+    /// execution for a call any other execution makes (R3).</summary>
+    public IReadOnlyList<StartupDelegate> StartupDelegates { get; init; } = [];
+
+    /// <summary>The objects that keep a delegate by a known call's <c>holder</c> fate: a call without a body on one runs what it keeps,
+    /// and is no unresolved call on it (R4).</summary>
+    public IReadOnlySet<string> Holders { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The library sequences and groupings the heap knows, by region (R5). One in <see cref="UnknownIterators"/> escaped, and is
+    /// enumerated by an unknown execution as well.</summary>
+    public IReadOnlyDictionary<string, LibrarySequence> LibrarySequences { get; init; } = new Dictionary<string, LibrarySequence>(StringComparer.Ordinal);
 
     /// <summary>What the analysis could not know about a region: a symbolic parameter's unknown caller, a registration whose
     /// factory or instance gives more than one object or an unknown one.</summary>
@@ -327,6 +368,9 @@ public static class WholeProgram
         internal bool ReturnsUnfollowed { get; set; }
         internal Dictionary<(int Operation, int Ordinal), HashSet<string>> RefResults { get; } = [];
         internal HashSet<string> Returns { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>What an iterator instance's <c>yield return</c>s hand out.</summary>
+        internal HashSet<string> Yields { get; } = new(StringComparer.Ordinal);
         internal Dictionary<int, HashSet<string>> RefParameters { get; } = [];
 
         /// <summary>The HTTP invocations, by root id, whose request this instance runs in.</summary>
@@ -394,6 +438,27 @@ public static class WholeProgram
         private readonly Dictionary<(string Instance, int Operation), HashSet<(string Region, string? DeclaringTypeKey)>> _unresolvedReceivers = [];
         private readonly Dictionary<(string Instance, int Operation), HashSet<IrFactoryInput>> _unresolvedFactoryInputs = [];
         private readonly Dictionary<string, (HashSet<(string Caller, int Operation)> Sites, HashSet<string> Callees)> _handoffs = new(StringComparer.Ordinal);
+        private readonly HashSet<(string Caller, int Operation, string Region, string Callee)> _startupDelegates = [];
+        private readonly Dictionary<(string Instance, int Operation), HashSet<string>> _unresolvedFateInputs = [];
+
+        /// <summary>The holders the heap knows and what each keeps, by delegate region, <see cref="UNRESOLVED_DELEGATE"/> standing for a
+        /// delegate no delegate object is known for (R4).</summary>
+        private readonly Dictionary<string, Dictionary<string, HeldDelegate>> _held = new(StringComparer.Ordinal);
+
+        /// <summary>What each region's fields point to, built once a pass for the reach of a call's arguments; a pass that changes
+        /// nothing reads it whole.</summary>
+        private Dictionary<string, List<string>>? _reachIndex;
+
+        /// <summary>The library sequences known calls return, and those a model's value creates, by region (R5).</summary>
+        private readonly Dictionary<string, SequenceState> _sequences = new(StringComparer.Ordinal);
+
+        /// <summary>The groupings a model's value creates: each holds its key in its key storage and yields what its element storage
+        /// holds (R5).</summary>
+        private readonly HashSet<string> _groupings = new(StringComparer.Ordinal);
+
+        /// <summary>The user iterators a consumer other than a <c>foreach</c> enumerates where it stands: a known call reading it deep or
+        /// naming its elements, a copy of ADR 0010, or the enumeration of a library sequence built from it (R5).</summary>
+        private readonly HashSet<(string Instance, int Operation, string Region)> _iteratorEnumerations = [];
         private UnknownCalls.Modelled? _modelled;
         private readonly Dictionary<string, int> _counters = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _rootInstances = new(StringComparer.Ordinal);
@@ -456,7 +521,11 @@ public static class WholeProgram
                 _unresolvedDispatches.Clear();
                 _unresolvedReceivers.Clear();
                 _unresolvedFactoryInputs.Clear();
+                _unresolvedFateInputs.Clear();
                 _handoffs.Clear();
+                _startupDelegates.Clear();
+                _iteratorEnumerations.Clear();
+                _reachIndex = null;
                 for (var index = 0; index < _instanceOrder.Count; index++)
                 {
                     var instance = _instances[_instanceOrder[index]];
@@ -465,6 +534,8 @@ public static class WholeProgram
                     if (_changes != start)
                         CountRound(instance);
                 }
+
+                EscapeCapturedHolders();
 
                 foreach (var state in _registrations.Values.ToArray())
                     ConstructFactory(state);
@@ -522,7 +593,8 @@ public static class WholeProgram
             var executionEdges = _edges.Where(edge => _scope.Reachable.Bodies.GetValueOrDefault(_instances[edge.Callee].BodyId)?.IsIterator != true)
                                        .Select(edge => new CallEdge(edge.Caller, edge.Operation, edge.Callee, edge.Reason)).ToList();
             var unknownIterators = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var instance in _instances.Values.Where(_ => _iteratorObjects.Count != 0))
+            bool IsEnumerable(string region) => _iteratorObjects.ContainsKey(region) || _sequences.ContainsKey(region);
+            foreach (var instance in _instances.Values.Where(_ => _iteratorObjects.Count != 0 || _sequences.Count != 0))
             {
                 if (!_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
                     continue;
@@ -535,26 +607,94 @@ public static class WholeProgram
                                               .Where(PotentialIteratorValue).ToArray();
                     if (candidateValues.Length == 0)
                         continue;
-                    var iteratorRegions = Eval(instance, candidateValues)
-                        .Where(_iteratorObjects.ContainsKey).ToArray();
+                    var iteratorRegions = Eval(instance, candidateValues).Where(IsEnumerable).ToArray();
+                    if (iteratorRegions.Length == 0)
+                        continue;
+                    // A consumer enumerates what it reads deep, names the elements of or copies, and a known call returning a library
+                    // sequence keeps what the sequence enumerates; what a call is handed any other way escapes to it (R3, R5).
+                    var consumed = Consumed(call);
+                    var consumedRegions = consumed.Count == 0
+                        ? []
+                        : Eval(instance, call.Arguments.Where(argument => consumed.Contains(argument.ParameterOrdinal))
+                                             .SelectMany(argument => argument.Values).Where(PotentialIteratorValue));
+                    var handedOtherwise = consumed.Count == 0
+                        ? []
+                        : Eval(instance, call.Receivers.Concat(call.Arguments.Where(argument => !consumed.Contains(argument.ParameterOrdinal))
+                                                                             .SelectMany(argument => argument.Values))
+                                             .Where(PotentialIteratorValue));
                     foreach (var region in iteratorRegions)
                     {
                         if (operation.EnumerationRole == IrEnumerationRole.GetEnumerator &&
                             Eval(instance, call.Receivers).Contains(region))
-                            executionEdges.Add(new CallEdge(instance.Id, call.OperationId, _iteratorObjects[region].CalleeInstance,
-                                                            "iterator-enumeration"));
-                        else if (operation.EnumerationRole == IrEnumerationRole.None)
+                        {
+                            if (_iteratorObjects.TryGetValue(region, out var iterator))
+                                executionEdges.Add(new CallEdge(instance.Id, call.OperationId, iterator.CalleeInstance, "iterator-enumeration"));
+                        }
+                        else if (operation.EnumerationRole == IrEnumerationRole.None &&
+                                 (!consumedRegions.Contains(region) || handedOtherwise.Contains(region)))
                             unknownIterators.Add(region);
                     }
                 }
             }
-            // An iterator escapes when a field keeps it, or keeps a delegate that captured it: whoever calls that delegate enumerates it
-            // (open question 24). The delegate itself, stored without a visible call, runs nowhere of its own.
-            foreach (var values in _fields.Values)
+
+            // What a consumer other than a `foreach` enumerates, directly or as a source of a library sequence it enumerates (R5).
+            var enumerations = executionEdges.ToHashSet();
+            foreach (var (consumer, operation, region) in _iteratorEnumerations)
             {
-                unknownIterators.UnionWith(values.Where(_iteratorObjects.ContainsKey));
-                unknownIterators.UnionWith(values.Where(_delegates.ContainsKey).SelectMany(Captures).Where(_iteratorObjects.ContainsKey));
+                var edge = new CallEdge(consumer, operation, _iteratorObjects[region].CalleeInstance, "iterator-enumeration");
+                if (enumerations.Add(edge))
+                    executionEdges.Add(edge);
             }
+
+            // An iterator or a library sequence escapes when a field keeps it, or keeps a delegate that captured it: whoever calls that
+            // delegate enumerates it (open question 24). The delegate itself, stored without a visible call, runs nowhere of its own. What a
+            // library sequence or a grouping holds is what it yields, which is no field of the run's.
+            foreach (var (key, values) in _fields)
+            {
+                if (_sequences.ContainsKey(key.Region) || _groupings.Contains(key.Region))
+                    continue;
+                unknownIterators.UnionWith(values.Where(IsEnumerable));
+                unknownIterators.UnionWith(values.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable));
+            }
+
+            // What an unknown enumeration of a library sequence runs: its delegates, and what enumerating its sources runs.
+            HashSet<string> EnumerationInstances(string region, HashSet<string> visited)
+            {
+                var instances = new HashSet<string>(StringComparer.Ordinal);
+                if (_iteratorObjects.TryGetValue(region, out var iterator))
+                    instances.Add(iterator.CalleeInstance);
+                else if (_sequences.TryGetValue(region, out var sequence) && visited.Add(region))
+                {
+                    instances.UnionWith(sequence.Callees);
+                    foreach (var source in sequence.Sources)
+                        instances.UnionWith(EnumerationInstances(source, visited));
+                }
+
+                return instances;
+            }
+
+            var librarySequences = _sequences.Values.Select(sequence => new LibrarySequence(
+                                                 sequence.Region, sequence.Creator, sequence.Operation, !sequence.IsNested, false,
+                                                 sequence.Sources.Order(StringComparer.Ordinal).ToArray(),
+                                                 Load(sequence.Region, PathValue.ELEMENT).Order(StringComparer.Ordinal).ToArray(), [],
+                                                 EnumerationInstances(sequence.Region, new HashSet<string>(StringComparer.Ordinal))
+                                                     .Order(StringComparer.Ordinal).ToArray())
+                                             {
+                                                 ReturnedSources = sequence.ReturnedSources.Order(StringComparer.Ordinal).ToArray(),
+                                                 Unresolved = sequence.Unresolved.OrderBy(pair => pair.Key.Parameter)
+                                                                      .ThenBy(pair => pair.Key.Region, StringComparer.Ordinal)
+                                                                      .Select(pair => new SequenceDispatch(
+                                                                          pair.Value.Callee,
+                                                                          Eval(_instances[sequence.Creator], pair.Value.Inputs.SelectMany(input => input.Values))
+                                                                              .Order(StringComparer.Ordinal).ToArray(),
+                                                                          pair.Value.Receivers))
+                                                                      .ToArray()
+                                             })
+                                             .Concat(_groupings.Select(grouping => new LibrarySequence(
+                                                 grouping, "", 0, false, true, [],
+                                                 Load(grouping, PathValue.ELEMENT).Order(StringComparer.Ordinal).ToArray(),
+                                                 Load(grouping, PathValue.KEYS).Order(StringComparer.Ordinal).ToArray(), [])))
+                                             .ToDictionary(sequence => sequence.RegionId, StringComparer.Ordinal);
 
             static bool PotentialIteratorValue(AbstractValue value) => value switch
             {
@@ -598,6 +738,14 @@ public static class WholeProgram
                 UnresolvedDispatchReceivers = _unresolvedReceivers.ToDictionary(pair => pair.Key,
                                                                                 pair => (IReadOnlySet<(string, string?)>)pair.Value.ToHashSet()),
                 UnresolvedFactoryInputs = _unresolvedFactoryInputs.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToHashSet()),
+                UnresolvedFateInputs = _unresolvedFateInputs.ToDictionary(pair => pair.Key,
+                                                                          pair => (IReadOnlySet<string>)pair.Value.ToHashSet(StringComparer.Ordinal)),
+                Holders = _held.Keys.ToHashSet(StringComparer.Ordinal),
+                LibrarySequences = librarySequences,
+                StartupDelegates = _startupDelegates.OrderBy(item => item.Caller, StringComparer.Ordinal).ThenBy(item => item.Operation)
+                                                    .ThenBy(item => item.Region, StringComparer.Ordinal).ThenBy(item => item.Callee, StringComparer.Ordinal)
+                                                    .Select(item => new StartupDelegate(item.Caller, item.Operation, item.Region, item.Callee))
+                                                    .ToArray(),
                 DelegateHandoffs = _handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                             .Select(pair => new DelegateHandoff(pair.Key,
                                                                                pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
@@ -1203,6 +1351,7 @@ public static class WholeProgram
                     Add(Field(array, element.Slot), values);
             }
 
+            Add(instance.Yields, Eval(instance, summary.Yields));
             foreach (var @return in summary.Returns)
             {
                 Add(instance.Returns, Eval(instance, @return.Values));
@@ -1239,6 +1388,42 @@ public static class WholeProgram
                 Locate(instance, call);
             foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection)))
                 RunFactories(instance, call);
+            foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } }))
+                RunFates(instance, call);
+            // A member of a holder called on it, with no body of its own, runs what the holder keeps; a holder reachable from what a call
+            // without a body is handed is one the heap cannot follow any more (R4).
+            if (_held.Count != 0)
+            {
+                foreach (var call in summary.OpaqueCalls)
+                {
+                    if (!call.IsConstructor)
+                    {
+                        foreach (var holder in Eval(instance, call.Receivers).Where(_held.ContainsKey).ToArray())
+                            RunHeld(instance, call.OperationId, call.Callee, call.Arguments, holder);
+                    }
+
+                    // A delegate a known call's model gives a fate goes where its fate says, which runs it in an unknown execution only
+                    // where the fate does; what it captures escapes there (EscapeCapturedHolders), not at the call.
+                    var fated = call.IsKnown ? call.Library!.Fates.Select(fate => fate.ParameterOrdinal).ToHashSet() : [];
+                    EscapeHolders(instance, call.OperationId, call.Arguments.Where(argument => !fated.Contains(argument.ParameterOrdinal))
+                                                                           .SelectMany(argument => argument.Values));
+                }
+            }
+
+            // A grouping answers `Key` with what its model says the key is (R5).
+            foreach (var call in summary.OpaqueCalls.Where(call => call.IsGroupingKey && _groupings.Count != 0))
+            {
+                Add(CallResult(instance, call.OperationId),
+                    Eval(instance, call.Receivers).Where(_groupings.Contains).SelectMany(grouping => Load(grouping, PathValue.KEYS)));
+            }
+
+            // What a consumer enumerates it enumerates where it stands: a `foreach`, a copy of ADR 0010, a known call reading it deep or
+            // naming its elements (R5).
+            if (_sequences.Count != 0 || _iteratorObjects.Count != 0)
+            {
+                foreach (var effect in summary.ArgumentEffects.Where(effect => effect is { IsDeferred: false, Member: null, Kind: IrLibraryEffectKind.Enumerate or IrLibraryEffectKind.DeepRead }))
+                    Consume(instance, effect.OperationId, Eval(instance, effect.Values), new HashSet<string>(StringComparer.Ordinal));
+            }
 
             foreach (var threadWork in summary.ThreadWorks)
             {
@@ -1704,7 +1889,8 @@ public static class WholeProgram
         /// <summary>
         /// The factories of <c>GetOrAdd</c> and <c>AddOrUpdate</c> run where the call stands, as a call of the delegate there would
         /// (R11): each is handed the key argument, the value the dictionary holds, or the overload's own argument, as its parameters
-        /// ask; what it returns is held by the dictionary and is what the call returns. The delegate itself is held by nothing.
+        /// ask; what it returns is held by the dictionary and is what the call returns. The delegate itself is held by nothing. So since
+        /// phase 5c do the delegates of the other members of the table that take one, handed what the cells hold (ADR 0010).
         /// </summary>
         private void RunFactories(InstanceState caller, SummaryOpaqueCall call)
         {
@@ -1717,7 +1903,13 @@ public static class WholeProgram
                                                           : receiver is PathValue path ? new PathValue(path.Base, [.. path.Segments, PathValue.ELEMENT])
                                                           : new PathValue(receiver, [PathValue.ELEMENT]))
                                      .ToHashSet();
-            var dictionaries = Eval(caller, call.Receivers);
+            // What a factory makes, the dictionary holds; what a list's converter returns, the list `ConvertAll` creates does, and a
+            // list `FindAll` creates holds the cells of the one it was called on (ADR 0010, phase 5c). The other delegates of the
+            // table, a predicate, an action and a comparison, return no object.
+            var created = member.ResultTypeKey is { } resultType ? CreatedAtCall(caller, call, resultType) : null;
+            if (created is not null && member.Member.EndsWith(".FindAll", StringComparison.Ordinal))
+                Add(Field(created, PathValue.ELEMENT), Eval(caller, held));
+            var holders = created is not null && member.Member.EndsWith(".ConvertAll", StringComparison.Ordinal) ? [created] : Eval(caller, call.Receivers);
             for (var index = 0; index < member.Factories.Count && index < member.FactoryInputs.Count; index++)
             {
                 var inputs = member.FactoryInputs[index];
@@ -1747,8 +1939,8 @@ public static class WholeProgram
                     var callees = CallDelegate(caller, invocation, state);
                     foreach (var callee in callees)
                     {
-                        foreach (var dictionary in dictionaries)
-                            Add(Field(dictionary, PathValue.ELEMENT), callee.Returns);
+                        foreach (var holder in holders)
+                            Add(Field(holder, PathValue.ELEMENT), callee.Returns);
                     }
 
                     if (callees.Count == 0 && !state.IsNestedBody)
@@ -1765,6 +1957,593 @@ public static class WholeProgram
             }
         }
 
+        /// <summary>
+        /// The delegates a known call receives run as their fates say (ADR 0012, R3), each handed what its inputs name, evaluated at the
+        /// call: an <c>invoke-now</c> one at the call, in the caller's execution, as a call of it there would, and nothing keeps it; a
+        /// <c>startup</c> one in startup for a call startup makes and in an unknown execution for any other; an <c>unknown-execution</c> one
+        /// in an unknown execution, as one an opaque call is handed, though the call is known. What the call returns is what its result
+        /// says, and nothing where it says nothing. A delegate no delegate object is known for, or a method group whose target has no body
+        /// the run has, is an unresolved dispatch at the call, as a call of it there would be.
+        /// </summary>
+        private void RunFates(InstanceState caller, SummaryOpaqueCall call)
+        {
+            var library = call.Library!;
+            var runs = new Dictionary<int, List<(string Region, InstanceState Callee)>>();
+            foreach (var fate in library.Fates)
+            {
+                var invocation = Invocation(call, fate, []);
+                runs[fate.ParameterOrdinal] = Eval(caller, invocation.Receivers).Where(_delegates.ContainsKey)
+                                                  .SelectMany(region => DelegateCallees(caller, call.OperationId, _delegates[region],
+                                                                                        () => NoReceiver(caller, invocation))
+                                                                  .Select(callee => (region, callee)))
+                                                  .ToList();
+            }
+
+            // What the delegates return so far, for the inputs and the result naming it: the analysis does not order a delegate's runs,
+            // and the fixpoint runs the call again as they grow. An iterator delegate's runs are there to be had where the entry step lets
+            // a model name them.
+            var returns = library.Fates.Where(fate => fate.Kind is IrFateKind.InvokeNow or IrFateKind.Iterator)
+                                 .ToDictionary(fate => fate.ParameterOrdinal,
+                                               fate => runs[fate.ParameterOrdinal].SelectMany(run => run.Callee.Returns).ToHashSet(StringComparer.Ordinal));
+            // The library sequence the call returns keeps its iterator delegates; nothing of it runs here (R5).
+            var sequence = library.Result?.Kind == IrResultKind.Sequence ? NewSequence(caller, call, "result", nested: false) : null;
+            // What a delegate returned that the model names the elements of is enumerated as an argument would be: at the call when the
+            // call returns no library sequence, else as a source of the one it returns, by whoever enumerates it (R3, R5).
+            var returned = library.EnumeratedReturns().SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []).ToArray();
+            if (sequence is null)
+                Consume(caller, call.OperationId, returned, new HashSet<string>(StringComparer.Ordinal));
+            else
+                AddReturnedSources(sequence, returned);
+            foreach (var fate in library.Fates)
+            {
+                if (fate.Kind == IrFateKind.Holder)
+                {
+                    Hold(caller, call, fate, returns);
+                    continue;
+                }
+
+                var inputs = fate.Inputs.Select((input, ordinal) => new CallArgument(ordinal, input.SelectMany((value, position) =>
+                                                                                                        ModelValues(caller, call, value, returns,
+                                                                                                                    $"fate{fate.ParameterOrdinal}.{ordinal}.{position}"))
+                                                                                                    .Select(region => (AbstractValue)new RegionValue(region))
+                                                                                                    .ToHashSet()))
+                                 .ToArray();
+                var invocation = Invocation(call, fate, inputs);
+                var regions = Eval(caller, invocation.Receivers).Where(_delegates.ContainsKey).ToArray();
+                if (regions.Length == 0)
+                {
+                    if (sequence is not null && fate.Kind == IrFateKind.Iterator)
+                    {
+                        sequence.Unresolved[(fate.ParameterOrdinal, UNRESOLVED_DELEGATE)] = (call.Callee, inputs, []);
+                        continue;
+                    }
+
+                    NoReceiver(caller, invocation);
+                    UnresolvedFate(caller, invocation, []);
+                    continue;
+                }
+
+                foreach (var region in regions)
+                {
+                    var state = _delegates[region];
+                    var callees = runs[fate.ParameterOrdinal].Where(run => run.Region == region).Select(run => run.Callee).ToArray();
+                    if (callees.Length == 0 && !state.IsNestedBody)
+                    {
+                        var declaring = _program.Method(state.Target)?.ContainingTypeKey;
+                        var receivers = state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray();
+                        if (sequence is not null && fate.Kind == IrFateKind.Iterator)
+                            sequence.Unresolved[(fate.ParameterOrdinal, region)] = (call.Callee, inputs, receivers);
+                        else
+                            UnresolvedFate(caller, invocation, receivers);
+                    }
+
+                    foreach (var callee in callees)
+                    {
+                        foreach (var input in inputs)
+                            Add(Parameter(callee, input.ParameterOrdinal), Eval(caller, input.Values));
+                        Add(callee.Requests, caller.Requests);
+                        switch (fate.Kind)
+                        {
+                            case IrFateKind.InvokeNow:
+                                RunNow(caller, invocation, callee);
+                                break;
+                            case IrFateKind.Iterator when sequence is not null:
+                                if (sequence.Callees.Add(callee.Id))
+                                    _changes++;
+                                break;
+                            case IrFateKind.Startup:
+                                _startupDelegates.Add((caller.Id, call.OperationId, region, callee.Id));
+                                break;
+                            case IrFateKind.UnknownExecution:
+                                if (!_handoffs.TryGetValue(region, out var handoff))
+                                    _handoffs.Add(region, handoff = ([], new HashSet<string>(StringComparer.Ordinal)));
+                                handoff.Sites.Add((caller.Id, call.OperationId));
+                                handoff.Callees.Add(callee.Id);
+                                break;
+                        }
+                    }
+                }
+            }
+
+            if (library.Result is { } result)
+                ModelResult(caller, call, result, returns, sequence);
+        }
+
+        /// <summary>A library sequence a known call returns or a model's value creates: the iterator delegates it keeps, those no body
+        /// the run has resolves, which are an unresolved dispatch wherever it is enumerated, and the sources it enumerates (R5). What it
+        /// yields is its element storage.</summary>
+        private sealed class SequenceState(string region, string creator, int operation, bool nested)
+        {
+            public string Region { get; } = region;
+            public string Creator { get; } = creator;
+            public int Operation { get; } = operation;
+            public bool IsNested { get; } = nested;
+            public HashSet<string> Callees { get; } = new(StringComparer.Ordinal);
+            public HashSet<string> Sources { get; } = new(StringComparer.Ordinal);
+            public HashSet<string> ReturnedSources { get; } = new(StringComparer.Ordinal);
+            /// <summary>By delegate parameter and delegate region, <see cref="UNRESOLVED_DELEGATE"/> where no delegate object is known: each
+            /// target of one argument is a dispatch of its own.</summary>
+            public Dictionary<(int Parameter, string Region), (string Callee, IReadOnlyList<CallArgument> Inputs, (string Region, string? DeclaringTypeKey)[] Receivers)> Unresolved { get; } = [];
+        }
+
+        /// <summary>The library sequence created at a call, <paramref name="path"/> telling the result from each sequence a value of its
+        /// model creates.</summary>
+        private SequenceState NewSequence(InstanceState caller, SummaryOpaqueCall call, string path, bool nested)
+        {
+            var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
+            var region = Region($"sequence|{caller.BodyId}#{call.OperationId}|{path}|{ContextKey(caller)}", HeapRegionKind.Allocation,
+                                $"sequence:{owner}#{call.Callee}{(nested ? "@" + path : "")}", null, caller.Context,
+                                $"sequence|{caller.BodyId}#{call.OperationId}|{path}", merged: caller.IsMerged,
+                                site: new CreationSite(caller.BodyId, call.OperationId, call.Library!.ResultTypeKey ?? "sequence", 1));
+            if (!_sequences.TryGetValue(region, out var sequence))
+                _sequences.Add(region, sequence = new SequenceState(region, caller.Id, call.OperationId, nested));
+            return sequence;
+        }
+
+        /// <summary>The parameters whose argument a call enumerates where it stands or keeps for a library sequence it returns: those a
+        /// known call's model reads deep, writes or names the elements of, and the collection a copy of ADR 0010 copies (R5).</summary>
+        private static HashSet<int> Consumed(SummaryOpaqueCall call)
+        {
+            var consumed = new HashSet<int>();
+            if (call.IsKnown)
+            {
+                consumed.UnionWith(call.Library!.NamedArguments());
+                consumed.UnionWith(call.Library.Effects.Select(effect => effect.ParameterOrdinal));
+            }
+
+            if (call.Collection?.Source is int source)
+                consumed.Add(source);
+            return consumed;
+        }
+
+        /// <summary>A consumer enumerates what it is handed where it stands, in its own execution (R5): a library sequence runs its
+        /// iterator delegates and enumerates its sources there, and a user iterator is enumerated there instead of in an unknown
+        /// enumeration.</summary>
+        private void Consume(InstanceState consumer, int operationId, IEnumerable<string> regions, HashSet<string> visited)
+        {
+            foreach (var region in regions.ToArray())
+            {
+                if (_sequences.TryGetValue(region, out var sequence))
+                {
+                    if (!visited.Add(region))
+                        continue;
+                    foreach (var callee in sequence.Callees)
+                    {
+                        Add(_instances[callee].Requests, consumer.Requests);
+                        if (_edges.Add((consumer.Id, operationId, callee, "delegate")))
+                            _changes++;
+                    }
+
+                    // A delegate no body the run has resolves is an unresolved dispatch at each enumeration, as a call of it there would be.
+                    foreach (var (callee, inputs, receivers) in sequence.Unresolved.Values)
+                    {
+                        var invocation = new CallTransfer(operationId, callee, IrCallKind.Delegate, new HashSet<AbstractValue>(), inputs, []);
+                        NoReceiver(consumer, invocation);
+                        UnresolvedFate(consumer, invocation, receivers);
+                    }
+
+                    Consume(consumer, operationId, sequence.Sources, visited);
+                }
+                else if (_iteratorObjects.ContainsKey(region))
+                    _iteratorEnumerations.Add((consumer.Id, operationId, region));
+            }
+        }
+
+        private static IReadOnlySet<AbstractValue> ArgumentOf(SummaryOpaqueCall call, int ordinal) =>
+            call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new HashSet<AbstractValue>();
+
+        /// <summary>A call of a fated delegate at the known call's site, handed <paramref name="inputs"/>.</summary>
+        private static CallTransfer Invocation(SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyList<CallArgument> inputs) =>
+            new(call.OperationId, call.Callee, IrCallKind.Delegate, ArgumentOf(call, fate.ParameterOrdinal), inputs, []);
+
+        /// <summary>An <c>invoke-now</c> delegate runs as a call of it at the site would, in the caller's execution and under its locks;
+        /// what it returns is no part of what the call returns unless the model's result says so.</summary>
+        private void RunNow(InstanceState caller, CallTransfer invocation, InstanceState callee)
+        {
+            if (AsyncSpawnKind(invocation, callee) is { } kind)
+            {
+                var site = SiteOf(_asyncSpawns, caller, invocation.OperationId, () => new SiteState(kind, invocation.OperationId));
+                if (site.Callees.Add((callee.Id, SpawnRole.Work)))
+                    _changes++;
+            }
+
+            if (_edges.Add((caller.Id, invocation.OperationId, callee.Id, "delegate")))
+                _changes++;
+        }
+
+        /// <summary>An unresolved dispatch of a fated delegate, which sees what the delegate is handed (R1).</summary>
+        private void UnresolvedFate(InstanceState caller, CallTransfer invocation, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
+        {
+            Unresolved(caller, invocation, receivers);
+            if (!_unresolvedFateInputs.TryGetValue((caller.Id, invocation.OperationId), out var seen))
+                _unresolvedFateInputs.Add((caller.Id, invocation.OperationId), seen = new HashSet<string>(StringComparer.Ordinal));
+            seen.UnionWith(Eval(caller, invocation.Arguments.SelectMany(argument => argument.Values)));
+        }
+
+        /// <summary>The objects a value of a model names at a known call: what an argument points to, what a delegate returned, what
+        /// enumerating either yields, or a new library sequence or grouping built of values, created at the call; <paramref name="path"/>
+        /// tells apart each such object one call creates.</summary>
+        private HashSet<string> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, IReadOnlyDictionary<int, HashSet<string>> returns,
+                                            string path)
+        {
+            switch (value)
+            {
+                case IrModelArgument argument:
+                    return Eval(caller, ArgumentOf(call, argument.ParameterOrdinal));
+                case IrModelReturns returned:
+                    return new HashSet<string>(returns.GetValueOrDefault(returned.ParameterOrdinal) ?? [], StringComparer.Ordinal);
+                case IrModelElements elements:
+                    return Elements(ModelValues(caller, call, elements.Source, returns, path + ".e"), elements.ElementTypeKey);
+                case IrModelSequence sequenceValue:
+                {
+                    // A sequence a value builds yields its values and enumerates the arguments they name the elements of (R5).
+                    var sequence = NewSequence(caller, call, path, nested: true);
+                    Add(Field(sequence.Region, PathValue.ELEMENT),
+                        sequenceValue.Values.SelectMany((item, position) => ModelValues(caller, call, item, returns, $"{path}.{position}")));
+                    AddSources(caller, call, sequence, sequenceValue.Values);
+                    AddReturnedSources(sequence, IrLibraryCall.EnumeratedReturns(sequenceValue.Values)
+                                                              .SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
+                    return [sequence.Region];
+                }
+                case IrModelGrouping groupingValue:
+                {
+                    var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
+                    var grouping = Region($"grouping|{caller.BodyId}#{call.OperationId}|{path}|{ContextKey(caller)}", HeapRegionKind.Allocation,
+                                          $"grouping:{owner}#{call.Callee}@{path}", null, caller.Context,
+                                          $"grouping|{caller.BodyId}#{call.OperationId}|{path}", merged: caller.IsMerged,
+                                          site: new CreationSite(caller.BodyId, call.OperationId, "grouping", 1));
+                    if (_groupings.Add(grouping))
+                        _changes++;
+                    Add(Field(grouping, PathValue.KEYS), ModelValues(caller, call, groupingValue.Key, returns, path + ".k"));
+                    Add(Field(grouping, PathValue.ELEMENT), ModelValues(caller, call, groupingValue.Values, returns, path + ".v"));
+                    return [grouping];
+                }
+                default:
+                    return new HashSet<string>(StringComparer.Ordinal);
+            }
+        }
+
+        /// <summary>The arguments a sequence's values name the elements of are the sources it enumerates.</summary>
+        private void AddSources(InstanceState caller, SummaryOpaqueCall call, SequenceState sequence, IEnumerable<IrModelValue> values)
+        {
+            foreach (var ordinal in IrLibraryCall.EnumeratedArguments(values))
+            {
+                foreach (var source in Eval(caller, ArgumentOf(call, ordinal)))
+                {
+                    if (sequence.Sources.Add(source))
+                        _changes++;
+                }
+            }
+        }
+
+        /// <summary>What a delegate returned that a sequence's values name the elements of is a source it enumerates too (R5).</summary>
+        private void AddReturnedSources(SequenceState sequence, IEnumerable<string> returned)
+        {
+            foreach (var source in returned)
+            {
+                sequence.ReturnedSources.Add(source);
+                if (sequence.Sources.Add(source))
+                    _changes++;
+            }
+        }
+
+        /// <summary>What enumerating objects yields (R3, R5): what a library sequence or a grouping yields, what an array's or a
+        /// collection's storages hold, and for any other sequence of the run's own every object it reaches of the element type, or every
+        /// one where that type says nothing (open question 27). A user iterator yields what its body's <c>yield return</c>s hand out.</summary>
+        private HashSet<string> Elements(IEnumerable<string> sources, string? elementTypeKey)
+        {
+            var yielded = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var source in sources)
+            {
+                var type = _regions[source].TypeKey;
+                if (_iteratorObjects.TryGetValue(source, out var iterator))
+                    yielded.UnionWith(_instances.GetValueOrDefault(iterator.CalleeInstance)?.Yields ?? []);
+                else if (_sequences.ContainsKey(source) || _groupings.Contains(source))
+                    yielded.UnionWith(Load(source, PathValue.ELEMENT));
+                else if (InterproceduralAccesses.IsCollectionType(_program, type))
+                    yielded.UnionWith(Load(source, PathValue.ELEMENT).Concat(Load(source, PathValue.KEYS)));
+                else if (type is not null && _program.Type(type) is { IsSource: true })
+                {
+                    yielded.UnionWith(Closure(source).Where(reached => _regions[reached].Kind != HeapRegionKind.Delegate &&
+                                                                       (elementTypeKey is null || _regions[reached].TypeKey is { } reachedType &&
+                                                                        _program.Supertypes(reachedType).Contains(elementTypeKey, StringComparer.Ordinal))));
+                }
+            }
+
+            return yielded;
+        }
+
+        /// <summary>What a known call returns as its model's result says (R3): one of the objects its values name, or a new collection or
+        /// array of the call's result type, created at the call, whose storage holds them, or a new dictionary holding keys and values
+        /// apart.</summary>
+        private void ModelResult(InstanceState caller, SummaryOpaqueCall call, IrLibraryResult result, IReadOnlyDictionary<int, HashSet<string>> returns,
+                                 SequenceState? sequence)
+        {
+            var values = result.Values.Select((value, position) => ModelValues(caller, call, value, returns, $"result.{position}")).ToArray();
+            // A library sequence yields its values when it is enumerated and enumerates the arguments they name the elements of (R5).
+            if (sequence is not null)
+            {
+                Add(Field(sequence.Region, PathValue.ELEMENT), values.SelectMany(value => value));
+                AddSources(caller, call, sequence, result.Values);
+                Add(CallResult(caller, call.OperationId), [sequence.Region]);
+                return;
+            }
+
+            if (result.Kind == IrResultKind.OneOf)
+            {
+                Add(CallResult(caller, call.OperationId), values.SelectMany(value => value));
+                return;
+            }
+
+            if (result.Kind is not (IrResultKind.Collection or IrResultKind.Dictionary) || CreatedAtCall(caller, call) is not { } created)
+                return;
+            if (result.Kind == IrResultKind.Dictionary)
+            {
+                Add(Field(created, PathValue.KEYS), values[0]);
+                Add(Field(created, PathValue.ELEMENT), values[1]);
+            }
+            else
+                Add(Field(created, PathValue.ELEMENT), values.SelectMany(value => value));
+        }
+
+        /// <summary>The new object of its result type a known call creates and returns, null where the model names no result type.</summary>
+        private string? CreatedAtCall(InstanceState caller, SummaryOpaqueCall call) =>
+            call.Library!.ResultTypeKey is { } resultType ? CreatedAtCall(caller, call, resultType) : null;
+
+        /// <summary>The new object of <paramref name="resultType"/> a call creates at its site and returns.</summary>
+        private string CreatedAtCall(InstanceState caller, SummaryOpaqueCall call, string resultType)
+        {
+            var typeKey = ProgramIndex.Substitute(resultType, caller.Substitution);
+            var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
+            var created = Region($"alloc|{caller.BodyId}#{call.OperationId}|{typeKey}|{ContextKey(caller)}", HeapRegionKind.Allocation,
+                                 $"alloc:{owner}#{DisplayType(typeKey)}", typeKey, caller.Context, $"alloc|{caller.BodyId}#{call.OperationId}",
+                                 merged: caller.IsMerged, site: new CreationSite(caller.BodyId, call.OperationId, resultType, 1));
+            Add(CallResult(caller, call.OperationId), [created]);
+            return created;
+        }
+
+        private const string UNRESOLVED_DELEGATE = "";
+
+        /// <summary>What a holder keeps of one delegate: what each of its parameters is handed besides the arguments of the member
+        /// call that runs it, and the indices of those arguments (R4).</summary>
+        private sealed class HeldDelegate
+        {
+            /// <summary>The call that made the delegate held, which names its unresolved dispatch where it escapes.</summary>
+            public string Callee { get; set; } = "";
+            public List<HashSet<string>> Regions { get; } = [];
+            public List<HashSet<int>> HolderArguments { get; } = [];
+        }
+
+        /// <summary>A <c>holder</c> fate keeps the delegate in its holder: a new object created at the call, which the call returns, or
+        /// for a constructor the object it creates, or each object the receiver points to. A receiver the heap knows no object for keeps
+        /// it where the analysis cannot follow it, so it runs in an unknown execution (R4).</summary>
+        private void Hold(InstanceState caller, SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyDictionary<int, HashSet<string>> returns)
+        {
+            var regions = fate.Inputs.Select((input, ordinal) => input.Select((value, position) => (Value: value, Position: position))
+                                                                      .Where(item => item.Value is not IrModelHolderArgument)
+                                                                      .SelectMany(item => ModelValues(caller, call, item.Value, returns,
+                                                                                                      $"fate{fate.ParameterOrdinal}.{ordinal}.{item.Position}"))
+                                                                      .ToHashSet(StringComparer.Ordinal))
+                              .ToArray();
+            var holderArguments = fate.Inputs.Select(input => input.OfType<IrModelHolderArgument>().Select(argument => argument.Index).ToHashSet()).ToArray();
+            var delegates = Eval(caller, ArgumentOf(call, fate.ParameterOrdinal)).Where(_delegates.ContainsKey).ToArray();
+            IReadOnlyCollection<string> holders = fate.Holder == IrHolderKind.Result && !call.IsConstructor
+                ? CreatedAtCall(caller, call) is { } created ? [created] : []
+                : Eval(caller, call.Receivers);
+            if (holders.Count == 0)
+            {
+                // A delegate no object is known for is an unresolved dispatch there, as it would be in that unknown execution (R3).
+                if (delegates.Length == 0)
+                    UnresolvedHeld(caller, call.OperationId, call.Callee, regions);
+                foreach (var region in delegates)
+                    HandOver(caller, call.OperationId, call.Callee, region, regions);
+                return;
+            }
+
+            foreach (var holder in holders)
+            {
+                if (delegates.Length == 0)
+                    Keep(holder, UNRESOLVED_DELEGATE, call.Callee, regions, holderArguments);
+                foreach (var region in delegates)
+                    Keep(holder, region, call.Callee, regions, holderArguments);
+            }
+        }
+
+        private void Keep(string holder, string region, string callee, IReadOnlyList<HashSet<string>> regions, IReadOnlyList<HashSet<int>> holderArguments)
+        {
+            if (!_held.TryGetValue(holder, out var kept))
+            {
+                _held.Add(holder, kept = new Dictionary<string, HeldDelegate>(StringComparer.Ordinal));
+                _changes++;
+            }
+
+            if (!kept.TryGetValue(region, out var held))
+            {
+                kept.Add(region, held = new HeldDelegate { Callee = callee });
+                _changes++;
+            }
+
+            for (var ordinal = 0; ordinal < regions.Count; ordinal++)
+            {
+                if (held.Regions.Count <= ordinal)
+                {
+                    held.Regions.Add(new HashSet<string>(StringComparer.Ordinal));
+                    held.HolderArguments.Add([]);
+                }
+
+                Add(held.Regions[ordinal], regions[ordinal]);
+                foreach (var index in holderArguments[ordinal])
+                {
+                    if (held.HolderArguments[ordinal].Add(index))
+                        _changes++;
+                }
+            }
+        }
+
+        /// <summary>A call without a body of its own on a holder runs every delegate the holder keeps, at the call, in the caller's
+        /// execution, each parameter handed what the holder keeps for it and the call's arguments its model names, nothing where the call
+        /// has fewer (R4). A delegate no delegate object is known for, or with no body the run has, is an unresolved dispatch there.</summary>
+        private void RunHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<CallArgument> arguments, string holder)
+        {
+            foreach (var (region, held) in _held[holder].ToArray())
+            {
+                var inputs = held.Regions.Select((regions, ordinal) => new CallArgument(ordinal,
+                                     regions.Concat(held.HolderArguments[ordinal].SelectMany(index =>
+                                                Eval(caller, arguments.FirstOrDefault(argument => argument.ParameterOrdinal == index)?.Values ?? new HashSet<AbstractValue>())))
+                                            .Select(value => (AbstractValue)new RegionValue(value))
+                                            .ToHashSet()))
+                                 .ToArray();
+                var invocation = new CallTransfer(operationId, callee, IrCallKind.Delegate,
+                                                  region == UNRESOLVED_DELEGATE ? new HashSet<AbstractValue>() : new HashSet<AbstractValue> { new RegionValue(region) },
+                                                  inputs, []);
+                if (region == UNRESOLVED_DELEGATE)
+                {
+                    NoReceiver(caller, invocation);
+                    UnresolvedFate(caller, invocation, []);
+                    continue;
+                }
+
+                var state = _delegates[region];
+                var callees = DelegateCallees(caller, operationId, state, () => NoReceiver(caller, invocation));
+                if (callees.Count == 0 && !state.IsNestedBody)
+                {
+                    var declaring = _program.Method(state.Target)?.ContainingTypeKey;
+                    UnresolvedFate(caller, invocation, state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
+                }
+
+                foreach (var instance in callees)
+                {
+                    foreach (var input in inputs)
+                        Add(Parameter(instance, input.ParameterOrdinal), Eval(caller, input.Values));
+                    Add(instance.Requests, caller.Requests);
+                    RunNow(caller, invocation, instance);
+                }
+            }
+        }
+
+        /// <summary>Hands a delegate to its unknown execution at a site, its parameters handed <paramref name="regions"/>. A method group
+        /// whose target has no body the run has is an unresolved dispatch there, as a call of it would be (R3).</summary>
+        private void HandOver(InstanceState caller, int operationId, string callee, string region, IReadOnlyList<HashSet<string>> regions)
+        {
+            if (!_handoffs.TryGetValue(region, out var handoff))
+                _handoffs.Add(region, handoff = ([], new HashSet<string>(StringComparer.Ordinal)));
+            handoff.Sites.Add((caller.Id, operationId));
+            var state = _delegates[region];
+            var callees = DelegateCallees(caller, operationId, state, () => { });
+            foreach (var instance in callees)
+            {
+                for (var ordinal = 0; ordinal < regions.Count; ordinal++)
+                    Add(Parameter(instance, ordinal), regions[ordinal]);
+                Add(instance.Requests, caller.Requests);
+                handoff.Callees.Add(instance.Id);
+            }
+
+            if (callees.Count == 0 && !state.IsNestedBody)
+            {
+                var declaring = _program.Method(state.Target)?.ContainingTypeKey;
+                UnresolvedFate(caller, HeldInvocation(operationId, callee, new HashSet<AbstractValue> { new RegionValue(region) }, regions),
+                               state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
+            }
+        }
+
+        /// <summary>A held delegate no delegate object is known for, run in an unknown execution from a site: an unresolved dispatch there,
+        /// which sees what the holder keeps for it (R3, R4).</summary>
+        private void UnresolvedHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<HashSet<string>> regions)
+        {
+            var invocation = HeldInvocation(operationId, callee, new HashSet<AbstractValue>(), regions);
+            NoReceiver(caller, invocation);
+            UnresolvedFate(caller, invocation, []);
+        }
+
+        private static CallTransfer HeldInvocation(int operationId, string callee, IReadOnlySet<AbstractValue> receivers, IReadOnlyList<HashSet<string>> regions) =>
+            new(operationId, callee, IrCallKind.Delegate, receivers,
+                regions.Select((values, ordinal) => new CallArgument(ordinal, values.Select(value => (AbstractValue)new RegionValue(value)).ToHashSet())).ToArray(),
+                []);
+
+        /// <summary>The holders reachable from what a call without a body is handed, the argument itself or through fields, array and
+        /// collection cells and captures, escape there: what they keep runs, in addition, in an unknown execution (R4).</summary>
+        private void EscapeHolders(InstanceState caller, int operationId, IEnumerable<AbstractValue> values)
+        {
+            if (_held.Count == 0)
+                return;
+            foreach (var holder in Reached(Eval(caller, values)).Where(_held.ContainsKey).ToArray())
+                Escape(holder, caller, operationId);
+        }
+
+        /// <summary>A holder captured, however deep, by a delegate the analysis runs in an unknown execution escapes where that delegate
+        /// is handed over (R4); what escapes is handed over in turn.</summary>
+        private void EscapeCapturedHolders()
+        {
+            if (_held.Count == 0)
+                return;
+            var done = new HashSet<string>(StringComparer.Ordinal);
+            while (_handoffs.Keys.Where(done.Add).ToArray() is { Length: > 0 } handed)
+            {
+                foreach (var region in handed)
+                {
+                    var sites = _handoffs[region].Sites.ToArray();
+                    foreach (var holder in Reached(Captures(region)).Where(_held.ContainsKey).ToArray())
+                    {
+                        foreach (var (caller, operation) in sites)
+                            Escape(holder, _instances[caller], operation);
+                    }
+                }
+            }
+        }
+
+        private void Escape(string holder, InstanceState caller, int operationId)
+        {
+            foreach (var (region, held) in _held[holder].ToArray())
+            {
+                if (region == UNRESOLVED_DELEGATE)
+                    UnresolvedHeld(caller, operationId, held.Callee, held.Regions);
+                else
+                    HandOver(caller, operationId, held.Callee, region, held.Regions);
+            }
+        }
+
+        /// <summary>The regions reachable from <paramref name="starts"/>, the starts included, through fields, storages and captures.</summary>
+        private HashSet<string> Reached(IEnumerable<string> starts)
+        {
+            _reachIndex ??= _fields.Where(pair => pair.Value.Count != 0)
+                                   .GroupBy(pair => pair.Key.Region, StringComparer.Ordinal)
+                                   .ToDictionary(group => group.Key, group => group.SelectMany(pair => pair.Value).Distinct(StringComparer.Ordinal).ToList(),
+                                                 StringComparer.Ordinal);
+            var reached = new HashSet<string>(starts, StringComparer.Ordinal);
+            var pending = new Stack<string>(reached);
+            while (pending.TryPop(out var current))
+            {
+                var next = (_reachIndex.GetValueOrDefault(current) ?? []).Concat(_delegates.ContainsKey(current) ? Captures(current) : []);
+                foreach (var target in next)
+                {
+                    if (reached.Add(target))
+                        pending.Push(target);
+                }
+            }
+
+            return reached;
+        }
+
         /// <summary>Records an unresolved dispatch with the receiver objects it sees and hands off the delegates it is given (R1, R3).</summary>
         private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
         {
@@ -1773,6 +2552,7 @@ public static class WholeProgram
                 _unresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
             known.UnionWith(receivers);
             Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+            EscapeHolders(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
         }
 
         /// <summary>The instances running a delegate's target for an operation of <paramref name="caller"/>; <paramref name="noReceiver"/>
@@ -1841,6 +2621,13 @@ public static class WholeProgram
             foreach (var callee in callees)
                 Bind(caller, call, callee, reason);
 
+            // A holder decides the call, as a member of the table does on its objects: its member runs what it keeps (R4).
+            if (!dispatched && _held.ContainsKey(receiver))
+            {
+                RunHeld(caller, call.OperationId, call.Callee, call.Arguments, receiver);
+                return;
+            }
+
             // A receiver whose type has no implementation with a body runs one the analysis cannot read: however many other types do,
             // the call is unresolved for this one (R1), unless it is an object the call decides as a member of the table (ADR 0010,
             // amendment of the phase 5b third run).
@@ -1856,8 +2643,9 @@ public static class WholeProgram
         /// then no unresolved call, and runs nothing it is handed, as the member it is on each of them does not (ADR 0010, amendment of the
         /// phase 5b third run). A call the heap knows no receiver object for stays unresolved.</summary>
         private bool DecidesEvery(InstanceState instance, SummaryOpaqueCall call) =>
-            call.Implementations.Count != 0 && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
-            receivers.All(receiver => CollectionObjects.Decision(call.Implementations, ObjectKind(receiver)) is not null);
+            (call.Implementations.Count != 0 || _held.Count != 0 && !call.IsConstructor) && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
+            receivers.All(receiver => !call.IsConstructor && _held.ContainsKey(receiver) ||
+                                      call.Implementations.Count != 0 && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver)) is not null);
 
         /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
         private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
@@ -2040,6 +2828,7 @@ public static class WholeProgram
                                                       .SelectMany(handle => Eval(instance, handle.Values)))
                                             .ToHashSet(StringComparer.Ordinal),
             PathValue path => EvalPath(instance, path),
+            RegionValue region => [region.RegionId],
             _ => new HashSet<string>(StringComparer.Ordinal)
         };
 
