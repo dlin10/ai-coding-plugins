@@ -14,9 +14,30 @@ internal static partial class SensitiveInput
     {
         var normalized = path.Replace('\\', '/');
         return SensitiveName().IsMatch(normalized)
+               || IsNamedForASecret(normalized)
                || SensitiveLocation().IsMatch(normalized)
                || KeyMaterialExtension().IsMatch(path);
     }
+
+    /// <summary>
+    /// Whether a secret keyword in the path — or an SSH key's name, see <see cref="SshKeyName"/> —
+    /// names what the file holds, which for source code it never does:
+    /// <c>src/Infra/CancellationTokenExtensions.cs</c>, <c>tests/PasswordPolicyTests.cs</c> and
+    /// <c>src/Auth/TokenCache.cs</c> each refused a whole code-review round, the false positive
+    /// issue #88 was for content lines. A source file is exempt because its contents still reach
+    /// <see cref="Guard"/> line by line, and a secret written in code is assigned to a name that says
+    /// so, which is the form that rule reads. Everything else keeps the keyword, a directory's
+    /// included — data, config, text, an unknown extension or none — because there a secret can sit
+    /// on a line with nothing beside it, as in <c>tokens.json</c> or <c>api-token</c>, and the path
+    /// is all there is to go on. Matching the keyword as a whole word was the other way to narrow
+    /// it, and it does not reach far enough: <c>token_cache.py</c> and <c>Token.cs</c> are whole
+    /// words. What this gives up is a secret in a source file that is neither assigned to a
+    /// secret-sounding name nor key material — a bearer string in a header table, say — and that is
+    /// the trade: a false refusal costs a round and a rename in production code, and the same secret
+    /// in <c>Program.cs</c> was never guarded by name.
+    /// </summary>
+    private static bool IsNamedForASecret(string path) =>
+        (SecretPathKeyword().IsMatch(path) || SshKeyName().IsMatch(path)) && !SourceExtension().IsMatch(path);
 
     /// <summary>Where a withheld value sits. The value itself is never carried: it is the one thing being withheld.</summary>
     private readonly record struct Hit(int Line, string? Path, string? Field);
@@ -104,8 +125,31 @@ internal static partial class SensitiveInput
         return hit.Field is { Length: > 0 } field ? $"{where}, assigned to `{field}`" : where;
     }
 
-    [GeneratedRegex(@"(^|/|\\)(?:\.env(?:[./\\].*)?|[^/\\]+\.env|\.npmrc|\.pypirc|\.netrc|id_[^/\\]+|service[-_.]?account[^/\\]*\.json|keystore\.jks|appsettings\.[^/\\]+\.json|credentials|\.git-credentials|secrets?\.(?:json|ya?ml|toml)|kubeconfig|terraform\.tfstate(?:\.backup)?|.*(?:secret|token|password|credential).*)$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(^|/|\\)(?:\.env(?:[./\\].*)?|[^/\\]+\.env|\.npmrc|\.pypirc|\.netrc|service[-_.]?account[^/\\]*\.json|keystore\.jks|appsettings\.[^/\\]+\.json|credentials|\.git-credentials|secrets?\.(?:json|ya?ml|toml)|kubeconfig|terraform\.tfstate(?:\.backup)?)$", RegexOptions.IgnoreCase)]
     private static partial Regex SensitiveName();
+
+    [GeneratedRegex("(?:secret|token|password|credential)", RegexOptions.IgnoreCase)]
+    private static partial Regex SecretPathKeyword();
+
+    /// <summary>
+    /// A file name in the shape ssh-keygen gives a key, <c>id_rsa</c> or <c>id_ed25519</c> and
+    /// whatever a user appends to it. It takes the keywords' source exemption because <c>id_</c>
+    /// opens <c>id_generator.py</c> and <c>id_mapping.cs</c> just as readily, and each refused a
+    /// whole code-review round. Listing the algorithms was the other way to narrow it, and it cuts
+    /// the wrong side: <c>id_github</c> names no algorithm and is a key, while no key is called
+    /// <c>id_mapping.cs</c>; requiring no extension was a third, and it loses <c>id_rsa.bak</c>.
+    /// The public half, <c>.pub</c>, stays guarded although it holds nothing secret: freeing it
+    /// would be a rule of its own for a file a run rarely changes, and the refusal names it. What
+    /// this gives up is a key saved under a source extension, which ssh-keygen never writes — and a
+    /// private key's contents are refused by <see cref="PrivateKey"/> whatever the file is called.
+    /// What it keeps is a data file that merely starts with <c>id_</c>, <c>id_mapping.json</c> say,
+    /// and that is the trade: a refused round over a fixture beats a key read by a vendor.
+    /// </summary>
+    [GeneratedRegex("(?:^|/)id_[^/]+$", RegexOptions.IgnoreCase)]
+    private static partial Regex SshKeyName();
+
+    [GeneratedRegex(@"\.(cs|fs|vb|razor|cshtml|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|scala|rb|php|swift|c|h|cc|cpp|hpp|m|mm)$", RegexOptions.IgnoreCase)]
+    private static partial Regex SourceExtension();
 
     [GeneratedRegex(@"(?:^|[\\/])(?:\.docker[\\/]config\.json|\.kube[\\/]config)$", RegexOptions.IgnoreCase)]
     private static partial Regex SensitiveLocation();

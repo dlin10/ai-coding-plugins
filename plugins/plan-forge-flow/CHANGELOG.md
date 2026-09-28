@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.37.1
+
+A source file whose name merely contained a secret keyword, or began with `id_`, refused the whole
+code-review round — the false positive issue #88 fixed for content lines, on paths.
+
+- The keyword rule (`secret`, `token`, `password`, `credential`) no longer applies to
+  programming-language source files, so `CancellationTokenExtensions.cs`, `PasswordPolicyTests.cs`
+  and `token_cache.py` pass. Their lines still go through the content check, which reads a secret
+  the way code writes one. Every other file keeps the rule, a keyword in a directory included:
+  `tokens.json`, `api-token` and `secrets/prod.json` are still refused.
+- The SSH key rule `id_*` takes the same exemption: `id_generator.py` and `id_mapping.cs` pass,
+  while `id_rsa`, `id_ed25519`, `id_github`, `id_rsa.bak` and `id_rsa.pub` are still refused.
+- What stays refused on purpose: a data, documentation, project or script file named with a keyword
+  or starting with `id_`, such as `id_mapping.json` or `docs/token-rotation.md`.
+
 ## 0.37.0
 
 The Scout finds what a plan breaks, and its whole answer reaches the orchestrator (issue #117, docs/adr/0021).
