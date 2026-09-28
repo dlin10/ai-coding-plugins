@@ -26,6 +26,60 @@ public sealed class SafetyTests
     [InlineData("docs/adr/0002-mcp-server-surface-without-enforcement.md")]
     public void Leaves_an_ordinary_path_alone(string path) => Assert.False(SensitiveInput.IsSensitivePath(path));
 
+    /// <summary>
+    /// Issue #88's false positive, on paths: a keyword anywhere in a changed path refused the whole
+    /// code-review round, and a type named after a cancellation token or a password policy is
+    /// ordinary code whose lines still reach the content rule. So is a snake_case module, which is
+    /// why the keyword is not narrowed to a whole word instead — <c>token_cache</c> is one.
+    /// </summary>
+    [Theory]
+    [InlineData("src/Infra/CancellationTokenExtensions.cs")]
+    [InlineData("tests/PasswordPolicyTests.cs")]
+    [InlineData("src/Auth/TokenCache.cs")]
+    [InlineData("app/auth/token_cache.py")]
+    public void Leaves_a_source_file_named_after_a_secret_keyword_alone(string path) =>
+        Assert.False(SensitiveInput.IsSensitivePath(path));
+
+    /// <summary>
+    /// The other half of the same change: a file that is not source code keeps the keyword rule,
+    /// because a secret there can sit on a line with no name beside it and the path is all there is
+    /// to go on. A keyword in a directory still counts.
+    /// </summary>
+    [Theory]
+    [InlineData("config/tokens.json")]
+    [InlineData("secret.txt")]
+    [InlineData(".git-credentials")]
+    [InlineData("password.txt")]
+    [InlineData("deploy/api-token")]
+    [InlineData("credentials")]
+    [InlineData("secrets/prod.json")]
+    public void Still_names_a_file_named_for_the_secret_it_holds(string path) =>
+        Assert.True(SensitiveInput.IsSensitivePath(path));
+
+    /// <summary>
+    /// The same false positive from the SSH-key rule: <c>id_</c> opens <c>id_generator.py</c> as
+    /// readily as <c>id_rsa</c>, and either name refused the whole code-review round.
+    /// </summary>
+    [Theory]
+    [InlineData("src/id_generator.py")]
+    [InlineData("src/Users/id_mapping.cs")]
+    [InlineData("tests/id_generator_test.go")]
+    public void Leaves_a_source_file_that_starts_like_an_ssh_key_alone(string path) =>
+        Assert.False(SensitiveInput.IsSensitivePath(path));
+
+    /// <summary>
+    /// The other half: a key keeps its guard whatever algorithm, suffix or backup extension its
+    /// name carries, and so does its public half.
+    /// </summary>
+    [Theory]
+    [InlineData("id_rsa")]
+    [InlineData(".ssh/id_ed25519")]
+    [InlineData("deploy/id_ecdsa")]
+    [InlineData("keys/id_github")]
+    [InlineData("backup/id_rsa.bak")]
+    [InlineData("id_rsa.pub")]
+    public void Still_names_an_ssh_key(string path) => Assert.True(SensitiveInput.IsSensitivePath(path));
+
     [Fact]
     public void Refuses_a_prompt_carrying_a_secret()
     {
