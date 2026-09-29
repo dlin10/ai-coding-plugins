@@ -42,7 +42,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     // Set by the result line. After it nothing the model started can still be collected.
     private bool _turnEnded;
     private bool _turnFailed;
-    private JsonElement? _terminalUsage;
+    private JsonElement? _terminalModelUsage;
     private JsonElement? _terminalCost;
     private string? _attemptSessionId;
     private string? _servedFastState;
@@ -71,7 +71,8 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
-    internal WorkerUsage ObservedUsage => ProviderUsage.Claude(_terminalUsage, _terminalCost);
+    /// <summary>The attempt's own usage: what it added to the session totals the session last reported.</summary>
+    internal WorkerUsage UsageSince(WorkerUsage? previous) => ProviderUsage.Claude(_terminalModelUsage, _terminalCost, previous);
 
     /// <summary>
     /// `-p` kills a background task about five seconds after the result line, so a task still open
@@ -93,7 +94,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     {
         _turnEnded = false;
         _turnFailed = false;
-        _terminalUsage = null;
+        _terminalModelUsage = null;
         _terminalCost = null;
         _attemptSessionId = null;
         _servedFastState = null;
@@ -158,7 +159,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
         finally
         {
-            attempt.Finish(ObservedUsage, _attemptSessionId, _servedFastState);
+            attempt.Finish(UsageSince, _attemptSessionId, _servedFastState);
         }
     }
 
@@ -211,7 +212,8 @@ internal sealed class ClaudeCliSession : IVendorSession
         if (type.GetString() is "result")
         {
             _turnEnded = true;
-            if (root.TryGetProperty("usage", out var usage)) _terminalUsage = usage.Clone();
+            // Not `usage`: it covers the main loop alone and leaves out subagents and compaction.
+            if (root.TryGetProperty("modelUsage", out var modelUsage)) _terminalModelUsage = modelUsage.Clone();
             if (root.TryGetProperty("total_cost_usd", out var cost)) _terminalCost = cost.Clone();
             _turnFailed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind is JsonValueKind.True;
             if (TryRead(root, "fast_mode_state", out var served) && served.ValueKind is JsonValueKind.String)

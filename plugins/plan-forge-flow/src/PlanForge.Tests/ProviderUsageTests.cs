@@ -12,11 +12,14 @@ public sealed class ProviderUsageTests
         var usage = ProviderUsage.Claude(Usage(
             """
             {
-              "input_tokens": 11,
-              "cache_read_input_tokens": 22,
-              "cache_creation_input_tokens": 33,
-              "output_tokens": 44,
-              "output_tokens_details": { "thinking_tokens": 40 }
+              "claude-opus-5-5": {
+                "inputTokens": 11,
+                "cacheReadInputTokens": 22,
+                "cacheCreationInputTokens": 33,
+                "outputTokens": 44,
+                "thinkingTokens": 40,
+                "costUSD": 0.5
+              }
             }
             """));
 
@@ -29,10 +32,75 @@ public sealed class ProviderUsageTests
         Assert.Null(usage.MalformedFields);
     }
 
+    /// <summary>
+    /// A subagent on another model gets an entry of its own, and the turn used both; the result
+    /// line's `usage` holds the main loop alone.
+    /// </summary>
+    [Fact]
+    public void Claude_counts_every_model_the_turn_used()
+    {
+        var usage = ProviderUsage.Claude(Usage(
+            """
+            {
+              "claude-opus-5-5": {
+                "inputTokens": 10, "cacheReadInputTokens": 900, "cacheCreationInputTokens": 90,
+                "outputTokens": 50, "thinkingTokens": 20
+              },
+              "claude-haiku-4-5-20251001": {
+                "inputTokens": 5, "cacheReadInputTokens": 400, "cacheCreationInputTokens": 45,
+                "outputTokens": 30, "thinkingTokens": 0
+              }
+            }
+            """));
+
+        Assert.Equal(1450, usage.InputTokens);
+        Assert.Equal(1300, usage.CacheReadTokens);
+        Assert.Equal(135, usage.CacheCreationTokens);
+        Assert.Equal(80, usage.OutputTokens);
+        Assert.Equal(20, usage.ReasoningTokens);
+        Assert.Null(usage.MalformedFields);
+    }
+
+    /// <summary>
+    /// A result before any model call reports no models. Zeros there would become a resumed
+    /// session's running total, and the attempt after it would count the whole session again.
+    /// </summary>
+    [Fact]
+    public void Claude_reporting_no_model_has_no_counters()
+    {
+        var usage = ProviderUsage.Claude(Usage("{}"), previous: new WorkerUsage(100, 80, 10, 5, 1));
+
+        Assert.Null(usage.InputTokens);
+        Assert.Null(usage.OutputTokens);
+        Assert.Null(usage.ReasoningTokens);
+        Assert.Null(usage.MalformedFields);
+        Assert.Null(usage.SessionTotal);
+    }
+
+    [Fact]
+    public void Claude_sum_past_the_counter_range_is_named_and_omitted()
+    {
+        var usage = ProviderUsage.Claude(Usage(
+            """{"claude-opus-5-5":{"outputTokens":9223372036854775807},"claude-haiku-4-5":{"outputTokens":1}}"""));
+
+        Assert.Null(usage.OutputTokens);
+        Assert.Equal(["modelUsage.*.outputTokens"], usage.MalformedFields);
+    }
+
+    [Fact]
+    public void Claude_names_the_model_whose_entry_is_malformed()
+    {
+        var usage = ProviderUsage.Claude(Usage(
+            """{"claude-opus-5-5":{"outputTokens":4},"claude-haiku-4-5":"bad"}"""));
+
+        Assert.Null(usage.OutputTokens);
+        Assert.Equal(["modelUsage.claude-haiku-4-5"], usage.MalformedFields);
+    }
+
     [Fact]
     public void Claude_names_a_malformed_cost_and_keeps_the_counters()
     {
-        var usage = ProviderUsage.Claude(Usage("""{"output_tokens":4}"""), Element("\"0.42\""));
+        var usage = ProviderUsage.Claude(Usage("""{"claude-opus-5-5":{"outputTokens":4}}"""), Element("\"0.42\""));
 
         Assert.Null(usage.CostUsd);
         Assert.Equal(4, usage.OutputTokens);
@@ -59,6 +127,94 @@ public sealed class ProviderUsageTests
         Assert.Equal(20, usage.OutputTokens);
         Assert.Equal(12, usage.ReasoningTokens);
         Assert.Null(usage.MalformedFields);
+        Assert.Null(usage.SessionTotal);
+    }
+
+    /// <summary>
+    /// codex reports the thread's running total, restored from its rollout on resume: the review_fix
+    /// round 3 turn of run 20260927-212553-b98178 reported 81,766,668 input tokens, of which its own
+    /// calls in the rollout came to 8,779,454.
+    /// </summary>
+    [Fact]
+    public void Codex_resumed_turn_is_what_it_added_to_the_thread_total()
+    {
+        var usage = ProviderUsage.Codex(Usage(
+            """
+            {
+              "input_tokens": 81766668,
+              "cached_input_tokens": 80929920,
+              "cache_write_input_tokens": 0,
+              "output_tokens": 217805,
+              "reasoning_output_tokens": 90000
+            }
+            """), new WorkerUsage(72987214, 72190720, 0, 210022, 85000));
+
+        Assert.Equal(8779454, usage.InputTokens);
+        Assert.Equal(8739200, usage.CacheReadTokens);
+        Assert.Equal(0, usage.CacheCreationTokens);
+        Assert.Equal(7783, usage.OutputTokens);
+        Assert.Equal(5000, usage.ReasoningTokens);
+        Assert.Null(usage.MalformedFields);
+        Assert.Equal(new WorkerUsage(81766668, 80929920, 0, 217805, 90000), usage.SessionTotal);
+    }
+
+    [Fact]
+    public void Codex_total_below_the_previous_report_is_named_and_still_kept_as_the_total()
+    {
+        var usage = ProviderUsage.Codex(Usage("""{"input_tokens":900,"cached_input_tokens":800,"output_tokens":50}"""),
+                                        new WorkerUsage(1000, 700, OutputTokens: 40));
+
+        Assert.Null(usage.InputTokens);
+        Assert.Equal(100, usage.CacheReadTokens);
+        Assert.Equal(10, usage.OutputTokens);
+        Assert.Equal(["usage.input_tokens"], usage.MalformedFields);
+        Assert.Equal(900, usage.SessionTotal?.InputTokens);
+    }
+
+    /// <summary>
+    /// claude's `modelUsage` and `total_cost_usd` are the session's, restored on `--resume` from the
+    /// transcript's `cost-state`. The build task 6 turn of run 20260928-113803-31c1d7 auto-compacted
+    /// a 967,179-token context: its `result.usage` held 36,293,602 input tokens, what it added to
+    /// `modelUsage` was 37,260,634.
+    /// </summary>
+    [Fact]
+    public void Claude_resumed_turn_is_what_it_added_to_the_session_totals_compaction_included()
+    {
+        var usage = ProviderUsage.Claude(Usage(
+            """
+            {
+              "claude-opus-5-5": {
+                "inputTokens": 4112,
+                "cacheReadInputTokens": 168137446,
+                "cacheCreationInputTokens": 1165238,
+                "outputTokens": 565880,
+                "thinkingTokens": 272185
+              }
+            }
+            """), Element("54.2834412"),
+            new WorkerUsage(132046162, 131163158, 882512, 446145, 230131, CostUsd: 42.2175956m));
+
+        Assert.Equal(37260634, usage.InputTokens);
+        Assert.Equal(36974288, usage.CacheReadTokens);
+        Assert.Equal(282726, usage.CacheCreationTokens);
+        Assert.Equal(119735, usage.OutputTokens);
+        Assert.Equal(42054, usage.ReasoningTokens);
+        Assert.Equal(12.0658456m, usage.CostUsd);
+        Assert.Null(usage.MalformedFields);
+        Assert.Equal(new WorkerUsage(169306796, 168137446, 1165238, 565880, 272185, CostUsd: 54.2834412m),
+                     usage.SessionTotal);
+    }
+
+    [Fact]
+    public void Claude_cost_below_the_previous_report_is_named_and_the_tokens_kept()
+    {
+        var usage = ProviderUsage.Claude(Usage("""{"claude-opus-5-5":{"outputTokens":4}}"""), Element("1.5"),
+                                         new WorkerUsage(CostUsd: 2m));
+
+        Assert.Null(usage.CostUsd);
+        Assert.Equal(4, usage.OutputTokens);
+        Assert.Equal(["total_cost_usd"], usage.MalformedFields);
+        Assert.Equal(1.5m, usage.SessionTotal?.CostUsd);
     }
 
     [Fact]
@@ -99,16 +255,17 @@ public sealed class ProviderUsageTests
     }
 
     [Theory]
-    [InlineData("claude", "input_tokens")]
-    [InlineData("codex", "input_tokens")]
-    [InlineData("cursor", "inputTokens")]
-    public void Every_vendor_preserves_independent_counters_when_one_is_malformed(string vendor, string inputName)
+    [InlineData("claude", """{"claude-opus-5-5":{"inputTokens":"bad","outputTokens":3}}""",
+                "modelUsage.claude-opus-5-5.inputTokens")]
+    [InlineData("codex", """{"input_tokens":"bad","output_tokens":3}""", "usage.input_tokens")]
+    [InlineData("cursor", """{"inputTokens":"bad","outputTokens":3}""", "usage.inputTokens")]
+    public void Every_vendor_preserves_independent_counters_when_one_is_malformed(string vendor, string json, string path)
     {
-        var usage = Parse(vendor, Usage($$"""{"{{inputName}}":"bad","output{{(vendor == "cursor" ? "Tokens" : "_tokens")}}":3}"""));
+        var usage = Parse(vendor, Usage(json));
 
         Assert.Null(usage.InputTokens);
         Assert.Equal(3, usage.OutputTokens);
-        Assert.Equal([$"usage.{inputName}"], usage.MalformedFields);
+        Assert.Equal([path], usage.MalformedFields);
     }
 
     [Theory]
@@ -195,7 +352,7 @@ public sealed class ProviderUsageTests
 
     [Theory]
     [InlineData("claude",
-                """{"input_tokens":1,"cache_read_input_tokens":2,"output_tokens":4}""")]
+                """{"claude-opus-5-5":{"inputTokens":1,"cacheReadInputTokens":2,"outputTokens":4}}""")]
     [InlineData("cursor",
                 """{"inputTokens":1,"cacheReadTokens":2,"outputTokens":4}""")]
     public void Missing_cache_component_omits_derived_total_without_calling_it_malformed(string vendor,
@@ -212,8 +369,8 @@ public sealed class ProviderUsageTests
 
     [Theory]
     [InlineData("claude",
-                """{"input_tokens":1,"cache_read_input_tokens":"bad","cache_creation_input_tokens":3,"output_tokens":4}""",
-                "usage.cache_read_input_tokens")]
+                """{"claude-opus-5-5":{"inputTokens":1,"cacheReadInputTokens":"bad","cacheCreationInputTokens":3,"outputTokens":4}}""",
+                "modelUsage.claude-opus-5-5.cacheReadInputTokens")]
     [InlineData("cursor",
                 """{"inputTokens":1,"cacheReadTokens":"bad","cacheWriteTokens":3,"outputTokens":4}""",
                 "usage.cacheReadTokens")]
@@ -232,8 +389,8 @@ public sealed class ProviderUsageTests
 
     [Theory]
     [InlineData("claude",
-                """{"input_tokens":9223372036854775807,"cache_read_input_tokens":1,"cache_creation_input_tokens":0}""",
-                "usage.input_tokens")]
+                """{"claude-opus-5-5":{"inputTokens":9223372036854775807,"cacheReadInputTokens":1,"cacheCreationInputTokens":0}}""",
+                "modelUsage.*.inputTokens")]
     [InlineData("cursor",
                 """{"inputTokens":9223372036854775807,"cacheReadTokens":1,"cacheWriteTokens":0}""",
                 "usage.inputTokens")]
