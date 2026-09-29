@@ -53,7 +53,8 @@ internal sealed class CodexCliSession : IVendorSession
 
     public string? ResumeToken => CanResume ? _sessionId : null;
 
-    internal WorkerUsage ObservedUsage => ProviderUsage.Codex(_terminalUsage);
+    /// <summary>The attempt's own usage: what it added to the thread total the thread last reported.</summary>
+    internal WorkerUsage UsageSince(WorkerUsage? previous) => ProviderUsage.Codex(_terminalUsage, previous);
 
     public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
@@ -132,7 +133,7 @@ internal sealed class CodexCliSession : IVendorSession
             }
             finally
             {
-                attempt.Finish(ObservedUsage, _attemptSessionId);
+                attempt.Finish(UsageSince, _attemptSessionId);
             }
         }
         finally

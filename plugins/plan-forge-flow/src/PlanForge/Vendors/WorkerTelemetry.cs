@@ -16,13 +16,19 @@ internal sealed record WorkerTelemetryContext(string Path,
                                               int? TaskNumber = null,
                                               int? TaskCount = null);
 
+/// <param name="SessionTotal">
+/// What the Vendor reported as its session's running total on a resumed attempt, for the counters it
+/// reports that way — codex's tokens, claude's cost. The attempt's own counters are the growth since
+/// the session's previous report; this keeps the report itself for the attempt after.
+/// </param>
 internal sealed record WorkerUsage(long? InputTokens = null,
                                    long? CacheReadTokens = null,
                                    long? CacheCreationTokens = null,
                                    long? OutputTokens = null,
                                    long? ReasoningTokens = null,
                                    IReadOnlyList<string>? MalformedFields = null,
-                                   decimal? CostUsd = null);
+                                   decimal? CostUsd = null,
+                                   WorkerUsage? SessionTotal = null);
 
 /// <summary>One call to a Vendor session, which may launch more than one process.</summary>
 internal sealed class VendorTurn(RoleSpec role, Selection selection, string vendor)
@@ -74,10 +80,19 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
         if (_outcome is not "succeeded") Terminal("cancelled");
     }
 
-    /// <param name="usage">The provider counters the attempt's terminal event reported.</param>
+    /// <param name="usage">The provider counters the attempt's terminal event reported, already its own.</param>
     /// <param name="reportedSessionId">The session id the process reported, when it did.</param>
     /// <param name="servedFastState">The speed the vendor says it served, where it says: claude's <c>fast_mode_state</c>.</param>
-    public void Finish(WorkerUsage usage, string? reportedSessionId, string? servedFastState = null)
+    public void Finish(WorkerUsage usage, string? reportedSessionId, string? servedFastState = null) =>
+        Finish(_ => usage, reportedSessionId, servedFastState);
+
+    /// <param name="usage">
+    /// The attempt's own usage, given what its session's latest recorded attempt reported — null for a
+    /// fresh session. A Vendor that reports a running total for its session subtracts that report.
+    /// </param>
+    /// <param name="reportedSessionId">The session id the process reported, when it did.</param>
+    /// <param name="servedFastState">The speed the vendor says it served, where it says: claude's <c>fast_mode_state</c>.</param>
+    public void Finish(Func<WorkerUsage?, WorkerUsage> usage, string? reportedSessionId, string? servedFastState = null)
     {
         if (_finished) return;
         _finished = true;
@@ -90,35 +105,41 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
             ? reportedSessionId
             : resumed ? resumeToken : null;
 
-        var record = new WorkerUsageRecord(
-            _at!,
-            "vendor.usage",
-            context.Act,
-            context.Round,
-            context.TaskNumber,
-            context.TaskCount,
-            vendor,
-            role.ToString().ToLowerInvariant(),
-            selection.Model,
-            selection.Effort,
-            selection.Fast,
-            servedFastState,
-            resumed ? "resumed" : "fresh",
-            sessionId,
-            turnId,
-            attempt,
-            _outcome,
-            FormatDuration(_duration!.Value),
-            promptBytes,
-            usage.InputTokens,
-            usage.CacheReadTokens,
-            usage.CacheCreationTokens,
-            usage.OutputTokens,
-            usage.ReasoningTokens,
-            usage.CostUsd,
-            usage.MalformedFields is { Count: > 0 } ? usage.MalformedFields : null);
+        // The session object lives for one call, so what the session reported before can only come
+        // from the file, read under the same gate as the append.
+        WorkerTelemetryFile.Append(context, turnId, attempt, earlier =>
+        {
+            var own = usage(resumed ? WorkerTelemetryFile.LastReport(earlier, vendor, resumeToken!) : null);
 
-        WorkerTelemetryFile.Append(context, record);
+            return new WorkerUsageRecord(
+                _at!,
+                "vendor.usage",
+                context.Act,
+                context.Round,
+                context.TaskNumber,
+                context.TaskCount,
+                vendor,
+                role.ToString().ToLowerInvariant(),
+                selection.Model,
+                selection.Effort,
+                selection.Fast,
+                servedFastState,
+                resumed ? "resumed" : "fresh",
+                sessionId,
+                turnId,
+                attempt,
+                _outcome,
+                FormatDuration(_duration!.Value),
+                promptBytes,
+                own.InputTokens,
+                own.CacheReadTokens,
+                own.CacheCreationTokens,
+                own.OutputTokens,
+                own.ReasoningTokens,
+                own.CostUsd,
+                own.SessionTotal,
+                own.MalformedFields is { Count: > 0 } ? own.MalformedFields : null);
+        });
     }
 
     internal static string FormatDuration(TimeSpan duration)
@@ -171,13 +192,18 @@ internal sealed record WorkerUsageRecord(string At,
                                          long? OutputTokens,
                                          long? ReasoningTokens,
                                          decimal? CostUsd,
+                                         WorkerUsage? SessionTotal,
                                          IReadOnlyList<string>? MalformedUsageFields);
 
 internal static class WorkerTelemetryFile
 {
     private static readonly ConcurrentDictionary<string, object> Writers = new(StringComparer.OrdinalIgnoreCase);
 
-    public static void Append(WorkerTelemetryContext context, WorkerUsageRecord record)
+    /// <param name="record">Builds the record from the ones already in the file.</param>
+    public static void Append(WorkerTelemetryContext context,
+                              string turnId,
+                              int attempt,
+                              Func<IReadOnlyList<WorkerUsageRecord>, WorkerUsageRecord> record)
     {
         try
         {
@@ -191,7 +217,7 @@ internal static class WorkerTelemetryFile
                 if (records.Any(item => item is null))
                     throw new JsonException("telemetry array entries must be objects");
 
-                records.Add(record);
+                records.Add(record(records));
                 AtomicFile.Write(path, JsonSerializer.Serialize(records, TelemetryJson.Default.ListWorkerUsageRecord));
             }
         }
@@ -199,10 +225,32 @@ internal static class WorkerTelemetryFile
                                       or NotSupportedException or JsonException)
         {
             context.Log.Write("error", "telemetry", "telemetry.write.failed",
-                ("turnId", record.TurnId),
-                ("attempt", record.Attempt.ToString(CultureInfo.InvariantCulture)),
+                ("turnId", turnId),
+                ("attempt", attempt.ToString(CultureInfo.InvariantCulture)),
                 ("error", error.GetType().Name));
         }
+    }
+
+    /// <summary>
+    /// What a session's latest recorded attempts reported, counter by counter: the running total a
+    /// record kept, else its own counter — which is the report itself for a fresh attempt and for a
+    /// Vendor that reports per attempt.
+    /// </summary>
+    internal static WorkerUsage LastReport(IEnumerable<WorkerUsageRecord> records, string vendor, string sessionId)
+    {
+        var report = new WorkerUsage();
+        foreach (var record in records.Where(record => record.Vendor == vendor && record.SessionId == sessionId))
+        {
+            var total = record.SessionTotal;
+            report = new WorkerUsage(total?.InputTokens ?? record.InputTokens ?? report.InputTokens,
+                                     total?.CacheReadTokens ?? record.CacheReadTokens ?? report.CacheReadTokens,
+                                     total?.CacheCreationTokens ?? record.CacheCreationTokens ?? report.CacheCreationTokens,
+                                     total?.OutputTokens ?? record.OutputTokens ?? report.OutputTokens,
+                                     total?.ReasoningTokens ?? record.ReasoningTokens ?? report.ReasoningTokens,
+                                     CostUsd: total?.CostUsd ?? record.CostUsd ?? report.CostUsd);
+        }
+
+        return report;
     }
 }
 
