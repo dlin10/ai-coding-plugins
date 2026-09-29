@@ -144,10 +144,12 @@ public sealed class IteratorExecutionTests
     }
 
     [Fact]
-    public void Explicit_GetEnumerator_adds_unknown_enumeration()
+    public void Explicit_GetEnumerator_runs_the_body_at_MoveNext_in_the_caller()
     {
         var run = Analyze(Case("var iterator = _state.Walk().GetEnumerator(); iterator.MoveNext();", "", "_state.Value = 2;"));
-        Assert.Contains(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.DoesNotContain(run.Execution.Analysis.Executions, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
+        Assert.Contains(run.Accesses("Value"), access => access.Symbol == "State.Walk()" &&
+                                                      run.Execution.Analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Root);
     }
 
     [Fact]

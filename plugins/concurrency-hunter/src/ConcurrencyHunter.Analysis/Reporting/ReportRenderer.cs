@@ -25,6 +25,7 @@ public static class ReportRenderer
     };
     private static readonly Dictionary<string, string> COUNTER_MEANINGS = new(StringComparer.Ordinal)
     {
+        [CoverageCounters.UNSUPPORTED_OPERATION] = "operations inside reached bodies the lowering does not model: their operands are lowered, but what the operation itself binds, reads or calls is lost",
         [CoverageCounters.SCC_BUDGET_EXCEEDED] = "recursive cycles whose contexts were merged past the budget, then propagated to a fixpoint",
         [CoverageCounters.OPAQUE_CALL] = "calls without a source body that no library model describes, members of the types a recognizer " +
                                          "models included; each one no recognizer models has an unknown effect on what its arguments reach and, " +

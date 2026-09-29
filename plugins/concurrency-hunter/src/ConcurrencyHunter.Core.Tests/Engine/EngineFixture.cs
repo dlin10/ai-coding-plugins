@@ -16,6 +16,8 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 public sealed record WholeProgramRun(string ScopeId, ReachabilityInput Input, ReachableSetResult Result, IReadOnlyList<string> LoweredMembers)
 {
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; init; } =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
     public bool Reaches(string bodyId) => Result.ReachedBodies.ContainsKey(bodyId);
 
     public Construction Construction(string typeName) =>
@@ -146,7 +148,10 @@ public static class EngineFixture
         new(heap, ExecutionModel.Build(Scope(heap.Program, heap.Summaries), heap.Heap));
 
     private static ScopeProgram Scope(WholeProgramRun run, SummaryCache summaries) =>
-        new(run.ScopeId, run.Input.Roots, run.Result, summaries, run.Input.Program, run.Input.DiIndex, run.Input.InjectionBindings);
+        new(run.ScopeId, run.Input.Roots, run.Result, summaries, run.Input.Program, run.Input.DiIndex, run.Input.InjectionBindings)
+        {
+            MetadataSupertypes = run.MetadataSupertypes
+        };
 
     /// <summary>Builds the reachable set of one source file.</summary>
     public static WholeProgramRun Reach(string source) =>
@@ -154,14 +159,15 @@ public static class EngineFixture
 
     /// <summary>Builds the reachable set of a scope, lowering calls with <paramref name="libraryModels"/> where given and with the
     /// built-in models otherwise.</summary>
-    public static WholeProgramRun ReachScope(Solution solution, string scopeId, LibraryModels? libraryModels = null)
+    public static WholeProgramRun ReachScope(Solution solution, string scopeId, LibraryModels? libraryModels = null, string? rootDirectory = null)
     {
+        rootDirectory ??= ROOT_DIRECTORY;
         var compilations = solution.Projects.Select(project => project.GetCompilationAsync().GetAwaiter().GetResult()!).ToArray();
-        var index = DiIndexBuilder.Build(scopeId, compilations, ROOT_DIRECTORY, CancellationToken.None);
-        var context = new RootDiscoveryContext(scopeId, compilations, ROOT_DIRECTORY, index, CancellationToken.None);
+        var index = DiIndexBuilder.Build(scopeId, compilations, rootDirectory, CancellationToken.None);
+        var context = new RootDiscoveryContext(scopeId, compilations, rootDirectory, index, CancellationToken.None);
         var roots = ProviderRegistry.BuiltIn.Providers.SelectMany(provider => provider.Discover(context).Roots).ToArray();
-        var bindings = InjectionBindings.Discover(compilations, index, ROOT_DIRECTORY, CancellationToken.None);
-        var program = ProgramIndexBuilder.Build(scopeId, compilations, ROOT_DIRECTORY, CancellationToken.None);
+        var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, CancellationToken.None);
+        var program = ProgramIndexBuilder.Build(scopeId, compilations, rootDirectory, CancellationToken.None);
 
         var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
         foreach (var compilation in compilations)
@@ -171,6 +177,7 @@ public static class EngineFixture
         }
 
         var lowered = new List<string>();
+        var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         IReadOnlyList<IrBody> Lower(string memberId)
         {
             Assert.DoesNotContain(memberId, lowered);
@@ -180,8 +187,10 @@ public static class EngineFixture
             try
             {
                 var result = libraryModels is null
-                    ? IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None)
-                    : IrLowering.Lower(member.Method, member.Compilation, ROOT_DIRECTORY, CancellationToken.None, libraryModels);
+                    ? IrLowering.Lower(member.Method, member.Compilation, rootDirectory, CancellationToken.None)
+                    : IrLowering.Lower(member.Method, member.Compilation, rootDirectory, CancellationToken.None, libraryModels);
+                foreach (var (type, supertypes) in result.MetadataSupertypes)
+                    metadataSupertypes[type] = supertypes;
                 return result.NestedBodies.Prepend(result.Body).ToArray();
             }
             catch (ArgumentException)
@@ -191,7 +200,8 @@ public static class EngineFixture
         }
 
         var input = new ReachabilityInput(program, roots, index, bindings, Lower);
-        return new WholeProgramRun(scopeId, input, ReachableSet.Build(input), lowered);
+        var reachable = ReachableSet.Build(input);
+        return new WholeProgramRun(scopeId, input, reachable, lowered) { MetadataSupertypes = metadataSupertypes };
     }
 
     /// <summary>The pairing before the candidate index, kept as the tests' reference: every unordered pair of non-construction-local

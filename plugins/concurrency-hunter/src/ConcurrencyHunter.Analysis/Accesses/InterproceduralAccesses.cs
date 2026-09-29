@@ -11,6 +11,7 @@ namespace ConcurrencyHunter.Accesses;
 public static class CoverageCounters
 {
     public const string REACHABLE_BODIES = "reachable-bodies";
+    public const string UNSUPPORTED_OPERATION = "unsupported-operation";
     public const string SCC_BUDGET_EXCEEDED = "scc-budget-exceeded";
     public const string OPAQUE_CALL = "opaque-call";
     public const string KNOWN_CALL = "known-call";
@@ -151,6 +152,10 @@ public static class InterproceduralAccesses
         var counters = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             [CoverageCounters.REACHABLE_BODIES] = heap.ReachableBodies.Count,
+            [CoverageCounters.UNSUPPORTED_OPERATION] = input.Scope.Reachable.Bodies
+                .Where(pair => heap.ReachableBodies.Contains(pair.Key))
+                .Sum(pair => pair.Value.Blocks.SelectMany(block => block.Operations)
+                                           .Count(operation => operation is IrUnknownOperation { Reason: "unsupported" })),
             [CoverageCounters.SCC_BUDGET_EXCEEDED] = heap.Counters.GetValueOrDefault(HeapCounters.SCC_BUDGET_EXCEEDED),
             [CoverageCounters.OPAQUE_CALL] = opaque.Length + decided.Opaque,
             [CoverageCounters.KNOWN_CALL] = knownBuiltIn + knownProject,
@@ -610,12 +615,14 @@ public static class InterproceduralAccesses
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
 
         private readonly HeapSolution _heap = input.Heap;
+        private readonly TypeSafety _typeSafety = new(input.Scope.Program, input.Scope.MetadataSupertypes);
         private readonly List<(ExecutionEntry Entry, PathNode Node)> _visits = [];
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _firstPaths = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _bodyPaths = new(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<(IReadOnlyList<string> Symbols, AccessRoot Root)>> _callPaths = new(StringComparer.Ordinal);
         private readonly HashSet<CallEdge> _executionEdges = [];
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
+        private readonly Dictionary<PathNode, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>?> _enumerationPathLocks = [];
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LiftedLocks> _lifted = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Instance, int Enumeration), (IReadOnlySet<string> Keys,
@@ -1099,6 +1106,8 @@ public static class InterproceduralAccesses
         private LockEffect Lifted(MethodInstance instance, IrCallOperation call)
         {
             var callees = _executionEdges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.Id)
+                                         .Where(edge => !_heap.IteratorMemberReceivers.ContainsKey((instance.Id, call.Id)) ||
+                                                        edge.Reason is not (ITERATOR_ENUMERATION or "delegate"))
                                          .Select(edge => edge.CalleeInstance)
                                          .Distinct(StringComparer.Ordinal)
                                          .ToArray();
@@ -1580,7 +1589,7 @@ public static class InterproceduralAccesses
                         // an occurrence keeps can be the least protected one (R5).
                         // A write through a reference that reads it first spans that read, which stands in this very body, and every
                         // other read that feeds it; only a section held over all of them protects it (R2).
-                        var held = HeldOverSpan(instance.Id, access.OperationId, operation,
+                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, EnumerationPathLocks(node),
                                                 isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
@@ -2326,23 +2335,51 @@ public static class InterproceduralAccesses
         /// <summary>What protects an operation that spans a read and the write depending on it: only a lock section that covers the
         /// whole span, so a lock around the write alone protects nothing, and two sections, one around the read and one around the
         /// write, protect nothing either (R2). Every other operation is protected by what is held where it stands.</summary>
+        private IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? EnumerationPathLocks(PathNode node)
+        {
+            if (_enumerationPathLocks.TryGetValue(node, out var cached))
+                return cached;
+            if (node is not { Edge: { } edge, Parent: { } parent } ||
+                !_heap.Instances.TryGetValue(edge.CallerInstance, out var caller) ||
+                !_heap.Instances.TryGetValue(node.State.Instance, out var callee))
+                return _enumerationPathLocks[node] = null;
+
+            var parentLocks = EnumerationPathLocks(parent);
+            var explicitEnumeration = _heap.IteratorMemberReceivers.ContainsKey((caller.Id, edge.OperationId)) &&
+                                      edge.Reason is (ITERATOR_ENUMERATION or "delegate") &&
+                                      input.Scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var callerBody) &&
+                                      callerBody.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                                          .Any(call => call.Id == edge.OperationId && call.EnumerationRole == IrEnumerationRole.None);
+            if (!explicitEnumeration && parentLocks is null)
+                return _enumerationPathLocks[node] = null;
+
+            var states = parentLocks ?? _lockStates.GetValueOrDefault(caller.Id);
+            if (states is null || !states.TryGetValue(edge.OperationId, out var atCall) ||
+                !input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body))
+                return _enumerationPathLocks[node] = null;
+            return _enumerationPathLocks[node] = MustHeldLocks.Compute(body, operation => Effect(callee, operation), atCall).Operations;
+        }
+
         private IReadOnlyList<HeldProtectionInfo> HeldOverSpan(string instanceId, int operationId, AccessOperation operation,
+                                                               IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks,
                                                                IReadOnlyList<(string Instance, int Operation)>? sources)
         {
-            var held = HeldLocks(instanceId, operationId);
+            var held = HeldLocks(instanceId, operationId, pathLocks);
             if (operation is not (AccessOperation.ReadModifyWrite or AccessOperation.CompoundOperation) || sources is not { Count: > 0 })
                 return held;
 
-            return held.Where(protection => sources.All(source => Spans(protection, instanceId, operationId, source))).ToArray();
+            return held.Where(protection => sources.All(source => Spans(protection, instanceId, operationId, source, pathLocks))).ToArray();
         }
 
         /// <summary>Whether one holding covers the span from a read to the write that depends on it: the same section at both ends,
         /// and, where both ends stand in one body, a holding that was never let go in between. A section is named by the acquisition
         /// it comes from, and one acquisition inside a loop is a new section on every iteration, so the name alone would call a read
         /// of one iteration and a write of the next one protected by one section (R2).</summary>
-        private bool Spans(HeldProtectionInfo protection, string instanceId, int operationId, (string Instance, int Operation) source)
+        private bool Spans(HeldProtectionInfo protection, string instanceId, int operationId, (string Instance, int Operation) source,
+                           IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks)
         {
-            if (!HeldLocks(source.Instance, source.Operation).Any(other => other.Site == protection.Site))
+            if (!HeldLocks(source.Instance, source.Operation, source.Instance == instanceId ? pathLocks : null)
+                     .Any(other => other.Site == protection.Site))
                 return false;
 
             var instance = _heap.Instances[instanceId];
@@ -2352,8 +2389,9 @@ public static class InterproceduralAccesses
                                               source.Operation, operationId);
         }
 
-        private IReadOnlyList<HeldProtectionInfo> HeldLocks(string instanceId, int operationId) =>
-            _lockStates.TryGetValue(instanceId, out var states) && states.TryGetValue(operationId, out var held)
+        private IReadOnlyList<HeldProtectionInfo> HeldLocks(string instanceId, int operationId,
+                                                            IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? pathLocks = null) =>
+            (pathLocks ?? _lockStates.GetValueOrDefault(instanceId)) is { } states && states.TryGetValue(operationId, out var held)
                 // A scope a call opened is protection only where the exit is proven too: nothing else says it ever closes.
                 ? held.Values.Where(lockHeld => !lockHeld.Lock.IsLifted || lockHeld.IsReleasedOnAllPaths || lockHeld.Lock.IsIteratorCarry)
                       .Select(lockHeld => _locks.TryGetValue(lockHeld.Lock.Key, out var info)
@@ -2536,10 +2574,12 @@ public static class InterproceduralAccesses
                     : null;
 
             // A consumer other than a `foreach` is handed the iterator as an argument (R5).
-            var regions = callerInstance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } consumer
-                ? consumer.Receivers.Concat(consumer.Arguments.SelectMany(argument => argument.Values))
-                          .SelectMany(value => _heap.Resolve(callerInstance.Id, value)).ToHashSet(StringComparer.Ordinal)
-                : [];
+            var consumer = callerInstance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == edge.OperationId);
+            var transfer = callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId);
+            var regions = (consumer is not null
+                               ? consumer.Receivers.Concat(consumer.Arguments.SelectMany(argument => argument.Values))
+                               : transfer?.Receivers ?? (IReadOnlySet<AbstractValue>)new HashSet<AbstractValue>())
+                          .SelectMany(value => _heap.Resolve(callerInstance.Id, value)).ToHashSet(StringComparer.Ordinal);
             var creations = _heap.IteratorObjects.Where(iterator => regions.Contains(iterator.RegionId) &&
                                                                     iterator.Creation.CalleeInstance == edge.CalleeInstance)
                                                  .Select(iterator => iterator.Creation)
@@ -2931,7 +2971,12 @@ public static class InterproceduralAccesses
             {
                 var (value, wildcard) = @base is PathValue { IsWildcard: true } path ? (path.Base, true) : (@base, false);
                 foreach (var region in _heap.Resolve(instance.Id, value).Order(StringComparer.Ordinal))
+                {
+                    if (access.Field.Name != PathValue.WILDCARD && _heap.Regions.TryGetValue(region, out var candidate) &&
+                        _typeSafety.CannotBe(candidate, DiIndex.TypeKey(access.Field.Assembly, access.Field.ContainingTypeId)))
+                        continue;
                     Add(region, wildcard);
+                }
             }
 
             return resources;

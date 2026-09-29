@@ -179,7 +179,8 @@ public static class PhaseOneAnalyzer
             var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
             Record(timings, PROGRAM_INDEX, step);
             var lowering = new Stopwatch();
-            var lower = Members(compilations, rootDirectory, models, lowered, diagnostics, cancellationToken);
+            var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+            var lower = Members(compilations, rootDirectory, models, lowered, metadataSupertypes, diagnostics, cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
                 lowering.Start();
@@ -198,7 +199,10 @@ public static class PhaseOneAnalyzer
             timings[LOWERING] = timings.GetValueOrDefault(LOWERING) + lowering.Elapsed;
             step.Restart();
             var summaries = new SummaryCache(reachable.Bodies, program, limits);
-            var scopeProgram = new ScopeProgram(scope.Id, scopeRoots, reachable, summaries, program, index, bindings);
+            var scopeProgram = new ScopeProgram(scope.Id, scopeRoots, reachable, summaries, program, index, bindings)
+            {
+                MetadataSupertypes = metadataSupertypes
+            };
             var heap = WholeProgram.Solve(scopeProgram, limits);
             Record(timings, SUMMARIES_AND_FIXPOINT, step);
             var executions = ExecutionModel.Build(scopeProgram, heap);
@@ -299,6 +303,7 @@ public static class PhaseOneAnalyzer
     private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
                                                                LibraryModels models,
                                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
+                                                               Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
     {
         var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
@@ -329,7 +334,11 @@ public static class PhaseOneAnalyzer
                 lowered[(member.Compilation, bodyId, models)] = loweredMethod;
             }
 
-            return loweredMethod is null ? [] : loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();
+            if (loweredMethod is null)
+                return [];
+            foreach (var (type, supertypes) in loweredMethod.MetadataSupertypes)
+                metadataSupertypes[type] = supertypes;
+            return loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();
         };
     }
 

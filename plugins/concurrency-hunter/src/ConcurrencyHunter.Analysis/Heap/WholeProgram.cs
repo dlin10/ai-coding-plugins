@@ -34,7 +34,11 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
 /// <summary>Everything the whole-program fixpoint of one process scope is solved over.</summary>
 public sealed record ScopeProgram(string ScopeId, IReadOnlyList<ExecutionRootDescriptor> Roots, ReachableSetResult Reachable,
                                   SummaryCache Summaries, ProgramIndex Program, DiIndex DiIndex,
-                                  IReadOnlyList<TypeInjectionBindings> InjectionBindings);
+                                  IReadOnlyList<TypeInjectionBindings> InjectionBindings)
+{
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; init; } =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+}
 
 public enum HeapRegionKind
 {
@@ -54,7 +58,10 @@ public enum HeapRegionKind
 /// <see cref="MayOverlapItself"/> marks a hosted service whose instance count is unknown. <see cref="SiteBodyId"/> and
 /// <see cref="SiteOperationId"/> name an allocation's or a delegate creation's site.</summary>
 public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Display, string? TypeKey, string Context, string Group,
-                                bool IsOpen, bool IsMerged, bool MayOverlapItself = false, string? SiteBodyId = null, int? SiteOperationId = null);
+                                bool IsOpen, bool IsMerged, bool MayOverlapItself = false, string? SiteBodyId = null, int? SiteOperationId = null)
+{
+    public bool HasExactType { get; init; }
+}
 
 /// <summary>An instantiation of a body: its context, type substitution and the regions its receiver and parameters point to.
 /// A receiverless instance has no <c>this</c>; its accesses based on <c>this</c> have no resource.</summary>
@@ -191,6 +198,10 @@ public sealed class HeapSolution
     public IReadOnlyList<CallEdge> ExecutionEdges { get; init; } = [];
     public IReadOnlyList<IteratorObject> IteratorObjects { get; init; } = [];
     public IReadOnlySet<string> UnknownIterators { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Iterator receivers handled at enumeration members, by caller instance and call operation.</summary>
+    public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<string>> IteratorMemberReceivers { get; init; } =
+        new Dictionary<(string, int), IReadOnlySet<string>>();
     public IReadOnlyList<TypeInitializerConstruction> TypeInitializers { get; }
     public IReadOnlyList<RegionConstruction> Constructions { get; }
     public IReadOnlyDictionary<string, int> Counters { get; }
@@ -479,6 +490,10 @@ public static class WholeProgram
         private readonly Dictionary<(string Caller, int Operation), SiteState> _spawns = [];
         private readonly Dictionary<(string Caller, int Operation), SiteState> _timerCallbacks = [];
         private readonly Dictionary<(string Caller, int Operation), SiteState> _asyncSpawns = [];
+        private readonly Dictionary<(string Caller, int Operation), (InstanceState Caller, CallTransfer Call)> _receiverlessCalls = [];
+        private readonly HashSet<(string Caller, int Operation)> _receiverlessFallbacks = [];
+        private readonly Dictionary<(string Caller, int Operation), HashSet<string>> _iteratorMemberReceivers = [];
+        private readonly TypeSafety _typeSafety;
         private readonly Dictionary<string, string> _tails = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _antecedents = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (HashSet<string> Members, bool Known)> _taskGroups = new(StringComparer.Ordinal);
@@ -488,6 +503,7 @@ public static class WholeProgram
         {
             _scope = scope;
             _program = scope.Program;
+            _typeSafety = new TypeSafety(scope.Program, scope.MetadataSupertypes);
             _limits = limits;
             foreach (var method in _program.Methods)
             {
@@ -506,7 +522,7 @@ public static class WholeProgram
             {
                 Propagate();
             }
-            while (DefaultEmptyRegistrations());
+            while (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks());
 
             return Result();
         }
@@ -561,6 +577,30 @@ public static class WholeProgram
             }
 
             return defaulted;
+        }
+
+        private bool CreateReceiverlessFallbacks()
+        {
+            // Decide the whole wave before making any fallback: one fallback must not supply another call's receiver in this wave.
+            var pending = _receiverlessCalls.Where(site => !_receiverlessFallbacks.Contains(site.Key) &&
+                                                         !DeadReceiver(site.Value.Caller, site.Value.Call,
+                                                                       site.Value.Call.TargetContainingTypeKey is { } key
+                                                                           ? ProgramIndex.Substitute(key, site.Value.Caller.Substitution)
+                                                                           : null) &&
+                                                         Eval(site.Value.Caller, site.Value.Call.Receivers).Count == 0)
+                                            .Select(site => site.Value).ToArray();
+            foreach (var (caller, call) in pending)
+            {
+                var method = _program.Method(call.Target)!;
+                var typeArguments = (call.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, caller.Substitution)).ToArray();
+                var containing = call.TargetContainingTypeKey is null ? null : ProgramIndex.Substitute(call.TargetContainingTypeKey, caller.Substitution);
+                var callee = Instance(call.Target, $"{caller.Context}|{caller.BodyId}#{call.OperationId}",
+                                      Substitution(method, containing, typeArguments), [], [], true);
+                Bind(caller, call, callee, "exact");
+                _receiverlessFallbacks.Add((caller.Id, call.OperationId));
+            }
+
+            return pending.Length != 0;
         }
 
         private IEnumerable<DiRegistration> RegistrationsWithBodies(DiRegistrationForm form) =>
@@ -624,6 +664,9 @@ public static class WholeProgram
                                              .Where(PotentialIteratorValue));
                     foreach (var region in iteratorRegions)
                     {
+                        if (_iteratorMemberReceivers.GetValueOrDefault((instance.Id, call.OperationId))?.Contains(region) == true &&
+                            Eval(instance, call.Receivers).Contains(region))
+                            continue;
                         if (operation.EnumerationRole == IrEnumerationRole.GetEnumerator &&
                             Eval(instance, call.Receivers).Contains(region))
                         {
@@ -733,6 +776,8 @@ public static class WholeProgram
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
                 IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key, pair.Value)).ToArray(),
                 UnknownIterators = unknownIterators,
+                IteratorMemberReceivers = _iteratorMemberReceivers.ToDictionary(pair => pair.Key,
+                                                                                 pair => (IReadOnlySet<string>)pair.Value),
                 UnresolvedLocators = unresolved.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
                 UnresolvedDispatches = _unresolvedDispatches.ToHashSet(),
                 UnresolvedDispatchReceivers = _unresolvedReceivers.ToDictionary(pair => pair.Key,
@@ -1108,7 +1153,7 @@ public static class WholeProgram
 
             foreach (var receiver in target.CapturedReceivers.ToArray())
             {
-                var implementation = _regions[receiver].TypeKey is { } typeKey && _program.Implementation(typeKey, method.MethodId) is { HasSourceBody: true } found
+                var implementation = _regions[receiver].TypeKey is { } typeKey && _program.Implementation(typeKey, method.MethodId, target.ContainingTypeKey) is { HasSourceBody: true } found
                     ? found
                     : method;
                 if (Instance(implementation.MethodId, $"{region}|{receiver}", ReceiverSubstitution(_regions[receiver], implementation, target.MethodTypeArguments),
@@ -1384,6 +1429,8 @@ public static class WholeProgram
 
             foreach (var call in summary.Calls)
                 Call(instance, call);
+            foreach (var call in summary.OpaqueCalls.Where(call => IteratorMemberOf(call.Callee) != IrEnumerationRole.None))
+                IteratorMember(instance, call.OperationId, Eval(instance, call.Receivers));
             foreach (var call in summary.OpaqueCalls)
                 Locate(instance, call);
             foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection)))
@@ -1761,16 +1808,24 @@ public static class WholeProgram
                 }
                 case IrCallKind.Virtual or IrCallKind.Interface:
                 {
-                    var receivers = Eval(caller, call.Receivers);
+                    if (DeadReceiver(caller, call, containing))
+                        return;
+                    var receivers = EligibleReceivers(caller, call, containing);
+                    var iteratorReceivers = IteratorMember(caller, call.OperationId, receivers);
+                    receivers.ExceptWith(iteratorReceivers);
                     if (receivers.Count == 0)
                     {
-                        NoReceiver(caller, call);
-                        _unresolvedDispatches.Add((caller.Id, call.OperationId));
-                        Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                        if (iteratorReceivers.Count == 0)
+                        {
+                            NoReceiver(caller, call);
+                            _unresolvedDispatches.Add((caller.Id, call.OperationId));
+                            Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                        }
                     }
                     UnresolvedTargets(caller, call);
                     foreach (var receiver in receivers)
-                        Dispatch(caller, call, call.Target, receiver, typeArguments, _regions[receiver].Kind == HeapRegionKind.Di ? "di-binding" : "points-to");
+                        Dispatch(caller, call, call.Target, receiver, typeArguments, containing,
+                                 _regions[receiver].Kind == HeapRegionKind.Di ? "di-binding" : "points-to");
                     return;
                 }
                 case IrCallKind.Static:
@@ -1786,13 +1841,18 @@ public static class WholeProgram
                 {
                     if (_program.Method(call.Target) is not { } method)
                         return;
-                    var receivers = Eval(caller, call.Receivers);
+                    if (DeadReceiver(caller, call, containing))
+                        return;
+                    var receivers = EligibleReceivers(caller, call, containing);
+                    var iteratorReceivers = IteratorMember(caller, call.OperationId, receivers);
+                    receivers.ExceptWith(iteratorReceivers);
                     if (receivers.Count == 0)
                     {
-                        NoReceiver(caller, call);
-                        var callee = Instance(call.Target, $"{caller.Context}|{caller.BodyId}#{call.OperationId}",
-                                              Substitution(method, containing, typeArguments), [], [], true);
-                        Bind(caller, call, callee, "exact");
+                        if (iteratorReceivers.Count == 0)
+                        {
+                            NoReceiver(caller, call);
+                            _receiverlessCalls.TryAdd((caller.Id, call.OperationId), (caller, call));
+                        }
                     }
 
                     foreach (var receiver in receivers)
@@ -1807,6 +1867,91 @@ public static class WholeProgram
                     return;
                 }
             }
+        }
+
+        private HashSet<string> IteratorMember(InstanceState caller, int operationId, IEnumerable<string> receivers)
+        {
+            var handled = new HashSet<string>(StringComparer.Ordinal);
+            if (!_scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ||
+                body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                    .FirstOrDefault(call => call.Id == operationId) is not { } operation)
+                return handled;
+
+            var member = IteratorMemberOf(operation.Method);
+            if (member == IrEnumerationRole.None)
+                return handled;
+            foreach (var region in receivers)
+            {
+                if (!_iteratorObjects.ContainsKey(region) && !_sequences.ContainsKey(region) && !_groupings.Contains(region))
+                    continue;
+                handled.Add(region);
+                if (operation.EnumerationRole is IrEnumerationRole.MoveNext or IrEnumerationRole.Current or IrEnumerationRole.Dispose &&
+                    ForeachAlreadyEnumerated(caller, operation, region))
+                    continue;
+                switch (member)
+                {
+                    case IrEnumerationRole.GetEnumerator:
+                        Add(CallResult(caller, operationId), [region]);
+                        break;
+                    case IrEnumerationRole.MoveNext or IrEnumerationRole.Dispose:
+                        Consume(caller, operationId, [region], new HashSet<string>(StringComparer.Ordinal));
+                        break;
+                    case IrEnumerationRole.Current:
+                        Add(CallResult(caller, operationId), _sequences.TryGetValue(region, out var sequence)
+                            ? sequence.Yields : Load(region, PathValue.ELEMENT));
+                        break;
+                }
+            }
+
+            if (handled.Count != 0)
+            {
+                if (!_iteratorMemberReceivers.TryGetValue((caller.Id, operationId), out var recorded))
+                    _iteratorMemberReceivers.Add((caller.Id, operationId), recorded = new HashSet<string>(StringComparer.Ordinal));
+                recorded.UnionWith(handled);
+            }
+            return handled;
+        }
+
+        private static IrEnumerationRole IteratorMemberOf(string method) => method switch
+        {
+            var name when name.EndsWith(".GetEnumerator()", StringComparison.Ordinal) => IrEnumerationRole.GetEnumerator,
+            var name when name.EndsWith(".MoveNext()", StringComparison.Ordinal) => IrEnumerationRole.MoveNext,
+            var name when name.EndsWith(".get_Current()", StringComparison.Ordinal) => IrEnumerationRole.Current,
+            var name when name.EndsWith(".Dispose()", StringComparison.Ordinal) => IrEnumerationRole.Dispose,
+            _ => IrEnumerationRole.None
+        };
+
+        private bool ForeachAlreadyEnumerated(InstanceState caller, IrCallOperation operation, string region)
+        {
+            if (operation.EnumerationId is not int enumeration)
+                return false;
+            var body = _scope.Reachable.Bodies[caller.BodyId];
+            var get = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                          .FirstOrDefault(call => call.EnumerationId == enumeration && call.EnumerationRole == IrEnumerationRole.GetEnumerator);
+            if (get is null)
+                return false;
+            var receivers = caller.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == get.Id)?.Receivers ??
+                            caller.Summary.Calls.FirstOrDefault(call => call.OperationId == get.Id)?.Receivers;
+            return receivers is not null && Eval(caller, receivers).Contains(region);
+        }
+
+        private HashSet<string> EligibleReceivers(InstanceState caller, CallTransfer call, string? containing)
+        {
+            var receivers = Eval(caller, call.Receivers);
+            if (containing is not null)
+                receivers.RemoveWhere(region => _typeSafety.CannotBe(_regions[region], containing));
+            return receivers;
+        }
+
+        private bool DeadReceiver(InstanceState caller, CallTransfer call, string? containing)
+        {
+            if (containing is null)
+                return false;
+            var receivers = Eval(caller, call.Receivers);
+            return receivers.Count != 0 && receivers.All(region => _typeSafety.CannotBe(_regions[region], containing)) &&
+                   !call.ReceiverUnknownSources.Contains(UnknownSource.OpaqueCall) &&
+                   !call.ReceiverUnknownSources.Contains(UnknownSource.Other) &&
+                   !call.ReceiverSourceCalls.Any(caller.UnfollowedCallResults.Contains);
         }
 
         /// <summary>The delegates among values an unresolved call is handed, each run by the instances of its target in an unknown
@@ -2071,7 +2216,7 @@ public static class WholeProgram
 
         /// <summary>A library sequence a known call returns or a model's value creates: the iterator delegates it keeps, those no body
         /// the run has resolves, which are an unresolved dispatch wherever it is enumerated, and the sources it enumerates (R5). What it
-        /// yields is its element storage.</summary>
+        /// yields is recorded from its model result, alongside its element storage.</summary>
         private sealed class SequenceState(string region, string creator, int operation, bool nested)
         {
             public string Region { get; } = region;
@@ -2079,6 +2224,7 @@ public static class WholeProgram
             public int Operation { get; } = operation;
             public bool IsNested { get; } = nested;
             public HashSet<string> Callees { get; } = new(StringComparer.Ordinal);
+            public HashSet<string> Yields { get; } = new(StringComparer.Ordinal);
             public HashSet<string> Sources { get; } = new(StringComparer.Ordinal);
             public HashSet<string> ReturnedSources { get; } = new(StringComparer.Ordinal);
             /// <summary>By delegate parameter and delegate region, <see cref="UNRESOLVED_DELEGATE"/> where no delegate object is known: each
@@ -2198,7 +2344,7 @@ public static class WholeProgram
                 {
                     // A sequence a value builds yields its values and enumerates the arguments they name the elements of (R5).
                     var sequence = NewSequence(caller, call, path, nested: true);
-                    Add(Field(sequence.Region, PathValue.ELEMENT),
+                    AddSequenceYields(sequence,
                         sequenceValue.Values.SelectMany((item, position) => ModelValues(caller, call, item, returns, $"{path}.{position}")));
                     AddSources(caller, call, sequence, sequenceValue.Values);
                     AddReturnedSources(sequence, IrLibraryCall.EnumeratedReturns(sequenceValue.Values)
@@ -2247,6 +2393,13 @@ public static class WholeProgram
             }
         }
 
+        private void AddSequenceYields(SequenceState sequence, IEnumerable<string> values)
+        {
+            var yielded = values.ToArray();
+            Add(Field(sequence.Region, PathValue.ELEMENT), yielded);
+            Add(sequence.Yields, yielded);
+        }
+
         /// <summary>What enumerating objects yields (R3, R5): what a library sequence or a grouping yields, what an array's or a
         /// collection's storages hold, and for any other sequence of the run's own every object it reaches of the element type, or every
         /// one where that type says nothing (open question 27). A user iterator yields what its body's <c>yield return</c>s hand out.</summary>
@@ -2283,7 +2436,7 @@ public static class WholeProgram
             // A library sequence yields its values when it is enumerated and enumerates the arguments they name the elements of (R5).
             if (sequence is not null)
             {
-                Add(Field(sequence.Region, PathValue.ELEMENT), values.SelectMany(value => value));
+                AddSequenceYields(sequence, values.SelectMany(value => value));
                 AddSources(caller, call, sequence, result.Values);
                 Add(CallResult(caller, call.OperationId), [sequence.Region]);
                 return;
@@ -2317,7 +2470,8 @@ public static class WholeProgram
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
             var created = Region($"alloc|{caller.BodyId}#{call.OperationId}|{typeKey}|{ContextKey(caller)}", HeapRegionKind.Allocation,
                                  $"alloc:{owner}#{DisplayType(typeKey)}", typeKey, caller.Context, $"alloc|{caller.BodyId}#{call.OperationId}",
-                                 merged: caller.IsMerged, site: new CreationSite(caller.BodyId, call.OperationId, resultType, 1));
+                                 merged: caller.IsMerged, site: new CreationSite(caller.BodyId, call.OperationId, resultType, 1),
+                                 exactType: call.IsConstructor);
             Add(CallResult(caller, call.OperationId), [created]);
             return created;
         }
@@ -2594,7 +2748,7 @@ public static class WholeProgram
             {
                 if (isVirtual)
                 {
-                    var dispatched = DispatchCallees(receiver, method.MethodId, state.MethodTypeArguments);
+                    var dispatched = DispatchCallees(receiver, method.MethodId, state.MethodTypeArguments, state.ContainingTypeKey);
                     if (!dispatched.Dispatched)
                         noReceiver();
                     callees.AddRange(dispatched.Callees);
@@ -2615,9 +2769,9 @@ public static class WholeProgram
         private static string OwnerContext(IEnumerable<string> cellOwners) => string.Join(",", cellOwners.Order(StringComparer.Ordinal));
 
         private void Dispatch(InstanceState caller, CallTransfer call, string methodId, string receiver, IReadOnlyList<string> typeArguments,
-                              string reason)
+                              string? interfaceTypeKey, string reason)
         {
-            var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments);
+            var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments, interfaceTypeKey);
             foreach (var callee in callees)
                 Bind(caller, call, callee, reason);
 
@@ -2634,7 +2788,7 @@ public static class WholeProgram
             if (!dispatched && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId)) is null)
             {
                 NoReceiver(caller, call);
-                var declaring = _regions[receiver].TypeKey is { } type ? _program.Implementation(type, methodId)?.ContainingTypeKey : null;
+                var declaring = _regions[receiver].TypeKey is { } type ? _program.Implementation(type, methodId, interfaceTypeKey)?.ContainingTypeKey : null;
                 Unresolved(caller, call, [(receiver, declaring)]);
             }
         }
@@ -2653,7 +2807,8 @@ public static class WholeProgram
 
         /// <summary>The source implementations a receiver region runs for a call of <paramref name="methodId"/>, and whether any of its
         /// types has one.</summary>
-        private (bool Dispatched, List<InstanceState> Callees) DispatchCallees(string receiver, string methodId, IReadOnlyList<string> typeArguments)
+        private (bool Dispatched, List<InstanceState> Callees) DispatchCallees(string receiver, string methodId, IReadOnlyList<string> typeArguments,
+                                                                             string? interfaceTypeKey = null)
         {
             var region = _regions[receiver];
             // A factory or instance registration's region dispatches on the types its factory or instance created, if any.
@@ -2664,7 +2819,7 @@ public static class WholeProgram
             var callees = new List<InstanceState>();
             foreach (var type in types)
             {
-                if (_program.Implementation(type, methodId) is not { HasSourceBody: true } implementation)
+                if (_program.Implementation(type, methodId, interfaceTypeKey) is not { HasSourceBody: true } implementation)
                     continue;
                 dispatched = true;
                 if (Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
@@ -2926,7 +3081,10 @@ public static class WholeProgram
             var ordinal = site.SiteOrdinal > 1 ? $"#{site.SiteOrdinal}" : "";
             return Region($"alloc|{site.BodyId}#{site.OperationId}|{typeKey}|{ContextKey(instance)}", HeapRegionKind.Allocation,
                           $"alloc:{owner}#{DisplayType(typeKey)}{ordinal}", typeKey, instance.Context, $"alloc|{site.BodyId}#{site.OperationId}",
-                          merged: instance.IsMerged, site: site);
+                          merged: instance.IsMerged, site: site,
+                          exactType: _scope.Reachable.Bodies.TryGetValue(site.BodyId, out var lowered) &&
+                                     lowered.Blocks.SelectMany(block => block.Operations)
+                                            .Any(operation => operation is IrAllocateOperation allocation && allocation.Id == site.OperationId));
         }
 
         private string DelegateRegion(InstanceState instance, DelegateCreationValue created)
@@ -2972,14 +3130,14 @@ public static class WholeProgram
                                                                              .Select(pair => $"{pair.Key}={pair.Value}"))}";
 
         private string Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
-                              bool merged = false, bool mayOverlapItself = false, CreationSite? site = null)
+                              bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false)
         {
             if (_regions.ContainsKey(identity))
                 return identity;
             group ??= identity;
             _regions.Add(identity, new HeapRegion(identity, kind, display, typeKey, context, group,
                                                   typeKey is not null && _program.IsOpen(typeKey), merged, mayOverlapItself,
-                                                  site?.BodyId, site?.OperationId));
+                                                  site?.BodyId, site?.OperationId) { HasExactType = exactType });
             if (!_groups.TryGetValue(group, out var members))
                 _groups.Add(group, members = []);
             members.Add(identity);

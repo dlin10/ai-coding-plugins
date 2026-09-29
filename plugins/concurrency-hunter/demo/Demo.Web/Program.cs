@@ -82,6 +82,13 @@ using Demo.Web.Cases.InstanceRegistrationTouchesStatic;
 using Demo.Web.Cases.InterfaceAddAndCount;
 using Demo.Web.Cases.InterfaceCountReadsOnly;
 using Demo.Web.Cases.InterfaceDispatchDi;
+using Demo.Web.Cases.InterfaceCallReachesOverride;
+using Demo.Web.Cases.LateReceiverBaseCall;
+using Demo.Web.Cases.PatternBindsTestedObject;
+using Demo.Web.Cases.DeconstructCallsSourceMethod;
+using Demo.Web.Cases.TypeTestFastPath;
+using Demo.Web.Cases.EnumeratorMethodRunsAtMovenext;
+using Demo.Web.Cases.ExplicitEnumeratorRunsBody;
 using Demo.Web.Cases.InterlockedMixedWithPlainWrite;
 using Demo.Web.Cases.IteratorCreatedUnderLock;
 using Demo.Web.Cases.IteratorEnumeratedUnderLock;
@@ -344,7 +351,14 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddDictionaryIndexerCompound()
                 .AddPropertyAccessorIncrement()
                 .AddInterfaceCountReadsOnly()
-                .AddInterfaceAddAndCount();
+                .AddInterfaceAddAndCount()
+                .AddInterfaceCallReachesOverride()
+                .AddLateReceiverBaseCall()
+                .AddPatternBindsTestedObject()
+                .AddDeconstructCallsSourceMethod()
+                .AddTypeTestFastPath()
+                .AddEnumeratorMethodRunsAtMovenext()
+                .AddExplicitEnumeratorRunsBody();
 
 var app = builder.Build();
 

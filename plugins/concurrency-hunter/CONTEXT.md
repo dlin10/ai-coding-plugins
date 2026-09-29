@@ -288,7 +288,10 @@ _Avoid_: havoc, unknown write, opaque write
 A call the deterministic analysis could not reduce and that touches a mutable non-owned region, a
 delegate, or feeds a shared region; a reflection, `dynamic`, unresolved-dispatch or unknown-library
 call that touches none of those is not a gap. A virtual, interface or delegate call with no receiver
-object is unresolved dispatch, and the same conditions decide whether it is a gap. Only shared
+object is unresolved dispatch, and the same conditions decide whether it is a gap. A call never runs
+on an object whose exact type the heap knows and which cannot be of the type that declares the called
+member; a call whose every receiver object is excluded that way, and whose receiver comes from
+nowhere the heap cannot follow, never runs at all: it is neither unresolved dispatch nor a gap. Only shared
 regions count — `Escaped`, `Shared` or `Unknown` — so an object of one execution handed to the call
 makes no gap; an array created at the call to carry its arguments — a `params` array, or an array
 creation in the argument's place — is judged by its elements.
@@ -312,7 +315,8 @@ _Avoid_: severity, priority, blocking
 
 **Coverage**:
 The report's account of what the run analyzed and what it could not: loaded and skipped projects,
-unsupported bodies, semantic gaps by materiality, which **Library models** applied from which
+unsupported bodies, the operations inside reached bodies it could not lower, semantic gaps by
+materiality, which **Library models** applied from which
 **Model layer**, and how many pairs each non-manual layer removed.
 _Avoid_: scope, completeness score
 

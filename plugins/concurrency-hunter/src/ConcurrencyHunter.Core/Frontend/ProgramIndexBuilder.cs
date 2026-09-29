@@ -28,6 +28,7 @@ public static class ProgramIndexBuilder
         }
 
         var closedTypes = new Dictionary<string, ClosedGenericType>(StringComparer.Ordinal);
+        var variantTypes = new Dictionary<string, ProgramVariantType>(StringComparer.Ordinal);
         foreach (var type in sourceTypes)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -35,7 +36,7 @@ public static class ProgramIndexBuilder
                 types.TryAdd(SymbolNames.TypeKey(baseType.OriginalDefinition), baseType.OriginalDefinition);
             foreach (var @interface in type.AllInterfaces)
                 types.TryAdd(SymbolNames.TypeKey(@interface.OriginalDefinition), @interface.OriginalDefinition);
-            AddMentionedTypes(type, closedTypes);
+            AddMentionedTypes(type, closedTypes, variantTypes);
         }
 
         // The objects of an immutable type source names are regions a known call's effect touches nothing of (R3). Source names
@@ -59,14 +60,17 @@ public static class ProgramIndexBuilder
                     {
                         var symbol = model.GetSymbolInfo(name, cancellationToken).Symbol;
                         if (symbol is INamedTypeSymbol mentioned)
-                            AddClosed(mentioned, closedTypes);
+                            AddClosed(mentioned, closedTypes, variantTypes);
                         foreach (var argument in symbol switch
                                  {
                                      INamedTypeSymbol type => type.TypeArguments,
                                      IMethodSymbol method => method.TypeArguments,
                                      _ => []
                                  })
+                        {
                             AddImmutable(argument);
+                            AddClosed(argument, closedTypes, variantTypes);
+                        }
                     }
                     if (node is BaseObjectCreationExpressionSyntax creation)
                         AddImmutable(model.GetTypeInfo(creation, cancellationToken).Type);
@@ -94,6 +98,30 @@ public static class ProgramIndexBuilder
         }
 
         var implementations = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var interfaceMappings = new List<ProgramInterfaceMapping>();
+        foreach (var type in sourceTypes)
+        {
+            var typeKey = SymbolNames.TypeKey(type);
+            foreach (var @interface in type.AllInterfaces)
+            {
+                var interfaceKey = SymbolNames.TypeKey(@interface);
+                foreach (var member in @interface.GetMembers().OfType<IMethodSymbol>())
+                {
+                    var implementation = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
+                    interfaceMappings.Add(new ProgramInterfaceMapping(typeKey, interfaceKey,
+                        IrLowering.RootBodyId(member.OriginalDefinition),
+                        implementation is null ? null : IrLowering.RootBodyId(implementation.OriginalDefinition),
+                        TypeArguments(@interface.OriginalDefinition).Select(parameter => parameter is ITypeParameterSymbol typeParameter
+                            ? typeParameter.Variance switch
+                            {
+                                VarianceKind.Out => ProgramVariance.Covariant,
+                                VarianceKind.In => ProgramVariance.Contravariant,
+                                _ => ProgramVariance.Invariant
+                            }
+                            : ProgramVariance.Invariant).ToArray()));
+                }
+            }
+        }
         foreach (var type in types.Values.Where(type => type.TypeKind != TypeKind.Interface))
         {
             foreach (var @interface in type.AllInterfaces)
@@ -133,7 +161,8 @@ public static class ProgramIndexBuilder
         return new ProgramIndex(scopeId,
                                 types.Select(pair => Type(pair.Key, pair.Value, sourceCompilations.GetValueOrDefault(pair.Value), cancellationToken))
                                      .ToArray(),
-                                methods.Values.ToArray(), fields, closedTypes.Values.ToArray())
+                                methods.Values.ToArray(), fields, closedTypes.Values.ToArray(), interfaceMappings,
+                                variantTypes.Values.ToArray())
         {
             ImmutableTypeKeys = immutableTypeKeys
         };
@@ -261,41 +290,51 @@ public static class ProgramIndexBuilder
 
     /// <summary>The closed generic types a source type's declaration mentions: its base types, interfaces, field types and
     /// member signatures.</summary>
-    private static void AddMentionedTypes(INamedTypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes)
+    private static void AddMentionedTypes(INamedTypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes,
+                                          Dictionary<string, ProgramVariantType> variantTypes)
     {
         for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
-            AddClosed(baseType, closedTypes);
+            AddClosed(baseType, closedTypes, variantTypes);
         foreach (var @interface in type.AllInterfaces)
-            AddClosed(@interface, closedTypes);
+            AddClosed(@interface, closedTypes, variantTypes);
         foreach (var member in type.GetMembers())
         {
             switch (member)
             {
                 case IFieldSymbol field:
-                    AddClosed(field.Type, closedTypes);
+                    AddClosed(field.Type, closedTypes, variantTypes);
                     break;
                 case IPropertySymbol property:
-                    AddClosed(property.Type, closedTypes);
+                    AddClosed(property.Type, closedTypes, variantTypes);
                     break;
                 case IMethodSymbol method:
-                    AddClosed(method.ReturnType, closedTypes);
+                    AddClosed(method.ReturnType, closedTypes, variantTypes);
                     foreach (var parameter in method.Parameters)
-                        AddClosed(parameter.Type, closedTypes);
+                        AddClosed(parameter.Type, closedTypes, variantTypes);
                     break;
             }
         }
     }
 
-    private static void AddClosed(ITypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes)
+    private static void AddClosed(ITypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes,
+                                  Dictionary<string, ProgramVariantType> variantTypes)
     {
+        if (type is INamedTypeSymbol namedType && !ContainsTypeParameter(namedType))
+        {
+            var supertypes = new List<string> { SymbolNames.TypeKey(type) };
+            for (var current = namedType.BaseType; current is not null; current = current.BaseType)
+                supertypes.Add(SymbolNames.TypeKey(current));
+            supertypes.AddRange(namedType.AllInterfaces.Select(SymbolNames.TypeKey));
+            variantTypes.TryAdd(SymbolNames.TypeKey(type), new ProgramVariantType(SymbolNames.TypeKey(type), type.IsReferenceType, supertypes));
+        }
         switch (type)
         {
             case IArrayTypeSymbol array:
-                AddClosed(array.ElementType, closedTypes);
+                AddClosed(array.ElementType, closedTypes, variantTypes);
                 break;
             case INamedTypeSymbol named:
                 foreach (var argument in TypeArguments(named))
-                    AddClosed(argument, closedTypes);
+                    AddClosed(argument, closedTypes, variantTypes);
                 if (!SymbolEqualityComparer.Default.Equals(named, named.OriginalDefinition) && !named.IsUnboundGenericType &&
                     !TypeArguments(named).Any(ContainsTypeParameter))
                 {

@@ -44,6 +44,65 @@ public sealed class ProgramIndexTests
     }
 
     [Fact]
+    public void Interface_member_resolves_to_the_override_of_its_implementation()
+    {
+        var index = Index("""
+            public interface I { void M(); }
+            public class Base : I { public virtual void M() { } }
+            public sealed class Derived : Base { public override void M() { } }
+            """);
+
+        Assert.Equal("body:Fixture:M:Derived.M",
+                     index.Implementation("Fixture:Derived", "body:Fixture:M:I.M", "Fixture:I")!.MethodId);
+    }
+
+    [Fact]
+    public void New_tables_leave_the_type_and_method_tables_as_they_were()
+    {
+        var (index, compilation) = IndexAndCompilation("""
+            public interface I<T> { void M(T value); }
+            public class C<T> : I<T> { public virtual void M(T value) { } }
+            public sealed class D : C<int> { public override void M(int value) { } }
+            public class Use { public object Make() => new System.Collections.Generic.List<int>(); }
+            """);
+        var sourceTypes = new[] { "I`1", "C`1", "D", "Use" }
+            .Select(name => compilation.GetTypeByMetadataName(name)!)
+            .ToArray();
+        var expectedTypes = sourceTypes.SelectMany(type => type.AllInterfaces.Select(@interface => @interface.OriginalDefinition)
+                                         .Concat(type.BaseType is null ? [] : [type.BaseType.OriginalDefinition])
+                                         .Append(type))
+                                       .Select(SymbolNames.TypeKey)
+                                       .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(expectedTypes.Order(StringComparer.Ordinal), index.Types.Select(type => type.TypeKey).Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(index.Types, type => type.TypeKey.Contains("List", StringComparison.Ordinal));
+        var implemented = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var type in sourceTypes.Where(type => type.TypeKind != TypeKind.Interface))
+        {
+            foreach (var @interface in type.AllInterfaces)
+            {
+                foreach (var member in @interface.GetMembers().OfType<IMethodSymbol>())
+                {
+                    if (type.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation)
+                        continue;
+                    var implementationId = IrLowering.RootBodyId(implementation.OriginalDefinition);
+                    if (!implemented.TryGetValue(implementationId, out var members))
+                        implemented.Add(implementationId, members = new HashSet<string>(StringComparer.Ordinal));
+                    members.Add(IrLowering.RootBodyId(member.OriginalDefinition));
+                }
+            }
+        }
+        foreach (var method in index.Methods)
+            Assert.Equal(implemented.GetValueOrDefault(method.MethodId)?.Order(StringComparer.Ordinal).ToArray() ?? [],
+                         method.ImplementedInterfaceMethodIds.Order(StringComparer.Ordinal));
+
+        Assert.Contains(index.InterfaceMappings, mapping => mapping.TypeDefinitionKey == "Fixture:C<Fixture:T>" &&
+                                                          mapping.InterfaceTypeKey == "Fixture:I<Fixture:T>" &&
+                                                          mapping.InterfaceMemberId == "body:Fixture:M:I`1.M(`0)" &&
+                                                          mapping.ImplementationMethodId == "body:Fixture:M:C`1.M(`0)");
+    }
+
+    [Fact]
     public void Abstract_method_has_no_body_and_no_implementation_of_its_own()
     {
         var index = Index("public abstract class Job { public abstract void Run(); public void Log() { } }");

@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
   "target": "demo/Demo.slnx",
-  "revision": "ee2a95f51689ad3050b08109812e6431b8679b13",
+  "revision": "4c9aab1644cde772b583a7d8520f12e0d9dbeafb",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-28T15:51:27.1294075\u002B00:00",
+  "recordedAt": "2026-09-29T09:50:30.3361020\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,92 +18,93 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.412
+        "seconds": 3.358
       },
       {
         "step": "scope-discovery",
-        "seconds": 1.99
+        "seconds": 2.104
       },
       {
         "step": "program-index",
-        "seconds": 1.279
+        "seconds": 1.335
       },
       {
         "step": "lowering",
-        "seconds": 1.455
+        "seconds": 1.544
       },
       {
         "step": "reachable-set",
-        "seconds": 0.072
+        "seconds": 0.076
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 0.596
+        "seconds": 0.687
       },
       {
         "step": "executions",
-        "seconds": 0.243
+        "seconds": 0.259
       },
       {
         "step": "accesses",
-        "seconds": 0.681
+        "seconds": 0.757
       },
       {
         "step": "pairing",
-        "seconds": 0.055
+        "seconds": 0.058
       },
       {
         "step": "solver",
-        "seconds": 0.278
+        "seconds": 0.243
       },
       {
         "step": "findings",
-        "seconds": 0.043
+        "seconds": 0.051
       },
       {
         "step": "render",
-        "seconds": 0.173
+        "seconds": 0.155
       }
     ],
-    "totalSeconds": 12.725
+    "totalSeconds": 13.014
   },
-  "peakWorkingSetMb": 331.3,
+  "peakWorkingSetMb": 339.1,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 287,
+    "roots": 300,
     "rootsPerProvider": {
-      "aspnetcore": 119,
-      "hosting": 168
+      "aspnetcore": 130,
+      "hosting": 170
     },
-    "reachableBodies": 1102,
-    "summaries": 1102,
-    "regions": 724,
-    "instances": 1149,
-    "accesses": 1401,
+    "reachableBodies": 1168,
+    "summaries": 1168,
+    "regions": 767,
+    "instances": 1210,
+    "accesses": 1512,
     "pairs": {
-      "comparisons": 1520,
-      "cartesianBound": 485606,
+      "comparisons": 1582,
+      "cartesianBound": 539242,
       "largestBucket": 8,
-      "buckets": 607,
+      "buckets": 651,
       "skips": {
         "confined": 8,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 67,
-        "no-overlap": 289,
+        "no-overlap": 292,
         "ordered": 21,
-        "read-read": 896,
+        "read-read": 945,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 215
+      "candidates": 225
     },
-    "findings": 198,
-    "occurrences": 212,
-    "groups": 156,
+    "findings": 208,
+    "occurrences": 222,
+    "groups": 166,
     "fingerprints": [
+      "006126d59d446beb",
       "00c0f9fbc81a0228",
       "02efafcf04c568eb",
       "03278e7cac53fea0",
@@ -136,6 +137,7 @@
       "2cb16b8a1acdc46b",
       "2d62573845e354a0",
       "2eb10dac39b1ab87",
+      "2f03ca1b324e0d17",
       "2f2c498276cc327b",
       "2f670aa8284d3790",
       "33ef591448fde6b9",
@@ -145,6 +147,7 @@
       "386b91364073a8cc",
       "39e862e1c3353646",
       "39e9198b61d74724",
+      "39f09a6f98389ce6",
       "3a12bfb7c6b686c6",
       "3b3cb21a0be99d2a",
       "3b8ef83bb3f43421",
@@ -176,7 +179,9 @@
       "63130a58ff958b92",
       "644c6073c130aa6a",
       "64bdde19a43fcdbd",
+      "6662a1b0dee56033",
       "6909d2bc37d1bf7f",
+      "6aeb48fa825b44d9",
       "6ddc0383bbde4f1e",
       "6e6773d095a3e5ae",
       "6f32d582595c5b55",
@@ -198,6 +203,7 @@
       "7c58babcede86c11",
       "7c968dbe5ed393ec",
       "7cd08d7f68d4e172",
+      "7e997fbafece73cd",
       "7ee04391e659cd20",
       "7faca75deac3abf7",
       "7fc339d9738a95d7",
@@ -211,6 +217,7 @@
       "89f506f876385f53",
       "8c63cabb09990496",
       "8d43c4d75331fdb3",
+      "8dc507dbc846de3c",
       "901a6f7ff986900e",
       "914b4f529557f822",
       "91eb8facff869387",
@@ -227,6 +234,7 @@
       "9c9c8106b0ad6f1d",
       "9f784624fea9d5f0",
       "a0a00611df8f4181",
+      "a409bd7b17e5b916",
       "a4c002cee80ba7b4",
       "a4e7febde68abeaa",
       "a53a75e49104e339",
@@ -254,6 +262,7 @@
       "b7735141a4dbaa1b",
       "b7781a14e16807d3",
       "b9060ca5ce16cf5b",
+      "b9e1134c5f63eff9",
       "bc9d90e7f9fff06e",
       "bda8f12f8f43d6a4",
       "bdb16ea449cce859",
@@ -294,6 +303,7 @@
       "f15de3949b9f80f4",
       "f17e1449dabfa5c1",
       "f238b54c4ee96922",
+      "f448759bdcbaf823",
       "f49c13907cfd7721",
       "f5bc36108cf59d98",
       "f6a844fb679b5eb7",
@@ -308,32 +318,33 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 119,
-        "hosting": 167
+        "aspnetcore": 130,
+        "hosting": 169
       },
-      "accesses": 985,
+      "accesses": 1038,
       "counters": {
         "delegate-to-opaque": 7,
         "element-operation": 32,
-        "known-call": 228,
-        "known-call-built-in": 227,
+        "known-call": 247,
+        "known-call-built-in": 246,
         "known-call-project": 1,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 18,
+        "no-receiver-object": 15,
         "opaque-by-project": 1,
-        "opaque-call": 990,
+        "opaque-call": 1033,
         "out-of-range-call": 0,
-        "reachable-bodies": 1099,
+        "reachable-bodies": 1165,
         "scc-budget-exceeded": 0,
         "semantic-gap": 10,
         "solver-available": 1,
-        "solver-queries": 15,
-        "solver-sat": 11,
+        "solver-queries": 16,
+        "solver-sat": 12,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 10,
+        "unproven-reference": 12,
         "unresolved-locator": 2,
+        "unsupported-operation": 20,
         "wildcard-access": 8
       },
       "ordering": {
@@ -382,6 +393,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 0,
         "unresolved-locator": 0,
+        "unsupported-operation": 0,
         "wildcard-access": 0
       },
       "ordering": {
@@ -397,12 +409,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 12.725,
+      "actual": 13.014,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.324,
+      "actual": 0.331,
       "met": true
     }
   }

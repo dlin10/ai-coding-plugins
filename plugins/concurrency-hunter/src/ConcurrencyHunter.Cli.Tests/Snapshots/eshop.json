@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 941,
-    "regions": 1359,
-    "instances": 1484,
-    "accesses": 3204,
+    "regions": 1358,
+    "instances": 1482,
+    "accesses": 3174,
     "pairs": {
-      "comparisons": 3834,
-      "cartesianBound": 441256,
-      "largestBucket": 13,
+      "comparisons": 3723,
+      "cartesianBound": 427957,
+      "largestBucket": 11,
       "buckets": 1325,
       "skips": {
-        "confined": 1831,
+        "confined": 1815,
         "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1934
+        "read-read": 1839
       },
       "suppressed": 0,
       "candidates": 36
@@ -96,6 +96,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 5,
         "unresolved-locator": 1,
+        "unsupported-operation": 48,
         "wildcard-access": 0
       },
       "ordering": {
@@ -133,7 +134,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 615,
+      "accesses": 593,
       "counters": {
         "delegate-to-opaque": 13,
         "element-operation": 47,
@@ -142,7 +143,7 @@
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 21,
+        "no-receiver-object": 20,
         "opaque-by-project": 0,
         "opaque-call": 223,
         "out-of-range-call": 0,
@@ -153,6 +154,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 11,
         "unresolved-locator": 6,
+        "unsupported-operation": 141,
         "wildcard-access": 0
       },
       "ordering": {
@@ -203,6 +205,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 10,
         "unresolved-locator": 2,
+        "unsupported-operation": 110,
         "wildcard-access": 1
       },
       "ordering": {
@@ -248,6 +251,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 30,
         "wildcard-access": 1
       },
       "ordering": {
@@ -286,7 +290,7 @@
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 23,
+        "no-receiver-object": 22,
         "opaque-by-project": 0,
         "opaque-call": 155,
         "out-of-range-call": 0,
@@ -297,6 +301,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 7,
         "unresolved-locator": 6,
+        "unsupported-operation": 53,
         "wildcard-access": 0
       },
       "ordering": {
@@ -345,6 +350,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 18,
         "wildcard-access": 0
       },
       "ordering": {
@@ -389,6 +395,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 17,
         "wildcard-access": 0
       },
       "ordering": {
@@ -436,6 +443,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 21,
         "wildcard-access": 0
       },
       "ordering": {
@@ -476,6 +484,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 30,
         "wildcard-access": 1
       },
       "ordering": {
@@ -525,6 +534,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 33,
         "wildcard-access": 1
       },
       "ordering": {
@@ -564,6 +574,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 1,
         "unresolved-locator": 0,
+        "unsupported-operation": 5,
         "wildcard-access": 0
       },
       "ordering": {
@@ -605,6 +616,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 27,
         "wildcard-access": 0
       },
       "ordering": {
@@ -644,6 +656,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 0,
         "unresolved-locator": 0,
+        "unsupported-operation": 0,
         "wildcard-access": 0
       },
       "ordering": {
@@ -683,6 +696,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 3,
+        "unsupported-operation": 23,
         "wildcard-access": 1
       },
       "ordering": {

@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
-  "target": "C:\\Dev\\eShopOnContainers/src/eShopOnContainers-ServicesAndWebApps.sln",
-  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
-  "workingTreeClean": true,
+  "target": "C:\\Dev\\eShopOnContainers\\src\\eShopOnContainers-ServicesAndWebApps.sln",
+  "revision": "unknown",
+  "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-28T16:55:15.7237201\u002B00:00",
+  "recordedAt": "2026-09-29T09:50:51.9658433\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,56 +18,56 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 11.948
+        "seconds": 11.094
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.978
+        "seconds": 5.154
       },
       {
         "step": "program-index",
-        "seconds": 7.272
+        "seconds": 7.119
       },
       {
         "step": "lowering",
-        "seconds": 3.975
+        "seconds": 3.497
       },
       {
         "step": "reachable-set",
-        "seconds": 0.148
+        "seconds": 0.121
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 1.103
+        "seconds": 1.35
       },
       {
         "step": "executions",
-        "seconds": 0.222
+        "seconds": 0.201
       },
       {
         "step": "accesses",
-        "seconds": 1.552
+        "seconds": 1.663
       },
       {
         "step": "pairing",
-        "seconds": 0.06
+        "seconds": 0.051
       },
       {
         "step": "solver",
-        "seconds": 0.009
+        "seconds": 0.007
       },
       {
         "step": "findings",
-        "seconds": 0.048
+        "seconds": 0.046
       },
       {
         "step": "render",
-        "seconds": 0.078
+        "seconds": 0.072
       }
     ],
-    "totalSeconds": 34.715
+    "totalSeconds": 33.579
   },
-  "peakWorkingSetMb": 489.9,
+  "peakWorkingSetMb": 484.3,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -79,19 +79,19 @@
     },
     "reachableBodies": 832,
     "summaries": 941,
-    "regions": 1359,
-    "instances": 1484,
-    "accesses": 3204,
+    "regions": 1358,
+    "instances": 1482,
+    "accesses": 3174,
     "pairs": {
-      "comparisons": 3834,
-      "cartesianBound": 441256,
-      "largestBucket": 13,
+      "comparisons": 3723,
+      "cartesianBound": 427957,
+      "largestBucket": 11,
       "buckets": 1325,
       "skips": {
-        "confined": 1831,
+        "confined": 1815,
         "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1934
+        "read-read": 1839
       },
       "suppressed": 0,
       "candidates": 36
@@ -165,6 +165,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 5,
         "unresolved-locator": 1,
+        "unsupported-operation": 48,
         "wildcard-access": 0
       },
       "ordering": {
@@ -202,7 +203,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 615,
+      "accesses": 593,
       "counters": {
         "delegate-to-opaque": 13,
         "element-operation": 47,
@@ -211,7 +212,7 @@
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 21,
+        "no-receiver-object": 20,
         "opaque-by-project": 0,
         "opaque-call": 223,
         "out-of-range-call": 0,
@@ -222,6 +223,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 11,
         "unresolved-locator": 6,
+        "unsupported-operation": 141,
         "wildcard-access": 0
       },
       "ordering": {
@@ -272,6 +274,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 10,
         "unresolved-locator": 2,
+        "unsupported-operation": 110,
         "wildcard-access": 1
       },
       "ordering": {
@@ -317,6 +320,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 30,
         "wildcard-access": 1
       },
       "ordering": {
@@ -355,7 +359,7 @@
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
-        "no-receiver-object": 23,
+        "no-receiver-object": 22,
         "opaque-by-project": 0,
         "opaque-call": 155,
         "out-of-range-call": 0,
@@ -366,6 +370,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 7,
         "unresolved-locator": 6,
+        "unsupported-operation": 53,
         "wildcard-access": 0
       },
       "ordering": {
@@ -414,6 +419,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 18,
         "wildcard-access": 0
       },
       "ordering": {
@@ -458,6 +464,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 17,
         "wildcard-access": 0
       },
       "ordering": {
@@ -505,6 +512,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 21,
         "wildcard-access": 0
       },
       "ordering": {
@@ -545,6 +553,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 30,
         "wildcard-access": 1
       },
       "ordering": {
@@ -594,6 +603,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 3,
         "unresolved-locator": 0,
+        "unsupported-operation": 33,
         "wildcard-access": 1
       },
       "ordering": {
@@ -633,6 +643,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 1,
         "unresolved-locator": 0,
+        "unsupported-operation": 5,
         "wildcard-access": 0
       },
       "ordering": {
@@ -674,6 +685,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 0,
+        "unsupported-operation": 27,
         "wildcard-access": 0
       },
       "ordering": {
@@ -713,6 +725,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 0,
         "unresolved-locator": 0,
+        "unsupported-operation": 0,
         "wildcard-access": 0
       },
       "ordering": {
@@ -752,6 +765,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 2,
         "unresolved-locator": 3,
+        "unsupported-operation": 23,
         "wildcard-access": 1
       },
       "ordering": {
@@ -772,12 +786,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 34.715,
+      "actual": 33.579,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.478,
+      "actual": 0.473,
       "met": true
     }
   }

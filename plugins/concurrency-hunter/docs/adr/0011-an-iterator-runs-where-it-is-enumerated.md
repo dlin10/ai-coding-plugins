@@ -19,9 +19,19 @@ A call that reads the whole sequence before it returns enumerates it there, in t
 execution, as a `foreach` at the call would: a **Known call** that reads the iterator deep — `ToList`,
 `Count`, a serializer, a logger's arguments — and a copy into a collection, such as `AddRange` or a
 list constructor. Reading every element is enumerating, so a model that reads an argument deep has
-already said it enumerates it at the call. An iterator that reaches a consumer the analysis cannot
-follow — an opaque call, an explicit `GetEnumerator` it does not model, or a heap location it escapes
-through — is, in addition, enumerated by an **Unknown execution**: one that may overlap every
+already said it enumerates it at the call. An explicit enumeration is the loop written out, and it
+runs the body where the loop would: `GetEnumerator` on an iterator hands back the iterator itself,
+each `MoveNext` on it runs the body in the execution that calls `MoveNext`, under the locks held
+there, as a loop head does. Its `finally` runs at the `MoveNext` that completes it or at a `Dispose`
+that stops it early, so `Dispose` is an enumeration point too, under the locks held where it is
+called; the analysis runs the body there as well rather than split the `finally` out of it, which
+can add accesses but never a protection the `finally` lacks. Unlike a loop's, nothing the body holds
+is carried out of `MoveNext` or `Dispose` into the code
+that follows it: that code is not a loop body the lock was taken for, and a lock assumed held there
+would be a protection nobody proved. An iterator method that returns an
+`IEnumerator<T>` is enumerated the same way, through the `MoveNext` calls on what it returns. An
+iterator that reaches a consumer the analysis cannot follow — an opaque call, or a heap location it
+escapes through — is, in addition, enumerated by an **Unknown execution**: one that may overlap every
 execution of its process scope, itself included, and that holds no lock on entry. Nothing orders it
 but the end of startup, and that only when every execution that creates the iterator starts after
 startup ends: nobody can enumerate it before it exists, but one created during startup may be
@@ -29,8 +39,8 @@ enumerated while startup is still running.
 
 A **Library sequence** is an iterator whose body is its model. `Where`, `Select`, `Take` and the other
 operators that return before enumerating anything build one; it keeps the delegates its model gives
-the `iterator` fate and the sequences it was built from. Enumerating it — by a `foreach`, a deep read,
-a copy, or the enumeration of another library sequence built from it — runs those delegates, enumerates
+the `iterator` fate and the sequences it was built from. Enumerating it — by a `foreach`, an explicit
+enumeration, a deep read, a copy, or the enumeration of another library sequence built from it — runs those delegates, enumerates
 those sources and makes the call's effects on its arguments, all at the enumeration and in the
 enumerating execution, never at the call. It escapes exactly as an iterator does, and an escaped one
 is enumerated, in addition, by an unknown execution. A chain `items.Where(p).Select(s).ToList()` is

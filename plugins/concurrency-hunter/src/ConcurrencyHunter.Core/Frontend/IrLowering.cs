@@ -1,6 +1,7 @@
 using System.Globalization;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
@@ -13,7 +14,11 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace ConcurrencyHunter.Frontend;
 
-public sealed record IrLoweredMethod(IrBody Body, IReadOnlyList<IrBody> NestedBodies);
+public sealed record IrLoweredMethod(IrBody Body, IReadOnlyList<IrBody> NestedBodies)
+{
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; init; } =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+}
 
 public static class IrLowering
 {
@@ -50,7 +55,7 @@ public static class IrLowering
         var nestedBodies = new List<IrBody>();
         foreach (var (graph, localFunctions, anonymousFunctions) in functions)
             nestedBodies.AddRange(LowerNestedFunctions(graph, localFunctions, anonymousFunctions, ownerSymbol, !method.IsStatic, nestedIds, context));
-        return new IrLoweredMethod(body, nestedBodies);
+        return new IrLoweredMethod(body, nestedBodies) { MetadataSupertypes = context.MetadataSupertypes };
     }
 
     /// <summary>The IR body id of every lambda and local function nested in <paramref name="method"/>, at any depth,
@@ -422,7 +427,24 @@ public static class IrLowering
     private sealed record AutoAccessorSegment(IPropertySymbol Property, SyntaxNode Syntax) : Segment;
 
     private sealed record LoweringContext(string RootBodyId, SiteOrdinals SiteOrdinals, string RootDirectory,
-                                          Compilation Compilation, CancellationToken CancellationToken, LibraryModels LibraryModels);
+                                          Compilation Compilation, CancellationToken CancellationToken, LibraryModels LibraryModels)
+    {
+        internal Dictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; } = new(StringComparer.Ordinal);
+
+        internal void RecordMetadataSupertypes(ITypeSymbol? type)
+        {
+            if (type is null || type is not IArrayTypeSymbol &&
+                SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly))
+                return;
+
+            var supertypes = new HashSet<string>(StringComparer.Ordinal);
+            for (ITypeSymbol? current = type; current is not null; current = current.BaseType)
+                supertypes.Add(TypeSafety.DefinitionOf(SymbolNames.TypeKey(current)));
+            foreach (var @interface in type.AllInterfaces)
+                supertypes.Add(TypeSafety.DefinitionOf(SymbolNames.TypeKey(@interface)));
+            MetadataSupertypes[TypeSafety.DefinitionOf(SymbolNames.TypeKey(type))] = supertypes;
+        }
+    }
 
     /// <summary>The 1-based source order of each allocation among those of its created type, and of each delegate creation,
     /// within one member: its roots in segment order, then span start, then operation-tree order.</summary>
@@ -518,6 +540,7 @@ public static class IrLowering
         private List<IrOperation> _operations = [];
         private int _currentBlockOrdinal;
         private int? _receiverValue;
+        private int? _patternInputValue;
         private int _nextValueId;
         private int _nextOperationId;
 
@@ -1155,7 +1178,9 @@ public static class IrLowering
                     ? LowerParameter(parameter) : LowerReferencedParameter(parameter),
                 ILocalReferenceOperation local => local.Local.RefKind == RefKind.None
                     ? GetSymbolValue(local.Local) : LowerReferenceLoad(GetSymbolValue(local.Local), local),
-                IInstanceReferenceOperation => _receiverValue ?? Unknown(operation, "unsupported"),
+                IInstanceReferenceOperation instance => instance.ReferenceKind == InstanceReferenceKind.PatternInput
+                    ? _patternInputValue ?? Unknown(instance, "unsupported")
+                    : _receiverValue ?? Unknown(operation, "unsupported"),
                 IFlowCaptureOperation capture => LowerCapture(capture),
                 IFlowCaptureReferenceOperation capture => LowerCaptureReference(capture),
                 IInvocationOperation invocation => LowerInvocation(invocation),
@@ -1170,6 +1195,9 @@ public static class IrLowering
                 IUnaryOperation unary => LowerUnary(unary),
                 IIsTypeOperation typeTest => LowerTypeTest(typeTest),
                 IIsPatternOperation pattern when IsNullPattern(pattern.Pattern) => LowerNullTest(pattern, pattern.Value, "is-pattern"),
+                IIsPatternOperation pattern => LowerPattern(pattern.Pattern, LowerValue(pattern.Value)),
+                ISwitchOperation @switch => LowerSwitch(@switch),
+                ISwitchExpressionOperation @switch => LowerSwitchExpression(@switch),
                 IDelegateCreationOperation delegateCreation => LowerDelegateCreation(delegateCreation),
                 ICollectionExpressionOperation collection => LowerCollectionExpression(collection),
                 IEventAssignmentOperation { Adds: true, EventReference: IEventReferenceOperation { Instance: not null } reference } assignment
@@ -1474,7 +1502,13 @@ public static class IrLowering
         private int LowerDeconstruction(IDeconstructionAssignmentOperation deconstruction)
         {
             var stores = new List<(IOperation Target, int Value)>();
-            CollectDeconstruction(deconstruction.Target, deconstruction.Value, null, deconstruction, stores);
+            var model = _context.Compilation.GetSemanticModel(deconstruction.Syntax.SyntaxTree);
+            var info = deconstruction.Syntax is AssignmentExpressionSyntax assignment
+                ? model.GetDeconstructionInfo(assignment)
+                : deconstruction.Syntax.AncestorsAndSelf().OfType<ForEachVariableStatementSyntax>().FirstOrDefault() is { } loop
+                    ? model.GetDeconstructionInfo(loop)
+                    : default;
+            CollectDeconstruction(deconstruction.Target, deconstruction.Value, null, deconstruction, info, stores);
             foreach (var (target, value) in stores)
                 LowerStore(target, value, deconstruction, "deconstruction");
             if (stores.Count == 0)
@@ -1485,6 +1519,7 @@ public static class IrLowering
         // Pairs every target leaf with its value, lowering the right-hand side left to right before any store: a tuple
         // literal element by element, and any other tuple value once, then one element per target.
         private void CollectDeconstruction(IOperation target, IOperation? source, int? sourceValue, IOperation deconstruction,
+                                           DeconstructionInfo info,
                                            List<(IOperation Target, int Value)> stores)
         {
             var targetTuple = TupleOf(target);
@@ -1498,20 +1533,61 @@ public static class IrLowering
             if (sourceTuple is not null && sourceTuple.Elements.Length == targetTuple.Elements.Length)
             {
                 for (var index = 0; index < targetTuple.Elements.Length; index++)
-                    CollectDeconstruction(targetTuple.Elements[index], sourceTuple.Elements[index], null, deconstruction, stores);
+                    CollectDeconstruction(targetTuple.Elements[index], sourceTuple.Elements[index], null, deconstruction,
+                                           NestedInfo(info, index), stores);
                 return;
             }
 
             var tupleValue = sourceValue ?? LowerValue(source!);
+            var outputs = info.Method is { } method && SourceDeconstruct(method)
+                ? CallDeconstruct(deconstruction, method, tupleValue)
+                : null;
             for (var index = 0; index < targetTuple.Elements.Length; index++)
             {
                 var element = targetTuple.Elements[index];
-                var elementValue = AddTemporary(element.Type);
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), elementValue, $"tuple-element:Item{index + 1}", [tupleValue],
-                    Provenance(deconstruction, "deconstruction")));
-                CollectDeconstruction(element, null, elementValue, deconstruction, stores);
+                var elementValue = outputs is not null && index < outputs.Length
+                    ? outputs[index]
+                    : TupleElement(deconstruction, tupleValue, element.Type, index);
+                CollectDeconstruction(element, null, elementValue, deconstruction, NestedInfo(info, index), stores);
             }
+        }
+
+        private static DeconstructionInfo NestedInfo(DeconstructionInfo info, int index) =>
+            index < info.Nested.Length ? info.Nested[index] : default;
+
+        private static bool SourceDeconstruct(IMethodSymbol method) =>
+            method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !method.IsAbstract;
+
+        private int TupleElement(IOperation source, int tuple, ITypeSymbol? type, int index)
+        {
+            var element = AddTemporary(type);
+            _operations.Add(new IrComputeOperation(NextOperation(), element, $"tuple-element:Item{index + 1}", [tuple],
+                                                   Provenance(source, "deconstruction")));
+            return element;
+        }
+
+        private int[] CallDeconstruct(IOperation source, IMethodSymbol method, int input)
+        {
+            method = method.ReducedFrom ?? method;
+            var extension = method.IsExtensionMethod;
+            var values = new List<int>();
+            var ordinals = new List<int>();
+            var results = new Dictionary<int, int>();
+            if (extension)
+            {
+                values.Add(input);
+                ordinals.Add(0);
+            }
+            foreach (var parameter in method.Parameters.Where(parameter => parameter.RefKind == RefKind.Out))
+            {
+                values.Add(Constant(source, null, "out-placeholder"));
+                ordinals.Add(parameter.Ordinal);
+                results.Add(parameter.Ordinal, AddTemporary(parameter.Type));
+            }
+
+            _operations.Add(Call(null, method, extension ? null : input, new LoweredArguments(values, ordinals, results),
+                                 Provenance(source, "deconstruction-call")));
+            return results.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
         }
 
         private static ITupleOperation? TupleOf(IOperation operation) => operation switch
@@ -2303,6 +2379,8 @@ public static class IrLowering
         private IrCallOperation Call(int? result, IMethodSymbol method, int? receiver, LoweredArguments arguments,
                                      IrProvenance provenance)
         {
+            if (method.MethodKind == MethodKind.Constructor)
+                _context.RecordMetadataSupertypes(method.ContainingType);
             var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
             var collection = Collections.Of(method);
             return new IrCallOperation(
@@ -2616,6 +2694,7 @@ public static class IrLowering
 
         private int LowerObjectCreation(IObjectCreationOperation creation)
         {
+            _context.RecordMetadataSupertypes(creation.Type);
             var result = AddTemporary(creation.Type);
             var provenance = Provenance(creation, "object-creation");
             _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(creation.Type), provenance)
@@ -2643,6 +2722,7 @@ public static class IrLowering
         /// <summary>An array creation evaluates its sizes, allocates the array and stores each initializer element in order.</summary>
         private int LowerArrayCreation(IArrayCreationOperation creation)
         {
+            _context.RecordMetadataSupertypes(creation.Type);
             foreach (var size in creation.DimensionSizes)
                 LowerValue(size);
             var result = AddTemporary(creation.Type);
@@ -2811,6 +2891,201 @@ public static class IrLowering
                 Operator = typeTest.IsNegated ? IrComparisonOperator.NotEqual : IrComparisonOperator.Equal
             });
             return result;
+        }
+
+        private int LowerPattern(IPatternOperation pattern, int input)
+        {
+            switch (pattern)
+            {
+                case IDeclarationPatternOperation declaration:
+                    if (declaration.DeclaredSymbol is { } symbol)
+                        StoreSymbol(symbol, input, declaration, "pattern-designation");
+                    return PatternTest(pattern, input);
+                case IRecursivePatternOperation recursive:
+                    if (recursive.DeconstructionSubpatterns.Length != 0 && recursive.DeconstructSymbol is not IMethodSymbol &&
+                        recursive.InputType is not INamedTypeSymbol { IsTupleType: true })
+                        return LowerUnsupported(recursive);
+                    if (recursive.DeclaredSymbol is { } declared)
+                        StoreSymbol(declared, input, recursive, "pattern-designation");
+                    var positional = recursive.DeconstructionSubpatterns.Length == 0 ? [] :
+                        recursive.DeconstructSymbol is IMethodSymbol method
+                            ? CallDeconstruct(recursive, method, input)
+                            : recursive.DeconstructionSubpatterns.Select((part, index) =>
+                                TupleElement(recursive, input, part.InputType, index)).ToArray();
+                    var positionalTests = recursive.DeconstructionSubpatterns.Select((part, index) => LowerPattern(part, positional[index])).ToArray();
+                    var nested = recursive.PropertySubpatterns.Select(property => LowerPropertySubpattern(property, input)).ToArray();
+                    return PatternTest(pattern, [input, .. positionalTests, .. nested]);
+                case IListPatternOperation list:
+                    return LowerListPattern(list, input);
+                case ISlicePatternOperation slice:
+                    return LowerSlicePattern(slice, input, 0, input);
+                case ITypePatternOperation type:
+                    var result = AddTemporary(type.Type);
+                    _operations.Add(new IrCompareOperation(NextOperation(), result, IrComparisonKind.Type, input, null,
+                                                           SymbolNames.Type(type.MatchedType), Provenance(type, "type-test")));
+                    return result;
+                case IConstantPatternOperation constant:
+                    return PatternTest(pattern, input, LowerValue(constant.Value));
+                case IRelationalPatternOperation relational:
+                    return PatternTest(pattern, input, LowerValue(relational.Value));
+                case IBinaryPatternOperation binary:
+                    return PatternTest(pattern, LowerPattern(binary.LeftPattern, input), LowerPattern(binary.RightPattern, input));
+                case INegatedPatternOperation negated:
+                    return PatternTest(pattern, LowerPattern(negated.Pattern, input));
+                case IDiscardPatternOperation:
+                    return PatternTest(pattern, input);
+                default:
+                    return LowerUnsupported(pattern);
+            }
+        }
+
+        private int LowerPropertySubpattern(IPropertySubpatternOperation property, int input)
+        {
+            var previous = _patternInputValue;
+            _patternInputValue = input;
+            var member = LowerValue(property.Member);
+            _patternInputValue = previous;
+            return LowerPattern(property.Pattern, member);
+        }
+
+        private int LowerListPattern(IListPatternOperation list, int input)
+        {
+            if (list.DeclaredSymbol is { } symbol)
+                StoreSymbol(symbol, input, list, "pattern-designation");
+            var length = PatternLength(list, input);
+            var tests = new List<int> { input, length };
+            var sliceIndex = Array.FindIndex(list.Patterns.ToArray(), pattern => pattern is ISlicePatternOperation);
+            for (var index = 0; index < list.Patterns.Length; index++)
+            {
+                var pattern = list.Patterns[index];
+                tests.Add(pattern is ISlicePatternOperation slice
+                    ? LowerSlicePattern(slice, input, index, PatternSubtract(list, length, list.Patterns.Length - 1))
+                    : LowerPattern(pattern, PatternElement(list, input,
+                        sliceIndex >= 0 && index > sliceIndex ? PatternSubtract(list, length, list.Patterns.Length - index)
+                            : Constant(list, index, "pattern-index"))));
+            }
+            return PatternTest(list, [.. tests]);
+        }
+
+        private int PatternLength(IListPatternOperation list, int input)
+        {
+            if (list.InputType is IArrayTypeSymbol || list.InputType?.SpecialType == SpecialType.System_String)
+            {
+                var length = AddTemporary(_context.Compilation.GetSpecialType(SpecialType.System_Int32));
+                _operations.Add(new IrComputeOperation(NextOperation(), length, "pattern-length", [input], Provenance(list, "pattern-length")));
+                return length;
+            }
+            return list.LengthSymbol is IPropertySymbol { GetMethod: { } getter } property
+                ? AddCall(list, getter, input, LoweredArguments.None, property.Type)
+                : Unknown(list, "pattern-test", [input]);
+        }
+
+        private int PatternSubtract(IOperation source, int length, int amount)
+        {
+            var result = AddTemporary(_context.Compilation.GetSpecialType(SpecialType.System_Int32));
+            _operations.Add(new IrComputeOperation(NextOperation(), result, "Subtract", [length, Constant(source, amount, "pattern-count")],
+                                                   Provenance(source, "pattern-index")));
+            return result;
+        }
+
+        private int PatternElement(IListPatternOperation list, int input, int index)
+        {
+            if (list.InputType is IArrayTypeSymbol array)
+            {
+                var result = AddTemporary(array.ElementType);
+                _operations.Add(new IrLoadElementOperation(NextOperation(), result, input, [index], Provenance(list, "pattern-element")));
+                return result;
+            }
+            if (list.InputType?.SpecialType == SpecialType.System_String)
+            {
+                var result = AddTemporary(_context.Compilation.GetSpecialType(SpecialType.System_Char));
+                _operations.Add(new IrComputeOperation(NextOperation(), result, "pattern-character", [input, index], Provenance(list, "pattern-element")));
+                return result;
+            }
+            return list.IndexerSymbol is IPropertySymbol { GetMethod: { } getter } property
+                ? AddCall(list, getter, input, new LoweredArguments([index], [0], new Dictionary<int, int>()), property.Type)
+                : Unknown(list, "pattern-test", [input]);
+        }
+
+        private int LowerSlicePattern(ISlicePatternOperation slice, int input, int position, int length)
+        {
+            if (slice.Pattern is null)
+                return PatternTest(slice, input);
+            var start = Constant(slice, position, "slice-start");
+            var rest = slice.SliceSymbol switch
+            {
+                IMethodSymbol method => AddCall(slice, method, input,
+                    new LoweredArguments([start, length], [0, 1], new Dictionary<int, int>()), method.ReturnType),
+                IPropertySymbol { GetMethod: { } getter } property => AddCall(slice, getter, input,
+                    new LoweredArguments([PatternRange(slice, start, length)], [0], new Dictionary<int, int>()), property.Type),
+                _ => input
+            };
+            return LowerPattern(slice.Pattern, rest);
+        }
+
+        private int PatternRange(ISlicePatternOperation slice, int start, int length)
+        {
+            var indexType = _context.Compilation.GetTypeByMetadataName("System.Index")!;
+            var rangeType = _context.Compilation.GetTypeByMetadataName("System.Range")!;
+            var indexConstructor = indexType.InstanceConstructors.Single(method => method.Parameters.Length == 2);
+            var rangeConstructor = rangeType.InstanceConstructors.Single(method => method.Parameters.Length == 2);
+            var end = AddTemporary(_context.Compilation.GetSpecialType(SpecialType.System_Int32));
+            _operations.Add(new IrComputeOperation(NextOperation(), end, "Add", [start, length], Provenance(slice, "slice-end")));
+
+            int Index(int position)
+            {
+                var result = AddTemporary(indexType);
+                _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(indexType), Provenance(slice, "pattern-index"))
+                {
+                    AllocatedTypeKey = TypeKeyOf(indexType)
+                });
+                _operations.Add(Call(null, indexConstructor, result,
+                    new LoweredArguments([position, Constant(slice, false, "from-start")], [0, 1], new Dictionary<int, int>()),
+                    Provenance(slice, "pattern-index")));
+                return result;
+            }
+
+            var range = AddTemporary(rangeType);
+            _operations.Add(new IrAllocateOperation(NextOperation(), range, TypeName(rangeType), Provenance(slice, "pattern-range"))
+            {
+                AllocatedTypeKey = TypeKeyOf(rangeType)
+            });
+            _operations.Add(Call(null, rangeConstructor, range,
+                new LoweredArguments([Index(start), Index(end)], [0, 1], new Dictionary<int, int>()),
+                Provenance(slice, "pattern-range")));
+            return range;
+        }
+
+        private int PatternTest(IPatternOperation pattern, params int[] operands) => Unknown(pattern, "pattern-test", operands);
+
+        private int LowerSwitch(ISwitchOperation @switch)
+        {
+            var input = LowerValue(@switch.Value);
+            foreach (var @case in @switch.Cases)
+            {
+                foreach (var clause in @case.Clauses.OfType<IPatternCaseClauseOperation>())
+                {
+                    LowerPattern(clause.Pattern, input);
+                    if (clause.Guard is not null)
+                        LowerValue(clause.Guard);
+                }
+                foreach (var body in @case.Body)
+                    LowerTop(body);
+            }
+            return Unknown(@switch, "pattern-test", [input]);
+        }
+
+        private int LowerSwitchExpression(ISwitchExpressionOperation @switch)
+        {
+            var input = LowerValue(@switch.Value);
+            foreach (var arm in @switch.Arms)
+            {
+                LowerPattern(arm.Pattern, input);
+                if (arm.Guard is not null)
+                    LowerValue(arm.Guard);
+                LowerValue(arm.Value);
+            }
+            return Unknown(@switch, "pattern-test", [input]);
         }
 
         private int LowerConversion(IConversionOperation conversion)

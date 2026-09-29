@@ -44,6 +44,14 @@ public sealed record ProgramField(string ContainingTypeKey, string Name, bool Is
 /// <see cref="ProgramType.TypeParameterKeys"/>.</summary>
 public sealed record ClosedGenericType(string TypeKey, string OriginalDefinitionKey, IReadOnlyList<string> TypeArgumentKeys);
 
+/// <summary>A source type definition's mapping of a constructed interface member to its implementation.</summary>
+public sealed record ProgramInterfaceMapping(string TypeDefinitionKey, string InterfaceTypeKey, string InterfaceMemberId,
+                                             string? ImplementationMethodId, IReadOnlyList<ProgramVariance>? Variances = null);
+
+public enum ProgramVariance { Invariant, Covariant, Contravariant }
+
+public sealed record ProgramVariantType(string TypeKey, bool IsReferenceType, IReadOnlyList<string> Supertypes);
+
 /// <summary>The types, methods and fields of one process scope, with the lookups call resolution needs. A type key that is not
 /// a known closed generic type resolves to its definition by its shape: the same name with the same number of type
 /// arguments.</summary>
@@ -55,15 +63,20 @@ public sealed class ProgramIndex
     private readonly Dictionary<string, ProgramMethod[]> _methodsByType;
     private readonly Dictionary<string, string> _definitionsByShape;
     private readonly HashSet<string> _typeParameterKeys;
+    private readonly Dictionary<string, ProgramInterfaceMapping[]> _interfaceMappingsByType;
+    private readonly Dictionary<string, ProgramVariantType> _variantTypes;
 
     public ProgramIndex(string scopeId, IReadOnlyList<ProgramType> types, IReadOnlyList<ProgramMethod> methods,
-                        IReadOnlyList<ProgramField> fields, IReadOnlyList<ClosedGenericType> closedGenericTypes)
+                        IReadOnlyList<ProgramField> fields, IReadOnlyList<ClosedGenericType> closedGenericTypes,
+                        IReadOnlyList<ProgramInterfaceMapping>? interfaceMappings = null,
+                        IReadOnlyList<ProgramVariantType>? variantTypes = null)
     {
         ScopeId = scopeId;
         Types = types;
         Methods = methods;
         Fields = fields;
         ClosedGenericTypes = closedGenericTypes;
+        InterfaceMappings = interfaceMappings ?? [];
         _types = types.ToDictionary(type => type.TypeKey, StringComparer.Ordinal);
         _methods = methods.ToDictionary(method => method.MethodId, StringComparer.Ordinal);
         _closedTypes = closedGenericTypes.ToDictionary(type => type.TypeKey, StringComparer.Ordinal);
@@ -75,6 +88,9 @@ public sealed class ProgramIndex
         _typeParameterKeys = types.SelectMany(type => type.TypeParameterKeys)
                                   .Concat(methods.SelectMany(method => method.TypeParameterKeys))
                                   .ToHashSet(StringComparer.Ordinal);
+        _interfaceMappingsByType = InterfaceMappings.GroupBy(mapping => mapping.TypeDefinitionKey, StringComparer.Ordinal)
+                                                     .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        _variantTypes = (variantTypes ?? []).ToDictionary(type => type.TypeKey, StringComparer.Ordinal);
     }
 
     public string ScopeId { get; }
@@ -82,6 +98,7 @@ public sealed class ProgramIndex
     public IReadOnlyList<ProgramMethod> Methods { get; }
     public IReadOnlyList<ProgramField> Fields { get; }
     public IReadOnlyList<ClosedGenericType> ClosedGenericTypes { get; }
+    public IReadOnlyList<ProgramInterfaceMapping> InterfaceMappings { get; }
 
     /// <summary>The type keys source creates objects of whose values can be neither changed nor used to reach anything that can
     /// (the library model's immutable types): a known call's effect on such an object touches nothing (R3).</summary>
@@ -124,10 +141,34 @@ public sealed class ProgramIndex
 
     /// <summary>The method an instance of <paramref name="runtimeTypeKey"/> runs for a call of <paramref name="methodId"/>: the most
     /// derived override or interface implementation along its base chain, the method itself when it has a body, or null.</summary>
-    public ProgramMethod? Implementation(string runtimeTypeKey, string methodId)
+    public ProgramMethod? Implementation(string runtimeTypeKey, string methodId, string? interfaceTypeKey = null)
     {
         if (!_methods.TryGetValue(methodId, out var target))
             return null;
+
+        if (interfaceTypeKey is not null && Type(target.ContainingTypeKey)?.IsInterface == true &&
+            Type(runtimeTypeKey) is { IsSource: true })
+        {
+            var visitedTypes = new HashSet<string>(StringComparer.Ordinal);
+            for (string? current = runtimeTypeKey; current is not null && visitedTypes.Add(current);)
+            {
+                var (definitionKey, arguments) = Decompose(current);
+                if (!_types.TryGetValue(definitionKey, out var type))
+                    break;
+                var substitution = type.TypeParameterKeys.Zip(arguments)
+                                       .ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
+                var mappings = (_interfaceMappingsByType.GetValueOrDefault(definitionKey) ?? [])
+                               .Where(mapping => mapping.InterfaceMemberId == methodId).ToArray();
+                var matching = mappings.FirstOrDefault(mapping => Substitute(mapping.InterfaceTypeKey, substitution) == interfaceTypeKey) ??
+                               mappings.FirstOrDefault(mapping => InterfaceMatches(Substitute(mapping.InterfaceTypeKey, substitution),
+                                                                                   interfaceTypeKey, mapping.Variances));
+                if (matching is not null)
+                    return matching.ImplementationMethodId is { } mapped ? Implementation(runtimeTypeKey, mapped) : null;
+                current = type.BaseTypeKey is { } baseKey ? Substitute(baseKey, substitution) : null;
+            }
+
+            return null;
+        }
 
         var visited = new HashSet<string>(StringComparer.Ordinal);
         for (var current = Decompose(runtimeTypeKey).DefinitionKey;
@@ -146,6 +187,29 @@ public sealed class ProgramIndex
 
         return target.IsAbstract ? null : target;
     }
+
+    private bool InterfaceMatches(string mapped, string called, IReadOnlyList<ProgramVariance>? variances)
+    {
+        if (mapped == called)
+            return true;
+        if (variances is null || variances.All(variance => variance == ProgramVariance.Invariant))
+            return false;
+        var source = Decompose(mapped);
+        var target = Decompose(called);
+        return source.DefinitionKey == target.DefinitionKey && source.Arguments.Count == variances.Count &&
+               target.Arguments.Count == variances.Count &&
+               Enumerable.Range(0, variances.Count).All(index => variances[index] switch
+               {
+                   ProgramVariance.Covariant => ReferenceAssignable(source.Arguments[index], target.Arguments[index]),
+                   ProgramVariance.Contravariant => ReferenceAssignable(target.Arguments[index], source.Arguments[index]),
+                   _ => source.Arguments[index] == target.Arguments[index]
+               });
+    }
+
+    private bool ReferenceAssignable(string source, string target) => source == target ||
+        _variantTypes.TryGetValue(source, out var type) && type.IsReferenceType &&
+        _variantTypes.TryGetValue(target, out var destination) && destination.IsReferenceType &&
+        type.Supertypes.Contains(target, StringComparer.Ordinal);
 
     /// <summary>Whether a method can be the target of a delegate of <paramref name="delegateTypeKey"/>: the same number of
     /// parameters with the same ref kinds, and a return value exactly when the delegate has one.</summary>

@@ -186,6 +186,32 @@ internal sealed class SsaPlan
                 Scan(deconstruction.Value, blockOrdinal);
                 DefineTarget(deconstruction.Target, blockOrdinal);
                 return;
+            case IIsPatternOperation pattern:
+                Scan(pattern.Value, blockOrdinal);
+                ScanPattern(pattern.Pattern, blockOrdinal);
+                return;
+            case ISwitchOperation @switch:
+                Scan(@switch.Value, blockOrdinal);
+                foreach (var clause in @switch.Cases.SelectMany(@case => @case.Clauses).OfType<IPatternCaseClauseOperation>())
+                {
+                    ScanPattern(clause.Pattern, blockOrdinal);
+                    if (clause.Guard is not null)
+                        Scan(clause.Guard, blockOrdinal);
+                }
+                foreach (var @case in @switch.Cases)
+                    foreach (var body in @case.Body)
+                        Scan(body, blockOrdinal);
+                return;
+            case ISwitchExpressionOperation @switch:
+                Scan(@switch.Value, blockOrdinal);
+                foreach (var arm in @switch.Arms)
+                {
+                    ScanPattern(arm.Pattern, blockOrdinal);
+                    if (arm.Guard is not null)
+                        Scan(arm.Guard, blockOrdinal);
+                    Scan(arm.Value, blockOrdinal);
+                }
+                return;
             case IFlowCaptureOperation capture:
                 Scan(capture.Value, blockOrdinal);
                 // A reference local is written through, never redefined, as the lowering stores to it.
@@ -214,6 +240,47 @@ internal sealed class SsaPlan
         }
 
         foreach (var child in operation.ChildOperations)
+            Scan(child, blockOrdinal);
+    }
+
+    private void ScanPattern(IPatternOperation pattern, int blockOrdinal)
+    {
+        switch (pattern)
+        {
+            case IDeclarationPatternOperation { DeclaredSymbol: { } symbol }:
+                AddDefinition(blockOrdinal, GetVariable(symbol, pattern));
+                return;
+            case IRecursivePatternOperation recursive:
+                if (recursive.DeclaredSymbol is { } declared)
+                    AddDefinition(blockOrdinal, GetVariable(declared, recursive));
+                foreach (var positional in recursive.DeconstructionSubpatterns)
+                    ScanPattern(positional, blockOrdinal);
+                foreach (var property in recursive.PropertySubpatterns)
+                {
+                    Scan(property.Member, blockOrdinal);
+                    ScanPattern(property.Pattern, blockOrdinal);
+                }
+                return;
+            case IListPatternOperation list:
+                if (list.DeclaredSymbol is { } listSymbol)
+                    AddDefinition(blockOrdinal, GetVariable(listSymbol, list));
+                foreach (var element in list.Patterns)
+                    ScanPattern(element, blockOrdinal);
+                return;
+            case ISlicePatternOperation slice:
+                if (slice.Pattern is not null)
+                    ScanPattern(slice.Pattern, blockOrdinal);
+                return;
+            case IBinaryPatternOperation binary:
+                ScanPattern(binary.LeftPattern, blockOrdinal);
+                ScanPattern(binary.RightPattern, blockOrdinal);
+                return;
+            case INegatedPatternOperation negated:
+                ScanPattern(negated.Pattern, blockOrdinal);
+                return;
+        }
+
+        foreach (var child in pattern.ChildOperations)
             Scan(child, blockOrdinal);
     }
 

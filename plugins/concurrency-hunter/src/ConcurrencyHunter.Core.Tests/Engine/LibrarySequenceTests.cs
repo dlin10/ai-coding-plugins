@@ -42,11 +42,12 @@ public sealed class LibrarySequenceTests
     }
 
     [Fact]
-    public void Sequence_with_an_explicit_GetEnumerator_is_also_enumerated_by_an_unknown_execution()
+    public void Sequence_with_an_explicit_GetEnumerator_runs_its_delegate_at_MoveNext()
     {
         var run = Run($"var sequence = {COUNTING};\nusing var enumerator = sequence.GetEnumerator();\nenumerator.MoveNext();");
 
-        Assert.Contains(Worker(run, "Count"), access => KindOf(run, access) == ExecutionKind.UnknownEnumeration);
+        AssertRunsOnlyInTheWorker(run, "Count");
+        AssertNoUnknownEnumeration(run);
     }
 
     [Fact]

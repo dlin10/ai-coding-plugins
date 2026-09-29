@@ -2123,6 +2123,116 @@
         { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.LinqGroupbyKeyAndElements.StockController.Post()", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "interface-call-reaches-override/virtual-base",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceCallReachesOverride.Tally@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceCallReachesOverride.CountingStep.Run()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.InterfaceCallReachesOverride.CountingStep.Run()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "interface-call-reaches-override/abstract-base",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.InterfaceCallReachesOverride.Score@Singleton", "accessPath": ["Points"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.InterfaceCallReachesOverride.ScoringStep.Run()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.InterfaceCallReachesOverride.ScoringStep.Run()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "late-receiver-base-call",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LateReceiverBaseCall.Tally@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LateReceiverBaseCall.RunnerController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LateReceiverBaseCall.RunnerController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "pattern-binds-tested-object/declaration",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.PatternBindsTestedObject.Board..ctor()#Demo.Web.Cases.PatternBindsTestedObject.Slot", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PatternBindsTestedObject.PatternController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PatternBindsTestedObject.PatternController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "pattern-binds-tested-object/property",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.PatternBindsTestedObject.Panel..ctor()#Demo.Web.Cases.PatternBindsTestedObject.Meter#2", "accessPath": ["Level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PatternBindsTestedObject.Meter.Above(Meter)", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.PatternBindsTestedObject.PanelWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "deconstruct-calls-source-method",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DeconstructCallsSourceMethod.Sensor..ctor()#Demo.Web.Cases.DeconstructCallsSourceMethod.Reading", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DeconstructCallsSourceMethod.Reading.Deconstruct(int, int)", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.DeconstructCallsSourceMethod.SensorWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "type-test-fast-path/is",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TypeTestFastPath.Tally@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TypeTestFastPath.BatchController.PostIs()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TypeTestFastPath.BatchController.PostIs()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "type-test-fast-path/as",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.TypeTestFastPath.Score@Singleton", "accessPath": ["Points"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TypeTestFastPath.BatchController.PostAs()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TypeTestFastPath.BatchController.PostAs()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "enumerator-method-runs-at-movenext",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.EnumeratorMethodRunsAtMovenext.Shelf..ctor()#Demo.Web.Cases.EnumeratorMethodRunsAtMovenext.Item", "accessPath": ["Seen"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EnumeratorMethodRunsAtMovenext.Shelf.GetEnumerator()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.EnumeratorMethodRunsAtMovenext.Shelf.GetEnumerator()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "explicit-enumerator-runs-body",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ExplicitEnumeratorRunsBody.Store..ctor()#Demo.Web.Cases.ExplicitEnumeratorRunsBody.Item", "accessPath": ["Seen"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ExplicitEnumeratorRunsBody.Feed.Touch(List<Item>)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ExplicitEnumeratorRunsBody.Feed.Touch(List<Item>)", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2636,6 +2746,11 @@
       "id": "linq-where-tolist-runs-in-caller/worker-once",
       "phase": "5c",
       "resource": { "region": "di:Demo.Web.Cases.LinqWhereTolistRunsInCaller.Screen@Singleton", "accessPath": ["Scans"] }
+    },
+    {
+      "id": "pattern-binds-tested-object/not-this",
+      "phase": "5d",
+      "resource": { "region": "alloc:Demo.Web.Cases.PatternBindsTestedObject.Panel..ctor()#Demo.Web.Cases.PatternBindsTestedObject.Meter", "accessPath": ["Level"] }
     }
   ]
 }

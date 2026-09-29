@@ -44,7 +44,18 @@ public static class UnknownCalls
                 // A call through an interface is the member of the table each object it decides implements it with, and stays unresolved
                 // for the others alone (ADR 0010, amendment of the phase 5b third run).
                 var receivers = call.Receivers;
-                if (call.Implementations.Count != 0 && Undecided(scope, heap, instance, call.Receivers, call.Implementations) is { } undecided)
+                if (heap.IteratorMemberReceivers.TryGetValue((instance.Id, call.OperationId), out var iteratorReceivers))
+                {
+                    var regions = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+                    if (regions.Length != 0)
+                    {
+                        var other = regions.Except(iteratorReceivers, StringComparer.Ordinal).ToArray();
+                        if (other.Length == 0)
+                            continue;
+                        receivers = other.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet();
+                    }
+                }
+                if (call.Implementations.Count != 0 && Undecided(scope, heap, instance, receivers, call.Implementations) is { } undecided)
                 {
                     if (undecided.Count == 0)
                         continue;
