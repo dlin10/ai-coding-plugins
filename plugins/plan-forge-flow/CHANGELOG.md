@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.37.2
+
+A resumed Builder or Scout turn recorded everything its session had spent so far rather than its
+own usage, and a claude turn left out what its subagents and context compaction used (noticed
+while measuring issue #129, docs/adr/0024).
+
+- Codex reports every token counter for the whole thread, and Claude its `total_cost_usd` for the
+  whole session. A resumed attempt's `vendor.usage` record now carries what that total grew by
+  since the session's latest recorded report: a codex fix turn once recorded as 81,766,668 input
+  tokens is recorded as the 8,779,454 its own calls used.
+- Claude's tokens come from the result line's `modelUsage`, summed over its models, instead of its
+  `usage`, which covers the main loop alone. A Scout that ran four subagents is recorded with
+  24,602,476 input tokens instead of 415,302, and a turn that auto-compacted with the compaction's
+  967,032 more. `modelUsage` is a running total too, and a result that names no model records no
+  tokens rather than zeros.
+- A resumed codex or claude record adds `sessionTotal`, the running total the Vendor reported, so
+  the next attempt counts from it.
+- A running total below the previous report is named in `malformedUsageFields` and omitted.
+- A codex turn cancelled before it reported still spends into the thread, and the next reported
+  turn of that thread carries it. Cursor's counters on a resumed chat are unmeasured and recorded
+  as reported.
+
 ## 0.37.1
 
 A source file whose name merely contained a secret keyword, or began with `id_`, refused the whole

@@ -20,14 +20,54 @@ public sealed class VendorUsageCaptureTests
               "type": "result",
               "subtype": "error_during_execution",
               "is_error": true,
-              "usage": { "input_tokens": 3, "output_tokens": 4 }
+              "modelUsage": { "claude-opus-5-5": { "inputTokens": 3, "outputTokens": 4 } }
             }
             """);
 
         session.Observe(terminal.RootElement);
 
-        Assert.Null(session.ObservedUsage.InputTokens);
-        Assert.Equal(4, session.ObservedUsage.OutputTokens);
+        Assert.Null(session.UsageSince(null).InputTokens);
+        Assert.Equal(4, session.UsageSince(null).OutputTokens);
+    }
+
+    /// <summary>
+    /// A fresh Scout of run 20260925-162135-46c10c ran four subagents: its `usage` held 381,084
+    /// cache-read tokens, its `modelUsage` 23,647,257.
+    /// </summary>
+    [Fact]
+    public void Claude_counts_the_models_usage_rather_than_the_main_loops()
+    {
+        var session = new ClaudeCliSession(new RoleSpec(VendorRole.Scout, "prompt"),
+                                           new Selection("model", null), null);
+        using var terminal = JsonDocument.Parse(
+            """
+            {
+              "type": "result",
+              "subtype": "success",
+              "usage": {
+                "input_tokens": 3, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 10,
+                "output_tokens": 4
+              },
+              "modelUsage": {
+                "claude-opus-5-5": {
+                  "inputTokens": 5, "cacheReadInputTokens": 700, "cacheCreationInputTokens": 30,
+                  "outputTokens": 9, "thinkingTokens": 2
+                },
+                "claude-haiku-4-5-20251001": {
+                  "inputTokens": 1, "cacheReadInputTokens": 50, "cacheCreationInputTokens": 5,
+                  "outputTokens": 3, "thinkingTokens": 0
+                }
+              }
+            }
+            """);
+
+        session.Observe(terminal.RootElement);
+
+        var usage = session.UsageSince(null);
+        Assert.Equal(791, usage.InputTokens);
+        Assert.Equal(750, usage.CacheReadTokens);
+        Assert.Equal(12, usage.OutputTokens);
+        Assert.Equal(2, usage.ReasoningTokens);
     }
 
     [Fact]
@@ -41,13 +81,13 @@ public sealed class VendorUsageCaptureTests
               "type": "result",
               "subtype": "success",
               "total_cost_usd": 0.4213875,
-              "usage": { "input_tokens": 3, "output_tokens": 4 }
+              "modelUsage": { "claude-opus-5-5": { "inputTokens": 3, "outputTokens": 4 } }
             }
             """);
 
         session.Observe(terminal.RootElement);
 
-        Assert.Equal(0.4213875m, session.ObservedUsage.CostUsd);
+        Assert.Equal(0.4213875m, session.UsageSince(null).CostUsd);
     }
 
     [Fact]
@@ -71,10 +111,11 @@ public sealed class VendorUsageCaptureTests
 
         session.Observe(terminal.RootElement);
 
-        Assert.Equal(10, session.ObservedUsage.InputTokens);
-        Assert.Equal(4, session.ObservedUsage.CacheReadTokens);
-        Assert.Equal(1, session.ObservedUsage.CacheCreationTokens);
-        Assert.Equal(2, session.ObservedUsage.OutputTokens);
+        var usage = session.UsageSince(null);
+        Assert.Equal(10, usage.InputTokens);
+        Assert.Equal(4, usage.CacheReadTokens);
+        Assert.Equal(1, usage.CacheCreationTokens);
+        Assert.Equal(2, usage.OutputTokens);
     }
 
     [Fact]

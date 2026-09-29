@@ -42,13 +42,14 @@ these terms replace it.
 | **Fast tier** | A Vendor's faster speed for a model, sold at a higher usage price, and chosen for a Worker as a third axis beside model and effort. Off unless asked for, and off is then asked for explicitly rather than left to the Vendor's own configuration. A Fast request is honoured only where it is confirmed — by the Catalogue for every Vendor, and for claude again by the session's own start — and refused otherwise. |
 | **Served speed** | The speed a Vendor reports it actually ran a Worker at, as distinct from the Requested selection. Only claude reports it, at session start and at the end: a Fast request it will not serve at the start fails the attempt before any API call, while a fall back to standard speed during the turn (`cooldown`) is a warning on a result that still counts. |
 | **Telemetry file** | The Run's indented `telemetry.json`, created by its first Usage record and never left empty, containing a JSON array with one human-readable record per Vendor attempt and no prompt or output content, separate from the operational Run log and the user-facing Flow log. Adding a record is a process-local, per-file serialized read–append–rewrite that atomically replaces the file; an existing file that is not the expected JSON array is preserved unchanged and the telemetry write fails harmlessly. Like the rest of mutable Run state, it does not promise safe concurrent mutation of the same Run by separate Plan Forge processes. |
-| **Usage record** | The terminal `vendor.usage` Telemetry-file entry for one Worker attempt, with JSON numbers for counts and token counters, strings for identity, classification and duration, an array for malformed field names, absent optional values omitted, and no failure or output detail. Its display order is stable—time and event, Act position, requested Worker, session and turn identity, outcome and owned measurements, then token counters and malformed paths—but consumers treat it as an unordered JSON object. |
+| **Usage record** | The terminal `vendor.usage` Telemetry-file entry for one Worker attempt, with JSON numbers for counts and token counters, strings for identity, classification and duration, an array for malformed field names, absent optional values omitted, and no failure or output detail. Its display order is stable—time and event, Act position, requested Worker, session and turn identity, outcome and owned measurements, then token counters, the Session running total where one was kept, and malformed paths—but consumers treat it as an unordered JSON object. |
 | **Usage timestamp** | The `at` time when a Usage record became terminal, written in the Plan Forge machine's local time with its UTC offset and millisecond precision; attempt duration remains monotonic rather than wall-clock derived. |
-| **Reported Worker usage** | The provider counters carried by a Vendor's terminal event for one attempt; intermediate message counters are not accumulated, and an attempt without terminal usage has no inferred counters. |
+| **Reported Worker usage** | The provider counters carried by a Vendor's terminal event for one attempt; intermediate message counters are not accumulated, and an attempt without terminal usage has no inferred counters. Where the Vendor reports a Session running total instead, a resumed attempt's counters are what that total grew by since the session's latest recorded report. |
+| **Session running total** | What a Vendor reports for its whole persistent session rather than for one attempt: every codex token counter, which `exec resume` restores from the thread's rollout, and claude's `modelUsage`, summed over its models, and `total_cost_usd`, which `--resume` restores from the transcript's `cost-state`. Claude's totals count its subagents and context compaction, which the result line's `usage` leaves out, so its tokens are read from there. A resumed attempt keeps the reported total as `sessionTotal` beside its own growth, so the attempt after it counts from that report even when a growth was omitted. What a codex attempt spent before ending without a terminal event stays in the thread's total and lands in the next reported growth. Cursor's counters on a resumed chat are unmeasured and taken as reported. |
 | **Worker usage boundary** | Usage telemetry covers Critic, Builder, and Scout attempts only: the host Orchestrator's usage is not observable to Plan Forge, and catalogue Probes are outside this record. |
 | **Worker prompt size** | The UTF-8 byte count of every Plan Forge-authored text fragment supplied for one attempt, counted once across all transport channels and excluding Vendor-owned instructions, resumed history and other context Plan Forge cannot observe. |
 | **Worker duration** | Plan Forge's monotonic wall-clock wait from immediately before a Vendor-process launch through acceptance or rejection of its structured result, truncated to whole seconds and recorded as `duration` with at least two unbounded total-hour digits followed by minutes and seconds (`hh:mm:ss`). |
-| **Malformed usage field** | A provider-reported counter that is not an explicit non-negative JSON integer or is inconsistent with related counters: only that normalized value and its dependants are omitted, independent counters remain, and its safe source JSON path is named in `malformedUsageFields` without carrying the value. |
+| **Malformed usage field** | A provider-reported counter that is not an explicit non-negative JSON integer, is inconsistent with related counters, or as a Session running total falls below the session's previous report: only that normalized value and its dependants are omitted, independent counters remain, and its safe source JSON path is named in `malformedUsageFields` without carrying the value. |
 | **Worker attempt outcome** | Plan Forge's terminal judgment of one Vendor attempt, in precedence order: `cancelled` before a result was accepted, `failed` when the Vendor, API or process failed, `invalid_output` when a non-failing process returned no usable structured result, and `succeeded` when its structured result was accepted; usage quality never changes it. |
 | **Worker turn identity** | One Plan Forge-generated random `turnId` names a call to a Worker's session and its one-based `attempt` number distinguishes every Vendor-process launch Plan Forge makes within that turn; retries internal to one Vendor process remain inside that attempt's terminal cumulative usage. |
 | **Vendor session mode** | Whether a particular Vendor process was launched without (`fresh`) or with (`resumed`) a resume token, recorded as `sessionMode` independently of the session identity the process eventually reports. |
@@ -431,6 +432,56 @@ Measured on 2026-09-25 with one trivial prompt per probe, against codex-cli 0.15
   the turn then failed at the API because this box's plan allows only `auto`. The list also spells
   efforts the family parser does not know — `none`, `minimal`, `extra-high` — which surface as
   families of their own (`gpt-5.6-sol-none`).
+
+## A resumed session reports its running total, and each vendor totals something different
+
+Measured on 2026-09-29 from the Runs' `telemetry.json` files against the vendors' own session
+files, written by codex-cli up to 0.157.1 and Claude Code up to 2.1.284:
+
+- **Codex** puts the thread's `total_token_usage` into `turn.completed.usage`, and `exec resume`
+  restores that total from the rollout, so every counter keeps rising across a thread's turns. The
+  rollout (`~/.codex/sessions/…/rollout-…-<thread>.jsonl`) carries a `token_count` event per model
+  call with the call's own `last_token_usage` beside the running total. Summed over a turn, those
+  equal the total's growth exactly: in run 20260927-212553-b98178 the review_fix round 3 turn
+  reported 81,766,668 input tokens, its own calls came to 8,779,454. The Scout of run
+  20260928-211855-673395 rose the same way, 4.3M → 9.3M → 18.2M → 22.4M → 27.1M → 33.2M.
+- **A codex turn that ends without `turn.completed` still spends into the thread.** Build task 3 of
+  run 20260923-111905-632662 was cancelled after an hour in which the thread's total grew by 40.4M
+  input; the 1:15 retry that followed reported 69,995,168 against the 29,342,856 before it, while
+  its own calls came to 0.2M. So the recorded growth of the next reported turn carries what the
+  cancelled one spent, and a cancelled turn that is never followed takes its spend nowhere: the
+  Scout turn the host interrupted after 3:32 in run 20260924-133053-da283a spent 1.65M input that
+  no record shows.
+- **Claude** puts two accounts on its `result` line: `usage`, the tokens of the process's main
+  loop, and `modelUsage`, one entry per model with `inputTokens`, `cacheReadInputTokens`,
+  `cacheCreationInputTokens`, `outputTokens` and `thinkingTokens`. `modelUsage` and
+  `total_cost_usd` are the session's running totals: each process appends them to the session
+  transcript as a `cost-state` entry, and `--resume` restores them from the latest one. A two-turn
+  haiku probe showed it directly: the fresh turn's `modelUsage` equalled its `usage`, the resumed
+  turn's held both turns while its `usage` held its own, and each `cost-state` entry equalled its
+  result line. `thinkingTokens` equals `usage.output_tokens_details.thinking_tokens` and never
+  exceeds `outputTokens` in any of the 179 `cost-state` entries on this machine, so it is the
+  reasoning subset of output.
+- **`modelUsage` counts what `usage` leaves out: subagents and context compaction.** On the builder
+  of run 20260928-113803-31c1d7 the growth of summed `modelUsage` between consecutive `cost-state`
+  entries equals the tokens recorded from `usage` on thirteen of fourteen turns, and the fourteen
+  `totalCostUSD` equal its recorded costs, 4.60, 8.70, 21.62 … 89.79. The first build task 6 turn
+  auto-compacted a 967,179-token context and grew `modelUsage` by 37,260,634 input tokens where
+  `usage` held 36,293,602. A fresh Scout that ran four `Agent` subagents in run
+  20260925-162135-46c10c held 381,084 cache-read tokens in `usage` and 23,647,257 in `modelUsage`.
+  A subagent on another model gets an entry of its own; 9 of the 179 entries name two models. So
+  claude's tokens are read from `modelUsage`, summed over its models.
+- **A claude result from before any model call carries an empty `modelUsage`**, as the catalogue
+  probe's expired sign-in did in run 20260927-101749-f2aa9c. That is no report rather than a total
+  of zero, which on a resumed session would reset the count.
+- **Cursor** was not measured: the probe on 2026-09-29 was refused by the account's weekly usage
+  limit before a turn ran.
+
+A resumed attempt therefore records what the running total grew by since the session's latest
+recorded report, and keeps the total as `sessionTotal`. The record keeps the total rather than
+leaving it to be summed from the growths because after one inconsistent report a sum stays wrong
+for the rest of the session, while with the total kept the attempt after it counts from the latest
+report. See docs/adr/0024.
 
 ## cursor-agent has no system-prompt channel
 
