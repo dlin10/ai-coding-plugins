@@ -66,11 +66,12 @@ public sealed class BuildTests : IDisposable
     }
 
     [Fact]
-    public async Task A_builder_reuses_a_token_recorded_for_the_same_vendor()
+    public async Task A_builder_reuses_a_token_recorded_for_the_same_vendor_and_task()
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "next-token");
         var run = NewRun("codex", "existing-token");
+        run.WriteState(run.ReadState() with { BuilderSessionScope = BuilderSession.TaskScope(1) });
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                   new Selection("builder-model", "low"),
@@ -79,6 +80,32 @@ public sealed class BuildTests : IDisposable
         Assert.Equal("existing-token", Assert.Single(vendor.Sessions).StartedWithResumeToken);
         Assert.Equal("next-token", run.ReadState().BuilderSessionId);
         Assert.Equal(vendor.Id, run.ReadState().BuilderVendor);
+    }
+
+    /// <summary>
+    /// Issue #129: one session for the whole run grew a claude builder past 900k tokens, compacted
+    /// the Brief into a summary, and cost about 38% more than a session per task. A token recorded
+    /// for another task, or for a run begun before sessions had scopes, is not resumed.
+    /// </summary>
+    /// <param name="scope">The scope the recorded token belongs to; none of them is task 2's.</param>
+    [Theory]
+    [InlineData("task 1")]
+    [InlineData("code review round 1")]
+    [InlineData(null)]
+    public async Task A_token_recorded_for_another_scope_starts_a_fresh_session(string? scope)
+    {
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"));
+        var run = NewRun("codex", "existing-token");
+        run.WriteState(run.ReadState() with { TasksCompleted = 1, BuilderSessionScope = scope });
+
+        await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
+                                                                                  new Selection("builder-model", "low"),
+                                                                                  CancellationToken.None);
+
+        Assert.Null(Assert.Single(vendor.Sessions).StartedWithResumeToken);
+        Assert.Equal(string.Empty, run.ReadState().BuilderSessionId);
+        Assert.Equal(BuilderSession.TaskScope(2), run.ReadState().BuilderSessionScope);
     }
 
     [Fact]
@@ -514,11 +541,11 @@ public sealed class BuildTests : IDisposable
     }
 
     [Fact]
-    public async Task Builder_brief_delivery_resumed_later_task_omits_brief_and_instructions()
+    public async Task Builder_brief_delivery_later_task_starts_fresh_with_the_brief_and_what_earlier_tasks_changed()
     {
         var vendor = new RecordingVendor("fake");
-        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "first-token");
-        vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "second-token");
+        vendor.Enqueue(new BuildResult("done", ["src/First.cs", "tests/FirstTests.cs"], new Verification("passed", "the checks ran"), "built"), "first-token");
+        vendor.Enqueue(new BuildResult("done", ["src/Second.cs"], new Verification("passed", "the checks ran"), "built"), "second-token");
         var run = NewRun("fake", "");
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
@@ -527,10 +554,41 @@ public sealed class BuildTests : IDisposable
         await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
 
         var session = vendor.Sessions[1];
-        Assert.Equal("first-token", session.StartedWithResumeToken);
-        Assert.Contains("# Task 2 of 2", session.PromptText, StringComparison.Ordinal);
-        Assert.DoesNotContain("# Builder Brief", session.PromptText, StringComparison.Ordinal);
-        Assert.DoesNotContain("# Instructions", session.PromptText, StringComparison.Ordinal);
+        Assert.Null(session.StartedWithResumeToken);
+        var brief = session.PromptText.IndexOf("# Builder Brief", StringComparison.Ordinal);
+        var earlier = session.PromptText.IndexOf("# Earlier tasks", StringComparison.Ordinal);
+        var task = session.PromptText.IndexOf("# Task 2 of 2", StringComparison.Ordinal);
+        var instructions = session.PromptText.IndexOf("# Instructions from the user for this run", StringComparison.Ordinal);
+        Assert.True(brief >= 0 && brief < earlier && earlier < task && task < instructions, session.PromptText);
+        Assert.Contains("- Task 1: src/First.cs, tests/FirstTests.cs", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Earlier tasks", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
+        var changes = run.ReadState().TaskChanges!;
+        Assert.Equal([1, 2], changes.Select(change => change.TaskNumber));
+        Assert.Equal(["src/Second.cs"], changes[1].FilesChanged);
+    }
+
+    /// <summary>
+    /// A task counts only when it is done, and only a done task has changes to hand over: a retry
+    /// records nothing, and the task it retries is recorded once.
+    /// </summary>
+    [Fact]
+    public async Task Only_a_done_task_records_what_it_changed()
+    {
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("blocked", ["src/Half.cs"], new Verification("unavailable", "needs a decision"), "stuck"), "task-token");
+        vendor.Enqueue(new BuildResult("done", ["src/Whole.cs"], new Verification("passed", "the checks ran"), "built"), "task-token");
+        var run = NewRun("fake", "");
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        Assert.Null(run.ReadState().TaskChanges);
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        Assert.Equal("task-token", vendor.Sessions[1].StartedWithResumeToken);
+        var change = Assert.Single(run.ReadState().TaskChanges!);
+        Assert.Equal(1, change.TaskNumber);
+        Assert.Equal(["src/Whole.cs"], change.FilesChanged);
     }
 
     [Fact]
@@ -649,7 +707,11 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "next-token");
         var plan = Plan.Replace("First task.", "Updated first task.", StringComparison.Ordinal);
         var run = NewRun("fake", "old-token", plan);
-        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        run.WriteState(run.ReadState() with
+        {
+            BuilderInstructions = "use the ponytail-net skill",
+            BuilderSessionScope = BuilderSession.TaskScope(1)
+        });
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
             .NextAsync(run, new Selection("builder-model", null), CancellationToken.None);

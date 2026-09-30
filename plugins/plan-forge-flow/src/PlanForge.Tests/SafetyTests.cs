@@ -191,8 +191,9 @@ public sealed class SafetyTests
     }
 
     /// <summary>
-    /// Roslyn-first is how a critic reads C# and belongs to that role alone. The orchestration
-    /// contract belongs to both: a host hands whichever worker it runs whatever the user installed
+    /// Both contracts belong to both roles. Roslyn-first is how a critic reads C# and how a builder
+    /// finds every place a fix has to reach: builders without it made no Roslyn call in 38 fix turns.
+    /// The orchestration contract: a host hands whichever worker it runs whatever the user installed
     /// in it, and on 2026-08-29 that put this plugin's own skill and MCP server in front of a
     /// cursor builder.
     /// </summary>
@@ -215,7 +216,7 @@ public sealed class SafetyTests
             var builder = prompts.Load("claude", VendorRole.Builder);
 
             Assert.Contains("roslyn first", critic, StringComparison.Ordinal);
-            Assert.DoesNotContain("roslyn first", builder, StringComparison.Ordinal);
+            Assert.Contains("roslyn first", builder, StringComparison.Ordinal);
             Assert.Contains("the forge tools are not yours", critic, StringComparison.Ordinal);
             Assert.Contains("the forge tools are not yours", builder, StringComparison.Ordinal);
         }

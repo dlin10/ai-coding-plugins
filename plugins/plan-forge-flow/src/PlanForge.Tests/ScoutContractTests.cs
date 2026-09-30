@@ -13,7 +13,7 @@ public sealed class ScoutContractTests
 
         Assert.Contains("You are Scout, a read-only evidence gatherer.", prompt, StringComparison.Ordinal);
         Assert.Contains("Return the Scout report through the structured output tool.", prompt, StringComparison.Ordinal);
-        Assert.Contains("Roslyn-first review", prompt, StringComparison.Ordinal);
+        Assert.Contains("# Roslyn first", prompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public sealed class ScoutContractTests
         var prompt = Prompts().Load("codex", VendorRole.Scout);
 
         Assert.Contains("Return exactly the six categories", prompt, StringComparison.Ordinal);
-        Assert.Contains("Roslyn-first review", prompt, StringComparison.Ordinal);
+        Assert.Contains("# Roslyn first", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("structured output tool", prompt, StringComparison.Ordinal);
     }
 

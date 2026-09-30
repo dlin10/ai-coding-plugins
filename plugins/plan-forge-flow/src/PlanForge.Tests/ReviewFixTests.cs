@@ -1,4 +1,5 @@
 using PlanForge.Acts;
+using PlanForge.Jobs;
 using PlanForge.Prompts;
 using PlanForge.Review;
 using PlanForge.Run;
@@ -42,7 +43,7 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal(VendorRole.Builder, session.Role.Role);
         Assert.Equal("review_fix", session.Role.Telemetry?.Act);
         Assert.Equal(2, session.Role.Telemetry?.Round);
-        Assert.Contains("# Fix these review findings", session.PromptText, StringComparison.Ordinal);
+        Assert.Equal(1, session.PromptText.Split("# Fix these review findings").Length - 1);
         Assert.Contains("fix it", session.PromptText, StringComparison.Ordinal);
     }
 
@@ -152,23 +153,51 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
     }
 
+    /// <summary>
+    /// Issue #129: a fix turn resumed at the end of a run-long session started editing after five
+    /// calls, a fresh one after twenty-one, and the resumed one had often lost the Brief to a
+    /// compaction. A round's first fix starts fresh with the Brief; its later calls resume it.
+    /// </summary>
     [Fact]
-    public async Task A_second_fix_resumes_the_builder_session()
+    public async Task A_code_review_round_starts_a_fresh_builder_session_and_its_second_fix_resumes_it()
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "next-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-token");
         builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "final-token");
-        var run = NewRun(builderVendor: "codex", builderSessionId: "existing-token");
+        var run = NewRun(builderVendor: "codex", builderSessionId: "task-token", codeReviewRounds: 1, plan: BriefPlan);
+        run.WriteState(run.ReadState() with { BuilderSessionScope = BuilderSession.TaskScope(1) });
 
         var fix = NewFix(builder);
         await fix.FixAsync(run, new Selection("builder-model", "low"), "- first fix", null, ct);
         await fix.FixAsync(run, new Selection("builder-model", "low"), "- second fix", null, ct);
 
         Assert.Equal(2, builder.Sessions.Count);
-        Assert.Equal("existing-token", builder.Sessions[0].StartedWithResumeToken);
-        Assert.Equal("next-token", builder.Sessions[1].StartedWithResumeToken);
+        Assert.Null(builder.Sessions[0].StartedWithResumeToken);
+        Assert.Contains("# Builder Brief", builder.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Equal("round-token", builder.Sessions[1].StartedWithResumeToken);
+        Assert.DoesNotContain("# Builder Brief", builder.Sessions[1].PromptText, StringComparison.Ordinal);
         Assert.Equal("final-token", run.ReadState().BuilderSessionId);
+        Assert.Equal(BuilderSession.FixScope(1), run.ReadState().BuilderSessionScope);
+    }
+
+    [Fact]
+    public async Task The_next_code_review_round_starts_its_own_builder_session()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-1-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-2-token");
+        var run = NewRun(builderVendor: "codex", codeReviewRounds: 1);
+
+        var fix = NewFix(builder);
+        await fix.FixAsync(run, new Selection("builder-model", "low"), "- first round", null, ct);
+        run.WriteState(run.ReadState() with { CodeReviewRounds = 2 });
+        await fix.FixAsync(run, new Selection("builder-model", "low"), "- second round", null, ct);
+
+        Assert.Null(builder.Sessions[1].StartedWithResumeToken);
+        Assert.Equal("round-2-token", run.ReadState().BuilderSessionId);
+        Assert.Equal(BuilderSession.FixScope(2), run.ReadState().BuilderSessionScope);
     }
 
     [Fact]
@@ -345,7 +374,11 @@ public sealed class ReviewFixTests : IDisposable
         var builder = new RecordingVendor("fake");
         builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
         var run = NewRun(builderVendor: "fake", builderSessionId: "old-token", plan: BriefPlan);
-        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        run.WriteState(run.ReadState() with
+        {
+            BuilderInstructions = "use the ponytail-net skill",
+            BuilderSessionScope = BuilderSession.FixScope(0)
+        });
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
 
@@ -420,6 +453,108 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Empty(builder.Sessions);
     }
 
+    /// <summary>
+    /// 2026-09-29, nine concurrency-hunter runs: about half of the code-review findings after the first
+    /// round came from fixes that covered the place a finding named and not the rule behind it, by
+    /// builders that made no Roslyn call in 38 fix turns.
+    /// </summary>
+    [Fact]
+    public async Task The_fix_builder_is_told_to_fix_the_rule_and_to_find_its_places_through_roslyn()
+    {
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+
+        await NewFix(builder).FixAsync(NewRun(), new Selection("builder-model", null), "- fix it", null,
+                                       CancellationToken.None);
+
+        var rolePrompt = Assert.Single(builder.Sessions).Role.SystemPrompt;
+        Assert.Contains("Fix the rule, not the place.", rolePrompt, StringComparison.Ordinal);
+        Assert.Contains("# Roslyn first", rolePrompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The ledger hands the builder each finding's `where — what` and nothing else, so what the
+    /// orchestrator knew about the rule behind them had no way in. The note is that way in, kept apart
+    /// from the verbatim findings it frames, with the user's instructions still the last block.
+    /// </summary>
+    [Fact]
+    public async Task A_note_reaches_the_builder_after_the_findings_and_before_the_user_s_instructions()
+    {
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun();
+        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+
+        await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null,
+                                       CancellationToken.None, note: "The same check decides LowerObjectCreation.");
+
+        var prompt = Assert.Single(builder.Sessions).PromptText;
+        var findings = prompt.IndexOf("fix it", StringComparison.Ordinal);
+        var note = prompt.IndexOf("# From the orchestrator", StringComparison.Ordinal);
+        var instructions = prompt.IndexOf("# Instructions from the user for this run", StringComparison.Ordinal);
+        Assert.True(findings >= 0 && findings < note && note < instructions, prompt);
+        Assert.Contains("The same check decides LowerObjectCreation.", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_note_is_recorded_verbatim_in_the_flow_log_beside_its_fix()
+    {
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
+        var run = NewRun(codeReviewRounds: 1);
+
+        await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null,
+                                       CancellationToken.None, note: "Route both through IsCanonical.");
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        var fixes = flow.IndexOf("## Fixes — round 1", StringComparison.Ordinal);
+        Assert.True(fixes >= 0 && fixes < flow.IndexOf("### From the orchestrator", StringComparison.Ordinal), flow);
+        Assert.Contains("Route both through IsCanonical.", flow, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_note_without_fix_ids_is_refused_before_the_decisions_apply()
+    {
+        var builder = new RecordingVendor("codex");
+        var run = NewRun();
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => NewFix(builder).FixAsync(
+            run, new Selection("builder-model", null), " \n", "- staged coverage — excluded",
+            CancellationToken.None, note: "nobody to tell"));
+
+        Assert.Empty(builder.Sessions);
+        Assert.Empty(run.ReadDecisionLedger().Snapshot.AppliedDecisionBatches);
+    }
+
+    [Fact]
+    public async Task A_sensitive_note_is_refused_before_the_builder_starts()
+    {
+        var builder = new RecordingVendor("codex");
+        var secret = string.Concat("api", "_key", ": ", "Abcdefghijklmnop", "1234", "+");
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() => NewFix(builder).FixAsync(
+            NewRun(), new Selection("builder-model", null), "- fix it", null, CancellationToken.None, note: secret));
+
+        Assert.Contains("the orchestrator's note", error.Message, StringComparison.Ordinal);
+        Assert.Empty(builder.Sessions);
+    }
+
+    [Fact]
+    public void The_background_start_takes_a_note_only_for_a_fix_with_ids()
+    {
+        var critic = new Selection("critic-model", null);
+        var builder = new Selection("builder-model", null);
+
+        Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
+            "review.code", null, critic, null, null, null, false, note: "framing"));
+        Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
+            "review.fix", null, builder, null, null, null, false,
+            decisions: new OrchestratorDecisionBatch("defer", [new OrchestratorDecision("F-0001", "defer", "user", "later")]),
+            note: "framing"));
+        WorkAct.ValidateArguments("review.fix", null, builder, null, null, null, false,
+                                  fixAttemptId: "attempt", fixFindingIds: ["F-0001"], note: "framing");
+    }
+
     private LedgerReviewFix NewFix(RecordingVendor builder) =>
         new(new ReviewFix(builder, new PromptLibrary(RepositoryPrompts())));
 
@@ -428,7 +563,7 @@ public sealed class ReviewFixTests : IDisposable
         private int _attempt;
 
         internal Task<BuildResult> FixAsync(RunDirectory run, Selection selection, string findings,
-                                            string? deferred, CancellationToken ct)
+                                            string? deferred, CancellationToken ct, string? note = null)
         {
             var ledger = run.ReadDecisionLedger();
             OrchestratorDecisionBatch? decisions = null;
@@ -443,11 +578,11 @@ public sealed class ReviewFixTests : IDisposable
             }
 
             if (string.IsNullOrWhiteSpace(findings))
-                return inner.FixAsync(run, selection, decisions, null, [], ct);
+                return inner.FixAsync(run, selection, decisions, null, [], ct, note);
 
             var entry = ledger.AddFinding(new Finding("major", "test", findings), LedgerPhase.CodeReview);
             var attemptId = $"fix-{++_attempt}";
-            return inner.FixAsync(run, selection, decisions, attemptId, [entry.FindingId], ct);
+            return inner.FixAsync(run, selection, decisions, attemptId, [entry.FindingId], ct, note);
         }
     }
 

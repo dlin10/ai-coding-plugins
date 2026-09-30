@@ -278,7 +278,7 @@ public sealed class ScoutSkillTests
     public void Agents_layout_and_contract_statements_include_scout()
     {
         var agents = File.ReadAllText(Path.Combine(RepositoryRoot(), "AGENTS.md"));
-        Contains("PlanReview, Build, CodeReview, ReviewFix, Scout", "scout-contract.md", "roslyn-contract.md` is appended to Critic and Scout", "All Worker roles receive the run's", agents);
+        Contains("PlanReview, Build, CodeReview, ReviewFix, Scout", "scout-contract.md", "roslyn-contract.md` is appended to every role's prompt", "All Worker roles receive the run's", agents);
     }
 
     private static void Contains(params string[] values)

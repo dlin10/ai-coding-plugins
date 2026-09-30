@@ -1260,6 +1260,230 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         Assert.Equal(entry.FindingId, Assert.Single(after.Entries).FindingId);
     }
 
+    /// <summary>
+    /// A place a fix left behind used to leave with the builder's summary: nothing held it until a
+    /// later critic found it again. A raise puts it into the ledger under the next ID of the one
+    /// sequence critics draw on.
+    /// </summary>
+    [Fact]
+    public void A_raise_enters_the_ledger_as_an_unresolved_code_entry_under_the_next_id()
+    {
+        var ledger = Ledger();
+        ledger.AddFinding(Finding("fixed at one call site"), LedgerPhase.CodeReview);
+
+        var response = ledger.Apply(Raises(Raise("the object-creation path"), Raise("the ref path", severity: "minor")),
+                                    LedgerPhase.CodeReview);
+
+        Assert.Equal("applied", response.Outcome);
+        Assert.Equal(["F-0002", "F-0003"], response.Result.RaisedFindingIds!);
+        var raised = ledger.Snapshot.Entries.Single(entry => entry.FindingId == "F-0002");
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, raised.Origin);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, raised.ActivePhase);
+        Assert.Equal(LedgerDisposition.Unresolved, raised.Disposition);
+        Assert.Equal("the object-creation path", raised.Finding.What);
+        Assert.Equal(LedgerDecisionMaker.Orchestrator, raised.Raised!.By);
+        Assert.Equal("left by the fix", raised.Raised.Reason);
+        Assert.Equal("minor", ledger.Snapshot.Entries.Single(entry => entry.FindingId == "F-0003").Finding.Severity);
+        Assert.Equal(4, ledger.Snapshot.NextFindingNumber);
+    }
+
+    [Fact]
+    public void A_raise_retried_under_its_key_is_a_no_op_that_returns_the_same_ids()
+    {
+        var ledger = Ledger();
+        var batch = Raises(Raise("the object-creation path"));
+        var first = ledger.Apply(batch, LedgerPhase.CodeReview);
+        var before = File.ReadAllBytes(ledger.Path);
+
+        var retry = ledger.Apply(batch, LedgerPhase.CodeReview);
+
+        Assert.Equal("no_op", retry.Outcome);
+        Assert.Equal(first.Result.RaisedFindingIds!, retry.Result.RaisedFindingIds!);
+        Assert.Equal(before, File.ReadAllBytes(ledger.Path));
+    }
+
+    [Fact]
+    public void A_raise_key_reused_for_another_finding_conflicts_and_names_the_saved_ids()
+    {
+        var ledger = Ledger();
+        ledger.Apply(new OrchestratorDecisionBatch("raise", [], [Raise("the object-creation path")]), LedgerPhase.CodeReview);
+        var before = File.ReadAllBytes(ledger.Path);
+
+        var conflict = ledger.Apply(new OrchestratorDecisionBatch("raise", [], [Raise("the ref path")]), LedgerPhase.CodeReview);
+
+        Assert.Equal("conflict", conflict.Outcome);
+        var error = Assert.Throws<DecisionLedgerRequestException>(conflict.ThrowIfConflict);
+        Assert.Contains("raises=[F-0001]", error.Message, StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllBytes(ledger.Path));
+    }
+
+    [Fact]
+    public void Raises_are_refused_during_plan_review()
+    {
+        var ledger = Ledger();
+        var batch = Raises(Raise("a plan gap"));
+
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.ValidateOrchestratorBatch(batch, LedgerPhase.PlanReview));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(batch, LedgerPhase.PlanReview));
+        Assert.Empty(ledger.Snapshot.Entries);
+    }
+
+    [Theory]
+    [InlineData("critical", "Other.cs", "gap", "orchestrator", "reason")]
+    [InlineData("major", " ", "gap", "orchestrator", "reason")]
+    [InlineData("major", "Other.cs", "", "orchestrator", "reason")]
+    [InlineData("major", "Other.cs", "gap", "critic", "reason")]
+    [InlineData("major", "Other.cs", "gap", "orchestrator", " ")]
+    public void A_raise_needs_what_a_finding_needs_and_a_decision_maker_with_a_reason(string severity,
+                                                                                      string where,
+                                                                                      string what,
+                                                                                      string by,
+                                                                                      string reason)
+    {
+        var ledger = Ledger();
+
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Raises(new OrchestratorRaise(severity, where, what, by, reason)), LedgerPhase.CodeReview));
+        Assert.Empty(ledger.Snapshot.Entries);
+        Assert.Empty(ledger.Snapshot.AppliedDecisionBatches);
+    }
+
+    [Fact]
+    public void A_raise_carrying_a_secret_is_refused()
+    {
+        var ledger = Ledger();
+        var secret = string.Concat("api", "_key", ": ", "Abcdefghijklmnop", "1234", "+");
+
+        Assert.Throws<SensitiveContentException>(() => ledger.Apply(Raises(Raise(secret)), LedgerPhase.CodeReview));
+        Assert.Empty(ledger.Snapshot.Entries);
+    }
+
+    /// <summary>
+    /// Every batch applied before raises existed was hashed without them, and a retry of one has to
+    /// match its saved digest still.
+    /// </summary>
+    [Fact]
+    public void A_batch_without_raises_keeps_the_canonical_bytes_it_had_before_raises()
+    {
+        var decision = Decision("defer", "F-0001");
+        var bare = DecisionLedger.CanonicalBytes(new OrchestratorDecisionBatch("batch", [decision]));
+        var empty = DecisionLedger.CanonicalBytes(new OrchestratorDecisionBatch("batch", [decision], []));
+
+        Assert.Equal(bare, empty);
+        Assert.DoesNotContain("raises", System.Text.Encoding.UTF8.GetString(bare), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_next_critic_sees_a_raise_as_the_orchestrator_s_and_has_to_assess_it()
+    {
+        var ledger = Ledger();
+        var id = Assert.Single(ledger.Apply(Raises(Raise("the ref path", reason: "the fix for F-0001 left it")),
+                                            LedgerPhase.CodeReview).Result.RaisedFindingIds!);
+
+        Assert.Contains("raised: orchestrator — the fix for F-0001 left it", ledger.RenderProjection(LedgerPhase.CodeReview),
+                        StringComparison.Ordinal);
+        var error = Assert.Throws<DecisionLedgerCritiqueException>(() => ledger.IngestCritique(new VendorCritique
+        {
+            Verdict = "approve", Findings = [], Summary = "nothing new", UnresolvedAssessments = [], Reopenings = []
+        }, LedgerPhase.CodeReview));
+        Assert.Contains(id, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_raised_entry_survives_a_reload_of_the_ledger()
+    {
+        var ledger = Ledger();
+        ledger.Apply(Raises(Raise("the ref path")), LedgerPhase.CodeReview);
+
+        var reloaded = Assert.Single(DecisionLedger.Open(ledger.Path).Snapshot.Entries);
+
+        Assert.Equal("left by the fix", reloaded.Raised!.Reason);
+    }
+
+    [Fact]
+    public async Task A_raised_finding_is_fixed_by_a_later_call_under_the_id_the_raise_returned()
+    {
+        var run = NewRun("raise-then-fix");
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["Other.cs"], new Verification("passed", "the checks ran"), "fixed"));
+        var prompts = new PromptLibrary(RepositoryPrompts());
+
+        var raise = new ReviewFix(builder, prompts);
+        await raise.FixAsync(run, new Selection("builder", null), Raises(Raise("the object-creation path")),
+                             null, [], CancellationToken.None);
+        var id = Assert.Single(raise.RaisedFindingIds);
+        Assert.Empty(builder.Sessions);
+
+        var result = await new ReviewFix(builder, prompts)
+            .FixAsync(run, new Selection("builder", null), null, "fix-raised", [id], CancellationToken.None);
+
+        Assert.Equal("done", result.Status);
+        Assert.Contains("the object-creation path", Assert.Single(builder.Sessions).PromptText, StringComparison.Ordinal);
+        Assert.Empty(run.ReadDecisionLedger().Snapshot.Entries);
+    }
+
+    [Fact]
+    public async Task A_raise_cannot_travel_with_fix_ids_on_either_path()
+    {
+        var run = NewRun("raise-with-fix");
+        var finding = run.ReadDecisionLedger().AddFinding(Finding("named"), LedgerPhase.CodeReview);
+        var batch = Raises(Raise("left behind"));
+        var registry = new JobRegistry();
+
+        var direct = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() =>
+            new ReviewFix(new RecordingVendor("codex"), new PromptLibrary(RepositoryPrompts()))
+                .FixAsync(run, new Selection("builder", null), batch, "attempt", [finding.FindingId], CancellationToken.None));
+        var background = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() => ForgeTools.StartWork(
+            registry, SessionRoots.None, _workspace, run.RunId, "review.fix", "builder", null,
+            "codex", null, null, null, null, false, CancellationToken.None,
+            () => new RecordingVendor("codex"), decisions: batch,
+            fixAttemptId: "attempt", fixFindingIds: [finding.FindingId]));
+
+        Assert.Equal(ReviewFix.RaiseWithFixRefused, direct.Message);
+        Assert.Equal(ReviewFix.RaiseWithFixRefused, background.Message);
+        Assert.Null(registry.Get(run.Path));
+        Assert.Equal(finding.FindingId, Assert.Single(run.ReadDecisionLedger().Snapshot.Entries).FindingId);
+    }
+
+    [Fact]
+    public async Task Both_fix_paths_answer_a_raise_with_its_ids()
+    {
+        var directRun = NewRun("raise-direct");
+        var direct = JsonNode.Parse(await ForgeTools.ReviewFix(
+            new CatalogCache(), SessionRoots.None, _workspace, directRun.RunId, "builder", CancellationToken.None,
+            vendor: "codex", decisions: new OrchestratorDecisionBatch("raise", [], [Raise("left behind")])))!;
+
+        var backgroundRun = NewRun("raise-background");
+        var registry = new JobRegistry();
+        var started = JsonNode.Parse(await ForgeTools.StartWork(
+            registry, SessionRoots.None, _workspace, backgroundRun.RunId, "review.fix", "builder", null,
+            "codex", null, null, null, null, false, CancellationToken.None,
+            () => new RecordingVendor("codex"),
+            decisions: new OrchestratorDecisionBatch("raise", [], [Raise("left behind")]), fixFindingIds: []))!;
+        var jobId = started["jobId"]!.GetValue<string>();
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, backgroundRun.RunId, jobId,
+                                  TimeSpan.FromSeconds(10), CancellationToken.None);
+        var fetched = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
+                                                                backgroundRun.RunId, jobId, CancellationToken.None))!;
+        var background = JsonNode.Parse(fetched["result"]!.GetValue<string>())!;
+
+        Assert.Equal("F-0001", direct["raisedFindingIds"]![0]!.GetValue<string>());
+        Assert.Equal("F-0001", background["raisedFindingIds"]![0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Flow_audit_lists_a_raise_under_its_id_with_the_finding()
+    {
+        var run = NewRun("flow-raise");
+        var batch = Raises(Raise("the ref path", reason: "the fix for F-0001 left it"));
+
+        run.AppendFlowDecisionBatch("Review fix", batch, run.ReadDecisionLedger().Apply(batch, LedgerPhase.CodeReview));
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("- F-0001 raised (orchestrator): the fix for F-0001 left it", flow, StringComparison.Ordinal);
+        Assert.Contains("**major** Other.cs — the ref path", flow, StringComparison.Ordinal);
+    }
+
     private RunDirectory NewRun(string id, bool approved = true, string? plan = null)
     {
         var run = RunDirectory.Create(_workspace, id);
@@ -1299,6 +1523,12 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
     private static OrchestratorDecisionBatch Batch(params OrchestratorDecision[] decisions) =>
         new($"batch-{Guid.NewGuid():n}", decisions);
+
+    private static OrchestratorDecisionBatch Raises(params OrchestratorRaise[] raises) =>
+        new($"raise-{Guid.NewGuid():n}", [], raises);
+
+    private static OrchestratorRaise Raise(string what, string severity = "major", string reason = "left by the fix") =>
+        new(severity, "Other.cs", what, "orchestrator", reason);
 
     private static string RepositoryPrompts()
     {

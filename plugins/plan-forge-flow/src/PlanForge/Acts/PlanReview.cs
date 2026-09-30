@@ -220,12 +220,22 @@ internal sealed class PlanReview
     /// only refuses a build; the other order would leave the flag on over text nobody approved,
     /// which is the hole that writing the plan early would otherwise open.
     /// </remarks>
+    /// <param name="run">The run whose state and timeline record the reopening.</param>
+    /// <param name="state">The state the round started from.</param>
+    /// <returns>The state the round builds on: unchanged when nothing was approved, reopened otherwise.</returns>
     private static RunState Reopen(RunDirectory run, RunState state)
     {
         if (!state.Approved) return state;
 
-        // A gate failure owed to a task of the old plan is owed to nobody once the tasks restart.
-        var reopened = state with { Approved = false, TasksCompleted = 0, BuilderSessionId = string.Empty, PendingGateFailure = null };
+        // A gate failure owed to a task of the old plan is owed to nobody once the tasks restart, and
+        // what the old tasks changed is no hand-over for the new ones.
+        var reopened = BuilderSession.Forget(state) with
+        {
+            Approved = false,
+            TasksCompleted = 0,
+            PendingGateFailure = null,
+            TaskChanges = null
+        };
         run.WriteState(reopened);
         run.AppendFlowReopened(state.TasksCompleted);
         return reopened;

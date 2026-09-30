@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -77,6 +78,18 @@ internal sealed record DecisionLedgerSnapshot(
     [property: JsonPropertyOrder(3)] IReadOnlyList<AppliedDecisionBatch> AppliedDecisionBatches,
     [property: JsonPropertyOrder(4)] IReadOnlyList<FixAttemptRecord>? FixAttempts = null);
 
+/// <summary>One finding the ledger still tracks, with its disposition and the decisions behind it.</summary>
+/// <param name="FindingId">The finding's run-local identity, from <c>F-0001</c> on.</param>
+/// <param name="Origin">The phase the finding was raised in; it never changes.</param>
+/// <param name="ActivePhase">The phase whose critic is shown the entry now; an accepted reopening moves it.</param>
+/// <param name="Finding">The finding, verbatim.</param>
+/// <param name="Disposition">Unresolved, deferred or rejected.</param>
+/// <param name="Decision">Who settled the entry and why, while it is deferred or rejected.</param>
+/// <param name="Reopening">Who reopened a settled entry, why, and on what evidence.</param>
+/// <param name="Raised">
+/// Who put the entry into the ledger and why, when it was the orchestrator's raise rather than a
+/// critic's finding. Absent from the file otherwise, so a ledger without raises reads as before.
+/// </param>
 internal sealed record DecisionLedgerEntry(
     [property: JsonPropertyOrder(0)] string FindingId,
     [property: JsonPropertyOrder(1)] string Origin,
@@ -84,7 +97,9 @@ internal sealed record DecisionLedgerEntry(
     [property: JsonPropertyOrder(3)] Finding Finding,
     [property: JsonPropertyOrder(4)] LedgerDisposition Disposition,
     [property: JsonPropertyOrder(5)] LedgerDecisionData? Decision = null,
-    [property: JsonPropertyOrder(6)] LedgerReopeningData? Reopening = null);
+    [property: JsonPropertyOrder(6)] LedgerReopeningData? Reopening = null,
+    [property: JsonPropertyOrder(7), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    LedgerDecisionData? Raised = null);
 
 internal sealed record LedgerDecisionData(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
@@ -134,9 +149,31 @@ internal sealed record OrchestratorDecision(
     [property: JsonPropertyOrder(4)] string? Evidence = null,
     [property: JsonPropertyOrder(5)] string? DuplicateOf = null);
 
+/// <summary>
+/// A finding the orchestrator puts into the ledger itself, code review only: a place a fix left
+/// behind, or one it found on its own. It gets an ID like a critic's finding, and the next critic
+/// assesses it like one.
+/// </summary>
+/// <param name="Severity"><c>blocker</c>, <c>major</c> or <c>minor</c>, graded as a critic grades.</param>
+/// <param name="Where">The place the finding is about, as precisely as a critic names one.</param>
+/// <param name="What">The gap, concretely enough to act on.</param>
+/// <param name="By">Who decided to raise it: <c>user</c> or <c>orchestrator</c>.</param>
+/// <param name="Reason">Why it is raised; the next critic is shown it beside the entry.</param>
+internal sealed record OrchestratorRaise(
+    [property: JsonPropertyOrder(0)] string Severity,
+    [property: JsonPropertyOrder(1)] string Where,
+    [property: JsonPropertyOrder(2)] string What,
+    [property: JsonPropertyOrder(3)] string By,
+    [property: JsonPropertyOrder(4)] string Reason);
+
 internal sealed record OrchestratorDecisionBatch(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
-    [property: JsonPropertyOrder(1)] IReadOnlyList<OrchestratorDecision> Decisions);
+    [property: JsonPropertyOrder(1)] IReadOnlyList<OrchestratorDecision> Decisions,
+    [property: JsonPropertyOrder(2),
+               Description("Code review only, in a decisions-only forge.review.fix: findings you put into the ledger yourself, " +
+                           "each with severity (blocker, major or minor), where, what, by and reason. The result lists the IDs " +
+                           "they received as raisedFindingIds.")]
+    IReadOnlyList<OrchestratorRaise>? Raises = null);
 
 internal sealed record FixAttemptRecord(
     [property: JsonPropertyOrder(0)] string FixAttemptId,
@@ -157,12 +194,21 @@ internal sealed record DecisionBatchPayload(
     [property: JsonPropertyOrder(2)] IReadOnlyList<LedgerReopeningDecision> Reopenings,
     [property: JsonPropertyOrder(3)] IReadOnlyList<LedgerClosureDecision> Closures);
 
+/// <summary>What applying a decision batch did, saved beside its digest and returned to every retry.</summary>
+/// <param name="DecisionBatchId">The batch's key.</param>
+/// <param name="Outcome"><c>applied</c>, or <c>declined</c> for a batch that changed no entry.</param>
+/// <param name="DecisionFindingIds">Every finding the batch decided, in ID order.</param>
+/// <param name="ReopenedFindingIds">The settled findings an accepted reopening made unresolved again.</param>
+/// <param name="ClosedFindingIds">The findings the batch closed, which leave the ledger.</param>
+/// <param name="RaisedFindingIds">The IDs the batch's raises received, in the order they were sent; absent without raises.</param>
 internal sealed record DecisionBatchResult(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
     [property: JsonPropertyOrder(1)] string Outcome,
     [property: JsonPropertyOrder(2)] IReadOnlyList<string> DecisionFindingIds,
     [property: JsonPropertyOrder(3)] IReadOnlyList<string> ReopenedFindingIds,
-    [property: JsonPropertyOrder(4)] IReadOnlyList<string> ClosedFindingIds);
+    [property: JsonPropertyOrder(4)] IReadOnlyList<string> ClosedFindingIds,
+    [property: JsonPropertyOrder(5), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? RaisedFindingIds = null);
 
 /// <summary>
 /// An applied batch is kept only as the fingerprint of its canonical decisions: a retry under the
@@ -186,13 +232,23 @@ internal sealed record DecisionBatchResponse(
             $"decisionBatchId '{Result.DecisionBatchId}' conflicts with the saved decisions; "
             + $"saved result: outcome={Result.Outcome}, decisions=[{string.Join(", ", Result.DecisionFindingIds)}], "
             + $"reopenings=[{string.Join(", ", Result.ReopenedFindingIds)}], "
-            + $"closures=[{string.Join(", ", Result.ClosedFindingIds)}]");
+            + $"closures=[{string.Join(", ", Result.ClosedFindingIds)}]"
+            + (Result.RaisedFindingIds is { Count: > 0 } raised ? $", raises=[{string.Join(", ", raised)}]" : ""));
     }
 }
 
+/// <summary>
+/// Raises are left out of the canonical bytes when there are none, so a batch without them keeps the
+/// digest it had before raises existed.
+/// </summary>
+/// <param name="DecisionBatchId">The batch's key.</param>
+/// <param name="Decisions">The batch's decisions, in finding-ID order.</param>
+/// <param name="Raises">The batch's raises in the order sent, or null when it has none.</param>
 internal sealed record OrchestratorDecisionPayload(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
-    [property: JsonPropertyOrder(1)] IReadOnlyList<OrchestratorDecision> Decisions);
+    [property: JsonPropertyOrder(1)] IReadOnlyList<OrchestratorDecision> Decisions,
+    [property: JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<OrchestratorRaise>? Raises = null);
 
 /// <summary>
 /// The Run-local source of truth. Mutations are serialized per path in this process only; every
@@ -261,6 +317,8 @@ internal sealed class DecisionLedger
                   .Append("  where: ").AppendLine(entry.Finding.Where)
                   .Append("  what: ").AppendLine(entry.Finding.What);
 
+            if (entry.Raised is { } raised)
+                output.Append("  raised: ").Append(DecisionMakerName(raised.By)).Append(" — ").AppendLine(raised.Reason);
             if (entry.Decision is { } decision)
                 output.Append("  decision: ").Append(DecisionMakerName(decision.By)).Append(" — ").AppendLine(decision.Reason);
             if (entry.Reopening is { } reopening)
@@ -387,8 +445,9 @@ internal sealed class DecisionLedger
             }
         }
 
-        var request = NormalizeOrchestratorBatch(batch, phase, out var acceptedIds, out var declinedIds);
-        if (request.Decisions.Count + request.Reopenings.Count + request.Closures.Count == 0)
+        var request = NormalizeOrchestratorBatch(batch, phase, out var acceptedIds, out var declinedIds, out var raises);
+        var operations = request.Decisions.Count + request.Reopenings.Count + request.Closures.Count;
+        if (operations + raises.Count == 0)
         {
             var declined = new DecisionBatchResult(batch.DecisionBatchId, "declined",
                                                     acceptedIds.Concat(declinedIds).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
@@ -429,10 +488,25 @@ internal sealed class DecisionLedger
                 return new DecisionBatchResponse("conflict", existing.Result, existing);
             }
 
-            var normalized = ValidateAndNormalize(request);
-            ValidateLegalTransitions(snapshot, normalized);
             var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
-            ApplyEntries(entries, normalized);
+            if (operations > 0)
+            {
+                var normalized = ValidateAndNormalize(request);
+                ValidateLegalTransitions(snapshot, normalized);
+                ApplyEntries(entries, normalized);
+            }
+
+            // A raise takes the next number from the one sequence critics draw on, in the order sent.
+            var next = snapshot.NextFindingNumber;
+            var raised = new List<string>(raises.Count);
+            foreach (var raise in raises)
+            {
+                var id = FormatFindingId(next++);
+                entries[id] = new DecisionLedgerEntry(id, PhaseName(phase), PhaseName(phase), raise.Finding,
+                                                      LedgerDisposition.Unresolved,
+                                                      Raised: new LedgerDecisionData(payload.DecisionBatchId, raise.By, raise.Reason));
+                raised.Add(id);
+            }
 
             var result = new DecisionBatchResult(
                 payload.DecisionBatchId,
@@ -441,10 +515,12 @@ internal sealed class DecisionLedger
                 payload.Decisions.Where(decision => NormalizeAction(decision.Action) == "accept")
                                  .Select(decision => decision.FindingId).ToArray(),
                 payload.Decisions.Where(decision => NormalizeAction(decision.Action) is "addressedByRevision" or "hostVerified" or "duplicateOf")
-                                 .Select(decision => decision.FindingId).ToArray());
+                                 .Select(decision => decision.FindingId).ToArray(),
+                raised.Count == 0 ? null : raised);
             var applied = new AppliedDecisionBatch(payload.DecisionBatchId, digest, result);
             var updated = snapshot with
             {
+                NextFindingNumber = next,
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray(),
                 AppliedDecisionBatches = [.. snapshot.AppliedDecisionBatches, applied]
             };
@@ -468,7 +544,7 @@ internal sealed class DecisionLedger
             }
         }
 
-        var request = NormalizeOrchestratorBatch(batch, phase, out _, out _);
+        var request = NormalizeOrchestratorBatch(batch, phase, out _, out _, out _);
         if (request.Decisions.Count + request.Reopenings.Count + request.Closures.Count == 0) return;
 
         lock (Gate())
@@ -672,7 +748,8 @@ internal sealed class DecisionLedger
         RequireText(batch.DecisionBatchId, "decisionBatchId");
         if (batch.Decisions is null) throw new DecisionLedgerRequestException("decisions must not be null");
         var payload = new OrchestratorDecisionPayload(batch.DecisionBatchId,
-            batch.Decisions.OrderBy(decision => decision.FindingId, StringComparer.Ordinal).ToArray());
+            batch.Decisions.OrderBy(decision => decision.FindingId, StringComparer.Ordinal).ToArray(),
+            batch.Raises is { Count: > 0 } raises ? raises.ToArray() : null);
         ValidateOrchestratorInput(payload);
         foreach (var decision in payload.Decisions)
         {
@@ -754,12 +831,16 @@ internal sealed class DecisionLedger
     private DecisionBatchRequest NormalizeOrchestratorBatch(OrchestratorDecisionBatch batch,
                                                             LedgerPhase phase,
                                                             out IReadOnlyList<string> acceptedIds,
-                                                            out IReadOnlyList<string> declinedIds)
+                                                            out IReadOnlyList<string> declinedIds,
+                                                            out IReadOnlyList<Raise> raises)
     {
         if (batch is null) throw new DecisionLedgerRequestException("decision batch must not be null");
         RequireText(batch.DecisionBatchId, "decisionBatchId");
         if (batch.Decisions is null) throw new DecisionLedgerRequestException("decisions must not be null");
-        if (batch.Decisions.Count == 0) throw new DecisionLedgerRequestException("decisions must not be empty");
+        if (batch.Decisions.Count == 0 && batch.Raises is not { Count: > 0 })
+            throw new DecisionLedgerRequestException("decisions must not be empty");
+        if (batch.Raises is { Count: > 0 } && phase != LedgerPhase.CodeReview)
+            throw new DecisionLedgerRequestException("raises are only valid during code review");
 
         var dispositions = new List<LedgerDispositionDecision>();
         var reopenings = new List<LedgerReopeningDecision>();
@@ -854,10 +935,34 @@ internal sealed class DecisionLedger
             }
         }
 
+        var raised = new List<Raise>();
+        foreach (var raise in batch.Raises ?? [])
+        {
+            var decisionMaker = ValidateRaise(raise);
+            raised.Add(new Raise(new Finding(raise.Severity, raise.Where, raise.What), decisionMaker, raise.Reason));
+        }
+
         acceptedIds = accepted;
         declinedIds = declined;
+        raises = raised;
         return new DecisionBatchRequest(batch.DecisionBatchId, dispositions, reopenings, closures);
     }
+
+    private static LedgerDecisionMaker ValidateRaise(OrchestratorRaise? raise)
+    {
+        if (raise is null) throw new DecisionLedgerRequestException("raises must not contain null");
+        if (raise.Severity is not "blocker" and not "major" and not "minor")
+            throw new DecisionLedgerRequestException($"unsupported raise severity '{raise.Severity}'");
+        RequireText(raise.Where, "raise where");
+        RequireText(raise.What, "raise what");
+        var decisionMaker = ValidateDecision(raise.By, raise.Reason);
+        SensitiveInput.Guard(raise.Where, "raise location");
+        SensitiveInput.Guard(raise.What, "raise text");
+        SensitiveInput.Guard(raise.Reason, "raise reason");
+        return decisionMaker;
+    }
+
+    private sealed record Raise(Finding Finding, LedgerDecisionMaker By, string Reason);
 
     private static string NormalizeAction(string action) => action switch
     {
@@ -1031,6 +1136,13 @@ internal sealed class DecisionLedger
                     && entry.Reopening.ActivePhase != LedgerPhaseNames.CODE_REVIEW)
                     throw new DecisionLedgerStateException("code-review origin cannot reopen into plan review");
             }
+
+            if (entry.Raised is not null)
+            {
+                if (entry.Origin != LedgerPhaseNames.CODE_REVIEW)
+                    throw new DecisionLedgerStateException("only a code-review entry can be raised");
+                ValidateDecisionData(entry.Raised);
+            }
         }
 
         var batchIds = new HashSet<string>(StringComparer.Ordinal);
@@ -1067,13 +1179,16 @@ internal sealed class DecisionLedger
                 throw new DecisionLedgerStateException("entry decision has no applied decision batch");
             if (entry.Reopening is not null && !appliedIds.Contains(entry.Reopening.DecisionBatchId))
                 throw new DecisionLedgerStateException("entry reopening has no applied decision batch");
+            if (entry.Raised is not null && !appliedIds.Contains(entry.Raised.DecisionBatchId))
+                throw new DecisionLedgerStateException("entry raise has no applied decision batch");
         }
     }
 
     private static void ValidateOrchestratorInput(OrchestratorDecisionPayload payload)
     {
-        if (payload.Decisions is null || payload.Decisions.Count == 0)
+        if (payload.Decisions is null || (payload.Decisions.Count == 0 && payload.Raises is null))
             throw new DecisionLedgerRequestException("decisions must not be empty");
+        foreach (var raise in payload.Raises ?? []) ValidateRaise(raise);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var decision in payload.Decisions)
         {
@@ -1323,4 +1438,5 @@ internal sealed partial class DecisionLedgerJson : JsonSerializerContext
 [JsonSerializable(typeof(LedgerClosureDecision))]
 [JsonSerializable(typeof(OrchestratorDecisionPayload))]
 [JsonSerializable(typeof(OrchestratorDecision))]
+[JsonSerializable(typeof(OrchestratorRaise))]
 internal sealed partial class DecisionLedgerCanonicalJson : JsonSerializerContext;
