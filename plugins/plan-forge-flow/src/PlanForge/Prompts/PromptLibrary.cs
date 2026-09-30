@@ -81,7 +81,10 @@ internal sealed class PromptLibrary(string? root = null)
         // it was called into, so both are told to leave that surface alone.
         prompt = Append(prompt, OrchestrationContractFile);
 
-        return role is VendorRole.Critic or VendorRole.Scout ? Append(prompt, RoslynContractFile) : prompt;
+        // The builder needs it as much as the critic: a fix has to reach every place that decides
+        // the same question, and those are found by references, not by a word search. Builders
+        // without it made no Roslyn call in 38 fix turns, measured on 2026-09-29.
+        return Append(prompt, RoslynContractFile);
     }
 
     /// <summary>

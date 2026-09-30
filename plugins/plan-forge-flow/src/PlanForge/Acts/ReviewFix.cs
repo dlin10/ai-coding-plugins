@@ -14,15 +14,31 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 {
+    /// <summary>
+    /// A raised finding has no ID until its batch is applied, so no fix set in the same call can name
+    /// it. Shared with the background preflight, which refuses the call before a job exists.
+    /// </summary>
+    internal const string RaiseWithFixRefused =
+        "a batch that raises findings cannot travel with fixFindingIds; raise them in a decisions-only call "
+        + "and fix them by the IDs it returns";
+
     /// <summary>Set when the fix's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
+    /// <summary>The IDs the call's decision batch raised, empty when it raised none.</summary>
+    internal IReadOnlyList<string> RaisedFindingIds { get; private set; } = [];
+
+    /// <param name="note">
+    /// The orchestrator's own framing for the findings, shown to the builder after them and recorded
+    /// in the Flow log. Only a call that fixes something has anyone to show it to.
+    /// </param>
     internal async Task<BuildResult> FixAsync(RunDirectory run,
                                               Selection selection,
                                               OrchestratorDecisionBatch? decisionBatch,
                                               string? fixAttemptId,
                                               IReadOnlyList<string>? fixFindingIds,
-                                              CancellationToken ct)
+                                              CancellationToken ct,
+                                              string? note = null)
     {
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
@@ -31,13 +47,18 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var ids = fixFindingIds is null ? [] : ledger.NormalizeFixFindingIds(fixFindingIds);
         if (ids.Count == 0 && !string.IsNullOrWhiteSpace(fixAttemptId))
             throw new ArgumentRejectedException("fixAttemptId requires non-empty fixFindingIds");
+        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(note))
+            throw new ArgumentRejectedException("note requires non-empty fixFindingIds");
         if (ids.Count > 0)
         {
             if (string.IsNullOrWhiteSpace(fixAttemptId))
                 throw new ArgumentRejectedException("fixFindingIds requires fixAttemptId");
             if (decisionBatch is not null && decisionBatch.Decisions.Any(decision => ids.Contains(decision.FindingId)))
                 throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
+            if (decisionBatch?.Raises is { Count: > 0 })
+                throw new DecisionLedgerRequestException(RaiseWithFixRefused);
         }
+        if (!string.IsNullOrWhiteSpace(note)) SensitiveInput.Guard(note, "the orchestrator's note");
 
         try
         {
@@ -62,6 +83,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                 var response = ledger.Apply(decisionBatch, LedgerPhase.CodeReview);
                 run.AppendFlowDecisionBatch("Review fix", decisionBatch, response);
                 response.ThrowIfConflict();
+                RaisedFindingIds = response.Result.RaisedFindingIds ?? [];
             }
             catch (DecisionLedgerRequestException error)
             {
@@ -92,7 +114,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         var sameVendor = string.Equals(state.BuilderVendor, vendor.Id, StringComparison.Ordinal);
         var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
-        var prompt = Compose(findings, state.PendingGateFailure,
+        var prompt = Compose(findings, note, state.PendingGateFailure,
                              resumeToken is null ? state.BuilderInstructions : null);
         if (resumeToken is null)
             prompt = BuilderBrief.Prepend(prompt, run.ReadPlan());
@@ -159,7 +181,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         }
 
         ledger.RecordFixAttempt(fixAttemptId!, ids, result, closes);
-        run.AppendFlowFix(state.CodeReviewRounds, findings, null, result);
+        run.AppendFlowFix(state.CodeReviewRounds, findings, note, result);
         run.WriteState(Resumed(state, builder, sameVendor) with
         {
             PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure)
@@ -188,11 +210,19 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             BuilderVendor = vendor.Id
         };
 
-    private static string Compose(string findings, string? pendingGateFailure, string? instructions)
+    /// <summary>
+    /// The findings arrive under their own heading from the ledger. The note follows the findings it
+    /// frames and stays a section of its own, so the ledger's verbatim findings never read as the
+    /// orchestrator's words; the user's instructions stay last.
+    /// </summary>
+    private static string Compose(string findings, string? note, string? pendingGateFailure, string? instructions)
     {
-        var prompt = new StringBuilder().AppendLine("# Fix these review findings")
-                                        .AppendLine()
-                                        .AppendLine(findings);
+        var prompt = new StringBuilder().AppendLine(findings);
+        if (!string.IsNullOrWhiteSpace(note))
+            prompt.AppendLine()
+                  .AppendLine("# From the orchestrator")
+                  .AppendLine()
+                  .AppendLine(note.TrimEnd());
         Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
         RunInstructions.Append(prompt, instructions);
         return prompt.ToString();

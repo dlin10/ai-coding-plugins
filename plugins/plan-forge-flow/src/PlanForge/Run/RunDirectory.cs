@@ -270,10 +270,20 @@ internal sealed class RunDirectory
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
+    /// <summary>
+    /// A raise is written with the ID it received and the finding itself, because the finding exists
+    /// nowhere else in the timeline: no critique carried it.
+    /// </summary>
     public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response) =>
         AppendFlowDecisionBatch(act, response, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
-            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}"));
+            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}")
+            .Concat((batch.Raises ?? []).Zip(response.Result.RaisedFindingIds ?? [])
+                .SelectMany(raise => new[]
+                {
+                    $"- {raise.Second} raised ({raise.First.By}): {raise.First.Reason}",
+                    $"  **{raise.First.Severity}** {raise.First.Where} — {raise.First.What}"
+                })));
 
     public void AppendFlowDecisionBatch(string act, DecisionBatchRequest batch, DecisionBatchResponse response) =>
         AppendFlowDecisionBatch(act, response, batch.Decisions
@@ -297,7 +307,11 @@ internal sealed class RunDirectory
                                        .AppendLine()
                                        .Append("decisionBatchId: ").AppendLine(result.DecisionBatchId);
         if (response.Outcome == "conflict")
+        {
             entry.Append("saved decisions: ").AppendLine(string.Join(", ", result.DecisionFindingIds));
+            if (result.RaisedFindingIds is { Count: > 0 } raised)
+                entry.Append("saved raises: ").AppendLine(string.Join(", ", raised));
+        }
         else
             foreach (var decision in decisions)
                 entry.AppendLine(decision);
@@ -483,7 +497,8 @@ internal sealed class RunDirectory
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
-    public void AppendFlowFix(int round, string findings, string? deferred, BuildResult result)
+    /// <param name="note">The orchestrator's framing the builder was shown after the findings, verbatim.</param>
+    public void AppendFlowFix(int round, string findings, string? note, BuildResult result)
     {
         var entry = new StringBuilder().Append("## Fixes — round ").Append(round).AppendLine()
                                        .AppendLine();
@@ -492,10 +507,10 @@ internal sealed class RunDirectory
             entry.AppendLine(findings.TrimEnd())
                  .AppendLine();
 
-        if (deferred is { Length: > 0 })
-            entry.AppendLine("### Deferred by the orchestrator")
+        if (!string.IsNullOrWhiteSpace(note))
+            entry.AppendLine("### From the orchestrator")
                  .AppendLine()
-                 .AppendLine(deferred.TrimEnd())
+                 .AppendLine(note.TrimEnd())
                  .AppendLine();
 
         AppendBuildResult(entry, result);

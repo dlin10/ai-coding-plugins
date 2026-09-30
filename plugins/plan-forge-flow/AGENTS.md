@@ -82,8 +82,10 @@ The direct consequence for the MCP surface in [ForgeTools.cs](src/PlanForge/Mcp/
 every review tool is **one round per call**, because a turn by the orchestrator is mandatory in
 between. For plan review the orchestrator revises the draft; for code review it filters the
 findings against the approved plan before `forge.review.fix` hands the kept ones to the builder,
-and sends typed dispositions, closures and reopening decisions so the ledger tells the next critic
-what is settled. The loop
+and sends typed dispositions, closures, reopening decisions and raises so the ledger tells the next
+critic what is settled and what is still open. A raise and the note a fix may carry are the
+orchestrator's two ways to say what a finding's rule reaches beyond the place it names — see
+[docs/adr/0025](docs/adr/0025-fix-the-rule-not-the-place.md). The loop
 used to live inside `forge.review.code` on the premise that nothing in it needed the interview
 context; a critic demanding work the plan excluded disproved that — see
 [docs/adr/0005](docs/adr/0005-code-review-through-the-orchestrator.md). Do not put the loop back
@@ -153,10 +155,11 @@ under `%LOCALAPPDATA%`, and the prompts never travel with the release asset. So
 names the folder in `PLANFORGE_PROMPTS`, and `PromptLibrary` takes a value there as the root
 without probing it. Change the variable's spelling on one side and the assertion in
 `build/package.ps1` or `PromptRootTests` turns red; nothing else ties the two halves together. The shared
-`prompts/roslyn-contract.md` is appended to Critic and Scout prompts at load time — it lives once
-precisely because the 1.x copies drifted apart. `prompts/scope-contract.md` is appended the same
-way, but only for code review, where "judge the diff against the approved plan" has something to
-attach to.
+`prompts/roslyn-contract.md` is appended to every role's prompt — Critic, Scout and Builder — at load
+time; it lives once precisely because the 1.x copies drifted apart, and the Builder has it because a
+fix has to reach every place that decides the same question, which only references find.
+`prompts/scope-contract.md` is appended the same way, but only for code review, where "judge the
+diff against the approved plan" has something to attach to.
 
 The canvas document is the deliberate exception. `Mcp/PlanCanvas.html` is a real file for the sake
 of editing it as HTML, but it is an `EmbeddedResource` rather than a sidecar: it is UI code with a

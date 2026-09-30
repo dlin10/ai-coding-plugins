@@ -61,6 +61,11 @@ batch is now its digest and result; the Flow log states each decision as a line 
 `state.json` and `forge.log` write non-ASCII text as written rather than as `\uXXXX` escapes.
 Version-1 ledgers are not read.
 
+*Extended 2026-09-30 by [0025](0025-fix-the-rule-not-the-place.md).* The Orchestrator may raise a
+code-review entry of its own in a decision batch, and a fix attempt may carry the Orchestrator's
+note after the verbatim findings. Both fields are optional and absent when unused, so the schema
+version stays 2.
+
 Pre-ledger Run folders are outside the supported scenario: there is no transcript migration,
 fallback reader or compatibility error path. Verification uses deterministic prompt-composition and
 UTF-8 byte-size tests rather than a live pre/post Vendor benchmark.
