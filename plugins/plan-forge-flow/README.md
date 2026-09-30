@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.37.2
+# Plan Forge Flow 0.39.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -27,7 +27,7 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
 | `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
-| `forge.review.fix` | Applies typed code decisions and optionally fixes exact ledger IDs under a retryable fix-attempt ID, then runs the plan's executable `## Gates` on the host |
+| `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs the plan's executable `## Gates` on the host |
 | `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
 | `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job |
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
@@ -58,7 +58,10 @@ propose reopening a displayed deferred or rejected ID. The Orchestrator accepts 
 filters semantic duplicates with `duplicateOf`, and owns every disposition or closure. Plan
 decisions travel through the next review or final approved confirmation. Code decisions and
 host-verified closures travel through `forge.review.fix`; its Builder sees the verbatim findings for
-the requested fix IDs only.
+the requested fix IDs only, followed by the orchestrator's `note` when it sends one. A decisions-only
+`forge.review.fix` may also raise findings of the orchestrator's own — a place a fix left behind —
+which take the next IDs and are assessed by the next Critic like any other. See
+[docs/adr/0025](docs/adr/0025-fix-the-rule-not-the-place.md).
 
 One `decisionBatchId` names one logical decision set. An exact retry is a no-op; a conflicting reuse
 returns the saved result, and a new key is only for a new legal delta. Fix execution is separate:
@@ -122,7 +125,7 @@ Role prompts live in [`prompts/`](prompts) as plain markdown and can be edited w
 the binary — in a checkout. An installed plugin keeps them under its plugin root, where an edit
 reaches every project and is lost on upgrade, so what a user wants said for one run goes through
 `forge.instructions.set` instead. The shared [Roslyn contract](prompts/roslyn-contract.md) is
-appended to Critic and Scout prompts; the [scope contract](prompts/scope-contract.md) is appended for
+appended to every role's prompt; the [scope contract](prompts/scope-contract.md) is appended for
 code review, where the Critic judges against the approved plan.
 
 ## Requirements

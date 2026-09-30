@@ -40,10 +40,11 @@ internal sealed class WorkAct
         string? sessionMode = null,
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
-        IReadOnlyList<string>? fixFindingIds = null)
+        IReadOnlyList<string>? fixFindingIds = null,
+        string? note = null)
     {
         ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
-                          question, sessionMode, decisions, fixAttemptId, fixFindingIds);
+                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
@@ -72,8 +73,9 @@ internal sealed class WorkAct
             case "review.fix":
                 var fixAct = new ReviewFix(_vendor, _prompts);
                 var fix = await fixAct.FixAsync(run, selection!, decisions, fixAttemptId,
-                                                fixFindingIds, ct).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult),
+                                                fixFindingIds, ct, note).ConfigureAwait(false);
+                var fixJson = JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
+                return SpeedWarnings.Attach(run, RaisedFindings.Attach(fixJson, fixAct.RaisedFindingIds),
                                             fixAct.SpeedWarning);
 
             case "scout":
@@ -99,7 +101,8 @@ internal sealed class WorkAct
         string? sessionMode = null,
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
-        IReadOnlyList<string>? fixFindingIds = null)
+        IReadOnlyList<string>? fixFindingIds = null,
+        string? note = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
@@ -117,6 +120,7 @@ internal sealed class WorkAct
             RejectPresent(decisions, nameof(decisions), act);
             RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
             RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
+            RejectProvided(note, nameof(note), act);
             RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
             if (question is null)
                 throw new ArgumentRejectedException("scout requires question");
@@ -140,6 +144,7 @@ internal sealed class WorkAct
                 RejectProvided(findings, nameof(findings), act);
                 RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
                 RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
+                RejectProvided(note, nameof(note), act);
                 break;
             case "build.next":
                 RejectProvided(planDraft, nameof(planDraft), act);
@@ -150,6 +155,7 @@ internal sealed class WorkAct
                 RejectPresent(decisions, nameof(decisions), act);
                 RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
                 RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
+                RejectProvided(note, nameof(note), act);
                 break;
             case "review.code":
                 RejectProvided(planDraft, nameof(planDraft), act);
@@ -159,6 +165,7 @@ internal sealed class WorkAct
                 RejectPresent(decisions, nameof(decisions), act);
                 RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
                 RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
+                RejectProvided(note, nameof(note), act);
                 break;
             case "review.fix":
                 RejectProvided(planDraft, nameof(planDraft), act);
@@ -172,6 +179,8 @@ internal sealed class WorkAct
                     throw new ArgumentRejectedException("fixAttemptId requires non-empty fixFindingIds");
                 if (fixFindingIds is { Count: > 0 } && string.IsNullOrWhiteSpace(fixAttemptId))
                     throw new ArgumentRejectedException("fixFindingIds requires fixAttemptId");
+                if (!string.IsNullOrWhiteSpace(note) && (fixFindingIds is null || fixFindingIds.Count == 0))
+                    throw new ArgumentRejectedException("note requires non-empty fixFindingIds");
                 break;
         }
 
@@ -224,6 +233,8 @@ internal static class OrchestrationPreflight
                 if (decisions is not null && ids.Count > 0
                     && decisions.Decisions.Any(decision => ids.Contains(decision.FindingId)))
                     throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
+                if (decisions?.Raises is { Count: > 0 } && ids.Count > 0)
+                    throw new DecisionLedgerRequestException(ReviewFix.RaiseWithFixRefused);
                 if (decisions is not null)
                     ledger.ValidateOrchestratorBatch(decisions, LedgerPhase.CodeReview);
 

@@ -36,6 +36,10 @@ correctness or security defect. Without it, a builder told "the simplest solutio
 findings for the abstractions it left out on purpose. Plan review gets no such section — no code
 exists yet.
 
+*Extended 2026-09-30 by [0026](0026-a-builder-session-per-task-and-per-round.md).* A Builder session
+now covers one plan task or one code-review round, so every task's and every round's first turn
+starts one and carries both texts.
+
 **Considered and rejected**
 
 - *`forge.begin`.* It runs before the interview, and the question that produces this text is asked

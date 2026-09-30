@@ -1,5 +1,48 @@
 # Plan Forge Flow releases
 
+## 0.39.0
+
+The Builder no longer keeps one session for the whole Run (issue #129, docs/adr/0026). On claude
+that session grew past 900k tokens, compacted the Builder Brief into a summary, and cost about 38%
+more than a session per task would.
+
+- Each plan task and each code-review round starts a fresh Builder session, with the Builder Brief
+  first and the user's instructions last. Only a retry inside the same task or round resumes: a gate
+  failure, a `blocked` answer, a cut-short or killed turn, and a round's later fix calls. The rule is
+  the same for every vendor.
+- A fresh task session is told which files each earlier task changed, by task number. The run state
+  records them as `taskChanges` and the session's scope as `builderSessionScope`; `forge.status`
+  shows both. A reopened plan clears them with the progress.
+- `forge.instructions.set` says that changed instructions reach the next task or round.
+- A run begun on an earlier version starts a fresh session at its next builder turn.
+
+## 0.38.0
+
+About half of the code-review findings after the first round were fallout of the previous round's
+fixes, measured over nine runs: a rule written at the one place a finding named, a sibling place
+never updated. A finding is now handled as the rule it breaks (docs/adr/0025).
+
+- The Builder contract gains "When you fix review findings": name the rule, list every place that
+  answers the same question by reference search, fix them all in the turn through one function,
+  test one input the finding did not name and one the rule must leave alone, and report each place
+  as `fixed`, `already agreed` or `left: <reason>`. "The minimum needed" stays the rule for plan
+  tasks.
+- `prompts/roslyn-contract.md` is appended to the Builder too, reworded for every role; builders
+  without it made no Roslyn call in 38 fix turns.
+- `forge.review.fix` and `forge.work.start` take an optional `note` for a fix attempt. The Builder
+  reads it after the verbatim findings under "From the orchestrator", before the user's
+  instructions, and the Flow log records it verbatim. A note without fix IDs is refused.
+- A code-review decision batch may carry `raises`: findings the orchestrator puts into the ledger
+  itself, such as a place a fix left behind. Each takes the next finding ID, and the next Critic
+  sees it marked `raised` and has to assess it. The call answers with `raisedFindingIds` on both
+  paths. Plan review refuses raises, and a batch with raises carries no fix attempt. A batch without
+  raises keeps its old canonical bytes and digest, and existing ledgers read unchanged.
+- The forge skill turns a Builder's `left:` places into raises, stops asking for rounds when half a
+  round or more is fallout and sweeps the touched rules' axes first, and asks a plan task that changes
+  a rule several places decide to name its owner, those places and its input axes. The plan-review
+  Critic holds the plan to that, and the Impact pass asks for the places.
+- The fix prompt no longer carries its "Fix these review findings" heading twice.
+
 ## 0.37.2
 
 A resumed Builder or Scout turn recorded everything its session had spent so far rather than its

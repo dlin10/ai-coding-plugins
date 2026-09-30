@@ -35,9 +35,9 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate. The Builder receives the ledger's verbatim findings for those IDs only. |
+| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note` when you send one. |
 | `forge.status` | Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
-| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
+| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note`; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
 | `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
@@ -111,6 +111,14 @@ identity-keyed and has `findingId`, `action`, asserted `by`, and non-empty `reas
 - `accept` or `decline` answers a displayed reopening proposal; `accept` also carries the proposal's
   concrete evidence.
 
+A code-review batch may also carry `raises`: findings you put into the ledger yourself, each with
+`severity` (`blocker`, `major` or `minor`), `where`, `what`, asserted `by` and a non-empty `reason`.
+Send them in a decisions-only `forge.review.fix`, with `decisions: []` when nothing else is decided;
+plan review refuses them. Each raise takes the next ID of the Run's one sequence and becomes an
+unresolved `code_review` entry that the next Critic sees marked `raised` and has to assess. The
+result lists the new IDs under `raisedFindingIds`, in the order you sent the raises; fix them in a
+later call by those IDs.
+
 `by` names who made the choice, not who sends it, and `user` is valid for every action. Write `user`
 when the user's answer settled that particular finding or how it was addressed — they picked one of
 the options you offered or dictated one — and `orchestrator` otherwise. Approving the plan as a whole
@@ -133,9 +141,11 @@ call stay applied; retry the round with the same batch and exact decisions.
 
 Fix execution is separate from decisions. Give each logical execution one `fixAttemptId` and the
 exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
+Your optional `note` follows them in a section of its own, and the Flow log records it verbatim.
 A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID and exact ID
 set. A different set under that attempt is refused. A completed attempt returns its saved terminal
-result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields.
+result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields and
+the note.
 
 Before deciding, compare every new Critic finding semantically with current IDs from the critique
 and `forge.status`. Close a redundant new ID with `duplicateOf` and a reason; do not silently merge
@@ -202,7 +212,9 @@ and persisted formats, counters, prompts and skill text — and ask, for each on
 - every consumer, and what its behaviour becomes;
 - every test that asserts today's behaviour, with file:line and test method name;
 - every artefact outside the code that pins current values or wording: snapshots, metrics and
-  baselines, gate scripts, docs, specs, skills and prompts.
+  baselines, gate scripts, docs, specs, skills and prompts;
+- for a rule — a predicate, a classification, an identity, a mapping — every other place that
+  decides the same question, and whether it agrees today.
 
 ```text
 Impact check for a drafted approach. Do not redesign or judge it; find everything it breaks or must also touch.
@@ -215,6 +227,7 @@ For each of 1–N, list:
 a. Every consumer of what changes and what its behaviour becomes.
 b. Every test that asserts today's behaviour and would fail or need updating (file:line and test method name).
 c. Every artefact outside the code that pins current values or definitions: recorded snapshots, metrics or baseline files, gate scripts, docs, spec or skill text.
+d. For a change point that is a rule (a predicate, classification, identity or mapping): every other place that decides the same question, and whether it agrees today.
 
 Search <the scope, beyond src/>.
 ```
@@ -369,8 +382,17 @@ Builder: cursor / gpt-5.3-codex / high
 
 Write every task as its change-specific delta. The Brief supplies stable context once on a fresh
 builder session, while every task must still stand alone with its own task gate and requirement
-references. The builder receives `# Task N of M` and the task's own text after that context; the
-builder's session accretes across tasks; a fresh session starts with the Brief before task 1.
+references. Each task starts a fresh builder session: the Brief, the list of files earlier tasks
+changed, then `# Task N of M` and the task's own text. Only a retry of the same task resumes that
+session, so nothing a task needs may live only in an earlier task's conversation.
+
+A task that introduces or changes a rule more than one place decides — a predicate, a
+classification, an identity, a mapping — names the rule's owner, the one function every such place
+routes through, lists those places, and names the axes of the rule's input it covers: value
+channels, call kinds, object kinds, one target or several. Write "wherever X" or "every Y" only
+beside the list of what reads X, or narrow it explicitly. The Impact pass is where the list comes
+from; a rule given one owner stayed fixed in the measured runs, and a rule added at the one place a
+finding named drew findings along each of its axes for rounds.
 
 Scale the plan's depth inversely to the builder you selected. A strong model at high effort takes
 goal-level tasks. The cheaper the model or the lower the effort, the smaller and more explicit each
@@ -625,11 +647,35 @@ Between the two calls, classify every identified finding by ID:
 
 The bias to hold: when unsure whether to settle a finding, fix it. Deferral and rejection are for
 decisions the plan or user settles, never for findings that are inconvenient. `review.fix` may carry
-decisions and an independent fix attempt together, but the same ID cannot be both decided and fixed.
+decisions and an independent fix attempt together, but the same ID cannot be both decided and fixed,
+and a batch with `raises` travels without a fix attempt.
+
+The Builder reports each fix as a rule and its places: `rule:`, then one line per place with
+`fixed`, `already agreed`, or `left: <reason>`. Read that report before the next round:
+
+- A `left:` place the approved plan excludes needs nothing more; it is out of scope, as it would be
+  for a Critic. Raise every other one in a decisions-only `forge.review.fix`, then fix it in a later
+  call by the ID the raise returned, or leave it for the next Critic, which has to assess it. A place
+  left only in a summary comes back as a Critic finding a round or two later, at a round's price.
+- When you know more than the findings say — the rule behind them, another place that decides the
+  same question, the owner the plan names for that rule — send it as the fix's `note`. The findings
+  still reach the Builder verbatim; the note is yours, in a section of its own, and replaces none of
+  them.
 
 When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
 findings go to the user with the outcome. They are real findings about real gaps; the plan is the
 only reason they were not fixed here, and they are candidates for the next run.
+
+### When a round is mostly fallout
+
+Measured over nine runs, about half of the code-review findings after the first round were fallout
+of the previous round's fixes: a rule an earlier fix wrote was wrong, or a place answering the same
+question was left behind. After each round, mark every finding as fallout or as older than the
+review. When half a round or more is fallout, or its findings walk one axis of a rule case by case —
+field, then local, then `ref` — ask for no further round yet. Sweep instead: list the axes of each
+rule the fixes touched, probe every combination against an oracle (a second path that must agree),
+fix the root causes, then spend one round to confirm. Hold the fixes you make on the host to the
+Builder's own rule — fix the rule, not the place — and record each with `forge.log.append`.
 
 ## Choosing the vendor and model
 
@@ -699,11 +745,11 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    both answers are "no instructions", do not call the tool at all.
 
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
-   every round and is handed its text every round. A builder holds a session and is handed its text
-   only when a session starts, so instructions given after the first task reach it only once a
-   vendor switch, a reopened plan, or direct re-approval after a changed Builder Brief starts a new
-   one — the tool's answer says so when that is the case, and you should pass that on rather than
-   assume it landed. The builder's text is also shown to the code-review critic as context, so that
+   every round and is handed its text every round. A builder holds a session for one plan task or
+   one code-review round and is handed its text only when a session starts, so instructions given
+   mid-task reach it with the next task or round — or sooner, when a vendor switch, a reopened plan,
+   or direct re-approval after a changed Builder Brief starts a new session. The tool's answer says
+   so when that is the case, and you should pass that on rather than assume it landed. The builder's text is also shown to the code-review critic as context, so that
    critic does not raise findings for a choice the user asked for.
 
 The catalogue is advisory for model and effort: an unfamiliar model arriving as free text is worth

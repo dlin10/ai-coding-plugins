@@ -39,12 +39,14 @@ internal sealed class Build
 
         // Which session this turn belongs to is settled before the prompt is composed, because the
         // user's instructions go to a builder exactly once: the turn that starts a session carries
-        // them, and a resumed one already has them in its history. See docs/adr/0019.
-        var sameVendor = string.Equals(state.BuilderVendor, _vendor.Id, StringComparison.Ordinal);
-        var resumeToken = sameVendor && state.BuilderSessionId is { Length: > 0 } token ? token : null;
+        // them, and a resumed one already has them in its history. See docs/adr/0019. A session
+        // covers this task, so only a retry of it resumes; see docs/adr/0026.
+        var scope = BuilderSession.TaskScope(task.Number);
+        var resumeToken = BuilderSession.ResumeToken(state, _vendor.Id, scope);
 
         var prompt = Compose(task, tasks.Count, state.PendingGateFailure,
-                             resumeToken is null ? state.BuilderInstructions : null);
+                             resumeToken is null ? state.BuilderInstructions : null,
+                             resumeToken is null ? state.TaskChanges : null);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
         if (resumeToken is null)
             prompt = BuilderBrief.Prepend(prompt, plan);
@@ -69,7 +71,7 @@ internal sealed class Build
         catch (TurnCutShortException cutShort)
         {
             run.AppendFlowCutShort($"Task {task.Number} of {tasks.Count}", cutShort.FilesWritten);
-            run.WriteState(Resumed(state, session, sameVendor) with
+            run.WriteState(BuilderSession.Record(state, session, _vendor.Id, scope, resumeToken) with
             {
                 PendingGateFailure = Gatekeeper.CutShortBrief(cutShort.FilesWritten)
             });
@@ -86,38 +88,56 @@ internal sealed class Build
 
         // A task the builder could not do, or whose gate failed, stays the next task, so the
         // following call retries it instead of stepping over it as if it had been built.
-        var tasksCompleted = Gatekeeper.IsDone(result) ? state.TasksCompleted + 1 : state.TasksCompleted;
+        var done = Gatekeeper.IsDone(result);
+        var tasksCompleted = done ? state.TasksCompleted + 1 : state.TasksCompleted;
 
         run.AppendFlowBuild(task.Number, tasks.Count, result);
-        run.WriteState(Resumed(state, session, sameVendor) with
+        run.WriteState(BuilderSession.Record(state, session, _vendor.Id, scope, resumeToken) with
         {
             TasksCompleted = tasksCompleted,
-            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure)
+            PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure),
+            TaskChanges = done
+                ? [.. (state.TaskChanges ?? []).Where(change => change.TaskNumber != task.Number),
+                   new TaskChange(task.Number, result.FilesChanged)]
+                : state.TaskChanges
         });
 
         return new BuildOutcome(result, tasksCompleted, tasks.Count);
     }
 
     /// <summary>
-    /// The builder's session as the run should remember it after a turn. A cut-short turn keeps its
-    /// token like any other: the id arrives on the vendor's first stream line, long before the
-    /// answer that never came, and without it the retry starts a builder with no memory of the
-    /// attempt it is repeating.
+    /// The builder's act prompt for one task, before the Builder Brief is put in front of it: what
+    /// earlier tasks changed, the task itself, what the last attempt left owing, and the user's
+    /// instructions last.
     /// </summary>
-    private RunState Resumed(RunState state, IVendorSession session, bool sameVendor) =>
-        state with
-        {
-            BuilderSessionId = sameVendor
-                ? session.ResumeToken ?? state.BuilderSessionId
-                : session.ResumeToken ?? string.Empty,
-            BuilderVendor = _vendor.Id
-        };
-
-    private static string Compose(PlanTask task, int total, string? pendingGateFailure, string? instructions)
+    /// <param name="task">The task to build.</param>
+    /// <param name="total">How many tasks the plan has, for the task's heading.</param>
+    /// <param name="pendingGateFailure">What the last gate or turn left owing, or null when nothing is.</param>
+    /// <param name="instructions">The user's builder instructions, for a fresh session only.</param>
+    /// <param name="earlier">
+    /// What the tasks before this one changed, for a fresh session only: it starts with no memory of
+    /// them, and the files on disk are their result.
+    /// </param>
+    /// <returns>The prompt text.</returns>
+    private static string Compose(PlanTask task, int total, string? pendingGateFailure, string? instructions,
+                                  IReadOnlyList<TaskChange>? earlier)
     {
-        var prompt = new StringBuilder().Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
-                                        .AppendLine()
-                                        .AppendLine(task.Text);
+        var prompt = new StringBuilder();
+        if (earlier is { Count: > 0 })
+        {
+            prompt.AppendLine("# Earlier tasks")
+                  .AppendLine()
+                  .AppendLine("Earlier tasks of this plan changed these files; their work is on disk.")
+                  .AppendLine();
+            foreach (var change in earlier.OrderBy(change => change.TaskNumber))
+                prompt.Append("- Task ").Append(change.TaskNumber).Append(": ")
+                      .AppendLine(change.FilesChanged.Count == 0 ? "no files" : string.Join(", ", change.FilesChanged));
+            prompt.AppendLine();
+        }
+
+        prompt.Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
+              .AppendLine()
+              .AppendLine(task.Text);
         Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
         RunInstructions.Append(prompt, instructions);
         return prompt.ToString();

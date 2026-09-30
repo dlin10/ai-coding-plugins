@@ -25,6 +25,12 @@ Judge the complete brief:
 - Every requirement needs a check that would catch its violation, in a task's `Gate` or under
   `## Gates`. A requirement no check covers is unverifiable as written or missing its gate; a gate
   naming neither a command nor an observable condition is a finding of its own.
+- A task that introduces or changes a rule more than one place decides — a predicate, a
+  classification, an identity, a mapping — names the rule's owner, the one function every such
+  place routes through, lists those places, and names the axes of the rule's input it covers: value
+  channels, call kinds, object kinds, one target or several. A task without them is a finding. So is
+  "wherever X", "every Y" or "all Z" in a requirement or task when the plan neither lists what reads
+  X nor narrows the claim explicitly.
 - `where` says which half of the document you are in — `Requirements: R3`, `Gates: G2`, or
   `Approach: task 4` — because a finding against a requirement may be the orchestrator's to take
   back to the user rather than fix alone.

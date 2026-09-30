@@ -279,6 +279,10 @@ function Test-PublishedServer([string]$Executable) {
         if (($reviewFix.inputSchema.properties.fixFindingIds | ConvertTo-Json -Compress) -notmatch 'array') {
             throw 'forge.review.fix publishes fixFindingIds as something other than an array'
         }
+        # A raise is a code-review decision (docs/adr/0025): the batch forge.review.fix takes must say so.
+        if (($reviewFix.inputSchema | ConvertTo-Json -Depth 40 -Compress) -notmatch '"raises"') {
+            throw 'forge.review.fix publishes a decision batch without raises'
+        }
         foreach ($tool in @($planReview, $confirm, $reviewFix, $workStart)) {
             if (@($tool.inputSchema.properties.PSObject.Properties.Name) -notcontains 'decisions') {
                 throw "$($tool.name) schema is missing typed decisions"
@@ -316,11 +320,11 @@ function Test-PublishedServer([string]$Executable) {
         $optional = @{
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
-            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'revision', 'userGrantedRound', 'question', 'sessionMode')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'revision', 'userGrantedRound', 'question', 'sessionMode')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
-            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds')
+            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note')
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots')
             'forge.log.append'  = @('level', 'detail')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
@@ -414,7 +418,7 @@ function Test-PluginArchive([string]$Archive) {
                 'documents.scout',
                 'forge.scout.run',
                 'Builder Brief',
-                'fresh session starts with the Brief before task 1')) {
+                'Each task starts a fresh builder session: the Brief')) {
             if ($skillScript -notmatch [regex]::Escape($marker)) { throw "the bundled Scout skill is missing semantic marker: $marker" }
         }
         if ($skillScript -match 'task 1 starts from nothing') {

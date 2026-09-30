@@ -116,6 +116,30 @@ public sealed class DecisionLedgerSkillTests
     }
 
     [Fact]
+    public void A_builder_leftover_becomes_a_raise_and_a_round_mostly_of_fallout_becomes_a_sweep()
+    {
+        Contains("`left: <reason>`", "Raise every other one in a decisions-only `forge.review.fix`", "`note`", Skill());
+        Contains("### When a round is mostly fallout", "Sweep instead", "record each with `forge.log.append`", Skill());
+    }
+
+    [Fact]
+    public void A_rule_several_places_decide_is_planned_with_its_owner_and_axes()
+    {
+        Contains("names the rule's owner", "Write \"wherever X\" or \"every Y\" only", Skill());
+        Contains("names the rule's owner", "\"wherever X\"", Prompts().LoadPlanReviewCritic("codex"));
+        DoesNotContain("names the rule's owner", Prompts().LoadCodeReviewCritic("codex"));
+    }
+
+    [Fact]
+    public void A_builder_session_is_documented_as_one_plan_task_or_code_review_round()
+    {
+        Contains("one session per plan task or code-review round", "docs/adr/0026", Read("AGENTS.md"));
+        Contains("Each task starts a fresh builder session", "Only a retry of the same task resumes", Skill());
+        Contains("**Builder session**", "`builderSessionScope`", Read("CONTEXT.md"));
+        DoesNotContain("Persistent session", Read("AGENTS.md"));
+    }
+
+    [Fact]
     public void Cut_short_retry_and_gate_retry_are_linked_to_the_attempt()
     {
         Contains("same `fixAttemptId` and exact `fixFindingIds`", "links the retry to the eventual automatic gate closure", Skill());
@@ -244,6 +268,10 @@ public sealed class DecisionLedgerSkillTests
         var decisionSchema = SchemaFor(nameof(ForgeTools.ReviewPlan)).GetRawText();
         foreach (var property in new[] { "decisionBatchId", "decisions", "findingId", "action", "by", "reason", "evidence", "duplicateOf" })
             Assert.Contains(property, decisionSchema, StringComparison.Ordinal);
+
+        var fixSchema = SchemaFor(nameof(ForgeTools.ReviewFix)).GetRawText();
+        foreach (var property in new[] { "raises", "severity", "where", "what", "Code review only" })
+            Assert.Contains(property, fixSchema, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -252,10 +280,12 @@ public sealed class DecisionLedgerSkillTests
         var properties = SchemaFor(nameof(ForgeTools.ReviewFix)).GetProperty("properties");
         Assert.True(properties.TryGetProperty("fixAttemptId", out _));
         Assert.True(properties.TryGetProperty("fixFindingIds", out _));
+        Assert.True(properties.TryGetProperty("note", out _));
         Assert.False(properties.TryGetProperty("findings", out _));
         Assert.False(properties.TryGetProperty("deferred", out _));
 
         var background = SchemaFor(nameof(ForgeTools.StartWork)).GetProperty("properties");
+        Assert.True(background.TryGetProperty("note", out _));
         Assert.False(background.TryGetProperty("findings", out _));
     }
 
