@@ -153,23 +153,51 @@ public sealed class ReviewFixTests : IDisposable
         Assert.Equal(builder.Id, run.ReadState().BuilderVendor);
     }
 
+    /// <summary>
+    /// Issue #129: a fix turn resumed at the end of a run-long session started editing after five
+    /// calls, a fresh one after twenty-one, and the resumed one had often lost the Brief to a
+    /// compaction. A round's first fix starts fresh with the Brief; its later calls resume it.
+    /// </summary>
     [Fact]
-    public async Task A_second_fix_resumes_the_builder_session()
+    public async Task A_code_review_round_starts_a_fresh_builder_session_and_its_second_fix_resumes_it()
     {
         var ct = CancellationToken.None;
         var builder = new RecordingVendor("codex");
-        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "next-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-token");
         builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "final-token");
-        var run = NewRun(builderVendor: "codex", builderSessionId: "existing-token");
+        var run = NewRun(builderVendor: "codex", builderSessionId: "task-token", codeReviewRounds: 1, plan: BriefPlan);
+        run.WriteState(run.ReadState() with { BuilderSessionScope = BuilderSession.TaskScope(1) });
 
         var fix = NewFix(builder);
         await fix.FixAsync(run, new Selection("builder-model", "low"), "- first fix", null, ct);
         await fix.FixAsync(run, new Selection("builder-model", "low"), "- second fix", null, ct);
 
         Assert.Equal(2, builder.Sessions.Count);
-        Assert.Equal("existing-token", builder.Sessions[0].StartedWithResumeToken);
-        Assert.Equal("next-token", builder.Sessions[1].StartedWithResumeToken);
+        Assert.Null(builder.Sessions[0].StartedWithResumeToken);
+        Assert.Contains("# Builder Brief", builder.Sessions[0].PromptText, StringComparison.Ordinal);
+        Assert.Equal("round-token", builder.Sessions[1].StartedWithResumeToken);
+        Assert.DoesNotContain("# Builder Brief", builder.Sessions[1].PromptText, StringComparison.Ordinal);
         Assert.Equal("final-token", run.ReadState().BuilderSessionId);
+        Assert.Equal(BuilderSession.FixScope(1), run.ReadState().BuilderSessionScope);
+    }
+
+    [Fact]
+    public async Task The_next_code_review_round_starts_its_own_builder_session()
+    {
+        var ct = CancellationToken.None;
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-1-token");
+        builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "round-2-token");
+        var run = NewRun(builderVendor: "codex", codeReviewRounds: 1);
+
+        var fix = NewFix(builder);
+        await fix.FixAsync(run, new Selection("builder-model", "low"), "- first round", null, ct);
+        run.WriteState(run.ReadState() with { CodeReviewRounds = 2 });
+        await fix.FixAsync(run, new Selection("builder-model", "low"), "- second round", null, ct);
+
+        Assert.Null(builder.Sessions[1].StartedWithResumeToken);
+        Assert.Equal("round-2-token", run.ReadState().BuilderSessionId);
+        Assert.Equal(BuilderSession.FixScope(2), run.ReadState().BuilderSessionScope);
     }
 
     [Fact]
@@ -346,7 +374,11 @@ public sealed class ReviewFixTests : IDisposable
         var builder = new RecordingVendor("fake");
         builder.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "fixed"));
         var run = NewRun(builderVendor: "fake", builderSessionId: "old-token", plan: BriefPlan);
-        run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
+        run.WriteState(run.ReadState() with
+        {
+            BuilderInstructions = "use the ponytail-net skill",
+            BuilderSessionScope = BuilderSession.FixScope(0)
+        });
 
         await NewFix(builder).FixAsync(run, new Selection("builder-model", null), "- fix it", null, ct);
 

@@ -418,7 +418,7 @@ function Test-PluginArchive([string]$Archive) {
                 'documents.scout',
                 'forge.scout.run',
                 'Builder Brief',
-                'fresh session starts with the Brief before task 1')) {
+                'Each task starts a fresh builder session: the Brief')) {
             if ($skillScript -notmatch [regex]::Escape($marker)) { throw "the bundled Scout skill is missing semantic marker: $marker" }
         }
         if ($skillScript -match 'task 1 starts from nothing') {

@@ -1,5 +1,21 @@
 # Plan Forge Flow releases
 
+## 0.39.0
+
+The Builder no longer keeps one session for the whole Run (issue #129, docs/adr/0026). On claude
+that session grew past 900k tokens, compacted the Builder Brief into a summary, and cost about 38%
+more than a session per task would.
+
+- Each plan task and each code-review round starts a fresh Builder session, with the Builder Brief
+  first and the user's instructions last. Only a retry inside the same task or round resumes: a gate
+  failure, a `blocked` answer, a cut-short or killed turn, and a round's later fix calls. The rule is
+  the same for every vendor.
+- A fresh task session is told which files each earlier task changed, by task number. The run state
+  records them as `taskChanges` and the session's scope as `builderSessionScope`; `forge.status`
+  shows both. A reopened plan clears them with the progress.
+- `forge.instructions.set` says that changed instructions reach the next task or round.
+- A run begun on an earlier version starts a fresh session at its next builder turn.
+
 ## 0.38.0
 
 About half of the code-review findings after the first round were fallout of the previous round's

@@ -84,6 +84,7 @@ public sealed class InstructionsTests : IDisposable
 
         var note = RunInstructions.Set(run, null, "use the ponytail-net skill").Note!;
         Assert.Contains("will not see them", note, StringComparison.Ordinal);
+        Assert.Contains("the next plan task or code-review round", note, StringComparison.Ordinal);
         Assert.Contains("direct re-approval after a changed Builder Brief", note, StringComparison.Ordinal);
         Assert.Null(RunInstructions.Set(run, "answer in Russian", null).Note);
         Assert.Null(RunInstructions.Set(NewRun(), null, "use the ponytail-net skill").Note);
@@ -174,24 +175,33 @@ public sealed class InstructionsTests : IDisposable
         Assert.Contains("not instructions to you", prompt, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A session is a task's, so the retry of a task resumes the session that was told and the next
+    /// task starts one that is told again.
+    /// </summary>
     [Fact]
     public async Task A_builder_is_told_once_per_session()
     {
         var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(Built(), "session-token");
-        vendor.Enqueue(Built(), "session-token");
+        vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "needs a decision"), "stuck"),
+                       "task-1-token");
+        vendor.Enqueue(Built(), "task-1-token");
+        vendor.Enqueue(Built(), "task-2-token");
         var run = NewRun(approved: true);
         RunInstructions.Set(run, null, "use the ponytail-net skill");
 
         var act = new Build(vendor, Prompts());
         await act.NextAsync(run, NewSelection(), CancellationToken.None);
         await act.NextAsync(run, NewSelection(), CancellationToken.None);
+        await act.NextAsync(run, NewSelection(), CancellationToken.None);
 
-        Assert.Equal(2, vendor.Sessions.Count);
+        Assert.Equal(3, vendor.Sessions.Count);
         Assert.Null(vendor.Sessions[0].StartedWithResumeToken);
         Assert.Contains("use the ponytail-net skill", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
-        Assert.Equal("session-token", vendor.Sessions[1].StartedWithResumeToken);
+        Assert.Equal("task-1-token", vendor.Sessions[1].StartedWithResumeToken);
         Assert.DoesNotContain("# Instructions", vendor.Sessions[1].PromptText, StringComparison.Ordinal);
+        Assert.Null(vendor.Sessions[2].StartedWithResumeToken);
+        Assert.Contains("use the ponytail-net skill", vendor.Sessions[2].PromptText, StringComparison.Ordinal);
     }
 
     /// <summary>

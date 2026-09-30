@@ -81,8 +81,8 @@ internal static class RunInstructions
         // orchestrator's need to know which one this text reaches.
         var note = builder is not null && state.BuilderSessionId is { Length: > 0 }
             ? "the builder session already running started before these instructions and will not see them; "
-              + "they reach the next builder session, which a vendor switch, a reopened plan, or direct "
-              + "re-approval after a changed Builder Brief also starts"
+              + "they reach the next builder session, which the next plan task or code-review round starts, "
+              + "as do a vendor switch, a reopened plan, and direct re-approval after a changed Builder Brief"
             : null;
 
         return new InstructionsOutcome(recorded.CriticInstructions, recorded.BuilderInstructions, note);

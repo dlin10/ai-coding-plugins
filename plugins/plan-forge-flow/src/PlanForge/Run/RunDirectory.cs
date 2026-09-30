@@ -274,6 +274,9 @@ internal sealed class RunDirectory
     /// A raise is written with the ID it received and the finding itself, because the finding exists
     /// nowhere else in the timeline: no critique carried it.
     /// </summary>
+    /// <param name="act">The act that applied the batch, for the entry's heading.</param>
+    /// <param name="batch">The batch as the orchestrator sent it.</param>
+    /// <param name="response">What the ledger did with it; a retry that changed nothing writes no entry.</param>
     public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response) =>
         AppendFlowDecisionBatch(act, response, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
@@ -297,6 +300,9 @@ internal sealed class RunDirectory
     /// One line per decision, so the timeline says why a finding was settled; a conflict shows the
     /// saved batch's IDs instead, because the decisions just sent are not the ones that stand.
     /// </summary>
+    /// <param name="act">The act that applied the batch, for the entry's heading.</param>
+    /// <param name="response">What the ledger did with the batch.</param>
+    /// <param name="decisions">The batch's lines, already written as the timeline shows them.</param>
     private void AppendFlowDecisionBatch(string act, DecisionBatchResponse response, IEnumerable<string> decisions)
     {
         if (response.Outcome == "no_op") return;
@@ -497,7 +503,11 @@ internal sealed class RunDirectory
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
+    /// <summary>One fix turn in the timeline: the findings it was given, the note beside them, and its result.</summary>
+    /// <param name="round">The code-review round the fix answers.</param>
+    /// <param name="findings">The findings the builder was given, empty for a decisions-only call.</param>
     /// <param name="note">The orchestrator's framing the builder was shown after the findings, verbatim.</param>
+    /// <param name="result">The builder's result as the gates left it.</param>
     public void AppendFlowFix(int round, string findings, string? note, BuildResult result)
     {
         var entry = new StringBuilder().Append("## Fixes — round ").Append(round).AppendLine()
@@ -677,8 +687,24 @@ internal sealed class RunDirectory
 // default matches what forge.begin writes today. The granted-round defaults do the same for state
 // files written before the user could buy a round past either cap, and the null gate settings for
 // runs begun before the server ran gates at all.
-/// <param name="GateEnvironment">Environment variables every gate command runs with, from <c>forge.begin</c>.</param>
-/// <param name="BuilderRoots">Paths outside the workspace the builder may write to, from <c>forge.begin</c>; codex-only today.</param>
+/// <summary>Everything a run keeps between tool calls, stored as the run folder's <c>state.json</c>.</summary>
+/// <param name="RunId">The run's id, which names its folder under <c>.forge/</c>.</param>
+/// <param name="WorkspaceRoot">The git window the run reviews and the workers' working directory.</param>
+/// <param name="Profile">The capability profile of the host that began the run.</param>
+/// <param name="StartedAt">When <c>forge.begin</c> opened the run.</param>
+/// <param name="ReviewRounds">Plan-review rounds run so far.</param>
+/// <param name="ReviewRoundCap">How many plan-review rounds run without the user granting another.</param>
+/// <param name="BaselineHead">The commit <c>forge.begin</c> took as the baseline.</param>
+/// <param name="Approved">Whether the plan as it stands was approved; a write or a round after it takes this back.</param>
+/// <param name="TasksCompleted">Plan tasks counted done; the next build is the one after them.</param>
+/// <param name="BuilderSessionId">The recorded builder session's resume token, empty when there is none.</param>
+/// <param name="BuilderVendor">The vendor that ran the recorded builder session.</param>
+/// <param name="CodeReviewRounds">Code-review rounds run so far.</param>
+/// <param name="CodeReviewRoundCap">How many code-review rounds run without the user granting another.</param>
+/// <param name="GrantedReviewRounds">Plan-review rounds the user granted past the cap.</param>
+/// <param name="GrantedCodeReviewRounds">Code-review rounds the user granted past the cap.</param>
+/// <param name="GateEnvironment">Environment variables every gate command runs with, from <c>forge.plan.confirm</c>.</param>
+/// <param name="BuilderRoots">Paths outside the workspace the builder may write to, from <c>forge.plan.confirm</c>; codex-only today.</param>
 /// <param name="PendingGateFailure">
 /// What the last gate run said when it failed — or what the last builder turn left running when
 /// it ended — handed to the next builder turn and cleared by the first gate that passes. Null
@@ -688,7 +714,19 @@ internal sealed class RunDirectory
 /// Patterns naming the MCP servers every worker of the run may call unasked, from
 /// <c>forge.begin</c>. Null for a run begun before the setting existed, which gets the default.
 /// </param>
+/// <param name="CriticInstructions">The user's text for the run's critics, from <c>forge.instructions.set</c>.</param>
+/// <param name="BuilderInstructions">The user's text for the run's builder, from <c>forge.instructions.set</c>.</param>
 /// <param name="Scout">The lazy Scout choice and its current continuation state, or null before the choice is made.</param>
+/// <param name="ScoutAnswers">How many answers <c>SCOUT.md</c> holds, which numbers the next one.</param>
+/// <param name="BuilderSessionScope">
+/// The plan task or code-review round <see cref="BuilderSessionId"/> belongs to; a builder turn of
+/// any other scope starts a session of its own. Null for a run begun before sessions had scopes,
+/// whose next builder turn therefore starts fresh.
+/// </param>
+/// <param name="TaskChanges">
+/// The files each completed task reported changing, which a task's fresh session is told about.
+/// Emptied with the progress when a reopened plan restarts the tasks.
+/// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -711,7 +749,11 @@ internal sealed record RunState(string RunId,
                                 string? CriticInstructions = null,
                                 string? BuilderInstructions = null,
                                 ScoutState? Scout = null,
-                                int ScoutAnswers = 0);
+                                int ScoutAnswers = 0,
+                                string? BuilderSessionScope = null,
+                                IReadOnlyList<TaskChange>? TaskChanges = null);
+
+internal sealed record TaskChange(int TaskNumber, IReadOnlyList<string> FilesChanged);
 
 internal sealed record ScoutState(bool Enabled,
                                   string? Vendor = null,

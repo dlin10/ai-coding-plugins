@@ -73,7 +73,8 @@ This is the design constraint that explains most of the code, and it is easy to 
   projection of the Run-local decision ledger so it converges without inheriting its own anchoring
   or the historical transcript. Stateless; never resumed.
 - **Builder** — implements against an already-hardened plan and fixes review findings. Never
-  revises the plan. Persistent session, cheap model.
+  revises the plan. Cheap model, one session per plan task or code-review round, resumed only by a
+  retry inside it — see [docs/adr/0026](docs/adr/0026-a-builder-session-per-task-and-per-round.md).
 - **Scout** — answers one bounded reconnaissance question with sourced evidence. Read-only and
   non-writable; never settles requirements, plans, judges, or edits. Its session is resumable, but
   continuation is chosen explicitly by the Orchestrator.

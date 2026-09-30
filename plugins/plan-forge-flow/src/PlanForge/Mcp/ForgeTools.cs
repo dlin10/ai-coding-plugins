@@ -365,6 +365,8 @@ internal sealed class ForgeTools
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="gateEnvironment">Optional environment variables required by gate commands.</param>
     /// <param name="builderRoots">Optional extra paths the builder may write.</param>
+    /// <param name="decisions">Optional final plan decisions, applied only with an approval.</param>
+    /// <returns>The recorded decision, the task count and the filtered drift, as JSON.</returns>
     [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval also records tasks, gateEnvironment and builderRoots; code-review entries do not block it.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -419,17 +421,14 @@ internal sealed class ForgeTools
                 if (blocking.Length > 0)
                     throw new ArgumentRejectedException($"plan confirmation is blocked by unresolved plan findings: {string.Join(", ", blocking)}");
 
-                var builderSessionId = state.Approved &&
-                                       !string.Equals(PlanTasks.Brief(run.ReadPlan()), PlanTasks.Brief(plan),
-                                                      StringComparison.Ordinal)
-                    ? string.Empty
-                    : state.BuilderSessionId;
+                var briefChanged = state.Approved
+                                   && !string.Equals(PlanTasks.Brief(run.ReadPlan()), PlanTasks.Brief(plan),
+                                                     StringComparison.Ordinal);
 
                 run.WritePlan(plan);
-                run.WriteState(state with
+                run.WriteState((briefChanged ? BuilderSession.Forget(state) : state) with
                 {
                     Approved = true,
-                    BuilderSessionId = builderSessionId,
                     GateEnvironment = gates.Environment,
                     BuilderRoots = gates.BuilderRoots,
                     PendingGateFailure = null

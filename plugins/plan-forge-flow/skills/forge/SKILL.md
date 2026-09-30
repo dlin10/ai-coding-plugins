@@ -382,8 +382,9 @@ Builder: cursor / gpt-5.3-codex / high
 
 Write every task as its change-specific delta. The Brief supplies stable context once on a fresh
 builder session, while every task must still stand alone with its own task gate and requirement
-references. The builder receives `# Task N of M` and the task's own text after that context; the
-builder's session accretes across tasks; a fresh session starts with the Brief before task 1.
+references. Each task starts a fresh builder session: the Brief, the list of files earlier tasks
+changed, then `# Task N of M` and the task's own text. Only a retry of the same task resumes that
+session, so nothing a task needs may live only in an earlier task's conversation.
 
 A task that introduces or changes a rule more than one place decides — a predicate, a
 classification, an identity, a mapping — names the rule's owner, the one function every such place
@@ -744,11 +745,11 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    both answers are "no instructions", do not call the tool at all.
 
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
-   every round and is handed its text every round. A builder holds a session and is handed its text
-   only when a session starts, so instructions given after the first task reach it only once a
-   vendor switch, a reopened plan, or direct re-approval after a changed Builder Brief starts a new
-   one — the tool's answer says so when that is the case, and you should pass that on rather than
-   assume it landed. The builder's text is also shown to the code-review critic as context, so that
+   every round and is handed its text every round. A builder holds a session for one plan task or
+   one code-review round and is handed its text only when a session starts, so instructions given
+   mid-task reach it with the next task or round — or sooner, when a vendor switch, a reopened plan,
+   or direct re-approval after a changed Builder Brief starts a new session. The tool's answer says
+   so when that is the case, and you should pass that on rather than assume it landed. The builder's text is also shown to the code-review critic as context, so that
    critic does not raise findings for a choice the user asked for.
 
 The catalogue is advisory for model and effort: an unfamiliar model arriving as free text is worth

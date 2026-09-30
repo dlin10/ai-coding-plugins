@@ -78,6 +78,14 @@ internal sealed record DecisionLedgerSnapshot(
     [property: JsonPropertyOrder(3)] IReadOnlyList<AppliedDecisionBatch> AppliedDecisionBatches,
     [property: JsonPropertyOrder(4)] IReadOnlyList<FixAttemptRecord>? FixAttempts = null);
 
+/// <summary>One finding the ledger still tracks, with its disposition and the decisions behind it.</summary>
+/// <param name="FindingId">The finding's run-local identity, from <c>F-0001</c> on.</param>
+/// <param name="Origin">The phase the finding was raised in; it never changes.</param>
+/// <param name="ActivePhase">The phase whose critic is shown the entry now; an accepted reopening moves it.</param>
+/// <param name="Finding">The finding, verbatim.</param>
+/// <param name="Disposition">Unresolved, deferred or rejected.</param>
+/// <param name="Decision">Who settled the entry and why, while it is deferred or rejected.</param>
+/// <param name="Reopening">Who reopened a settled entry, why, and on what evidence.</param>
 /// <param name="Raised">
 /// Who put the entry into the ledger and why, when it was the orchestrator's raise rather than a
 /// critic's finding. Absent from the file otherwise, so a ledger without raises reads as before.
@@ -146,6 +154,11 @@ internal sealed record OrchestratorDecision(
 /// behind, or one it found on its own. It gets an ID like a critic's finding, and the next critic
 /// assesses it like one.
 /// </summary>
+/// <param name="Severity"><c>blocker</c>, <c>major</c> or <c>minor</c>, graded as a critic grades.</param>
+/// <param name="Where">The place the finding is about, as precisely as a critic names one.</param>
+/// <param name="What">The gap, concretely enough to act on.</param>
+/// <param name="By">Who decided to raise it: <c>user</c> or <c>orchestrator</c>.</param>
+/// <param name="Reason">Why it is raised; the next critic is shown it beside the entry.</param>
 internal sealed record OrchestratorRaise(
     [property: JsonPropertyOrder(0)] string Severity,
     [property: JsonPropertyOrder(1)] string Where,
@@ -181,6 +194,12 @@ internal sealed record DecisionBatchPayload(
     [property: JsonPropertyOrder(2)] IReadOnlyList<LedgerReopeningDecision> Reopenings,
     [property: JsonPropertyOrder(3)] IReadOnlyList<LedgerClosureDecision> Closures);
 
+/// <summary>What applying a decision batch did, saved beside its digest and returned to every retry.</summary>
+/// <param name="DecisionBatchId">The batch's key.</param>
+/// <param name="Outcome"><c>applied</c>, or <c>declined</c> for a batch that changed no entry.</param>
+/// <param name="DecisionFindingIds">Every finding the batch decided, in ID order.</param>
+/// <param name="ReopenedFindingIds">The settled findings an accepted reopening made unresolved again.</param>
+/// <param name="ClosedFindingIds">The findings the batch closed, which leave the ledger.</param>
 /// <param name="RaisedFindingIds">The IDs the batch's raises received, in the order they were sent; absent without raises.</param>
 internal sealed record DecisionBatchResult(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
@@ -222,6 +241,9 @@ internal sealed record DecisionBatchResponse(
 /// Raises are left out of the canonical bytes when there are none, so a batch without them keeps the
 /// digest it had before raises existed.
 /// </summary>
+/// <param name="DecisionBatchId">The batch's key.</param>
+/// <param name="Decisions">The batch's decisions, in finding-ID order.</param>
+/// <param name="Raises">The batch's raises in the order sent, or null when it has none.</param>
 internal sealed record OrchestratorDecisionPayload(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
     [property: JsonPropertyOrder(1)] IReadOnlyList<OrchestratorDecision> Decisions,

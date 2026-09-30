@@ -61,6 +61,9 @@ internal sealed class PromptLibrary(string? root = null)
     /// with nothing to add has no file at all. The role text lived in three copies until they
     /// drifted, which is the same fault the 1.x roslyn copies had.
     /// </summary>
+    /// <param name="vendorId">The vendor whose optional file under <c>prompts/&lt;vendor&gt;/</c> is added.</param>
+    /// <param name="role">The role whose contract is loaded.</param>
+    /// <returns>The role contract, the vendor's addition, and the contracts every role shares.</returns>
     public string Load(string vendorId, VendorRole role)
     {
         var contract = Path.Combine(_root, role switch

@@ -131,6 +131,15 @@ public sealed class DecisionLedgerSkillTests
     }
 
     [Fact]
+    public void A_builder_session_is_documented_as_one_plan_task_or_code_review_round()
+    {
+        Contains("one session per plan task or code-review round", "docs/adr/0026", Read("AGENTS.md"));
+        Contains("Each task starts a fresh builder session", "Only a retry of the same task resumes", Skill());
+        Contains("**Builder session**", "`builderSessionScope`", Read("CONTEXT.md"));
+        DoesNotContain("Persistent session", Read("AGENTS.md"));
+    }
+
+    [Fact]
     public void Cut_short_retry_and_gate_retry_are_linked_to_the_attempt()
     {
         Contains("same `fixAttemptId` and exact `fixFindingIds`", "links the retry to the eventual automatic gate closure", Skill());
