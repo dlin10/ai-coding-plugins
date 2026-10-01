@@ -1,0 +1,550 @@
+[
+ {
+  "key": "SetCount",
+  "id": "M:System.Runtime.InteropServices.CollectionsMarshal.SetCount``1(System.Collections.Generic.List{``0},System.Int32)",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Runtime.InteropServices",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "list": {
+    "reads": [
+     "structure"
+    ],
+    "writes": [
+     "structure",
+     "cells"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": null,
+  "safeModel": "opaque",
+  "note": "Bumps _version, grows the backing array (copying cells) or clears the cells past count, sets _size; no element is read or written through and no user code runs. No effect of the vocabulary writes an ADR 0010 collection's structure: writes-arg on a parameter of a sequence type writes the elements' fields, not the list, so it would miss the write."
+ },
+ {
+  "key": "JoinArray",
+  "id": "M:System.String.Join(System.String,System.String[])",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Runtime",
+  "version": "8.0",
+  "corpus": "eshop",
+  "arguments": {
+   "value": {
+    "reads": [
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "Reads every cell; the strings are immutable."
+ },
+ {
+  "key": "JoinStrings",
+  "id": "M:System.String.Join(System.String,System.Collections.Generic.IEnumerable{System.String})",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Runtime",
+  "version": "8.0",
+  "corpus": "eshop",
+  "arguments": {
+   "values": {
+    "reads": [
+     "structure",
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "enumeration of values unless it is a List<string> or string[]"
+    ]
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "values": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "List<string> is read through CollectionsMarshal.AsSpan (_size and _items, no enumerator); string[] by its cells; anything else through GetEnumerator/MoveNext/Current/Dispose at the call."
+ },
+ {
+  "key": "JoinT",
+  "id": "M:System.String.Join``1(System.String,System.Collections.Generic.IEnumerable{``0})",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Runtime",
+  "version": "8.0",
+  "corpus": "eshop",
+  "arguments": {
+   "values": {
+    "reads": [
+     "structure",
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "enumeration of values",
+     "ToString() of each element (TryFormat for a value type implementing ISpanFormattable)"
+    ]
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "values": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "reads-deep stands for the elements' ToString by the TD-034a approximation; eShop's construction is IEnumerable<int>."
+ },
+ {
+  "key": "SplitChars",
+  "id": "M:System.String.Split(System.Char[])",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Runtime",
+  "version": "8.0",
+  "corpus": "eshop",
+  "arguments": {
+   "separator": {
+    "reads": [
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "separator": [
+     "reads-deep"
+    ]
+   },
+   "result": "new"
+  },
+  "note": "The receiver is an immutable string; the result is a new array of new strings, or of the receiver itself."
+ },
+ {
+  "key": "ConsoleWrite",
+  "id": "M:System.Console.Write(System.Object)",
+  "assembly": "System.Console",
+  "referenceAssembly": "System.Console",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "value": {
+    "reads": [],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "IFormattable.ToString(null, provider) or ToString() of value"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "Console.Out is a SyncTextWriter ([MethodImpl(Synchronized)]), so the user's ToString runs under that writer's monitor; Console.SetOut can make Out a user TextWriter."
+ },
+ {
+  "key": "ConsoleWriteLine",
+  "id": "M:System.Console.WriteLine(System.Object)",
+  "assembly": "System.Console",
+  "referenceAssembly": "System.Console",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "value": {
+    "reads": [],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "IFormattable.ToString(null, provider) or ToString() of value"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "As Console.Write(object)."
+ },
+ {
+  "key": "SerializeToUtf8Bytes",
+  "id": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)",
+  "assembly": "System.Text.Json",
+  "referenceAssembly": "System.Text.Json",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "value": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "property getters",
+     "user converters",
+     "IJsonOnSerializing/IJsonOnSerialized callbacks",
+     "enumeration of enumerable members"
+    ]
+   },
+   "options": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [
+     "library state"
+    ],
+    "keeps": [],
+    "runsUserCode": [
+     "converters, type-info resolvers, naming policies and modifiers the options hold"
+    ]
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ],
+    "options": [
+     "reads-deep"
+    ]
+   },
+   "result": "new"
+  },
+  "note": "The built-in model of phase 5a gives value reads-deep only; options also holds user code the call runs, so the built-in family is narrower than this label on options. The demo case declares the member opaque in a project model, so a run never generates it; it is here for the generator's eval."
+ },
+ {
+  "key": "ChannelTryWrite",
+  "id": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
+  "assembly": "System.Threading.Channels",
+  "referenceAssembly": "System.Threading.Channels",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "item": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the channel shared by its writer and reader: queued, or handed straight to a blocked reader"
+    ],
+    "runsUserCode": [
+     "itemDropped delegate on a bounded channel in a drop mode",
+     "IComparer<T>.Compare on a prioritized channel"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": "opaque",
+  "note": "Abstract: every writer in the package (bounded, unbounded, single-consumer, prioritized, rendezvous) keeps or hands over the item. keeps on this would keep it at the writer object, which the reader's members never reach."
+ },
+ {
+  "key": "RepeatedFieldAdd",
+  "id": "M:Google.Protobuf.Collections.RepeatedField`1.Add(`0)",
+  "assembly": "Google.Protobuf",
+  "referenceAssembly": "Google.Protobuf",
+  "version": "3.21.9",
+  "corpus": "eshop",
+  "arguments": {
+   "item": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "this"
+    ],
+    "runsUserCode": []
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "keeps": {
+    "this": [
+     "arg:item"
+    ]
+   }
+  },
+  "note": "Null check only, then stored in the receiver's array. TD-034a still says a member that changes a library object's state has no model; keeps (phase 5d run A2) is that state, and the sentence is to be amended."
+ },
+ {
+  "key": "WaitAndRetryDurations",
+  "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan})",
+  "assembly": "Polly",
+  "referenceAssembly": "Polly",
+  "version": "7.2.3",
+  "corpus": "eshop",
+  "arguments": {
+   "policyBuilder": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [
+     "result: its ExceptionPredicates object, shared with the builder"
+    ],
+    "runsUserCode": []
+   },
+   "sleepDurations": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "result"
+    ],
+    "runsUserCode": []
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {},
+   "result": "new",
+   "keeps": {
+    "result": [
+     "arg:sleepDurations",
+     "arg:policyBuilder"
+    ]
+   }
+  },
+  "note": "Null checks, then a new RetryPolicy keeps the sequence and the builder's predicates. The enumeration of sleepDurations and the predicate runs happen at each Execute of the policy, so they belong to the Execute members' models, which would have to read what this keeps; reads-deep on this is refused (question 80 of demo/SCENARIOS.md), so a model of Execute with only its delegate's fate is narrower there."
+ },
+ {
+  "key": "EqualityComparerEquals",
+  "id": "M:System.Collections.Generic.EqualityComparer`1.Equals(`0,`0)",
+  "assembly": "System.Private.CoreLib",
+  "referenceAssembly": "System.Collections",
+  "version": "10.0",
+  "corpus": "demo",
+  "arguments": {
+   "x": {
+    "reads": [],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "IEquatable<T>.Equals or Object.Equals of x"
+    ]
+   },
+   "y": {
+    "reads": [],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "handed to x's Equals"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {
+    "x": [
+     "reads-deep"
+    ],
+    "y": [
+     "reads-deep"
+    ]
+   }
+  },
+  "note": "Abstract; labelled by the CoreLib implementations (generic, object, nullable and enum comparers), each of which calls the user's Equals. reads-deep stands for that Equals by the TD-034a approximation."
+ },
+ {
+  "key": "MapperMapObject",
+  "id": "M:AutoMapper.IMapperBase.Map``1(System.Object)",
+  "assembly": "AutoMapper",
+  "referenceAssembly": "AutoMapper",
+  "version": "14.0.0",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "source": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "result: members of assignable types without a map are copied by reference"
+    ],
+    "runsUserCode": [
+     "getters",
+     "constructors or ConstructUsing",
+     "setters of the new destination",
+     "resolvers, converters, conditions, BeforeMap/AfterMap of the profiles"
+    ]
+   }
+  },
+  "result": "new graph that may hold source's sub-objects",
+  "safeModel": "opaque",
+  "note": "Interface; Mapper.Map<TDestination>(object) calls Map(source, default). The execution plan is a compiled expression tree cached in the configuration."
+ },
+ {
+  "key": "MapperMapInto",
+  "id": "M:AutoMapper.IMapperBase.Map``2(``0,``1)",
+  "assembly": "AutoMapper",
+  "referenceAssembly": "AutoMapper",
+  "version": "14.0.0",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "source": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "destination: members of assignable types without a map are copied by reference"
+    ],
+    "runsUserCode": [
+     "getters",
+     "resolvers, converters, conditions"
+    ]
+   },
+   "destination": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [
+     "deep: members, nested objects, collections cleared and refilled"
+    ],
+    "keeps": [],
+    "runsUserCode": [
+     "setters",
+     "constructors of new nested objects",
+     "BeforeMap/AfterMap"
+    ]
+   }
+  },
+  "result": "[arg:destination], or new when destination is null",
+  "safeModel": "opaque",
+  "note": "Interface; Mapper.Map<TSource,TDestination>(source, destination) runs the compiled execution plan."
+ },
+ {
+  "key": "ValidatorValidate",
+  "id": "M:FluentValidation.AbstractValidator`1.Validate(`0)",
+  "assembly": "FluentValidation",
+  "referenceAssembly": "FluentValidation",
+  "version": "11.5.1",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "instance": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "result: failures hold AttemptedValue, the property value"
+    ],
+    "runsUserCode": [
+     "compiled RuleFor accessors (getters)",
+     "Must/When/Unless predicates",
+     "child validators set by SetValidator",
+     "custom property validators",
+     "virtual overrides of the user's validator (Validate(ValidationContext), PreValidate)"
+    ]
+   }
+  },
+  "result": "new ValidationResult holding references into instance's graph",
+  "safeModel": "opaque",
+  "note": "Reads ValidatorOptions.Global; the rules and their delegates are kept by the validator from its constructor."
+ },
+ {
+  "key": "ValidatorValidateAsync",
+  "id": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
+  "assembly": "FluentValidation",
+  "referenceAssembly": "FluentValidation",
+  "version": "11.5.1",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "instance": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "result"
+    ],
+    "runsUserCode": [
+     "as Validate",
+     "async validators (MustAsync, custom async) awaited"
+    ]
+   }
+  },
+  "result": "Task of a new ValidationResult holding references into instance's graph",
+  "safeModel": "opaque",
+  "note": "As Validate, asynchronously."
+ },
+ {
+  "key": "SetChildValidator",
+  "id": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
+  "assembly": "FluentValidation",
+  "referenceAssembly": "FluentValidation",
+  "version": "11.5.1",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "validator": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the rule (kept by the parent validator), wrapped in a ChildValidatorAdaptor"
+    ],
+    "runsUserCode": [
+     "later: validator.Validate/ValidateAsync on the property value whenever the parent validates"
+    ]
+   },
+   "ruleSets": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the adaptor"
+    ],
+    "runsUserCode": []
+   }
+  },
+  "result": "[this]",
+  "safeModel": "opaque",
+  "note": "Interface; RuleBuilder<T,TProperty>.SetValidator. Only GetType() of the validator is called at the call."
+ },
+ {
+  "key": "SetPropertyValidator",
+  "id": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.Validators.IPropertyValidator{`0,`1})",
+  "assembly": "FluentValidation",
+  "referenceAssembly": "FluentValidation",
+  "version": "11.5.1",
+  "corpus": "nopcommerce",
+  "arguments": {
+   "validator": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the rule's components (kept by the parent validator)"
+    ],
+    "runsUserCode": [
+     "later: IsValid and message members of a custom validator whenever the parent validates"
+    ]
+   }
+  },
+  "result": "[this]",
+  "safeModel": "opaque",
+  "note": "Interface; RuleBuilder<T,TProperty>.SetValidator calls Rule.AddValidator."
+ }
+]

@@ -1,0 +1,690 @@
+[
+ {
+  "n": 1,
+  "id": "M:System.Runtime.InteropServices.CollectionsMarshal.SetCount``1(System.Collections.Generic.List{``0},System.Int32)",
+  "evidence": "decompiled System.Private.CoreLib 10.0.12",
+  "arguments": {
+   "list": {
+    "reads": [
+     "structure"
+    ],
+    "writes": [
+     "structure",
+     "cells"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": null,
+  "safeModel": "opaque",
+  "chain": [
+   "CollectionsMarshal.SetCount: net10/System.Private.CoreLib__System.Runtime.InteropServices.CollectionsMarshal.cs:53-69 - list._version++ (59); count > list.Capacity -> list.Grow(count) (60-63); else count < _size and T holds references -> Array.Clear(list._items, count, _size - count) (64-67); list._size = count (68)",
+   "List<T>.Grow -> Capacity setter: net10/System.Private.CoreLib__System.Collections.Generic.List_1.cs:428-431 -> 86-116 - new T[value], Array.Copy(_items, array, _size), _items = array"
+  ],
+  "note": "No lock, no user code, nothing kept, void. It writes the ADR 0010 structure of the list (version, count, slot array) and, when shrinking a reference-holding list, clears the cells from count to the old size; growing within capacity exposes slots past the old size (default for reference T because List clears removed slots, possibly stale values for unmanaged T). No TD-034a effect writes an ADR 0010 collection's structure: writes-cells only targets arrays, and writes-arg writes fields one level; moreover the engine applies writes-arg on an IEnumerable-typed parameter to the elements, not to the collection (IrLowering.IsSequence at 2348, InterproceduralAccesses.ArgumentWriteAccesses at 2145), so 'list: writes-arg' would write the elements' fields and miss the structure. Hence opaque; the demo case UnknownCallModelNotNoop relies on this call staying a gap."
+ },
+ {
+  "n": 2,
+  "id": "M:System.String.Join(System.String,System.String[])",
+  "evidence": "decompiled System.Private.CoreLib 8.0.31",
+  "arguments": {
+   "value": {
+    "reads": [
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "string: values[0] (an element, immutable) when Length <= 1, String.Empty, or a new string - no mutable object",
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "String.Join(string, params string[]): net8/System.Private.CoreLib__System.String.cs:1951-1958 -> JoinCore(ReadOnlySpan<char>, ReadOnlySpan<string>) 2155-2232",
+   "JoinCore reads every cell twice: length pass 2181-2192, copy pass 2199-2226; if a cell changed between the passes (num3 != num2) it retries on values.ToArray() 2227-2230, a third read of the cells"
+  ],
+  "note": "Same shape as the built-in String.Concat(String[]) entry. reads-deep on a string[] is the narrowest available form of 'reads every cell'; below the cells there are only immutable strings. Reads are plain, not atomic, no lock."
+ },
+ {
+  "n": 3,
+  "id": "M:System.String.Join(System.String,System.Collections.Generic.IEnumerable{System.String})",
+  "evidence": "decompiled System.Private.CoreLib 8.0.31",
+  "arguments": {
+   "values": {
+    "reads": [
+     "structure",
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "GetEnumerator/MoveNext/Current/Dispose of a user IEnumerable<string> or a user iterator (and the iterator delegates of a library sequence), in the caller's execution, during the call, no lock"
+    ]
+   }
+  },
+  "result": "string: the single element (immutable), String.Empty, or a new string - no mutable object",
+  "safeModel": {
+   "effects": {
+    "values": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "String.Join(string, IEnumerable<string>): net8/System.Private.CoreLib__System.String.cs:1979-2013",
+   "List<string> fast path 1981-1984 -> CollectionsMarshal.AsSpan(list): reads _size and _items, then the cells, no version check (net10 CollectionsMarshal.cs:10-24; the .NET 8 copy is not dumped) -> JoinCore(ReadOnlySpan<string>) 2155-2232",
+   "string[] fast path 1985-1988 -> JoinCore 2155-2232 (cells)",
+   "otherwise values.GetEnumerator() 1993, MoveNext/Current 1994-2011, Dispose via using"
+  ],
+  "note": "Enumeration of a user enumerable or iterator is covered by Deep read's own enumeration semantics (CONTEXT: reading every element is enumerating). Strings are immutable, so nothing below the cells."
+ },
+ {
+  "n": 4,
+  "id": "M:System.String.Join``1(System.String,System.Collections.Generic.IEnumerable{``0})",
+  "evidence": "decompiled System.Private.CoreLib 8.0.31",
+  "arguments": {
+   "values": {
+    "reads": [
+     "structure",
+     "cells",
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "GetEnumerator/MoveNext/Current/Dispose of a user IEnumerable<T> or iterator, in the caller, during the call",
+     "reference T or non-ISpanFormattable value T: element.ToString() (virtual, user override) 2133-2152",
+     "value T implementing ISpanFormattable: TryFormat through DefaultInterpolatedStringHandler.AppendFormatted 2111-2132 (user code for a user struct; none for int)"
+    ]
+   }
+  },
+  "result": "string: element.ToString() of a single element, String.Empty, or a new string - no mutable object",
+  "safeModel": {
+   "effects": {
+    "values": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "String.Join<T>(string, IEnumerable<T>): net8/System.Private.CoreLib__System.String.cs:2060-2063 -> JoinCore<T> 2065-2153",
+   "T == string: List<string>/string[] fast paths 2067-2077 -> JoinCore(ReadOnlySpan<string>) 2155-2232",
+   "values.GetEnumerator() 2082; T == char path 2088-2110; ISpanFormattable value types 2111-2132 (CurrentCulture); otherwise ToString 2133-2152"
+  ],
+  "note": "eShop constructs it over int: path 2111-2132, int formatting with CultureInfo.CurrentCulture, so the only user code is enumerating 'values' (a List<int> enumerator reads structure and cells; a LINQ sequence runs its delegates here). For reference T the elements' ToString runs, which reads-deep stands for."
+ },
+ {
+  "n": 5,
+  "id": "M:System.String.Split(System.Char[])",
+  "evidence": "decompiled System.Private.CoreLib 8.0.31",
+  "arguments": {
+   "separator": {
+    "reads": [
+     "cells"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "separator": [
+     "reads-deep"
+    ]
+   },
+   "result": "new"
+  },
+  "chain": [
+   "String.Split(params char[]): net8/System.Private.CoreLib__System.String.cs:2611-2614 -> SplitInternal(ReadOnlySpan<char>, int, StringSplitOptions) 2631-2660",
+   "empty string or no separator found -> CreateSplitArrayOfThisAsSoleValue 2725-2740: new string[1] { this }",
+   "MakeSeparatorListAny 2840-2882: empty separators -> char.IsWhiteSpace; <= 3 -> reads separators[0..2] (vectorized 2884+ or loop); > 3 -> ProbabilisticMap over all cells",
+   "SplitWithoutPostProcessing 2757-2782: new string[num3 + 1] filled with Substring results"
+  ],
+  "note": "The char[] is read cell by cell, plainly; usually it is the params array built at the call site (chars only). The receiver is an immutable string. For this overload (options None, count int.MaxValue) every path returns a fresh string[]; the shared Array.Empty<string>() branch of CreateSplitArrayOfThisAsSoleValue needs count == 0 or RemoveEmptyEntries and is unreachable. 'result: new' builds just the array (string is no source class); leaving the result undescribed would tie the returned, mutable array to nothing."
+ },
+ {
+  "n": 6,
+  "id": "M:System.Console.Write(System.Object)",
+  "evidence": "decompiled System.Console 10.0.12, System.Private.CoreLib 10.0.12",
+  "arguments": {
+   "value": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "value is IFormattable ? formattable.ToString(null, FormatProvider) : value.ToString() - user overrides, in the caller's execution, inside the SyncTextWriter's monitor (MethodImplOptions.Synchronized = lock on the process-wide writer instance)",
+     "if Console.SetOut installed a user TextWriter, its Write(object) override receives value and may do anything with it, including keep it"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "Console.Write(object): net10/System.Console__System.Console.cs:959-962 -> Out getter 153-170 (Volatile.Read(s_out), lazy init under lock(s_syncObject) -> CreateOutputWriter 527-537: TextWriter.Synchronized(new StreamWriter(...) { AutoFlush = true }), or TextWriter.Null for Stream.Null)",
+   "TextWriter.Synchronized: net10/System.Private.CoreLib__System.IO.TextWriter.cs:1769-1777 -> SyncTextWriter.Write(object) 403-407 [MethodImpl(Synchronized)] -> _out.Write(value)",
+   "TextWriter.Write(object) 1401-1414 -> IFormattable.ToString / ToString -> Write(string) -> StreamWriter (not dumped)",
+   "redirect to Stream.Null: NullTextWriter.Write(object) 102-104 does nothing"
+  ],
+  "note": "StreamWriter is not dumped; that it does not override Write(object) is from knowledge, not from the dumps. Nothing keeps value: only the formatted string reaches the stream buffer. The writer's monitor is a library lock the model cannot claim and need not (a model never proves protection). A user writer installed by SetOut is user code no model of this member can describe; Console.SetOut itself is outside this labelling."
+ },
+ {
+  "n": 7,
+  "id": "M:System.Console.WriteLine(System.Object)",
+  "evidence": "decompiled System.Console 10.0.12, System.Private.CoreLib 10.0.12",
+  "arguments": {
+   "value": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "value is IFormattable ? formattable.ToString(null, FormatProvider) : value.ToString() - user overrides, in the caller's execution, inside the SyncTextWriter's monitor (MethodImplOptions.Synchronized)",
+     "if Console.SetOut installed a user TextWriter, its WriteLine(object) override receives value and may keep it"
+    ]
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "Console.WriteLine(object): net10/System.Console__System.Console.cs:799-802 -> Out getter 153-170 (as for Write)",
+   "SyncTextWriter.WriteLine(object): net10/System.Private.CoreLib__System.IO.TextWriter.cs:529-533 [MethodImpl(Synchronized)] -> _out.WriteLine(value)",
+   "TextWriter.WriteLine(object) 1555-1569: null -> WriteLine(); IFormattable -> WriteLine(formattable.ToString(null, FormatProvider)); else WriteLine(value.ToString()) -> StreamWriter.WriteLine(string) (not dumped)",
+   "redirect to Stream.Null: NullTextWriter.WriteLine(object) 215-217 does nothing"
+  ],
+  "note": "Same behaviour as Console.Write(Object). StreamWriter not dumped."
+ },
+ {
+  "n": 8,
+  "id": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)",
+  "evidence": "decompiled System.Text.Json 10.0.12",
+  "arguments": {
+   "value": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "property getters (reflection-emitted or source-generated accessors), user JsonConverter<T>.Write for any part of the graph, enumeration of user IEnumerable members, ShouldSerialize predicates, IJsonOnSerializing.OnSerializing / IJsonOnSerialized.OnSerialized and JsonTypeInfo.OnSerializing delegates invoked on the value objects - all in the caller's execution, no lock"
+    ]
+   },
+   "options": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "user objects options holds: converters and converter factories, IJsonTypeInfoResolver and its Modifiers delegates (on first use of a type, under lock(Options.CacheContext)), JsonNamingPolicy.ConvertName, a user ReferenceHandler/ReferenceResolver (which receives the value's objects and could keep them)"
+    ]
+   }
+  },
+  "result": "new",
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ],
+    "options": [
+     "reads-deep"
+    ]
+   },
+   "result": "new"
+  },
+  "chain": [
+   "JsonSerializer.SerializeToUtf8Bytes<TValue>(TValue, JsonSerializerOptions): net10/System.Text.Json.cs:14763-14767 -> GetTypeInfo<T> 13676-13679 -> GetTypeInfo(options, Type) 13660-13672 (options ?? JsonSerializerOptions.Default; options.MakeReadOnly(populateMissingResolver: true) 22437-22450 -> ConfigureForJsonSerializer; GetTypeInfoForRootType 22262-22271 writes _lastTypeInfo)",
+   "JsonTypeInfo.EnsureConfigured 34930-34960: Configure under lock(Options.CacheContext) on first use",
+   "WriteBytes 14800-14813: Utf8JsonWriterCache.RentWriterAndBuffer ([ThreadStatic] cache 21203-21235) -> JsonTypeInfo<T>.Serialize 31748-31766 (polymorphic root through TryGetPolymorphicTypeInfoForRootType 22273-22287, else EffectiveConverter.WriteCore) -> return bufferWriter.WrittenSpan.ToArray() 14807",
+   "OnSerializing callbacks: invoked at e.g. 29350, 38876, 38913; IJsonOnSerializing wired into JsonTypeInfo.OnSerializing at 35291-35296"
+  ],
+  "note": "Two differences from the built-in phase-5a entry. (1) options: reads-deep - the call runs user objects that options holds (converters, resolvers, naming policy, modifier delegates); reads-deep is the accepted stand-in for converter code, exactly as it is for converters reached through value. Built in source with setters, options usually holds little the heap knows, so the effect is mostly empty, but leaving it out is narrower. (2) result: new - the byte[] is a fresh copy; the built-in leaves the result undescribed, which ties the returned mutable array to nothing. Doubts: OnSerializing callbacks are user code designed to WRITE the value; only the reads-deep approximation covers them (same class as converters). A user ReferenceResolver that persists across calls could keep the value's objects - not expressible, and rare. Options' own state changes (read-only flag, type-info caches) are library state, not a resource."
+ },
+ {
+  "n": 9,
+  "id": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
+  "evidence": "decompiled System.Threading.Channels 10.0.12",
+  "arguments": {
+   "item": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the channel (writer._parent), not the writer: queued in its item store (ConcurrentQueue for CreateUnbounded, Deque, SingleProducerSingleConsumerQueue, PriorityQueue) or handed straight to a pending reader's AsyncOperation._result; read back later through the channel's ChannelReader (TryRead, ReadAsync, TryPeek, ReadAllAsync) by whatever execution holds the reader - a different object from the writer"
+    ],
+    "runsUserCode": [
+     "Bounded with DropWrite/DropNewest/DropOldest and Rendezvous with a drop mode: the itemDropped Action<T> given to Channel.CreateBounded runs inside TryWrite after the lock is released, with item or with an earlier written item",
+     "UnboundedPrioritized: PriorityQueue<bool,T>.Enqueue(true, item) compares item with kept items through the options' IComparer<T> or Comparer<T>.Default (user CompareTo), under lock(parent._items)",
+     "with AllowSynchronousContinuations (runContinuationsAsynchronously false) and no captured context, a waiting reader's continuation can run inline in the writer after the lock (AsyncOperation.SignalCompletion) - arbitrary consumer code"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [
+     "fields"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "bool - no object",
+  "safeModel": "opaque",
+  "chain": [
+   "ChannelWriter<T>.TryWrite abstract: net10/System.Threading.Channels.cs:1816",
+   "Channel.CreateUnbounded<T>() 1353-1356 -> new UnboundedChannel<T>(runContinuationsAsynchronously: true) 2855-2861",
+   "UnboundedChannel.UnboundedChannelWriter.TryWrite 2745-2772: lock(parent.SyncObj) where SyncObj => _items (2823, ConcurrentQueue 2813); _doneWriting -> false; TryDequeueAndReserveCompletionIfCancelable(ref _blockedReadersHead); else _items.Enqueue(item) 2759 and reserve a waiter; after the lock DangerousSetResult(item) 2765 -> 806-810 -> SignalCompletion 548-592 (RunContinuationsAsynchronously -> UnsafeQueueSetCompletionAndInvokeContinuation 560) or DangerousSetOperations 1710+",
+   "readers: UnboundedChannelReader.ReadAsync 2617-2644, TryRead 2646-2656, TryPeek 2658-2661",
+   "BoundedChannel.BoundedChannelWriter.TryWrite 1067-1133: Monitor on parent._items; _itemDropped?.Invoke(item) 1096 and (obj) 1103 outside the lock",
+   "RendezvousChannel.RendezvousChannelWriter.TryWrite 2093-2115: hand-off to a blocked reader 2106 or _itemDropped?.Invoke(item) 2111",
+   "SingleConsumerUnboundedChannel.UnboundedChannelWriter.TryWrite 2454-2491: lock, _items.Enqueue(item) 2475, TrySetResult(item) 2490",
+   "UnboundedPrioritizedChannel.UnboundedPrioritizedChannelWriter.TryWrite 3028-3055: lock, _items.Enqueue(element: true, item) 3042; _items = new PriorityQueue<bool, T>(comparer) 3138-3145 (PriorityQueue not dumped)"
+  ],
+  "note": "Opaque across implementations: a drop-mode writer runs the stored itemDropped delegate (given to CreateBounded, held by the channel, not by the writer that receives this call), and the prioritized writer runs a user comparer; neither has a form here. The demo's Channel.CreateUnbounded<Order>() writer is the narrowest case: lock(parent._items) (a library lock), no read or write of item, no user code in the producer (continuations are queued to the thread pool because RunContinuationsAsynchronously is true), and the item is either enqueued in the channel's ConcurrentQueue or stored in the first pending ReadAsync operation. Its closest model is {\"effects\": {}, \"keeps\": {\"this\": [\"arg:item\"]}}, and even that is narrower: the item is read back through ChannelReader, a different object from the writer, and no value lets a reader member return what the writer keeps (a keeper without object stores per declared type, and ChannelWriter<T> and ChannelReader<T> differ), so the consumer stays unlinked; and if the heap ever knew the writer as owned by one execution, keeps this would leave item un-shared although another execution reads it (TD-086 calls a written object Escaped; CONTEXT keeps the write as a gap). In the demo the writer is reached through the Channel<T>.Writer getter, whose model decides what object the heap has. Library state of the channel (queues, waiter lists, completion) is not a resource."
+ },
+ {
+  "n": 10,
+  "id": "M:Google.Protobuf.Collections.RepeatedField`1.Add(`0)",
+  "evidence": "decompiled Google.Protobuf 3.21.9 (lib/net5.0)",
+  "arguments": {
+   "item": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "this RepeatedField's backing array (array[count]); read later, with no lock, by the indexer, GetEnumerator, Contains/IndexOf/Remove (Equals through ProtobufEqualityComparers - generated message Equals), Equals/GetHashCode of the field, Clone, CalculateSize/WriteTo/AddEntriesFrom through a FieldCodec (generated message code), ToString"
+    ],
+    "runsUserCode": []
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [
+     "fields"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": null,
+  "safeModel": {
+   "effects": {},
+   "keeps": {
+    "this": [
+     "arg:item"
+    ]
+   }
+  },
+  "chain": [
+   "RepeatedField<T>.Add: pkg/Google.Protobuf.cs:36778-36783 - ProtoPreconditions.CheckNotNullUnconstrained(item) 9139-9146 (reference/null check only); EnsureSize(count + 1) 36754-36762 -> SetSize 36764-36772 (new T[size], Array.Copy, array = ...); array[count++] = item",
+   "fields: array, count 36473-36477; indexer get 36520-36529 returns array[index]"
+  ],
+  "note": "No lock, no user code on item at the call. The receiver's own state (array reallocation, the cell, count++) is written non-atomically, so concurrent Adds on a shared RepeatedField corrupt it; RepeatedField is not an ADR 0010 collection, so that state is library-object state, not a resource, and neither a model nor the unknown effect reaches it. Doubt: TD-034a also says a member that changes a library object's state has no model; read literally, Add would be opaque. CONTEXT's Kept object (the value a cache stores) is exactly this shape, so I give keeps this; flag for the reviewer."
+ },
+ {
+  "n": 11,
+  "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan})",
+  "evidence": "decompiled Polly 7.2.3 (lib/netstandard2.0)",
+  "arguments": {
+   "policyBuilder": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [
+     "the returned RetryPolicy keeps policyBuilder.ExceptionPredicates - the same mutable object, so later Or<>/OrInner<> calls on the builder change the policy's predicates; read on every Execute*/ExecuteAndCapture* of the policy by ExceptionPredicates.FirstMatchOrDefault"
+    ],
+    "runsUserCode": [
+     "none at the call; later every execution of the policy runs the exception predicates the builder holds (user Func<TException,bool> from Handle/Or) on thrown exceptions, in the executing caller's execution"
+    ]
+   },
+   "sleepDurations": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "the returned RetryPolicy keeps the reference itself (_sleepDurationsEnumerable); every Execute*/ExecuteAndCapture* of the policy calls GetEnumerator/MoveNext/Current on it once per execution, in the executing caller's execution, no lock (array/list: structure and cells; otherwise user enumerator or iterator code)"
+    ],
+    "runsUserCode": [
+     "none at the call (null check only); enumeration happens later, at each execution of the policy"
+    ]
+   }
+  },
+  "result": "new RetryPolicy created at the call, holding sleepDurations, policyBuilder.ExceptionPredicates and a library no-op onRetry delegate",
+  "safeModel": {
+   "effects": {},
+   "result": "new",
+   "keeps": {
+    "result": [
+     "arg:sleepDurations",
+     "arg:policyBuilder"
+    ]
+   }
+  },
+  "chain": [
+   "RetrySyntax.WaitAndRetry(PolicyBuilder, IEnumerable<TimeSpan>): pkg/Polly.cs:13503-13509 (no-op onRetry) -> 13525-13535 (wrapping lambda) -> 13577-13588: null checks, new RetryPolicy(policyBuilder, onRetry, int.MaxValue, sleepDurations)",
+   "RetryPolicy ctor 15779-15786 (_sleepDurationsEnumerable = sleepDurationsEnumerable) -> Policy(PolicyBuilder) 3640-3643 -> PolicyBase(PolicyBuilder) 10223-10226 -> PolicyBase(ExceptionPredicates) 10214-10217 (ExceptionPredicates = policyBuilder.ExceptionPredicates)",
+   "later: RetryPolicy.Implementation 15789-15795 -> RetryEngine.Implementation 15718-15764: sleepDurationsEnumerable?.GetEnumerator() 15721, MoveNext 15733/15746, Current 15757; shouldRetryExceptionPredicates.FirstMatchOrDefault(ex) 15741 -> ExceptionPredicates 8226-8250 (LINQ Select/FirstOrDefault over List<ExceptionPredicate>)"
+  ],
+  "note": "Keeping arg:policyBuilder is wider than reality (only its ExceptionPredicates object is kept) but the vocabulary cannot name a part of an argument; the builder and the policy really share that object. result: new gives a RetryPolicy with no fields (metadata type), which is the keeper keeps.result needs. The deferred enumeration of sleepDurations and the predicate runs are effects of the policy's Execute members (their models would read kept:this), not of this call. The predicates' holder is the builder (if Policy.Handle/Or get holder fates), not the policy, so a policy.Execute call would not run them through the holder rule - worth checking when those members are modelled."
+ },
+ {
+  "n": 12,
+  "id": "M:System.Collections.Generic.EqualityComparer`1.Equals(`0,`0)",
+  "evidence": "decompiled System.Private.CoreLib 10.0.12",
+  "arguments": {
+   "x": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "GenericEqualityComparer<T> (T : IEquatable<T>): x.Equals(y) - user IEquatable<T>.Equals",
+     "ObjectEqualityComparer<T>: x.Equals((object)y) - user Object.Equals override (boxes a value-type y)",
+     "NullableEqualityComparer<T>: EqualityComparer<T>.Default.Equals(x.value, y.value) - the underlying comparer, user IEquatable/Equals",
+     "EnumEqualityComparer<T>: none (RuntimeHelpers.EnumEquals)",
+     "DelegateEqualityComparer<T> from EqualityComparer<T>.Create (not dumped): the stored equals delegate invoked with (x, y)"
+    ]
+   },
+   "y": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "as for x: passed to x.Equals or to the stored delegate"
+    ]
+   }
+  },
+  "result": "bool - no object",
+  "safeModel": {
+   "effects": {
+    "x": [
+     "reads-deep"
+    ],
+    "y": [
+     "reads-deep"
+    ]
+   }
+  },
+  "chain": [
+   "EqualityComparer<T>.Equals abstract: net10/System.Private.CoreLib__System.Collections.Generic.EqualityComparer_1.cs:29; Default 10-14 -> ComparerHelpers.CreateDefaultEqualityComparer net10/...ComparerHelpers.cs:25-47 (string -> StringEqualityComparer, IEquatable -> GenericEqualityComparer, Nullable -> NullableEqualityComparer, enum -> EnumEqualityComparer, else ObjectEqualityComparer); Create 16-27 -> new DelegateEqualityComparer<T>(equals, getHashCode)",
+   "GenericEqualityComparer_1.cs:62-78; ObjectEqualityComparer_1.cs:72-88; NullableEqualityComparer_1.cs:79-95; EnumEqualityComparer_1.cs:11-15",
+   "StringEqualityComparer and DelegateEqualityComparer<T>: not dumped"
+  ],
+  "note": "No keeps and no lock in any CoreLib implementation; the reads are whatever the user Equals reads, for which reads-deep is the accepted approximation. The Create-made comparer runs a delegate it holds: that is the holder fate of EqualityComparer<T>.Create (the demo's ProjectModelHolderFate project model), which runs on any body-less call whose receiver is the holder, independent of this model. DelegateEqualityComparer and StringEqualityComparer are described from knowledge, not from the dumps. Subclasses in source are dispatched to their own bodies; subclasses shipped in other libraries are not covered by this labelling."
+ },
+ {
+  "n": 13,
+  "id": "M:AutoMapper.IMapperBase.Map``1(System.Object)",
+  "evidence": "decompiled AutoMapper 14.0.0 (lib/net8.0)",
+  "arguments": {
+   "source": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "nothing across calls (the Mapper's default ResolutionContext refuses an instance cache, and CheckContext makes a per-call context when one is needed); but the result may be source itself or a new graph that references source's sub-objects"
+    ],
+    "runsUserCode": [
+     "source getters through the compiled execution plan; MapFrom/ConvertUsing/ResolveUsing/Condition/PreCondition/BeforeMap/AfterMap/ConstructUsing delegates and expressions stored in the configuration; IValueResolver/ITypeConverter/IMappingAction instances made through ServiceCtor (DI); source.ToString() through ToStringMapper; enumeration of source collections; destination constructors and setters - all in the caller's execution, no lock"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "the configuration's stored user code (above)"
+    ]
+   }
+  },
+  "result": "one of: a new destination graph (type map); source itself (AssignableMapper, when TDestination is assignable from source's runtime type and no type map exists); a new collection or array whose elements are source's elements (assignable element types without an element map); a new destination whose members reference source's sub-objects (assignable member types without a map); default/null for a null source",
+  "safeModel": "opaque",
+  "chain": [
+   "Mapper.Map<TDestination>(object): pkg/AutoMapper.cs:3121-3124 -> Map<TSource,TDestination>(source, default) 3141-3144 -> MapCore 3201-3212 -> IGlobalConfiguration.GetExecutionPlan 1922-1930 (_executionPlans.GetOrAdd) -> compiled plan invoked (source, destination, _defaultContext)",
+   "AssignableMapper 7538-7548: MapExpression returns sourceExpression (alias); mapper order MapperRegistry 8199-8225 (CollectionMapper, AssignableMapper, NullableSourceMapper, ToStringMapper, ...)",
+   "CollectionMapper 7679-7811: returns sourceExpression 7712-7719; arrays by CopyTo/ToArray with element aliasing 7630-7655; passedDestination ?? new 7800-7801, Clear 7747, Add per element",
+   "ToStringMapper 8452-8465 (source.ToString())",
+   "member mapping 10060-10114 (resolver, destination member value, setter)",
+   "ResolutionContext 4184-4365: InstanceCache on the default context throws (4224-4232, 4353-4359); CheckContext 4335-4341 makes a new context",
+   "the other IMapperBase implementation, ResolutionContext.Map<TDestination>(object) 4265-4268, forwards to the same Mapper.MapCore with itself as context"
+  ],
+  "note": "Not expressible: the result is 'new, or source, or a new graph holding source's parts' - new may not appear inside [...], and a new graph cannot hold argument parts; and the configured user delegates/resolvers held by the Mapper's configuration run in the caller with no holder relation the vocabulary can state. Closest (narrower) model: {\"effects\": {\"source\": [\"reads-deep\"]}, \"result\": \"new\"}."
+ },
+ {
+  "n": 14,
+  "id": "M:AutoMapper.IMapperBase.Map``2(``0,``1)",
+  "evidence": "decompiled AutoMapper 14.0.0 (lib/net8.0)",
+  "arguments": {
+   "source": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "references to source or its sub-objects may be stored into destination's members (assignable member types, no map) or returned"
+    ],
+    "runsUserCode": [
+     "as Map<TDestination>(object): source getters, configured delegates/resolvers/converters, ToString, enumeration of source collections"
+    ]
+   },
+   "destination": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [
+     "fields",
+     "deep",
+     "structure",
+     "cells"
+    ],
+    "keeps": [
+     "after the call destination's members may reference source's sub-objects"
+    ],
+    "runsUserCode": [
+     "destination getters (existing member values are read and mapped into) and setters; BeforeMap/AfterMap actions receive (source, destination)"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "the configuration's stored user code"
+    ]
+   }
+  },
+  "result": "destination itself when it is non-null and a type map applies (mapped in place); source itself (AssignableMapper ignores destination); a new object when destination is null; collection results as for Map<TDestination>(object)",
+  "safeModel": "opaque",
+  "chain": [
+   "Mapper.Map<TSource,TDestination>(TSource, TDestination): pkg/AutoMapper.cs:3141-3144 -> MapCore 3201-3212 (runtime types from source?.GetType() and destination?.GetType()) -> GetExecutionPlan 1922-1930 -> plan(source, destination, _defaultContext)",
+   "TypeMapPlanBuilder member mapping 10060-10099: reads the destination member's current value; DestinationMemberValue 10102-10114 passes that existing value as the nested destination whenever the initial destination is non-null -> MapMember 10146+",
+   "CollectionMapper 7699-7804: an existing destination collection is reused (passedDestination ?? new 7800-7801), Clear() 7735/7747, then Add for each mapped element",
+   "AssignableMapper 7538-7548 returns source"
+  ],
+  "note": "writes-arg is one level; mapping into a non-null destination writes nested objects' fields and clears and refills nested collections at any depth, so writes-arg is narrower. The result mixes [arg:destination, arg:source] with a new object for a null destination, and the in-place mapping stores source parts into destination's fields, for which there is no form on a non-array argument. Closest (narrower) model: {\"effects\": {\"source\": [\"reads-deep\"], \"destination\": [\"reads-deep\", \"writes-arg\"]}, \"keeps\": {\"destination\": [\"arg:source\"]}, \"result\": \"[arg:destination,arg:source]\"}."
+ },
+ {
+  "n": 15,
+  "id": "M:FluentValidation.AbstractValidator`1.Validate(`0)",
+  "evidence": "decompiled FluentValidation 11.5.1 (lib/net7.0)",
+  "arguments": {
+   "instance": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "the returned ValidationResult keeps parts of instance: each ValidationFailure.AttemptedValue and FormattedMessagePlaceholderValues['PropertyValue'] hold the validated property value, CustomState holds whatever a user provider returned"
+    ],
+    "runsUserCode": [
+     "rule property accessors (compiled from RuleFor expressions, user getters), When/Unless conditions, Must/Custom predicates, WithMessage/WithState/WithSeverity providers, custom IPropertyValidator objects, child IValidator objects (SetValidator), RuleForEach enumeration of collection members - synchronously in the caller's execution, no lock"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "virtual Validate(ValidationContext<T>) and PreValidate overrides of the user subclass; the user delegates and validator objects kept in Rules (they usually capture the validator's injected services); global ValidatorOptions.Global delegates (DefaultValidatorSelectorFactory, PropertyNameResolver, DisplayNameResolver, ErrorCodeResolver, LanguageManager)"
+    ]
+   }
+  },
+  "result": "new ValidationResult over a new List<ValidationFailure> (context.Failures) whose failures reference parts of instance",
+  "safeModel": "opaque",
+  "chain": [
+   "AbstractValidator<T>.Validate(T): pkg/FluentValidation.cs:237-240 -> new ValidationContext<T>(instance, new PropertyChain(), ValidatorOptions.Global.ValidatorSelectors.DefaultValidatorSelectorFactory()) -> virtual Validate(ValidationContext<T>) 258-273 -> ValidateInternalAsync(useAsync: false).GetAwaiter().GetResult() 291-318",
+   "ValidateInternalAsync: new ValidationResult(context.Failures) 293; virtual PreValidate 294 (606); foreach rule in Rules 303-311 -> PropertyRule.ValidateAsync 9522-9590 (Condition 9530, AsyncCondition 9534-9545, PropertyFunc(context.InstanceToValidate) 9546, component conditions 9553-9567, component.ValidateAsync 9568, CreateValidationError 9571, dependent rules 9583)",
+   "CreateValidationError ~9902-9915: new ValidationFailure(PropertyName, message, value) (AttemptedValue = value), placeholder dictionary copy, CustomStateProvider(context, value)",
+   "child validators: ChildValidatorAdaptor.IsValid ~4210-4226 -> validator.Validate(childContext)",
+   "rules are added by RuleFor 352-358 (Rules.Add(propertyRule) 356)"
+  ],
+  "note": "Closest model: {\"effects\": {\"instance\": [\"reads-deep\"]}, \"result\": \"new\", \"keeps\": {\"result\": [\"arg:instance\"]}} - narrower, because the call runs user code kept by its receiver (rules, predicates capturing services, child and custom validators, overrides on this), which TD-034a cannot express: reads-deep and writes-arg on this are refused (SCENARIOS question 80), and the rule delegates' holder is the rule builder, not the validator. Validate(ValidationContext<T>) and PreValidate are virtual, so a source override runs from inside this body-less member, which no model describes. Async rules make the sync path throw AsyncValidatorInvokedSynchronouslyException."
+ },
+ {
+  "n": 16,
+  "id": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
+  "evidence": "decompiled FluentValidation 11.5.1 (lib/net7.0)",
+  "arguments": {
+   "instance": {
+    "reads": [
+     "deep"
+    ],
+    "writes": [],
+    "keeps": [
+     "the ValidationResult the task completes with keeps parts of instance (AttemptedValue, placeholder PropertyValue, CustomState); the ValidationContext holding instance lives until the async validation finishes"
+    ],
+    "runsUserCode": [
+     "as Validate(T), plus MustAsync/CustomAsync/WhenAsync and async child validators; after the first incomplete await the remaining rules - and their reads of instance - run in continuations after the call has returned (no ConfigureAwait, thread pool without a SynchronizationContext), concurrently with the caller until it awaits the task"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [],
+    "keeps": [],
+    "runsUserCode": [
+     "virtual ValidateAsync(ValidationContext<T>, CancellationToken) and PreValidate overrides; the user code kept in Rules; global ValidatorOptions delegates"
+    ]
+   }
+  },
+  "result": "Task<ValidationResult> from the async state machine; the ValidationResult it completes with is new and references parts of instance",
+  "safeModel": "opaque",
+  "chain": [
+   "AbstractValidator<T>.ValidateAsync(T, CancellationToken): pkg/FluentValidation.cs:248-251 -> virtual ValidateAsync(ValidationContext<T>, CancellationToken) 281-289 (context.IsAsync = true) -> await ValidateInternalAsync(useAsync: true) 291-318",
+   "await rule.ValidateAsync(context, useAsync, cancellation) 306 -> PropertyRule.ValidateAsync 9522-9590 (await AsyncCondition 9540, await component.InvokeAsyncCondition 9563, await component.ValidateAsync 9568)",
+   "CreateValidationError ~9902-9915; ChildValidatorAdaptor.IsValidAsync ~4228-4241 -> await validator.ValidateAsync(childContext)"
+  ],
+  "note": "Opaque for the reasons of Validate(T), and two more: reads of instance can happen after the call returns (only a library sequence defers effects in this vocabulary), and the result is a Task whose eventual value keeps instance parts - result new on Task<ValidationResult> would build a fieldless Task and could not keep anything for the awaited value."
+ },
+ {
+  "n": 17,
+  "id": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
+  "evidence": "decompiled FluentValidation 11.5.1 (lib/net7.0)",
+  "arguments": {
+   "validator": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "new ChildValidatorAdaptor._validator inside a RuleComponent added to Rule.Components; the rule is held by this RuleBuilder (Rule) and by the parent AbstractValidator's Rules (added by RuleFor); every later Validate/ValidateAsync of the parent validator runs validator.Validate/ValidateAsync(childContext) on the property value, in the validating caller's execution"
+    ],
+    "runsUserCode": [
+     "none at the call (null check and GetType only); later the child validator's whole validation"
+    ]
+   },
+   "ruleSets": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "ChildValidatorAdaptor.RuleSets keeps the array reference; at validation GetSelector reads its Length and passes it to new RulesetValidatorSelector, which reads the cells"
+    ],
+    "runsUserCode": []
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [
+     "fields"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "[this] - the receiver RuleBuilder, for chaining",
+  "safeModel": "opaque",
+  "chain": [
+   "only implementation: RuleBuilder<T,TProperty>.SetValidator(IValidator<TProperty>, params string[]): pkg/FluentValidation.cs:9965-9974 - validator.Guard 8850-8856 (null check); new ChildValidatorAdaptor<T,TProperty>(validator, validator.GetType()) { RuleSets = ruleSets }; Rule.AddAsyncValidator(adaptor, adaptor) 9762-9766 -> new RuleComponent(asyncValidator, fallback) 10083-10087 -> _components.Add (List, 9601); return this",
+   "ChildValidatorAdaptor 4186+ (IsValid 4210, IsValidAsync 4228): ctor stores _validator; IsValid/IsValidAsync -> GetValidator -> validator.Validate/ValidateAsync(CreateNewValidationContextForChildValidator(...)); GetSelector reads RuleSets",
+   "RuleBuilder holds Rule and ParentValidator 9921-9942; RuleFor 352-358 adds the same rule to ParentValidator.Rules"
+  ],
+  "note": "Closest model: {\"effects\": {}, \"keeps\": {\"this\": [\"arg:validator\", \"arg:ruleSets\"]}, \"result\": \"[this]\"} - narrower on the keep axis: the long-lived keeper is the parent validator, which the builder points to but which does not point back to the builder, so this' kept storage is not reachable from the validator that is later shared and validated; TD-034a can name only this, a parameter or result as keeper. ruleSets is usually a params array of string literals built at the call site."
+ },
+ {
+  "n": 18,
+  "id": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.Validators.IPropertyValidator{`0,`1})",
+  "evidence": "decompiled FluentValidation 11.5.1 (lib/net7.0)",
+  "arguments": {
+   "validator": {
+    "reads": [],
+    "writes": [],
+    "keeps": [
+     "new RuleComponent._propertyValidator in Rule.Components; the rule is held by this RuleBuilder and by the parent AbstractValidator's Rules; every later Validate/ValidateAsync of the parent validator calls validator.IsValid(context, value), Name, the message template and error code members, in the validating caller's execution"
+    ],
+    "runsUserCode": [
+     "none at the call (null check only); later the validator's IsValid and other members (user code for a custom PropertyValidator subclass)"
+    ]
+   },
+   "this": {
+    "reads": [
+     "fields"
+    ],
+    "writes": [
+     "fields"
+    ],
+    "keeps": [],
+    "runsUserCode": []
+   }
+  },
+  "result": "[this] - the receiver RuleBuilder, for chaining",
+  "safeModel": "opaque",
+  "chain": [
+   "only implementation: RuleBuilder<T,TProperty>.SetValidator(IPropertyValidator<T,TProperty>): pkg/FluentValidation.cs:9944-9952 - null check; Rule.AddValidator(validator) 9756-9760 -> new RuleComponent(validator) 10078-10081 -> _components.Add; return this",
+   "validation later: PropertyRule.ValidateAsync 9522-9590 -> component.ValidateAsync 9568 -> the validator's IsValid; CreateValidationError ~9902-9915 reads ErrorCode/message members"
+  ],
+  "note": "Closest model: {\"effects\": {}, \"keeps\": {\"this\": [\"arg:validator\"]}, \"result\": \"[this]\"} - narrower for the same keeper reason as the IValidator overload (the parent validator keeps it and cannot be named). The built-in rule extensions (NotNull, Length, Must, ...) call this overload with new library validators, so the analyzer meets it directly mostly for custom validator objects."
+ }
+]
