@@ -43,11 +43,13 @@
     },
     {
       "member": "M:System.Text.Json.JsonSerializer.Deserialize\u0060\u00601(System.String,System.Text.Json.JsonSerializerOptions)~\u0060\u00600",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.#ctor",

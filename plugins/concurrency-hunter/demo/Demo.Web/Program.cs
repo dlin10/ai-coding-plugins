@@ -1,4 +1,6 @@
-﻿// Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
+﻿using Demo.Web.Cases.ProjectModelKeptObject;
+using Demo.Web.Cases.ProjectModelTryGetValue;
+// Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
 using Demo.Web.Cases.AliasTwoFields;
@@ -7,6 +9,8 @@ using Demo.Web.Cases.ArrayDisjointConstantIndices;
 using Demo.Web.Cases.ArrayDisjointGuardedRanges;
 using Demo.Web.Cases.ArrayElementIncrement;
 using Demo.Web.Cases.ArrayLengthLoopBound;
+using Demo.Web.Cases.ArraySortWritesCells;
+using Demo.Web.Cases.DeserializeReturnsNewObject;
 using Demo.Web.Cases.RefCallTargetAssignment;
 using Demo.Web.Cases.ProjectModelOverridesBuiltIn;
 using Demo.Web.Cases.ComparerCreateRunsAtCompare;
@@ -358,7 +362,11 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddDeconstructCallsSourceMethod()
                 .AddTypeTestFastPath()
                 .AddEnumeratorMethodRunsAtMovenext()
-                .AddExplicitEnumeratorRunsBody();
+                .AddExplicitEnumeratorRunsBody()
+                .AddArraySortWritesCells()
+                .AddDeserializeReturnsNewObject()
+                .AddProjectModelKeptObject()
+                .AddProjectModelTryGetValue();
 
 var app = builder.Build();
 

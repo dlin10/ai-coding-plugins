@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace ConcurrencyHunter.Ir;
 
 public abstract record IrOperation(int Id, IrProvenance Provenance)
@@ -135,13 +137,20 @@ public sealed record IrStoreElementOperation(int Id, int ReceiverValue, IReadOnl
 /// <see cref="RefResults"/> maps the ordinal of a <c>ref</c> or <c>out</c> parameter to the new version of the local or
 /// parameter passed there. <see cref="TargetMethodId"/> is the body id of the target's original definition, and the type
 /// keys name the target as constructed at the call; all three are null or empty for a local function.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the call's result, when present.</param>
+/// <param name="CallKind">The dispatch kind of the call.</param>
+/// <param name="Method">The called member's display name.</param>
+/// <param name="ReceiverValue">The receiver value, for an instance call.</param>
+/// <param name="ArgumentValues">The arguments in evaluation order.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKind, string Method,
                                      int? ReceiverValue, IReadOnlyList<int> ArgumentValues,
                                      IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
     public override IReadOnlyList<int> DefinedValues => ResultValue is int result
-        ? [result, .. RefResults.OrderBy(pair => pair.Key).Select(pair => pair.Value)]
-        : RefResults.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
+        ? [result, .. RefResults.OrderBy(pair => pair.Key).Select(pair => pair.Value).Distinct()]
+        : RefResults.OrderBy(pair => pair.Key).Select(pair => pair.Value).Distinct().ToArray();
     public override IReadOnlyList<int> Operands => ReceiverValue is int receiver
         ? [receiver, .. ArgumentValues]
         : ArgumentValues;
@@ -270,8 +279,19 @@ public sealed record IrCollectionCall(string Member, IrCollectionEffect Structur
 /// that kind implements it with, an explicit implementation taken as the public member it stands for, or, for an array, what the same
 /// code does to the array directly. A member that touches nothing is decided all the same: an array's <c>Count</c>, or a member it
 /// refuses by throwing. <see cref="ViewType"/> is the type of the view a <c>Keys</c> or <c>Values</c> member hands out.</summary>
+/// <param name="Kind">The receiver kind the implementation applies to.</param>
+/// <param name="Member">The direct collection or array member.</param>
 public sealed record IrImplementation(string Kind, IrCollectionCall Member)
 {
+    /// <summary>The scoped model of the direct array member, including an explicit project refusal; null for a table member.</summary>
+    public IrLibraryCall? Library { get; init; }
+
+    /// <summary>The declaring type of the direct library member.</summary>
+    public string? DeclaringTypeKey { get; init; }
+
+    /// <summary>The direct static member's array parameter supplied by the interface receiver; null for an instance member.</summary>
+    public int? ReceiverParameterOrdinal { get; init; }
+
     public string? ViewType { get; init; }
 
     /// <summary>Whether the interface member takes a dictionary's entry as one pair where the member it is takes the key and the value
@@ -297,6 +317,15 @@ public enum IrModelLayer { BuiltIn, Project }
 public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects,
                                    IrModelLayer Layer = IrModelLayer.BuiltIn, bool DeclaredOpaque = false)
 {
+    public const int RECEIVER = -1;
+    public const int RESULT = -2;
+
+    public IReadOnlyDictionary<int, IReadOnlyList<IrModelValue>> Keeps { get; init; } = new Dictionary<int, IReadOnlyList<IrModelValue>>();
+    public IReadOnlyDictionary<int, string> KeeperTypeKeys { get; init; } = new Dictionary<int, string>();
+
+    public IReadOnlyDictionary<int, IReadOnlyList<IrModelValue>> Stores { get; init; } = new Dictionary<int, IReadOnlyList<IrModelValue>>();
+    public IReadOnlyDictionary<int, IrLibraryResult> Outputs { get; init; } = new Dictionary<int, IrLibraryResult>();
+    public IReadOnlyDictionary<int, string> OutputTypeKeys { get; init; } = new Dictionary<int, string>();
     /// <summary>Where each delegate the call receives runs and what it is handed (ADR 0012).</summary>
     public IReadOnlyList<IrLibraryFate> Fates { get; init; } = [];
 
@@ -312,35 +341,77 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     /// enumerates where it is enumerated (R5).</summary>
     public IEnumerable<int> EnumeratedArguments() => EnumeratedArguments(Values());
 
+    /// <summary>The argument ordinals enumerated once at the selected moment, including the receiver ordinal.</summary>
+    /// <param name="deferred">Whether the enumerations belong to the sequence result instead of the call.</param>
+    public IEnumerable<int> EnumeratedArguments(bool deferred) =>
+        Enumerations(deferred).Select(Ordinal).Where(ordinal => ordinal is not null).Select(ordinal => ordinal!.Value).Distinct();
+
     /// <summary>The ordinals of the parameters whose argument the model names the elements of anywhere, a built sequence included: the
     /// call enumerates each or keeps it for a sequence that will.</summary>
-    public IEnumerable<int> NamedArguments() => Values().SelectMany(value => Enumerated(value, intoSequences: true)).OfType<IrModelArgument>()
-                                                        .Select(argument => argument.ParameterOrdinal).Distinct();
+    public IEnumerable<int> NamedArguments() => Values().SelectMany(value => Enumerated(value, intoSequences: true)).Select(Ordinal).Where(ordinal => ordinal is not null)
+                                                        .Select(ordinal => ordinal!.Value).Distinct();
 
     /// <summary>The ordinals of the delegate parameters whose returns the model names the elements of, outside a built sequence.</summary>
     public IEnumerable<int> EnumeratedReturns() => EnumeratedReturns(Values());
 
+    /// <summary>The delegate-return ordinals enumerated once at the selected moment.</summary>
+    /// <param name="deferred">Whether the enumerations belong to the sequence result instead of the call.</param>
+    public IEnumerable<int> EnumeratedReturns(bool deferred) => Enumerations(deferred).OfType<IrModelReturns>().Select(value => value.ParameterOrdinal).Distinct();
+
     /// <summary>The ordinals of the parameters whose argument <paramref name="values"/> name the elements of, outside a built sequence.</summary>
+    /// <param name="values">The model values that name the enumerated arguments.</param>
     public static IEnumerable<int> EnumeratedArguments(IEnumerable<IrModelValue> values) =>
-        values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelArgument>().Select(argument => argument.ParameterOrdinal).Distinct();
+        values.SelectMany(value => Enumerated(value, intoSequences: false)).Select(Ordinal).Where(ordinal => ordinal is not null).Select(ordinal => ordinal!.Value).Distinct();
 
     /// <summary>The ordinals of the delegate parameters whose returns <paramref name="values"/> name the elements of, outside a built
     /// sequence.</summary>
+    /// <param name="values">The model values that name the enumerated returns.</param>
     public static IEnumerable<int> EnumeratedReturns(IEnumerable<IrModelValue> values) =>
         values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelReturns>().Select(returned => returned.ParameterOrdinal).Distinct();
 
-    private IEnumerable<IrModelValue> Values() => Fates.SelectMany(fate => fate.Inputs).SelectMany(input => input).Concat(Result?.Values ?? []);
+    public IEnumerable<IrModelValue> Values() => Fates.SelectMany(fate => fate.Inputs).SelectMany(input => input)
+                                                      .Concat(Result?.Values ?? []).Concat(Stores.Values.SelectMany(values => values))
+                                                      .Concat(Outputs.Values.SelectMany(output => output.Values)).Concat(Keeps.Values.SelectMany(values => values));
+
+    /// <summary>The kept sources enumerated once at the selected moment.</summary>
+    /// <param name="deferred">Whether the sources belong to the result sequence's enumeration.</param>
+    public IEnumerable<IrModelKept> EnumeratedKeepers(bool deferred) => Enumerations(deferred).OfType<IrModelKept>().Distinct();
+
+    /// <summary>The kept sources named by these values outside a nested sequence.</summary>
+    /// <param name="values">The values that enumerate sources.</param>
+    public static IEnumerable<IrModelKept> EnumeratedKeepers(IEnumerable<IrModelValue> values) =>
+        values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelKept>().Distinct();
+
+    private IEnumerable<IrModelValue> Enumerations(bool deferred) =>
+        Fates.Where(fate => (Result?.Kind == IrResultKind.Sequence && fate.Kind == IrFateKind.Iterator) == deferred)
+             .SelectMany(fate => fate.Inputs.SelectMany(input => input).SelectMany(value => Enumerated(value, intoSequences: fate.Kind == IrFateKind.InvokeNow)))
+             .Concat((Result?.Kind == IrResultKind.Sequence) == deferred ? (Result?.Values ?? []).SelectMany(value => Enumerated(value, intoSequences: false)) : [])
+             .Concat(deferred ? [] : Keeps.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
+             .Concat(deferred ? [] : Stores.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
+             .Concat(deferred ? [] : Outputs.Values.Where(output => output.Kind != IrResultKind.Sequence)
+                                           .SelectMany(output => output.Values).SelectMany(value => Enumerated(value, intoSequences: true)));
+
+    private static int? Ordinal(IrModelValue value) => value switch
+    {
+        IrModelArgument argument => argument.ParameterOrdinal,
+        IrModelThis => RECEIVER,
+        IrModelReturns or IrModelKept => null,
+        _ => throw new UnreachableException($"Unexpected enumerated value kind {value.GetType().Name}.")
+    };
 
     /// <summary>The arguments and delegate returns a value names the elements of. A grouping holds its values from the moment it is built;
     /// a built sequence yields its own only where it is enumerated, which the elements of it are.</summary>
+    /// <param name="value">The model value to inspect.</param>
+    /// <param name="intoSequences">Whether nested sequence values belong to this enumeration moment.</param>
     private static IEnumerable<IrModelValue> Enumerated(IrModelValue value, bool intoSequences) => value switch
     {
-        IrModelElements { Source: IrModelArgument or IrModelReturns } elements => [elements.Source],
+        IrModelElements { Source: IrModelArgument or IrModelReturns or IrModelThis or IrModelKept } elements => [elements.Source],
         IrModelElements { Source: IrModelSequence sequence } => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
         IrModelElements elements => Enumerated(elements.Source, intoSequences),
         IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
         IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
-        _ => []
+        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept => [],
+        _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
     };
 }
 
@@ -359,6 +430,13 @@ public abstract record IrModelValue;
 /// <summary>What the argument of a parameter points to.</summary>
 public sealed record IrModelArgument(int ParameterOrdinal) : IrModelValue;
 
+/// <summary>The receiver's objects, or the object a constructor creates.</summary>
+public sealed record IrModelThis : IrModelValue;
+
+/// <summary>Everything the receiver or parameter keeps.</summary>
+/// <param name="KeeperOrdinal">The keeper's parameter ordinal, or the receiver ordinal.</param>
+public sealed record IrModelKept(int KeeperOrdinal) : IrModelValue;
+
 /// <summary>Every object any run of the delegate bound to a parameter returns.</summary>
 public sealed record IrModelReturns(int ParameterOrdinal) : IrModelValue;
 
@@ -375,10 +453,12 @@ public sealed record IrModelSequence(IReadOnlyList<IrModelValue> Values) : IrMod
 /// <summary>A new grouping whose key is <see cref="Key"/> and which yields <see cref="Values"/>.</summary>
 public sealed record IrModelGrouping(IrModelValue Key, IrModelValue Values) : IrModelValue;
 
-public enum IrResultKind { Sequence, Collection, Dictionary, OneOf }
+public enum IrResultKind { Sequence, Collection, Dictionary, OneOf, New }
 
 /// <summary>What a known call returns: a new library sequence, a new collection holding the values, a new dictionary holding keys and
-/// values apart, or one of the objects the values name.</summary>
+/// values apart, one of the objects the values name, or a new object graph of the destination's type.</summary>
+/// <param name="Kind">The result form.</param>
+/// <param name="Values">The values the form names; empty for new.</param>
 public sealed record IrLibraryResult(IrResultKind Kind, IReadOnlyList<IrModelValue> Values);
 
 /// <summary>What a known call does to the argument bound to the parameter with <see cref="ParameterOrdinal"/>.
@@ -404,6 +484,9 @@ public enum IrLibraryEffectKind
 
     /// <summary>A write of every field of the argument's own regions, one level deep.</summary>
     WriteArgument,
+
+    /// <summary>An ordinary write of every cell of each target array, without changing what its storage holds.</summary>
+    WriteCells,
 
     /// <summary>A <c>foreach</c>'s read of what it enumerates where no member of a collection type models it: the structure and every
     /// cell of each collection or array the value may be, as that collection's own enumeration reads them, and nothing they hold

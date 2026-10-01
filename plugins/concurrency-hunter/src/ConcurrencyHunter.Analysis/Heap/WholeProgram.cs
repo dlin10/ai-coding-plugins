@@ -57,10 +57,23 @@ public enum HeapRegionKind
 /// An open region names a type parameter and stands for every closed region of its <see cref="Group"/>.
 /// <see cref="MayOverlapItself"/> marks a hosted service whose instance count is unknown. <see cref="SiteBodyId"/> and
 /// <see cref="SiteOperationId"/> name an allocation's or a delegate creation's site.</summary>
+/// <param name="Identity">The region's identity including its context.</param>
+/// <param name="Kind">The source of the region in the heap.</param>
+/// <param name="Display">The context-free name shown in reports.</param>
+/// <param name="TypeKey">The assembly-aware type of the region, when known.</param>
+/// <param name="Context">The creation context.</param>
+/// <param name="Group">The allocation group relating open and closed regions.</param>
+/// <param name="IsOpen">Whether the region stands for a type parameter's constructions.</param>
+/// <param name="IsMerged">Whether the region combines bounded contexts.</param>
+/// <param name="MayOverlapItself">Whether independent executions may reach the same hosted service.</param>
+/// <param name="SiteBodyId">The body containing the creation site, when present.</param>
+/// <param name="SiteOperationId">The operation at that creation site, when present.</param>
 public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Display, string? TypeKey, string Context, string Group,
                                 bool IsOpen, bool IsMerged, bool MayOverlapItself = false, string? SiteBodyId = null, int? SiteOperationId = null)
 {
     public bool HasExactType { get; init; }
+    /// <summary>The context-free identity of an object a model creates for a destination and path, when it uses that vocabulary.</summary>
+    public string? ModelCreationKey { get; init; }
 }
 
 /// <summary>An instantiation of a body: its context, type substitution and the regions its receiver and parameters point to.
@@ -431,6 +444,9 @@ public static class WholeProgram
         private readonly Dictionary<string, HeapRegion> _regions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<string>> _groups = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Region, string Field), HashSet<string>> _fields = [];
+        private readonly Dictionary<(string Instance, int Operation), Dictionary<IrLibraryCall, SummaryOpaqueCall>> _keeperCalls = [];
+        private readonly Dictionary<(string Instance, int Operation, int Keeper), HashSet<string>> _libraryKeeping = [];
+        private readonly HashSet<(string Instance, int Operation, int Keeper)> _keptFallbacks = [];
         private readonly Dictionary<(string Owner, string Key), HashSet<string>> _cells = [];
         private readonly Dictionary<string, DelegateState> _delegates = new(StringComparer.Ordinal);
         private readonly Dictionary<string, InstanceState> _instances = new(StringComparer.Ordinal);
@@ -493,6 +509,7 @@ public static class WholeProgram
         private readonly Dictionary<(string Caller, int Operation), (InstanceState Caller, CallTransfer Call)> _receiverlessCalls = [];
         private readonly HashSet<(string Caller, int Operation)> _receiverlessFallbacks = [];
         private readonly Dictionary<(string Caller, int Operation), HashSet<string>> _iteratorMemberReceivers = [];
+        private readonly Dictionary<(string Instance, int Operation, int Target), HashSet<string>> _libraryStored = [];
         private readonly TypeSafety _typeSafety;
         private readonly Dictionary<string, string> _tails = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _antecedents = new(StringComparer.Ordinal);
@@ -522,9 +539,24 @@ public static class WholeProgram
             {
                 Propagate();
             }
-            while (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks());
+            while (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks());
 
             return Result();
+        }
+
+        private bool CreateKeeperFallbacks()
+        {
+            var wave = _keeperCalls.SelectMany(pair => pair.Value.Values.SelectMany(call => call.Library!.Keeps.Keys.Select(keeper =>
+                (Caller: _instances[pair.Key.Instance], Call: call, Keeper: keeper))))
+                .Where(item => item.Keeper != IrLibraryCall.RESULT &&
+                               !_keptFallbacks.Contains((item.Caller.Id, item.Call.OperationId, item.Keeper)) &&
+                               Eval(item.Caller, ArgumentOf(item.Call, item.Keeper)).Count == 0).ToArray();
+            foreach (var item in wave)
+                _keptFallbacks.Add((item.Caller.Id, item.Call.OperationId, item.Keeper));
+            foreach (var item in wave)
+                Add(Field(KeeperStore(item.Call, item.Keeper), PathValue.KEPT),
+                    _libraryKeeping.GetValueOrDefault((item.Caller.Id, item.Call.OperationId, item.Keeper)) ?? []);
+            return wave.Length != 0;
         }
 
         private void Propagate()
@@ -656,10 +688,12 @@ public static class WholeProgram
                     var consumedRegions = consumed.Count == 0
                         ? []
                         : Eval(instance, call.Arguments.Where(argument => consumed.Contains(argument.ParameterOrdinal))
-                                             .SelectMany(argument => argument.Values).Where(PotentialIteratorValue));
+                                             .SelectMany(argument => argument.Values)
+                                             .Concat(consumed.Contains(IrLibraryCall.RECEIVER) ? call.Receivers : []).Where(PotentialIteratorValue));
                     var handedOtherwise = consumed.Count == 0
                         ? []
-                        : Eval(instance, call.Receivers.Concat(call.Arguments.Where(argument => !consumed.Contains(argument.ParameterOrdinal))
+                        : Eval(instance, call.Receivers.Where(_ => !consumed.Contains(IrLibraryCall.RECEIVER))
+                                             .Concat(call.Arguments.Where(argument => !consumed.Contains(argument.ParameterOrdinal))
                                                                              .SelectMany(argument => argument.Values))
                                              .Where(PotentialIteratorValue));
                     foreach (var region in iteratorRegions)
@@ -1435,8 +1469,17 @@ public static class WholeProgram
                 Locate(instance, call);
             foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection)))
                 RunFactories(instance, call);
-            foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } }))
+            foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } or { Stores.Count: > 0 } or { Outputs.Count: > 0 } or { Keeps.Count: > 0 } }))
                 RunFates(instance, call);
+            foreach (var call in summary.OpaqueCalls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region)))
+                .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region, call.Target))))
+                .Where(call => call.IsKnown))
+            {
+                RunFates(instance, call);
+                foreach (var store in call.Library!.Stores)
+                foreach (var target in Eval(instance, ArgumentOf(call, store.Key)))
+                    Add(Field(target, PathValue.ELEMENT), _libraryStored.GetValueOrDefault((instance.Id, call.OperationId, store.Key)) ?? []);
+            }
             // A member of a holder called on it, with no body of its own, runs what the holder keeps; a holder reachable from what a call
             // without a body is handed is one the heap cannot follow any more (R4).
             if (_held.Count != 0)
@@ -2110,9 +2153,25 @@ public static class WholeProgram
         /// says, and nothing where it says nothing. A delegate no delegate object is known for, or a method group whose target has no body
         /// the run has, is an unresolved dispatch at the call, as a call of it there would be.
         /// </summary>
+        /// <param name="caller">The instance making the known call.</param>
+        /// <param name="call">The call carrying the model.</param>
         private void RunFates(InstanceState caller, SummaryOpaqueCall call)
         {
             var library = call.Library!;
+            if (!_keeperCalls.TryGetValue((caller.Id, call.OperationId), out var projections))
+                _keeperCalls.Add((caller.Id, call.OperationId), projections = []);
+            if (projections.TryGetValue(library, out var previous))
+                projections[library] = call with
+                {
+                    Receivers = previous.Receivers.Concat(call.Receivers).ToHashSet(),
+                    Arguments = previous.Arguments.Concat(call.Arguments).GroupBy(argument => argument.ParameterOrdinal)
+                        .Select(group => new CallArgument(group.Key, group.SelectMany(argument => argument.Values).ToHashSet())
+                        {
+                            References = group.SelectMany(argument => argument.References).Distinct().ToArray()
+                        }).ToArray()
+                };
+            else
+                projections[library] = call;
             var runs = new Dictionary<int, List<(string Region, InstanceState Callee)>>();
             foreach (var fate in library.Fates)
             {
@@ -2134,11 +2193,10 @@ public static class WholeProgram
             var sequence = library.Result?.Kind == IrResultKind.Sequence ? NewSequence(caller, call, "result", nested: false) : null;
             // What a delegate returned that the model names the elements of is enumerated as an argument would be: at the call when the
             // call returns no library sequence, else as a source of the one it returns, by whoever enumerates it (R3, R5).
-            var returned = library.EnumeratedReturns().SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []).ToArray();
-            if (sequence is null)
-                Consume(caller, call.OperationId, returned, new HashSet<string>(StringComparer.Ordinal));
-            else
-                AddReturnedSources(sequence, returned);
+            Consume(caller, call.OperationId, library.EnumeratedReturns(false).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []),
+                    new HashSet<string>(StringComparer.Ordinal));
+            if (sequence is not null)
+                AddReturnedSources(sequence, library.EnumeratedReturns(true).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
             foreach (var fate in library.Fates)
             {
                 if (fate.Kind == IrFateKind.Holder)
@@ -2211,7 +2269,34 @@ public static class WholeProgram
             }
 
             if (library.Result is { } result)
-                ModelResult(caller, call, result, returns, sequence);
+                ModelResult(caller, call, result, returns, sequence, new ResultDestination(null, library.ResultTypeKey));
+            foreach (var output in library.Outputs.OrderBy(output => output.Key))
+            {
+                var destination = new ResultDestination(output.Key, library.OutputTypeKeys[output.Key]);
+                var outputSequence = output.Value.Kind == IrResultKind.Sequence ? NewSequence(caller, call, destination.Path, nested: true, destination) : null;
+                ModelResult(caller, call, output.Value, returns, outputSequence, destination);
+                foreach (var argument in call.Arguments.Where(argument => argument.ParameterOrdinal == output.Key))
+                foreach (var target in argument.References)
+                foreach (var location in ReferenceLocations(caller, target))
+                    Add(Field(location.Region, location.Slot), RefResult(caller, call.OperationId, output.Key));
+            }
+            foreach (var keep in library.Keeps)
+            {
+                var key = (caller.Id, call.OperationId, keep.Key);
+                if (!_libraryKeeping.TryGetValue(key, out var kept))
+                    _libraryKeeping.Add(key, kept = new HashSet<string>(StringComparer.Ordinal));
+                Add(kept, keep.Value.SelectMany((value, position) => ModelValues(caller, call, value, returns, $"keep{keep.Key}.{position}")));
+                foreach (var keeper in KeeperTargets(caller, call, keep.Key, read: false))
+                    Add(Field(keeper, PathValue.KEPT), kept);
+            }
+            foreach (var store in library.Stores)
+            {
+                var values = store.Value.SelectMany((value, position) => ModelValues(caller, call, value, returns, $"store{store.Key}.{position}")).ToArray();
+                var key = (caller.Id, call.OperationId, store.Key);
+                if (!_libraryStored.TryGetValue(key, out var stored))
+                    _libraryStored.Add(key, stored = new HashSet<string>(StringComparer.Ordinal));
+                Add(stored, values);
+            }
         }
 
         /// <summary>A library sequence a known call returns or a model's value creates: the iterator delegates it keeps, those no body
@@ -2234,13 +2319,19 @@ public static class WholeProgram
 
         /// <summary>The library sequence created at a call, <paramref name="path"/> telling the result from each sequence a value of its
         /// model creates.</summary>
-        private SequenceState NewSequence(InstanceState caller, SummaryOpaqueCall call, string path, bool nested)
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="path">The sequence's path in the model.</param>
+        /// <param name="nested">Whether the sequence replays only its own values.</param>
+        /// <param name="destination">The output destination, or null for existing result and nested sequences.</param>
+        private SequenceState NewSequence(InstanceState caller, SummaryOpaqueCall call, string path, bool nested, ResultDestination? destination = null)
         {
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
             var region = Region($"sequence|{caller.BodyId}#{call.OperationId}|{path}|{ContextKey(caller)}", HeapRegionKind.Allocation,
                                 $"sequence:{owner}#{call.Callee}{(nested ? "@" + path : "")}", null, caller.Context,
                                 $"sequence|{caller.BodyId}#{call.OperationId}|{path}", merged: caller.IsMerged,
-                                site: new CreationSite(caller.BodyId, call.OperationId, call.Library!.ResultTypeKey ?? "sequence", 1));
+                                site: new CreationSite(caller.BodyId, call.OperationId, destination?.TypeKey ?? call.Library!.ResultTypeKey ?? "sequence", 1),
+                                modelCreationKey: destination is null ? null : $"sequence|{caller.BodyId}#{call.OperationId}|{path}");
             if (!_sequences.TryGetValue(region, out var sequence))
                 _sequences.Add(region, sequence = new SequenceState(region, caller.Id, call.OperationId, nested));
             return sequence;
@@ -2295,8 +2386,20 @@ public static class WholeProgram
             }
         }
 
+        private string KeeperStore(SummaryOpaqueCall call, int ordinal) => StaticRegion(call.Library!.KeeperTypeKeys[ordinal]);
+
+        private HashSet<string> KeeperTargets(InstanceState caller, SummaryOpaqueCall call, int ordinal, bool read)
+        {
+            var targets = ordinal == IrLibraryCall.RESULT ? CallResult(caller, call.OperationId).ToHashSet(StringComparer.Ordinal) :
+                Eval(caller, ArgumentOf(call, ordinal));
+            if (ordinal != IrLibraryCall.RESULT && (_keptFallbacks.Contains((caller.Id, call.OperationId, ordinal)) || read && targets.Count == 0))
+                targets.Add(KeeperStore(call, ordinal));
+            return targets;
+        }
+
         private static IReadOnlySet<AbstractValue> ArgumentOf(SummaryOpaqueCall call, int ordinal) =>
-            call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new HashSet<AbstractValue>();
+            ordinal == IrLibraryCall.RECEIVER ? call.Receivers :
+                call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new HashSet<AbstractValue>();
 
         /// <summary>A call of a fated delegate at the known call's site, handed <paramref name="inputs"/>.</summary>
         private static CallTransfer Invocation(SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyList<CallArgument> inputs) =>
@@ -2329,11 +2432,20 @@ public static class WholeProgram
         /// <summary>The objects a value of a model names at a known call: what an argument points to, what a delegate returned, what
         /// enumerating either yields, or a new library sequence or grouping built of values, created at the call; <paramref name="path"/>
         /// tells apart each such object one call creates.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="value">The model value to evaluate.</param>
+        /// <param name="returns">The objects each named delegate returned.</param>
+        /// <param name="path">The value's path within this call's model.</param>
         private HashSet<string> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, IReadOnlyDictionary<int, HashSet<string>> returns,
                                             string path)
         {
             switch (value)
             {
+                case IrModelThis:
+                    return Eval(caller, call.Receivers);
+                case IrModelKept kept:
+                    return KeeperTargets(caller, call, kept.KeeperOrdinal, read: true).SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToHashSet(StringComparer.Ordinal);
                 case IrModelArgument argument:
                     return Eval(caller, ArgumentOf(call, argument.ParameterOrdinal));
                 case IrModelReturns returned:
@@ -2364,14 +2476,24 @@ public static class WholeProgram
                     Add(Field(grouping, PathValue.ELEMENT), ModelValues(caller, call, groupingValue.Values, returns, path + ".v"));
                     return [grouping];
                 }
-                default:
+                case IrModelHolderArgument:
                     return new HashSet<string>(StringComparer.Ordinal);
+                default:
+                    throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
         }
 
         /// <summary>The arguments a sequence's values name the elements of are the sources it enumerates.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The modelled call.</param>
+        /// <param name="sequence">The sequence keeping these sources.</param>
+        /// <param name="values">The model values naming their elements.</param>
         private void AddSources(InstanceState caller, SummaryOpaqueCall call, SequenceState sequence, IEnumerable<IrModelValue> values)
         {
+            foreach (var kept in IrLibraryCall.EnumeratedKeepers(values))
+            foreach (var source in ModelValues(caller, call, kept, new Dictionary<int, HashSet<string>>(), "source"))
+                if (sequence.Sources.Add(source))
+                    _changes++;
             foreach (var ordinal in IrLibraryCall.EnumeratedArguments(values))
             {
                 foreach (var source in Eval(caller, ArgumentOf(call, ordinal)))
@@ -2426,37 +2548,204 @@ public static class WholeProgram
             return yielded;
         }
 
-        /// <summary>What a known call returns as its model's result says (R3): one of the objects its values name, or a new collection or
-        /// array of the call's result type, created at the call, whose storage holds them, or a new dictionary holding keys and values
-        /// apart.</summary>
-        private void ModelResult(InstanceState caller, SummaryOpaqueCall call, IrLibraryResult result, IReadOnlyDictionary<int, HashSet<string>> returns,
-                                 SequenceState? sequence)
+        /// <summary>The result or output parameter receiving a model's result form.</summary>
+        /// <param name="OutputOrdinal">The output parameter ordinal, or null for the call's result.</param>
+        /// <param name="TypeKey">The destination's referenced type key.</param>
+        private sealed record ResultDestination(int? OutputOrdinal, string? TypeKey)
         {
-            var values = result.Values.Select((value, position) => ModelValues(caller, call, value, returns, $"result.{position}")).ToArray();
-            // A library sequence yields its values when it is enumerated and enumerates the arguments they name the elements of (R5).
-            if (sequence is not null)
+            public string Path => OutputOrdinal is int ordinal ? $"output{ordinal}" : "result";
+        }
+
+        /// <summary>Assigns the objects a model's result form names or creates to its result or output destination.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call whose result is evaluated.</param>
+        /// <param name="result">The model's result form.</param>
+        /// <param name="returns">The objects the model's delegates returned.</param>
+        /// <param name="sequence">The sequence created for a sequence result.</param>
+        /// <param name="destination">The result or output parameter receiving the objects.</param>
+        private void ModelResult(InstanceState caller, SummaryOpaqueCall call, IrLibraryResult result, IReadOnlyDictionary<int, HashSet<string>> returns,
+                                 SequenceState? sequence, ResultDestination destination)
+        {
+            var values = result.Values.Select((value, position) => ModelValues(caller, call, value, returns, $"{destination.Path}.{position}")).ToArray();
+            var target = destination.OutputOrdinal is int ordinal ? RefResult(caller, call.OperationId, ordinal) : CallResult(caller, call.OperationId);
+            switch (result.Kind)
             {
-                AddSequenceYields(sequence, values.SelectMany(value => value));
-                AddSources(caller, call, sequence, result.Values);
-                Add(CallResult(caller, call.OperationId), [sequence.Region]);
-                return;
+                case IrResultKind.Sequence:
+                    if (sequence is null)
+                        throw new System.Diagnostics.UnreachableException("Sequence result has no sequence.");
+                    AddSequenceYields(sequence, values.SelectMany(value => value));
+                    AddSources(caller, call, sequence, result.Values);
+                    AddReturnedSources(sequence, IrLibraryCall.EnumeratedReturns(result.Values).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
+                    Add(target, [sequence.Region]);
+                    break;
+                case IrResultKind.OneOf:
+                    Add(target, values.SelectMany(value => value));
+                    break;
+                case IrResultKind.New:
+                    if (destination.TypeKey is { } graphType)
+                        Add(target, [NewGraph(caller, call, destination, graphType)]);
+                    break;
+                case IrResultKind.Collection:
+                case IrResultKind.Dictionary:
+                    if (destination.TypeKey is not { } typeKey)
+                        return;
+                    var created = destination.OutputOrdinal is null ? CreatedAtCall(caller, call, typeKey)
+                                                                   : CreatedForDestination(caller, call, typeKey, destination, "root");
+                    Add(target, [created]);
+                    if (result.Kind == IrResultKind.Dictionary)
+                    {
+                        Add(Field(created, PathValue.KEYS), values[0]);
+                        Add(Field(created, PathValue.ELEMENT), values[1]);
+                    }
+                    else
+                        Add(Field(created, PathValue.ELEMENT), values.SelectMany(value => value));
+                    break;
+                default:
+                    throw new System.Diagnostics.UnreachableException($"Unknown result kind {result.Kind}.");
             }
 
-            if (result.Kind == IrResultKind.OneOf)
-            {
-                Add(CallResult(caller, call.OperationId), values.SelectMany(value => value));
-                return;
-            }
+        }
 
-            if (result.Kind is not (IrResultKind.Collection or IrResultKind.Dictionary) || CreatedAtCall(caller, call) is not { } created)
-                return;
-            if (result.Kind == IrResultKind.Dictionary)
+        /// <summary>Creates an object whose identity, group and display distinguish its destination and path in the call's graph.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="declaredType">The destination's referenced type key.</param>
+        /// <param name="destination">The result or output destination.</param>
+        /// <param name="path">The path from that destination's root.</param>
+        private string CreatedForDestination(InstanceState caller, SummaryOpaqueCall call, string declaredType, ResultDestination destination, string path)
+        {
+            var typeKey = ProgramIndex.Substitute(declaredType, caller.Substitution);
+            var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
+            var key = $"model|{caller.BodyId}#{call.OperationId}|{destination.Path}|{path}|{typeKey}";
+            var ordinal = ModelCreationOrdinal(caller, call, typeKey, destination, path);
+            return Region($"{key}|{ContextKey(caller)}", HeapRegionKind.Allocation,
+                          $"alloc:{owner}#{DisplayType(typeKey)}{(ordinal > 1 ? "#" + ordinal : "")}", typeKey, caller.Context, key,
+                          merged: caller.IsMerged, site: new CreationSite(caller.BodyId, call.OperationId, declaredType, ordinal), modelCreationKey: key);
+        }
+
+        private int ModelCreationOrdinal(InstanceState caller, SummaryOpaqueCall call, string typeKey, ResultDestination destination, string path)
+        {
+            if (!_scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body))
+                return 1;
+            var bodies = _scope.Reachable.Bodies.Values.Where(candidate => candidate.OwnerSymbol == body.OwnerSymbol).ToArray();
+            var explicitCount = bodies.SelectMany(candidate => candidate.Blocks.SelectMany(block => block.Operations)).OfType<IrAllocateOperation>()
+                                      .Where(allocation => ProgramIndex.Substitute(allocation.AllocatedTypeKey ?? allocation.AllocatedType, caller.Substitution) == typeKey)
+                                      .DistinctBy(allocation => (allocation.Provenance.Span, allocation.AllocatedTypeKey ?? allocation.AllocatedType)).Count();
+            var preceding = 0;
+            foreach (var (candidate, operation) in bodies.SelectMany(candidate => candidate.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                .Where(operation => operation.Library is { InRange: true, DeclaredOpaque: false }).Select(operation => (candidate, operation))))
             {
-                Add(Field(created, PathValue.KEYS), values[0]);
-                Add(Field(created, PathValue.ELEMENT), values[1]);
+                var span = operation.Provenance.Span;
+                var here = call.Provenance!.Span;
+                var order = StringComparer.Ordinal.Compare(span.Path, here.Path);
+                if (order == 0)
+                    order = span.StartLine.CompareTo(here.StartLine);
+                if (order == 0)
+                    order = span.StartColumn.CompareTo(here.StartColumn);
+                if (order == 0)
+                    order = StringComparer.Ordinal.Compare(candidate.BodyId, caller.BodyId);
+                if (order == 0)
+                    order = operation.Id.CompareTo(call.OperationId);
+                var before = order < 0;
+                var same = order == 0;
+                if (!before && !same)
+                    continue;
+                var model = operation.Library!;
+                if (model.Result is { } result && model.ResultTypeKey is { } resultType)
+                    Count(result, new ResultDestination(null, resultType));
+                foreach (var output in model.Outputs.OrderBy(output => output.Key))
+                    Count(output.Value, new ResultDestination(output.Key, model.OutputTypeKeys[output.Key]));
+
+                void Count(IrLibraryResult form, ResultDestination other)
+                {
+                    var earlierDestination = destination.OutputOrdinal is int ordinal && (other.OutputOrdinal is null || other.OutputOrdinal < ordinal);
+                    var sameDestination = other.OutputOrdinal == destination.OutputOrdinal;
+                    if (!before && !earlierDestination && !sameDestination)
+                        return;
+                    foreach (var node in CreatedNodes(form, ProgramIndex.Substitute(other.TypeKey!, caller.Substitution), other))
+                    {
+                        if (!before && sameDestination && node.Path == path)
+                            break;
+                        if (node.TypeKey == typeKey)
+                            preceding++;
+                    }
+                }
             }
-            else
-                Add(Field(created, PathValue.ELEMENT), values.SelectMany(value => value));
+            return 1 + explicitCount + preceding;
+        }
+
+        private sealed record GraphNode(string Path, string TypeKey, string? Parent, string? Slot, int Depth);
+
+        private IReadOnlyList<GraphNode> CreatedNodes(IrLibraryResult form, string typeKey, ResultDestination destination) => form.Kind switch
+        {
+            IrResultKind.New => GraphNodes(typeKey),
+            IrResultKind.Collection or IrResultKind.Dictionary when destination.OutputOrdinal is not null => [new GraphNode("root", typeKey, null, null, 0)],
+            _ => []
+        };
+
+        private IReadOnlyList<GraphNode> GraphNodes(string typeKey)
+        {
+            var nodes = new List<GraphNode> { new("root", typeKey, null, null, 0) };
+            for (var index = 0; index < nodes.Count; index++)
+            {
+                var node = nodes[index];
+                if (node.Depth >= _limits.MaxAccessPathDepth)
+                    continue;
+                if (IsSourceClass(node.TypeKey))
+                {
+                    foreach (var field in _program.InstanceFieldsOf(node.TypeKey) ?? [])
+                        if (field.FieldTypeKey is { } fieldType && (IsSourceClass(fieldType) || IsGraphCollection(fieldType)))
+                            Child(fieldType, FieldSlot.Key(field));
+                }
+                if (GraphCollectionType(node.TypeKey) is { } collectionType)
+                {
+                    if (collectionType.EndsWith(']'))
+                    {
+                        var element = collectionType[..collectionType.LastIndexOf('[')];
+                        if (IsSourceClass(element))
+                            Child(element, PathValue.ELEMENT);
+                    }
+                    else
+                    {
+                        var arguments = ProgramIndex.Shape(collectionType).Arguments;
+                        if (InterproceduralAccesses.IsDictionaryType(_program, collectionType) && arguments.Count == 2 && IsSourceClass(arguments[0]))
+                            Child(arguments[0], PathValue.KEYS);
+                        if (arguments.Count != 0 && IsSourceClass(arguments[^1]))
+                            Child(arguments[^1], PathValue.ELEMENT);
+                    }
+                }
+
+                void Child(string childType, string slot) => nodes.Add(new GraphNode(node.Path + "/" + slot, childType, node.Path, slot, node.Depth + 1));
+            }
+            return nodes;
+        }
+
+        private bool IsSourceClass(string typeKey) => _program.Type(typeKey) is
+            { IsSource: true, IsInterface: false, IsAbstract: false, IsValueType: false, IsDelegate: false };
+
+        private bool IsGraphCollection(string typeKey) => GraphCollectionType(typeKey) is not null;
+
+        private string? GraphCollectionType(string typeKey) =>
+            _program.Type(typeKey) is { IsInterface: true } or { IsAbstract: true } or { IsValueType: true } ? null :
+            _program.Supertypes(typeKey).FirstOrDefault(key => _program.Type(key) is not { IsSource: true } &&
+                                                            InterproceduralAccesses.IsConcreteCollectionType(_program, key));
+
+        /// <summary>Creates the destination's new graph in breadth-first field and element order, without making accesses.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="destination">The result or output parameter receiving the graph.</param>
+        /// <param name="declaredType">The destination's referenced type key before caller substitution.</param>
+        private string NewGraph(InstanceState caller, SummaryOpaqueCall call, ResultDestination destination, string declaredType)
+        {
+            var objects = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var node in GraphNodes(ProgramIndex.Substitute(declaredType, caller.Substitution)))
+            {
+                var created = CreatedForDestination(caller, call, node.TypeKey, destination, node.Path);
+                objects.Add(node.Path, created);
+                if (node.Parent is { } parent)
+                    Add(Field(objects[parent], node.Slot!), [created]);
+            }
+            return objects["root"];
         }
 
         /// <summary>The new object of its result type a known call creates and returns, null where the model names no result type.</summary>
@@ -2477,6 +2766,62 @@ public static class WholeProgram
         }
 
         private const string UNRESOLVED_DELEGATE = "";
+
+        private IEnumerable<(string Region, string Slot)> ReferenceLocations(InstanceState instance, ReferenceTarget target, int depth = 0)
+        {
+            if (depth >= _limits.MaxAccessPathDepth)
+                yield break;
+            switch (target)
+            {
+                case ReferenceCell cell:
+                {
+                    var owners = cell.Field.IsStatic ? new HashSet<string>(StringComparer.Ordinal) { StaticRegion(instance, cell.Field) } : Eval(instance, cell.Bases);
+                    foreach (var owner in owners)
+                    {
+                        if (cell.IsOnCollection)
+                        {
+                            foreach (var array in Load(owner, FieldSlot.Key(cell.Field)))
+                                yield return (array, PathValue.ELEMENT);
+                        }
+                        else
+                            yield return (owner, FieldSlot.Key(cell.Field));
+                    }
+                    break;
+                }
+                case ReferenceParameter parameter:
+                    foreach (var edge in _edges.Where(edge => edge.Callee == instance.Id).ToArray())
+                    {
+                        var caller = _instances[edge.Caller];
+                        var call = caller.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.Operation);
+                        foreach (var reference in call?.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal)
+                                                               .SelectMany(argument => argument.References) ?? [])
+                        foreach (var location in ReferenceLocations(caller, reference, depth + 1))
+                            yield return location;
+                    }
+                    break;
+                case ReferenceParameterElement element:
+                    foreach (var array in Parameter(instance, element.Ordinal).ToArray())
+                        yield return (array, PathValue.ELEMENT);
+                    break;
+                case ReferenceCallCollection collection:
+                    foreach (var array in CallResult(instance, collection.OperationId).ToArray())
+                        yield return (array, PathValue.ELEMENT);
+                    break;
+                case ReferenceCall reference:
+                    foreach (var edge in _edges.Where(edge => edge.Caller == instance.Id && edge.Operation == reference.OperationId).ToArray())
+                    {
+                        var callee = _instances[edge.Callee];
+                        foreach (var returned in callee.Summary.ReferenceReturns)
+                        foreach (var location in ReferenceLocations(callee, returned, depth + 1))
+                            yield return location;
+                    }
+                    break;
+                case ReferenceUnproven:
+                    break;
+                default:
+                    throw new System.Diagnostics.UnreachableException($"Unknown reference target {target.GetType().Name}.");
+            }
+        }
 
         /// <summary>What a holder keeps of one delegate: what each of its parameters is handed besides the arguments of the member
         /// call that runs it, and the indices of those arguments (R4).</summary>
@@ -2975,7 +3320,14 @@ public static class WholeProgram
             StaticFieldValue field => Load(StaticRegion(instance, field.Field), FieldSlot.Key(field.Field)),
             AllocationValue allocation => [AllocationRegion(instance, allocation.Site)],
             CallResultValue result => new HashSet<string>(CallResult(instance, result.OperationId), StringComparer.Ordinal),
+            LibraryKeeperValue keeper => _keeperCalls.TryGetValue((instance.Id, keeper.OperationId), out var keepingCalls)
+                ? keepingCalls.Values.Where(call => call.Library!.Keeps.ContainsKey(keeper.KeeperOrdinal) || call.Library.KeeperTypeKeys.ContainsKey(keeper.KeeperOrdinal))
+                    .SelectMany(call => KeeperTargets(instance, call, keeper.KeeperOrdinal, keeper.Read)).ToHashSet(StringComparer.Ordinal) : [],
+            LibraryKeepingValue keeping => new HashSet<string>(_libraryKeeping.GetValueOrDefault((instance.Id, keeping.OperationId, keeping.KeeperOrdinal)) ?? [], StringComparer.Ordinal),
+            LibraryStoredValue stored => new HashSet<string>(_libraryStored.GetValueOrDefault((instance.Id, stored.OperationId, stored.TargetOrdinal)) ?? [], StringComparer.Ordinal),
             RefResultValue result => new HashSet<string>(RefResult(instance, result.OperationId, result.Ordinal), StringComparer.Ordinal),
+            ReferenceLocationValue location => ReferenceLocations(instance, location.Target)
+                .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToHashSet(StringComparer.Ordinal),
             DelegateCreationValue created => [DelegateRegion(instance, created)],
             CapturedValue captured => instance.CellOwners.SelectMany(owner => Cell(owner, captured.SymbolKey)).ToHashSet(StringComparer.Ordinal),
             AwaitResultValue awaited => Tails(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
@@ -3065,6 +3417,9 @@ public static class WholeProgram
                           $"static|{_program.Decompose(typeKey).DefinitionKey}", merged: instance.IsMerged && _program.IsOpen(typeKey));
         }
 
+        private string StaticRegion(string typeKey) =>
+            Region($"static:{typeKey}", HeapRegionKind.Static, $"static:{DisplayType(typeKey)}", typeKey, "", $"static|{typeKey}");
+
         private string AllocationRegion(InstanceState instance, CreationSite site)
         {
             var typeKey = ProgramIndex.Substitute(site.TypeKey, instance.Substitution);
@@ -3130,14 +3485,15 @@ public static class WholeProgram
                                                                              .Select(pair => $"{pair.Key}={pair.Value}"))}";
 
         private string Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
-                              bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false)
+                              bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
+                              string? modelCreationKey = null)
         {
             if (_regions.ContainsKey(identity))
                 return identity;
             group ??= identity;
             _regions.Add(identity, new HeapRegion(identity, kind, display, typeKey, context, group,
                                                   typeKey is not null && _program.IsOpen(typeKey), merged, mayOverlapItself,
-                                                  site?.BodyId, site?.OperationId) { HasExactType = exactType });
+                                                  site?.BodyId, site?.OperationId) { HasExactType = exactType, ModelCreationKey = modelCreationKey });
             if (!_groups.TryGetValue(group, out var members))
                 _groups.Add(group, members = []);
             members.Add(identity);

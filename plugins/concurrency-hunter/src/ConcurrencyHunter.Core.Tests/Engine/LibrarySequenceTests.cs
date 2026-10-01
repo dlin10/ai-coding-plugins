@@ -210,6 +210,42 @@ public sealed class LibrarySequenceTests
         Assert.Equal([PRIMARY], Written(run, "item => item.Hits = 1"));
     }
 
+    [Theory]
+    [InlineData("argument")]
+    [InlineData("delegate return")]
+    [InlineData("both moments")]
+    public void Invoke_now_inputs_are_enumerated_at_the_call_even_with_a_sequence_result(string origin)
+    {
+        var fromReturn = origin == "delegate return";
+        var result = origin == "both moments" ? "sequence(elements(arg:source))" : "sequence(arg:other)";
+        var decision = fromReturn
+            ? """ "effects":{},"result":"sequence(arg:other)","fates":{"make":{"fate":"invoke-now","inputs":[]},"action":{"fate":"invoke-now","inputs":[["elements(returns:make)"]]}} """
+            : "\"effects\":{},\"result\":\"" + result + "\",\"fates\":{\"action\":{\"fate\":\"invoke-now\",\"inputs\":[[\"elements(arg:source)\"]]}}";
+        var name = fromReturn ? "ImmediateMake" : "Immediate";
+        var id = DocumentationCommentId.CreateDeclarationId(LibrarySource.Value.GetTypeByMetadataName("Seqs.Lib")!.GetMembers(name).Single())!;
+        var model = "{\"schemaVersion\":1,\"assemblies\":[\"Seqs\"],\"models\":[{\"member\":\"" + id + "\"," + decision + "}]}";
+        var work = fromReturn
+            ? "var sequence = Seqs.Lib.ImmediateMake(() => _state.Produce(), _state.Second, item => { });"
+            : "var sequence = Seqs.Lib.Immediate(_state.Produce(), _state.Second, item => { });";
+        if (origin == "both moments")
+            work += " Later(sequence);";
+        var text = Usings + Source(work, "", "", "");
+        var solution = FixtureSolution.Create(new FixtureOptions { MetadataReferences = [Library.Value] }, ("Case.cs", text));
+        var run = new Case(AnalyzeScope(solution, "scope:Fixture", Models(solution, model)), text);
+        var writes = run.Run.Of("Count").Where(access => access.Operation == AccessOperation.Write).ToArray();
+
+        Assert.NotEmpty(writes);
+        Assert.All(writes, access => Assert.Equal(ExecutionKind.Root, KindOf(run, access)));
+        Assert.Contains(writes, access => !access.CallPath.Any(member => member.Contains("Worker.Later", StringComparison.Ordinal)));
+        if (origin == "both moments")
+        {
+            var enumerations = Heap(run).ExecutionEdges.Where(edge => edge.Reason == "iterator-enumeration").ToArray();
+            Assert.Contains(enumerations, edge => Heap(run).Instances[edge.CallerInstance].BodyId.Contains("Worker.ExecuteAsync", StringComparison.Ordinal));
+            Assert.Contains(enumerations, edge => Heap(run).Instances[edge.CallerInstance].BodyId.Contains("Worker.Later", StringComparison.Ordinal));
+        }
+        AssertNoUnknownEnumeration(run);
+    }
+
     [Fact]
     public void Sequence_of_a_sequence_enumerates_its_source()
     {
@@ -484,14 +520,16 @@ public sealed class LibrarySequenceTests
     }
 
     /// <summary>The library's project models, resolved as a run resolves them; every entry must fit its member.</summary>
-    private static LibraryModels Models(Solution solution)
+    /// <param name="solution">The fixture solution whose compilation resolves the models.</param>
+    /// <param name="text">An optional project model file replacing the default models.</param>
+    private static LibraryModels Models(Solution solution, string? text = null)
     {
         var root = Directory.CreateTempSubdirectory("ch-sequence-").FullName;
         try
         {
             var folder = Path.Combine(root, ".concurrency-hunter", "models");
             Directory.CreateDirectory(folder);
-            File.WriteAllText(Path.Combine(folder, "sequences.json"), ModelFile(), new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(folder, "sequences.json"), text ?? ModelFile(), new UTF8Encoding(false));
             var compilation = solution.Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!;
             var files = ProjectModelFiles.Read(root);
             var (models, rejections) = ProjectModelResolver.Resolve(files, [compilation], ModelLock.Read(root, files));
@@ -534,6 +572,10 @@ public sealed class LibrarySequenceTests
     /// <summary>A singleton <c>State</c> a worker does <paramref name="work"/> on, a reader <paramref name="other"/> and a controller's
     /// action <paramref name="action"/>; <paramref name="startup"/> runs in <c>Configure</c>, which its factory registration makes a
     /// startup member.</summary>
+    /// <param name="work">The worker's statements.</param>
+    /// <param name="other">The reader's statements.</param>
+    /// <param name="action">The controller action's statements.</param>
+    /// <param name="startup">The startup member's statements.</param>
     private static string Source(string work, string other, string action, string startup) => $$"""
         using System.Collections.Generic;
         using System.Linq;
@@ -598,6 +640,8 @@ public sealed class LibrarySequenceTests
         {
             private readonly State _state = state;
 
+            private void Later(IEnumerable<Item> sequence) { foreach (var entry in sequence) { } }
+
             protected override Task ExecuteAsync(CancellationToken stoppingToken)
             {
                 {{work}}
@@ -645,6 +689,8 @@ public sealed class LibrarySequenceTests
                 public static IEnumerable<T> Wrap<T>(IEnumerable<T> source) => null!;
                 public static void EachOf<T>(IEnumerable<T> source, Action<T> action) { }
                 public static IEnumerable<T> Nest<T>(IEnumerable<T> source) => null!;
+                public static IEnumerable<T> Immediate<T>(IEnumerable<T> source, T other, Action<T> action) => null!;
+                public static IEnumerable<T> ImmediateMake<T>(Func<IEnumerable<T>> make, T other, Action<T> action) => null!;
             }
         }
         """)], StubAssemblies.PlatformWithout([]), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));

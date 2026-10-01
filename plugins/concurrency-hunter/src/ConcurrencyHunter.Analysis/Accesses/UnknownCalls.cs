@@ -28,6 +28,8 @@ public static class UnknownCalls
     private const string ACTIVATOR = "System.Activator.";
 
     /// <summary>Every unresolved call of every instance the heap reached, in instance and operation order.</summary>
+    /// <param name="scope">The process scope whose calls are classified.</param>
+    /// <param name="heap">The solved heap and its reached instances.</param>
     public static IReadOnlyList<UnknownCall> Of(ScopeProgram scope, HeapSolution heap)
     {
         var modelled = new Modelled(scope);
@@ -44,6 +46,18 @@ public static class UnknownCalls
                 // A call through an interface is the member of the table each object it decides implements it with, and stays unresolved
                 // for the others alone (ADR 0010, amendment of the phase 5b third run).
                 var receivers = call.Receivers;
+                var projected = CollectionObjects.LibraryCalls(call, value => heap.Resolve(instance.Id, value),
+                    region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries)).ToArray();
+                foreach (var direct in projected.Where(direct => !direct.IsKnown))
+                    AddLibraryUnknown(direct);
+                if (projected.Length != 0)
+                {
+                    receivers = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal)
+                        .Where(region => !HasLibrary(call.Implementations, region, null))
+                        .Select(region => (AbstractValue)new RegionValue(region)).ToHashSet();
+                    if (receivers.Count == 0)
+                        continue;
+                }
                 if (heap.IteratorMemberReceivers.TryGetValue((instance.Id, call.OperationId), out var iteratorReceivers))
                 {
                     var regions = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
@@ -93,7 +107,13 @@ public static class UnknownCalls
             // with no receiver object at all sees only its arguments (R1).
             foreach (var call in summary.Calls.Where(call => heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
             {
-                var receivers = heap.UnresolvedDispatchReceivers.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<(string, string?)>();
+                foreach (var direct in CollectionObjects.LibraryCalls(call, value => heap.Resolve(instance.Id, value),
+                    region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, call.Target)).Where(direct => !direct.IsKnown))
+                    AddLibraryUnknown(direct);
+                var unresolved = heap.UnresolvedDispatchReceivers.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<(string, string?)>();
+                var receivers = unresolved.Where(receiver => !HasLibrary(call.Implementations, receiver.Region, call.Target)).ToHashSet();
+                if (unresolved.Count != 0 && receivers.Count == 0)
+                    continue;
                 var byType = receivers.GroupBy(receiver => receiver.DeclaringTypeKey)
                                       .Select(group => (Receivers: (IReadOnlySet<AbstractValue>)group.Select(receiver => (AbstractValue)new RegionValue(receiver.Region))
                                                                                                         .ToHashSet(),
@@ -106,6 +126,17 @@ public static class UnknownCalls
                                                           Conditions = call.Conditions
                                                       }));
             }
+
+            bool HasLibrary(IReadOnlyList<IrImplementation> implementations, string region, string? method) =>
+                implementations.Any(implementation => implementation.Library is not null && implementation.Kind ==
+                    CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, method));
+
+            void AddLibraryUnknown(SummaryOpaqueCall direct) => calls.Add(new UnknownCall(instance, direct.OperationId, direct.Callee,
+                KindOf(direct.Callee), direct.Receivers, direct.DeclaringTypeKey, direct.Arguments, direct.Delegates)
+            {
+                Provenance = direct.Provenance,
+                Conditions = direct.Conditions
+            });
             // A factory of `GetOrAdd` or `AddOrUpdate` whose body the heap has not runs as a call of the delegate would: an unresolved
             // dispatch, which sees what the factories that ran no body are handed — the key, the overload's argument, and, for an update
             // factory alone, the value the dictionary holds (R11).
@@ -393,7 +424,7 @@ public static class UnknownCalls
                 if (isCollection || restricted?.Count > 0 || restricted is null && (IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0))
                     reached.Add(regionId);
                 // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second run).
-                foreach (var target in heap.FieldsOf(regionId).Where(slot => restricted is null || restricted.Contains(slot) ||
+                foreach (var target in heap.FieldsOf(regionId).Where(slot => restricted is null || restricted.Contains(slot) || slot == PathValue.KEPT ||
                                                                              isCollection && PathValue.IsStorage(slot))
                                            .SelectMany(slot => heap.PointsTo(regionId, slot)))
                     pending.Push(target);

@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 941,
-    "regions": 1358,
+    "regions": 1374,
     "instances": 1482,
-    "accesses": 3174,
+    "accesses": 3176,
     "pairs": {
-      "comparisons": 3723,
-      "cartesianBound": 427957,
+      "comparisons": 3725,
+      "cartesianBound": 428882,
       "largestBucket": 11,
-      "buckets": 1325,
+      "buckets": 1327,
       "skips": {
         "confined": 1815,
         "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1839
+        "read-read": 1841
       },
       "suppressed": 0,
       "candidates": 36
@@ -185,7 +185,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 461,
+      "accesses": 463,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,

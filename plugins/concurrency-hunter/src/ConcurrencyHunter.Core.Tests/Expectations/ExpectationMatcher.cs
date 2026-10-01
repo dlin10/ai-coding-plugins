@@ -9,11 +9,16 @@ internal static class ExpectationMatcher
 
     /// <summary>From phase 2 an active entry's confidence is compared too: a finding of the entry's identity with another label is a
     /// confidence mismatch.</summary>
+    /// <param name="findings">The findings produced by the analysis.</param>
+    /// <param name="file">The expectations to match.</param>
+    /// <param name="phase">The current known phase.</param>
     internal static ExpectationReport Match(IReadOnlyList<Finding> findings, ExpectationFile file, string phase)
     {
         _ = PhaseOrder.Compare(phase, phase);
-        var activeFindings = file.Findings.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
-        var activeNotDefects = file.NotDefects.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
+        var eligibleFindings = file.Findings.Where(entry => BeforeUntil(entry.Phase, entry.Until, phase)).ToArray();
+        var eligibleNotDefects = file.NotDefects.Where(entry => BeforeUntil(entry.Phase, entry.Until, phase)).ToArray();
+        var activeFindings = eligibleFindings.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
+        var activeNotDefects = eligibleNotDefects.Where(entry => PhaseOrder.Compare(entry.Phase, phase) <= 0).ToArray();
         var comparesConfidence = PhaseOrder.Compare(phase, CONFIDENCE_PHASE) >= 0;
 
         var missing = activeFindings
@@ -34,11 +39,17 @@ internal static class ExpectationMatcher
                 .Select(finding => $"{entry.Id}: {finding.FindingId}"))
             .ToArray();
         var falsePositives = findings
-            .Where(finding => !file.Findings.Any(entry => Matches(finding, entry)) &&
-                              !file.NotDefects.Any(entry => Matches(finding, entry)))
+            .Where(finding => !eligibleFindings.Any(entry => Matches(finding, entry)) &&
+                              !eligibleNotDefects.Any(entry => Matches(finding, entry)))
             .Select(finding => finding.FindingId)
             .ToArray();
         return new ExpectationReport(missing, forbiddenHits, falsePositives, confidenceMismatches);
+    }
+
+    private static bool BeforeUntil(string entryPhase, string? until, string phase)
+    {
+        _ = PhaseOrder.Compare(entryPhase, phase);
+        return until is null || PhaseOrder.Compare(phase, until) < 0;
     }
 
     private static bool Matches(Finding finding, FindingExpectation entry) =>

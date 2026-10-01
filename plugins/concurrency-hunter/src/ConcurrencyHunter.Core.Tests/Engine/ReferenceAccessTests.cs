@@ -298,7 +298,7 @@ public sealed class ReferenceAccessTests
     [Fact]
     public void Opaque_ref_argument_counts_an_unproven_location_without_guessing()
     {
-        var run = AnalyzeCase("System.Array.Resize(ref _state.Slots, 8);", "_state.Slots[0] = 2;");
+        var run = AnalyzeCase("System.Threading.LazyInitializer.EnsureInitialized(ref _state.Slots);", "_state.Slots[0] = 2;");
 
         Assert.True(run.Counter(ConcurrencyHunter.Accesses.CoverageCounters.UNPROVEN_REFERENCE) > 0);
         Assert.DoesNotContain(run.Collection.Accesses, access => access.Symbol.Contains("FirstWorker", StringComparison.Ordinal) &&

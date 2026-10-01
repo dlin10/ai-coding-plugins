@@ -135,7 +135,8 @@ internal sealed class GapOrigins
             // A cell read gives back what any store put into a cell of the arrays it reads, and a key read what any member filed as a
             // key of the dictionaries or pairs it reads.
             foreach (var (holders, slot) in from.Elements.Select(arrays => (arrays, PathValue.ELEMENT))
-                                               .Concat(from.Keys.Select(keys => (keys, PathValue.KEYS))))
+                                               .Concat(from.Keys.Select(keys => (keys, PathValue.KEYS)))
+                                               .Concat(from.Kept.Select(keepers => (keepers, PathValue.KEPT))))
             {
                 var targets = holders.SelectMany(value => _heap.Resolve(current.Id, value)).ToHashSet(StringComparer.Ordinal);
                 if (!visited.Add($"{slot}|{string.Join(",", targets.Order(StringComparer.Ordinal))}"))

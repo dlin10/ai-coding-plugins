@@ -19,10 +19,10 @@ internal sealed record ExpectationFile(string SchemaVersion, IReadOnlyList<Findi
 
 internal sealed record FindingExpectation(string Id, string Phase, string Rule, string Confidence,
                                           ExpectationResource Resource,
-                                          IReadOnlyList<ExpectationAccess> Accesses);
+                                          IReadOnlyList<ExpectationAccess> Accesses, string? Until = null);
 
 internal sealed record NotDefectExpectation(string Id, string Phase, ExpectationResource Resource,
-                                            IReadOnlyList<ExpectationAccess>? Accesses = null);
+                                            IReadOnlyList<ExpectationAccess>? Accesses = null, string? Until = null);
 
 internal sealed record ExpectationResource(string Region, IReadOnlyList<string> AccessPath);
 

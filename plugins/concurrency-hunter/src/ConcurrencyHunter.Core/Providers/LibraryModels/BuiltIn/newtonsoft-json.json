@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "Newtonsoft.Json 13 mirrors System.Text.Json: every SerializeObject reads its value deep, every DeserializeObject touches nothing. Converters and settings run no user code in the effect.",
+  "note": "Newtonsoft.Json 13 mirrors System.Text.Json: every SerializeObject reads its value deep, every DeserializeObject returns a new object graph and touches nothing it was given. Converters and settings run no user code in the effect.",
   "assemblies": [
     "Newtonsoft.Json"
   ],
@@ -75,35 +75,43 @@
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String)~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,Newtonsoft.Json.JsonSerializerSettings)~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type)~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String)~\u0060\u00600",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String,Newtonsoft.Json.JsonConverter[])~\u0060\u00600",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject\u0060\u00601(System.String,Newtonsoft.Json.JsonSerializerSettings)~\u0060\u00600",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonConverter[])~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     },
     {
       "member": "M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.Object",
-      "effects": {}
+      "effects": {},
+      "result": "new"
     }
   ]
 }

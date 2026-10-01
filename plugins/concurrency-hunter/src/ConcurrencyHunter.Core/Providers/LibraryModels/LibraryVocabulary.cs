@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -12,6 +13,10 @@ public enum LibraryHolderKind { Result, This }
 
 /// <summary>The fate of one delegate parameter, with what each parameter of the delegate's <c>Invoke</c> is handed. Null
 /// <see cref="Inputs"/> hands every parameter nothing known, as an empty set for each does.</summary>
+/// <param name="Parameter">The delegate parameter's name.</param>
+/// <param name="Kind">Where the delegate runs.</param>
+/// <param name="Holder">The holder of a holder fate, otherwise null.</param>
+/// <param name="Inputs">The values handed to each delegate parameter, or null for no known inputs.</param>
 public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, LibraryHolderKind? Holder,
                                  IReadOnlyList<IReadOnlyList<LibraryValue>>? Inputs)
 {
@@ -21,7 +26,8 @@ public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, Library
         LibraryFateKind.Iterator => "iterator",
         LibraryFateKind.Holder => "holder",
         LibraryFateKind.Startup => "startup",
-        _ => "unknown-execution"
+        LibraryFateKind.UnknownExecution => "unknown-execution",
+        _ => throw new UnreachableException($"Unknown fate kind {kind}.")
     };
 }
 
@@ -39,6 +45,13 @@ public abstract record LibraryValue
 public sealed record ArgumentValue(string Parameter) : LibraryValue
 {
     public override string ToString() => "arg:" + Parameter;
+    internal override string Canonical => ToString();
+}
+
+/// <summary><c>this</c>: the receiver's objects, or the object a constructor creates.</summary>
+public sealed record ThisValue : LibraryValue
+{
+    public override string ToString() => "this";
     internal override string Canonical => ToString();
 }
 
@@ -77,13 +90,24 @@ public sealed record GroupingValue(LibraryValue Key, LibraryValue Values) : Libr
     internal override string Canonical => $"grouping({Key.Canonical},{Values.Canonical})";
 }
 
-public enum LibraryResultKind { Sequence, Collection, Dictionary, OneOf }
+/// <summary>Everything kept by the named receiver or parameter.</summary>
+/// <param name="Keeper">The receiver or parameter name.</param>
+public sealed record KeptValue(string Keeper) : LibraryValue
+{
+    public override string ToString() => $"kept:{Keeper}";
+    internal override string Canonical => ToString();
+}
+
+public enum LibraryResultKind { Sequence, Collection, Dictionary, OneOf, New }
 
 /// <summary>What a known call returns: a new library sequence, a new collection or array, a new dictionary (keys, then values), or
-/// one of the objects the values name.</summary>
+/// one of the objects the values name, or a new object graph of the destination's type.</summary>
+/// <param name="Kind">The result form.</param>
+/// <param name="Values">The values the form names.</param>
 public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<LibraryValue> Values)
 {
     /// <summary>The result <paramref name="text"/> writes, or null when it breaks the grammar anywhere.</summary>
+    /// <param name="text">The complete result form.</param>
     public static LibraryResult? Parse(string text) => LibraryVocabulary.ValueParser.Whole(text, parser => parser.Result());
 
     public override string ToString() => Kind switch
@@ -91,14 +115,20 @@ public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<Library
         LibraryResultKind.Sequence => $"sequence({string.Join(',', Values)})",
         LibraryResultKind.Collection => $"collection({string.Join(',', Values)})",
         LibraryResultKind.Dictionary => $"dictionary({string.Join(',', Values)})",
-        _ => $"[{string.Join(',', Values)}]"
+        LibraryResultKind.OneOf => $"[{string.Join(',', Values)}]",
+        LibraryResultKind.New => "new",
+        _ => throw new UnreachableException($"Unknown result kind {Kind}.")
     };
 
     /// <summary>The text two results that mean the same share: a dictionary's keys and values apart, any other result's values as
     /// a set.</summary>
-    internal string Canonical => Kind == LibraryResultKind.Dictionary
-        ? $"dictionary({string.Join(',', Values.Select(value => value.Canonical))})"
-        : $"{Kind}({Set(Values)})";
+    internal string Canonical => Kind switch
+    {
+        LibraryResultKind.Dictionary => $"dictionary({string.Join(',', Values.Select(value => value.Canonical))})",
+        LibraryResultKind.Sequence or LibraryResultKind.Collection or LibraryResultKind.OneOf => $"{Kind}({Set(Values)})",
+        LibraryResultKind.New => "new",
+        _ => throw new UnreachableException($"Unknown result kind {Kind}.")
+    };
 
     internal static string Set(IEnumerable<LibraryValue> values) =>
         string.Join(',', values.Select(value => value.Canonical).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
@@ -129,7 +159,16 @@ internal static class LibraryVocabulary
     /// <summary>The entry step: every string parses, <c>returns:D</c> names a fate whose runs are there to be had where it stands,
     /// <c>holder-arg:N</c> stands alone in a holder's inputs, an iterator fate has a <c>sequence</c> result, and a holder of the
     /// result goes without one.</summary>
-    internal static (LibraryResult? Result, IReadOnlyList<LibraryFate> Fates) Entry(string? resultText, IReadOnlyList<RawFate> raw)
+    /// <param name="resultText">The result text, or null when absent.</param>
+    /// <param name="raw">The fates as the file writes them.</param>
+    /// <param name="effects">The effects that constrain store targets.</param>
+    /// <param name="rawStores">The values written into each target's cells.</param>
+    /// <param name="rawOutputs">The result forms assigned to output parameters.</param>
+    /// <param name="rawKeeps">The values kept by each keeper.</param>
+    internal static (LibraryResult? Result, IReadOnlyList<LibraryFate> Fates, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores,
+                     IReadOnlyDictionary<string, LibraryResult> Outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps) Entry(
+        string? resultText, IReadOnlyList<RawFate> raw, IReadOnlyList<LibraryEffect> effects, IReadOnlyDictionary<string, string[]>? rawStores,
+        IReadOnlyDictionary<string, string>? rawOutputs = null, IReadOnlyDictionary<string, string[]>? rawKeeps = null)
     {
         LibraryResult? result = null;
         if (resultText is not null && (result = LibraryResult.Parse(resultText)) is null)
@@ -167,6 +206,45 @@ internal static class LibraryVocabulary
                 throw new FormatException($"fates name '{fate.Parameter}' twice.");
         }
 
+        foreach (var effect in effects)
+        {
+            if (effect.Parameter == "this" && effect.Kind != LibraryEffectKind.WriteCells)
+                throw new FormatException("this is a target only of writes-cells.");
+        }
+        var stores = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
+        foreach (var (target, texts) in rawStores ?? new Dictionary<string, string[]>())
+        {
+            if (target != "this" && ValueParser.Whole(target, parser => parser.Name()) is null || texts.Length == 0)
+                throw new FormatException("stores must map a target to a non-empty array of values.");
+            if (!effects.Any(effect => effect.Parameter == target && effect.Kind == LibraryEffectKind.WriteCells))
+                throw new FormatException($"stores target '{target}' needs writes-cells.");
+            var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"stores value '{text}' does not parse.")).ToArray();
+            foreach (var value in values)
+                Place(value, fates, into: null, result: null, whole: true);
+            stores.Add(target, values);
+        }
+        var outputs = new Dictionary<string, LibraryResult>(StringComparer.Ordinal);
+        foreach (var (target, text) in rawOutputs ?? new Dictionary<string, string>())
+        {
+            if (ValueParser.Whole(target, parser => parser.Name()) is null)
+                throw new FormatException($"outputs target '{target}' must be a parameter name.");
+            var output = LibraryResult.Parse(text) ?? throw new FormatException($"outputs value '{text}' does not parse.");
+            foreach (var value in output.Values)
+                Place(value, fates, into: null, output, whole: true);
+            outputs.Add(target, output);
+        }
+        var keeps = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
+        foreach (var (keeper, texts) in rawKeeps ?? new Dictionary<string, string[]>())
+        {
+            if (ValueParser.Whole(keeper, parser => parser.Name()) is null || texts.Length == 0)
+                throw new FormatException("keeps must map a keeper to a non-empty array of values.");
+            if (keeper == "result" && result?.Kind != LibraryResultKind.New)
+                throw new FormatException("keeps.result needs the result new.");
+            var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"keeps value '{text}' does not parse.")).ToArray();
+            foreach (var value in values)
+                Place(value, fates, into: null, result: null, whole: true);
+            keeps.Add(keeper, values);
+        }
         foreach (var fate in fates.Values)
             foreach (var value in fate.Inputs?.SelectMany(input => input) ?? [])
                 Place(value, fates, fate, result: null, whole: true);
@@ -176,10 +254,15 @@ internal static class LibraryVocabulary
             throw new FormatException("an iterator fate needs a sequence(…) result.");
         if (result is not null && fates.Values.Any(fate => fate.Holder == LibraryHolderKind.Result))
             throw new FormatException("an entry whose holder is the result carries no result.");
-        return (result, fates.Values.ToArray());
+        return (result, fates.Values.ToArray(), stores, outputs, keeps);
     }
 
     /// <summary>Checks where a value stands: in the inputs of <paramref name="into"/>, or in <paramref name="result"/>.</summary>
+    /// <param name="value">The value to check.</param>
+    /// <param name="fates">The entry's fates.</param>
+    /// <param name="into">The destination fate, if any.</param>
+    /// <param name="result">The destination result, if any.</param>
+    /// <param name="whole">Whether the value stands outside another value.</param>
     private static void Place(LibraryValue value, IReadOnlyDictionary<string, LibraryFate> fates, LibraryFate? into, LibraryResult? result,
                               bool whole)
     {
@@ -187,6 +270,13 @@ internal static class LibraryVocabulary
         {
             case HolderArgumentValue when into?.Kind != LibraryFateKind.Holder || !whole:
                 throw new FormatException($"{value} stands only alone in the inputs of a holder fate.");
+            case KeptValue { Keeper: "result" }:
+                throw new FormatException("kept:result is not allowed.");
+            case KeptValue:
+            case HolderArgumentValue:
+            case ArgumentValue:
+            case ThisValue:
+                break;
             case ReturnsValue returns:
                 if (!fates.TryGetValue(returns.Delegate, out var source))
                     throw new FormatException($"{value} names no fate of the entry.");
@@ -195,7 +285,8 @@ internal static class LibraryVocabulary
                     LibraryFateKind.InvokeNow => true,
                     LibraryFateKind.Iterator => result?.Kind == LibraryResultKind.Sequence ||
                                                 into is { Kind: LibraryFateKind.Iterator } && into.Parameter != source.Parameter,
-                    _ => false
+                    LibraryFateKind.Holder or LibraryFateKind.Startup or LibraryFateKind.UnknownExecution => false,
+                    _ => throw new UnreachableException($"Unknown fate kind {source.Kind}.")
                 };
                 if (!available)
                     throw new FormatException($"{value}: the runs of a {LibraryFate.Text(source.Kind)} delegate are not there to be had here.");
@@ -211,15 +302,28 @@ internal static class LibraryVocabulary
                 Place(grouping.Key, fates, into, result, whole: false);
                 Place(grouping.Values, fates, into, result, whole: false);
                 break;
+            default:
+                throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
         }
     }
 
     /// <summary>The member step on the member's original definition, or null when the entry fits it.</summary>
-    internal static string? Member(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation)
+    /// <param name="result">The entry's result.</param>
+    /// <param name="fates">The entry's fates.</param>
+    /// <param name="method">The member's original definition.</param>
+    /// <param name="compilation">The compilation that checks conversions.</param>
+    /// <param name="effects">The entry's effects.</param>
+    /// <param name="stores">The entry's stores.</param>
+    /// <param name="outputs">The entry's output assignments.</param>
+    /// <param name="keeps">The entry's keepers and kept values.</param>
+    internal static string? Member(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation,
+                                   IReadOnlyList<LibraryEffect>? effects = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? stores = null,
+                                   IReadOnlyDictionary<string, LibraryResult>? outputs = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? keeps = null)
     {
         try
         {
-            new MemberCheck(result, fates, method, compilation).Run();
+            new MemberCheck(result, fates, method, compilation, effects ?? [], stores ?? new Dictionary<string, IReadOnlyList<LibraryValue>>(),
+                            outputs ?? new Dictionary<string, LibraryResult>(), keeps ?? new Dictionary<string, IReadOnlyList<LibraryValue>>()).Run();
             return null;
         }
         catch (Refusal refusal)
@@ -230,9 +334,23 @@ internal static class LibraryVocabulary
 
     /// <summary>Whether two entries' results and fates say the same, whatever order anything is written in; absent inputs are an
     /// empty set for every parameter.</summary>
-    internal static bool Alike(LibraryResult? resultA, IReadOnlyList<LibraryFate> fatesA, LibraryResult? resultB, IReadOnlyList<LibraryFate> fatesB)
+    /// <param name="resultA">The first entry's result.</param>
+    /// <param name="fatesA">The first entry's fates.</param>
+    /// <param name="resultB">The second entry's result.</param>
+    /// <param name="fatesB">The second entry's fates.</param>
+    /// <param name="storesA">The first entry's stores.</param>
+    /// <param name="storesB">The second entry's stores.</param>
+    /// <param name="outputsA">The first entry's outputs.</param>
+    /// <param name="outputsB">The second entry's outputs.</param>
+    /// <param name="keepsA">The first entry's keeps.</param>
+    /// <param name="keepsB">The second entry's keeps.</param>
+    internal static bool Alike(LibraryResult? resultA, IReadOnlyList<LibraryFate> fatesA, LibraryResult? resultB, IReadOnlyList<LibraryFate> fatesB,
+                              IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> storesA, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> storesB,
+                              IReadOnlyDictionary<string, LibraryResult> outputsA, IReadOnlyDictionary<string, LibraryResult> outputsB,
+                              IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? keepsA = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? keepsB = null)
     {
-        if (resultA?.Canonical != resultB?.Canonical || fatesA.Count != fatesB.Count)
+        if (resultA?.Canonical != resultB?.Canonical || fatesA.Count != fatesB.Count || outputsA.Count != outputsB.Count ||
+            outputsA.Any(output => !outputsB.TryGetValue(output.Key, out var other) || output.Value.Canonical != other.Canonical))
             return false;
         foreach (var a in fatesA)
         {
@@ -245,8 +363,12 @@ internal static class LibraryVocabulary
                     return false;
             }
         }
-        return true;
+        return SameValues(keepsA ?? new Dictionary<string, IReadOnlyList<LibraryValue>>(), keepsB ?? new Dictionary<string, IReadOnlyList<LibraryValue>>()) &&
+               SameValues(storesA, storesB);
     }
+
+    private static bool SameValues(IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> a, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> b) =>
+        a.Count == b.Count && a.All(pair => b.TryGetValue(pair.Key, out var values) && LibraryResult.Set(pair.Value) == LibraryResult.Set(values));
 
     private static string InputSet(LibraryFate fate, int index) =>
         fate.Inputs is { } inputs && index < inputs.Count ? LibraryResult.Set(inputs[index]) : "";
@@ -255,10 +377,34 @@ internal static class LibraryVocabulary
 
     private sealed class Refusal(string reason) : Exception(reason);
 
-    private sealed class MemberCheck(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation)
+    private sealed class MemberCheck(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation,
+                                    IReadOnlyList<LibraryEffect> effects, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> stores,
+                                    IReadOnlyDictionary<string, LibraryResult> outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> keeps)
     {
         internal void Run()
         {
+            foreach (var effect in effects)
+            {
+                var target = TargetType(effect.Parameter);
+                switch (effect.Kind)
+                {
+                    case LibraryEffectKind.WriteCells:
+                        if (effect.Parameter == "this" ? target.SpecialType != SpecialType.System_Array : target is not IArrayTypeSymbol && target.SpecialType != SpecialType.System_Array)
+                            throw new Refusal(effect.Parameter == "this" ? "writes-cells on this needs an instance member of System.Array." :
+                                              $"writes-cells target '{effect.Parameter}' must be an array or System.Array.");
+                        break;
+                    case LibraryEffectKind.DeepRead:
+                    case LibraryEffectKind.WriteArgument:
+                        break;
+                    default:
+                        throw new UnreachableException($"Unknown effect kind {effect.Kind}.");
+                }
+            }
+            foreach (var store in stores)
+            {
+                var target = TargetType(store.Key);
+                ConvertAll(store.Value, target is IArrayTypeSymbol arrayType ? arrayType.ElementType : compilation.GetSpecialType(SpecialType.System_Object));
+            }
             if (method.Parameters.FirstOrDefault(parameter => parameter.Type is IArrayTypeSymbol { ElementType.TypeKind: TypeKind.Delegate }) is { } array)
                 throw new Refusal($"parameter '{array.Name}' is an array of delegates, which no model can describe.");
             if (method.Parameters.FirstOrDefault(parameter => IsDelegate(parameter.Type) && fates.All(fate => fate.Parameter != parameter.Name)) is { } unfated)
@@ -286,35 +432,81 @@ internal static class LibraryVocabulary
                             Converts(value, invoke.Parameters[index].Type);
                 }
             }
-            if (result is null)
-                return;
-            var returnType = method.ReturnType;
-            switch (result.Kind)
+            foreach (var keep in keeps)
             {
+                if (keep.Key != "result")
+                    _ = TargetType(keep.Key);
+                foreach (var value in keep.Value)
+                    CheckLeaves(value);
+            }
+            foreach (var output in outputs)
+            {
+                var parameter = method.Parameters.FirstOrDefault(candidate => candidate.Name == output.Key) ??
+                                throw new Refusal($"outputs names '{output.Key}', which is no parameter.");
+                if (parameter.RefKind is not (RefKind.Out or RefKind.Ref))
+                    throw new Refusal($"outputs parameter '{output.Key}' must be out or ref.");
+                CheckResult(output.Value, parameter.Type);
+            }
+            if (result is not null)
+                CheckResult(result, method.ReturnType);
+        }
+
+        private void CheckLeaves(LibraryValue value)
+        {
+            switch (value)
+            {
+                case ElementsValue elements:
+                    CheckLeaves(elements.Source);
+                    _ = TypeOf(elements);
+                    break;
+                case SequenceValue sequence:
+                    foreach (var item in sequence.Values)
+                        CheckLeaves(item);
+                    break;
+                case GroupingValue grouping:
+                    CheckLeaves(grouping.Key);
+                    CheckLeaves(grouping.Values);
+                    break;
+                default:
+                    _ = TypeOf(value);
+                    break;
+            }
+        }
+
+        private void CheckResult(LibraryResult form, ITypeSymbol returnType)
+        {
+            switch (form.Kind)
+            {
+                case LibraryResultKind.New:
+                    if (returnType.SpecialType == SpecialType.System_Void)
+                        throw new Refusal("new is refused on a void member's result.");
+                    break;
                 case LibraryResultKind.Collection:
                     if (returnType is not IArrayTypeSymbol && !(returnType is INamedTypeSymbol named &&
                                                                Collections.Contains(MetadataName(named.OriginalDefinition))))
                         throw new Refusal($"collection(…) needs an array or a collection of ADR 0010; the member returns {returnType.ToDisplayString()}.");
-                    ConvertAll(result.Values, ElementType(returnType)!);
+                    ConvertAll(form.Values, ElementType(returnType)!);
                     break;
                 case LibraryResultKind.Dictionary:
                     if (returnType is not INamedTypeSymbol { Arity: 2 } dictionary ||
                         MetadataName(dictionary.OriginalDefinition) != "System.Collections.Generic.Dictionary`2")
                         throw new Refusal($"dictionary(…) needs a Dictionary<TKey, TValue>; the member returns {returnType.ToDisplayString()}.");
-                    Converts(result.Values[0], dictionary.TypeArguments[0]);
-                    Converts(result.Values[1], dictionary.TypeArguments[1]);
+                    Converts(form.Values[0], dictionary.TypeArguments[0]);
+                    Converts(form.Values[1], dictionary.TypeArguments[1]);
                     break;
                 case LibraryResultKind.Sequence:
                     if (returnType.TypeKind != TypeKind.Interface || ElementType(returnType) is not { } element ||
                         !IsGenericEnumerable(returnType) && !returnType.AllInterfaces.Any(IsGenericEnumerable))
                         throw new Refusal($"sequence(…) needs an interface that is or derives from IEnumerable<T>; the member returns {returnType.ToDisplayString()}.");
-                    ConvertAll(result.Values, element);
+                    ConvertAll(form.Values, element);
+                    break;
+                case LibraryResultKind.OneOf:
+                    if (returnType.SpecialType == SpecialType.System_Void)
+                        throw new Refusal("[…] needs a member that returns something.");
+                    ConvertAll(form.Values, returnType);
                     break;
                 default:
-                    if (method.ReturnsVoid)
-                        throw new Refusal("[…] needs a member that returns something.");
-                    ConvertAll(result.Values, returnType);
-                    break;
+                    throw new UnreachableException($"Unknown result kind {form.Kind}.");
             }
         }
 
@@ -326,9 +518,60 @@ internal static class LibraryVocabulary
 
         private void Converts(LibraryValue value, ITypeSymbol destination)
         {
+            switch (value)
+            {
+                case SequenceValue sequence:
+                    ConvertAll(sequence.Values, ElementType(destination) ?? destination);
+                    return;
+                case GroupingValue grouping:
+                    var type = destination is INamedTypeSymbol named && MetadataName(named.OriginalDefinition) == "System.Linq.IGrouping`2"
+                        ? named : destination.AllInterfaces.FirstOrDefault(candidate => MetadataName(candidate.OriginalDefinition) == "System.Linq.IGrouping`2");
+                    Converts(grouping.Key, type?.TypeArguments[0] ?? destination);
+                    Converts(grouping.Values, type?.TypeArguments[1] ?? destination);
+                    return;
+                case ElementsValue elements:
+                    Projected(elements.Source, destination, 1);
+                    return;
+                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue:
+                    break;
+                default:
+                    throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
+            }
             var source = TypeOf(value);
-            if (!Converts(source, destination))
+            if (source is not null && !Converts(source, destination))
                 throw new Refusal($"{value} is {source.ToDisplayString()}, which does not convert to {destination.ToDisplayString()}.");
+        }
+
+        private void Projected(LibraryValue value, ITypeSymbol destination, int depth)
+        {
+            if (depth == 0)
+            {
+                Converts(value, destination);
+                return;
+            }
+            switch (value)
+            {
+                case SequenceValue sequence:
+                    foreach (var item in sequence.Values)
+                        Projected(item, destination, depth - 1);
+                    break;
+                case GroupingValue grouping:
+                    Converts(grouping.Key, compilation.GetSpecialType(SpecialType.System_Object));
+                    Projected(grouping.Values, destination, depth - 1);
+                    break;
+                case ElementsValue elements:
+                    Projected(elements.Source, destination, depth + 1);
+                    break;
+                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue:
+                    for (var step = 0; step < depth; step++)
+                        value = new ElementsValue(value);
+                    var source = TypeOf(value);
+                    if (source is not null && !Converts(source, destination))
+                        throw new Refusal($"{value} is {source.ToDisplayString()}, which does not convert to {destination.ToDisplayString()}.");
+                    break;
+                default:
+                    throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
+            }
         }
 
         private bool Converts(ITypeSymbol source, ITypeSymbol destination)
@@ -337,10 +580,15 @@ internal static class LibraryVocabulary
             return conversion.Exists && (conversion.IsIdentity || conversion.IsReference || conversion.IsBoxing || conversion.IsUnboxing);
         }
 
-        private ITypeSymbol TypeOf(LibraryValue value)
+        private ITypeSymbol? TypeOf(LibraryValue value)
         {
             switch (value)
             {
+                case ThisValue:
+                    return TargetType("this");
+                case KeptValue kept:
+                    _ = TargetType(kept.Keeper);
+                    return null;
                 case ArgumentValue argument:
                     var parameter = method.Parameters.FirstOrDefault(candidate => candidate.Name == argument.Parameter) ??
                                     throw new Refusal($"{value} names no parameter.");
@@ -350,20 +598,17 @@ internal static class LibraryVocabulary
                     return invoke.ReturnsVoid ? throw new Refusal($"{value} names a delegate that returns void.") : invoke.ReturnType;
                 case ElementsValue elements:
                     var source = TypeOf(elements.Source);
-                    return ElementType(source) ?? throw new Refusal($"{value}: {source.ToDisplayString()} is not enumerable.");
-                case SequenceValue sequence:
-                    var first = TypeOf(sequence.Values[0]);
-                    foreach (var later in sequence.Values.Skip(1))
-                        Converts(later, first);
-                    return compilation.GetSpecialType(SpecialType.System_Collections_Generic_IEnumerable_T).Construct(first);
-                case GroupingValue grouping:
-                    var type = compilation.GetTypeByMetadataName("System.Linq.IGrouping`2") ??
-                               throw new Refusal($"{value}: System.Linq.IGrouping`2 is not referenced.");
-                    return type.Construct(TypeOf(grouping.Key), TypeOf(grouping.Values));
+                    return source is null ? null : ElementType(source) ?? throw new Refusal($"{value}: {source.ToDisplayString()} is not enumerable.");
+                case SequenceValue or GroupingValue or HolderArgumentValue:
+                    return null;
                 default:
-                    throw new Refusal($"{value} has no type and stands only alone in a holder's inputs.");
+                    throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
         }
+
+        private ITypeSymbol TargetType(string target) => target == "this"
+            ? !method.IsStatic ? method.ContainingType : throw new Refusal("this needs an instance member or constructor.")
+            : method.Parameters.FirstOrDefault(parameter => parameter.Name == target)?.Type ?? throw new Refusal($"target '{target}' names a missing parameter.");
 
         /// <summary>What enumerating a value of <paramref name="type"/> yields: an array's element type, the <c>T</c> of the
         /// <c>IEnumerable&lt;T&gt;</c> it is or implements, <c>object</c> for a non-generic <c>IEnumerable</c>; else null.</summary>
@@ -396,6 +641,10 @@ internal static class LibraryVocabulary
 
         internal LibraryValue? Value()
         {
+            if (Take("this"))
+                return new ThisValue();
+            if (Take("kept:"))
+                return Name() is { } keeper ? new KeptValue(keeper) : null;
             if (Take("arg:"))
                 return Name() is { } parameter ? new ArgumentValue(parameter) : null;
             if (Take("returns:"))
@@ -413,6 +662,8 @@ internal static class LibraryVocabulary
 
         internal LibraryResult? Result()
         {
+            if (Take("new"))
+                return new LibraryResult(LibraryResultKind.New, []);
             if (Take("sequence("))
                 return List(")") is { } values ? new LibraryResult(LibraryResultKind.Sequence, values) : null;
             if (Take("collection("))

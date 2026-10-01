@@ -44,9 +44,40 @@ public sealed record CallResultValue(int OperationId) : AbstractValue
     public override string ToString() => $"call:{OperationId}";
 }
 
+/// <summary>The objects a known call's model puts into one target's element storage.</summary>
+/// <param name="OperationId">The operation of the known call.</param>
+/// <param name="TargetOrdinal">The target parameter's ordinal, or the receiver ordinal.</param>
+public sealed record LibraryStoredValue(int OperationId, int TargetOrdinal) : AbstractValue;
+
+/// <summary>The objects a model gives one keeper at a call.</summary>
+/// <param name="OperationId">The keeping call.</param>
+/// <param name="KeeperOrdinal">The keeper's ordinal.</param>
+public sealed record LibraryKeepingValue(int OperationId, int KeeperOrdinal) : AbstractValue;
+
+/// <summary>The storage objects of a keeper at a call, including its persistent fallback.</summary>
+/// <param name="OperationId">The modelled call.</param>
+/// <param name="KeeperOrdinal">The keeper's ordinal.</param>
+/// <param name="Read">Whether an empty keeper reads the type's store.</param>
+public sealed record LibraryKeeperValue(int OperationId, int KeeperOrdinal, bool Read = false) : AbstractValue;
+
 public sealed record RefResultValue(int OperationId, int Ordinal) : AbstractValue
 {
     public override string ToString() => $"ref:{OperationId}:{Ordinal}";
+}
+
+/// <summary>A reference location's storage region, or the objects the location holds.</summary>
+/// <param name="Target">The symbolic reference location.</param>
+/// <param name="Read">Whether to read the location rather than name its storage.</param>
+public sealed record ReferenceLocationValue(ReferenceTarget Target, bool Read) : AbstractValue
+{
+    public bool Equals(ReferenceLocationValue? other) => other is not null && Read == other.Read &&
+        (Target is ReferenceCell a && other.Target is ReferenceCell b
+            ? FieldSlot.Key(a.Field) == FieldSlot.Key(b.Field) && a.IsOnCollection == b.IsOnCollection && a.Bases.SetEquals(b.Bases)
+            : Target.Equals(other.Target));
+
+    public override int GetHashCode() => Target is ReferenceCell cell
+        ? HashCode.Combine(Read, FieldSlot.Key(cell.Field), cell.IsOnCollection, cell.Bases.Aggregate(0, (hash, value) => hash ^ value.GetHashCode()))
+        : HashCode.Combine(Read, Target);
 }
 
 /// <summary>A delegate created at <see cref="Site"/> for <see cref="Target"/> (a nested body id, a method id or a method symbol).
@@ -120,6 +151,8 @@ public sealed record RegionValue(string RegionId) : AbstractValue
 
 /// <summary>The object reached from <see cref="Base"/> through field segments; <c>[]</c> is an element of an array or of a collection,
 /// <c>[keys]</c> a key of a dictionary, and a path longer than the depth limit is the single segment <c>*</c>.</summary>
+/// <param name="Base">The value the path starts from.</param>
+/// <param name="Segments">The field and storage slots followed from that value.</param>
 public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segments) : AbstractValue
 {
     public const string WILDCARD = "*";
@@ -128,14 +161,18 @@ public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segment
     /// <summary>The keys a dictionary holds apart from its values: held, never a cell (ADR 0010, phase 5b second run).</summary>
     public const string KEYS = "[keys]";
 
+    /// <summary>Objects kept by a library object, reachable but never a cell or an access path.</summary>
+    public const string KEPT = "[kept]";
+
     /// <summary>The list a <c>LinkedListNode&lt;T&gt;</c> created on its own was added to, of which it is a cell.</summary>
     public const string NODE_LIST = "[list]";
 
     /// <summary>The dictionary a live <c>Keys</c> or <c>Values</c> view of a <c>Dictionary</c> is of, for which it stands wherever it goes.</summary>
     public const string VIEWED = "[view]";
 
-    /// <summary>Whether a slot is one of the storages of an array or a collection, which hold objects and name no field.</summary>
-    public static bool IsStorage(string slot) => slot is ELEMENT or KEYS;
+    /// <summary>Whether a slot holds objects without naming a field or an access path.</summary>
+    /// <param name="slot">The heap slot to classify.</param>
+    public static bool IsStorage(string slot) => slot is ELEMENT or KEYS or KEPT;
 
     public bool IsWildcard => Segments is [WILDCARD];
 
@@ -259,6 +296,9 @@ public sealed record StoreTransfer(int OperationId, IrFieldRef Field, IReadOnlyS
 /// <summary>Where a value of a body comes from, through assignments, conversions, phis and awaits: the calls and <c>dynamic</c>
 /// operations whose result it may be, the parameters it may be, and the fields it may be read from. What says a semantic gap's
 /// result decides a join, a timer or a lock, however many calls and fields the result passed through (R6).</summary>
+/// <param name="Calls">The operations whose results may produce the value.</param>
+/// <param name="Parameters">The parameter ordinals the value may come from.</param>
+/// <param name="Fields">The fields the value may be read from.</param>
 public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Parameters, IReadOnlyList<FieldOrigin> Fields)
 {
     public static readonly ValueOrigin None = new(new HashSet<int>(), new HashSet<int>(), []);
@@ -272,10 +312,14 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
     /// <summary>The dictionaries and pairs the value is read from the key storage of: what any member filed there as a key.</summary>
     public IReadOnlyList<IReadOnlySet<AbstractValue>> Keys { get; init; } = [];
 
+    /// <summary>The keeper storages the value is read from.</summary>
+    public IReadOnlyList<IReadOnlySet<AbstractValue>> Kept { get; init; } = [];
+
     public bool IsNone => Calls.Count == 0 && Parameters.Count == 0 && Fields.Count == 0 && Captured.Count == 0 && Elements.Count == 0 &&
-                          Keys.Count == 0;
+                          Keys.Count == 0 && Kept.Count == 0;
 
     /// <summary>Every origin of several values at once.</summary>
+    /// <param name="origins">The origins to combine.</param>
     public static ValueOrigin Union(IEnumerable<ValueOrigin> origins)
     {
         var all = origins.Where(origin => !origin.IsNone).ToArray();
@@ -288,7 +332,8 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
             {
                 Captured = all.SelectMany(origin => origin.Captured).ToHashSet(StringComparer.Ordinal),
                 Elements = all.SelectMany(origin => origin.Elements).ToArray(),
-                Keys = all.SelectMany(origin => origin.Keys).ToArray()
+                Keys = all.SelectMany(origin => origin.Keys).ToArray(),
+                Kept = all.SelectMany(origin => origin.Kept).ToArray()
             }
         };
     }
@@ -500,8 +545,13 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
 /// work and callbacks of a recognized spawn or timer are not among <see cref="Delegates"/>: the spawn runs them.
 /// <see cref="Receivers"/>, <see cref="Arguments"/> and <see cref="ServiceCall"/> let the DI semantics model registration, locator
 /// and scope calls.</summary>
+/// <param name="OperationId">The call's operation in its body.</param>
+/// <param name="Callee">The called member's display.</param>
+/// <param name="Delegates">The delegate objects passed to the call.</param>
 public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnlyList<DelegateCreationValue> Delegates)
 {
+    /// <summary>The locks held at this call site, also used when its receiver resolves to a direct library member.</summary>
+    public IReadOnlyList<HeldLockValue> HeldLocks { get; init; } = [];
     public IReadOnlySet<AbstractValue> Receivers { get; init; } = new HashSet<AbstractValue>();
     public IReadOnlyList<CallArgument> Arguments { get; init; } = [];
     public IrServiceCall? ServiceCall { get; init; }
@@ -552,8 +602,16 @@ public sealed record SummaryDynamicOperation(int OperationId, string Callee, IRe
 /// <summary>A write of the result of the call or <c>dynamic</c> operation <see cref="SourceOperationId"/> into a field or a cell of
 /// <see cref="Targets"/>, or into the static field <see cref="StaticField"/>: what makes an unresolved call a semantic gap when those
 /// are not owned (R4).</summary>
+/// <param name="SourceOperationId">The operation producing the stored value.</param>
+/// <param name="Targets">The objects whose storage receives it.</param>
+/// <param name="StaticField">The destination static field, when the store is static.</param>
 public sealed record SummaryResultStore(int SourceOperationId, IReadOnlySet<AbstractValue> Targets, IrFieldRef? StaticField)
 {
+    /// <summary>The receiver kinds on which a direct library projection makes this store; null for an unconditional store.</summary>
+    public IReadOnlySet<string>? ReceiverKinds { get; init; }
+
+    /// <summary>The original interface receivers that must include one of <see cref="ReceiverKinds"/>.</summary>
+    public IReadOnlySet<AbstractValue> Receivers { get; init; } = new HashSet<AbstractValue>();
     /// <summary>For a write an interface call makes: the kinds of objects among <see cref="Targets"/> whose member holds the result, and
     /// the interface member the call is of; every other object, and one whose type of the run's own implements that member, is written
     /// nothing. Null where every object counts (ADR 0010, amendment of the phase 5b third run).</summary>

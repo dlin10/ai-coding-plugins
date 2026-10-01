@@ -23,7 +23,7 @@ public sealed class BuiltInModelFileTests
     public void Built_in_set_equals_the_recorded_table()
     {
         var lines = LibraryModels.BuiltIn.Members.Select(member =>
-                $"M {member.Id} | {string.Join(',', member.Effects.Select(effect => $"{(effect.Kind == LibraryEffectKind.DeepRead ? "reads-deep" : "writes-arg")}:{effect.Parameter}"))} | " +
+                $"M {member.Id} | {string.Join(',', member.Effects.Select(effect => Effect(effect.Kind) + ":" + effect.Parameter))} | " +
                 string.Join(';', member.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}")) +
                 Vocabulary(member))
             .Concat(LibraryModels.BuiltIn.ImmutableTypes.Select(type =>
@@ -35,15 +35,22 @@ public sealed class BuiltInModelFileTests
         Assert.Equal(File.ReadAllLines(recorded), lines);
     }
 
-    /// <summary>The line's tail for a result and fates: parameters in ordinal order, each delegate parameter's inputs in order with
-    /// their values sorted, and absent inputs as one empty list per parameter of the delegate.</summary>
+    /// <summary>The line's tail for a result, fates, stores and outputs: parameters in ordinal order, each delegate parameter's inputs
+    /// in order with their values sorted, and absent inputs as one empty list per parameter of the delegate.</summary>
+    /// <param name="member">The model whose vocabulary is printed.</param>
     private static string Vocabulary(LibraryModel member) =>
         (member.Result is { } result ? $" | result={result}" : "") +
         (member.Fates.Count == 0 ? "" : " | fates=" + string.Join(';', member.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal).Select(fate =>
             $"{fate.Parameter}:{LibraryFate.Text(fate.Kind)}" +
             (fate.Holder is { } holder ? "/" + (holder == LibraryHolderKind.Result ? "result" : "this") : "") +
             string.Concat((fate.Inputs ?? Enumerable.Repeat<IReadOnlyList<LibraryValue>>([], ModelVocabularyTests.DelegateArity(member.Id, fate.Parameter)))
-                              .Select(input => "[" + string.Join(',', input.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]")))));
+                              .Select(input => "[" + string.Join(',', input.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]"))))) +
+        (member.Stores.Count == 0 ? "" : " | stores=" + string.Join(';', member.Stores.OrderBy(store => store.Key, StringComparer.Ordinal)
+            .Select(store => store.Key + "=[" + string.Join(',', store.Value.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]"))) +
+        (member.Keeps.Count == 0 ? "" : " | keeps=" + string.Join(';', member.Keeps.OrderBy(keep => keep.Key, StringComparer.Ordinal)
+            .Select(keep => keep.Key + "=[" + string.Join(',', keep.Value.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]"))) +
+        (member.Outputs.Count == 0 ? "" : " | outputs=" + string.Join(';', member.Outputs.OrderBy(output => output.Key, StringComparer.Ordinal)
+            .Select(output => output.Key + "=" + output.Value)));
 
     [Fact]
     public void Parameter_with_two_effect_kinds_keeps_both_in_order()
@@ -115,6 +122,14 @@ public sealed class BuiltInModelFileTests
             yield return [Encoding.UTF8.GetBytes(file)];
         yield return [new byte[] { 0xFF }];
     }
+
+    private static string Effect(LibraryEffectKind kind) => kind switch
+    {
+        LibraryEffectKind.DeepRead => "reads-deep",
+        LibraryEffectKind.WriteArgument => "writes-arg",
+        LibraryEffectKind.WriteCells => "writes-cells",
+        _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {kind}.")
+    };
 
     [Theory]
     [MemberData(nameof(InvalidFiles))]

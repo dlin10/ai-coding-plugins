@@ -44,16 +44,20 @@ internal static class BuiltInModelReader
                         {
                             "reads-deep" => LibraryEffect.DeepReadOf(parameter),
                             "writes-arg" => LibraryEffect.WriteOf(parameter),
+                            "writes-cells" => LibraryEffect.WriteCellsOf(parameter),
                             _ => throw new LibraryModelException($"{entry.Member} has an unknown effect kind.")
                         });
                 }
-                var (result, fates) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
-                    new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray());
+                var (result, fates, stores, outputs, keeps) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
+                    new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray(), effects, entry.Stores, entry.Outputs, entry.Keeps);
                 members.Add(new LibraryModel(entry.Member, assemblies.Select(name => new SupportedAssemblyVersion(name, version.Value.Minimum,
                                                                                                           version.Value.Maximum)).ToArray(), effects)
                 {
                     Result = result,
-                    Fates = fates
+                    Fates = fates,
+                    Stores = stores,
+                    Outputs = outputs,
+                    Keeps = keeps
                 });
             }
             var types = new List<ImmutableLibraryType>();
@@ -145,6 +149,9 @@ internal sealed class ModelEntry
     public string[]? Assemblies { get; set; }
     public ModelVersionRange? Versions { get; set; }
     public Dictionary<string, string[]>? Effects { get; set; }
+    public Dictionary<string, string[]>? Keeps { get; set; }
+    public Dictionary<string, string[]>? Stores { get; set; }
+    public Dictionary<string, string>? Outputs { get; set; }
     public string? Result { get; set; }
     public Dictionary<string, ModelFateEntry>? Fates { get; set; }
     public bool? Opaque { get; set; }

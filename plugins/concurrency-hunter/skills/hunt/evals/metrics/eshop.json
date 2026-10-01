@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
-  "target": "C:\\Dev\\eShopOnContainers\\src\\eShopOnContainers-ServicesAndWebApps.sln",
-  "revision": "unknown",
-  "workingTreeClean": false,
+  "target": "C:/Dev/eShopOnContainers/src/eShopOnContainers-ServicesAndWebApps.sln",
+  "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
+  "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-09-29T09:50:51.9658433\u002B00:00",
+  "recordedAt": "2026-10-01T05:53:08.4210033\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,39 +18,39 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 11.094
+        "seconds": 11.192
       },
       {
         "step": "scope-discovery",
-        "seconds": 5.154
+        "seconds": 4.685
       },
       {
         "step": "program-index",
-        "seconds": 7.119
+        "seconds": 7.57
       },
       {
         "step": "lowering",
-        "seconds": 3.497
+        "seconds": 3.451
       },
       {
         "step": "reachable-set",
-        "seconds": 0.121
+        "seconds": 0.162
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 1.35
+        "seconds": 1.675
       },
       {
         "step": "executions",
-        "seconds": 0.201
+        "seconds": 0.261
       },
       {
         "step": "accesses",
-        "seconds": 1.663
+        "seconds": 1.853
       },
       {
         "step": "pairing",
-        "seconds": 0.051
+        "seconds": 0.082
       },
       {
         "step": "solver",
@@ -58,16 +58,16 @@
       },
       {
         "step": "findings",
-        "seconds": 0.046
+        "seconds": 0.035
       },
       {
         "step": "render",
-        "seconds": 0.072
+        "seconds": 0.12
       }
     ],
-    "totalSeconds": 33.579
+    "totalSeconds": 34.222
   },
-  "peakWorkingSetMb": 484.3,
+  "peakWorkingSetMb": 473.2,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -79,19 +79,19 @@
     },
     "reachableBodies": 832,
     "summaries": 941,
-    "regions": 1358,
+    "regions": 1374,
     "instances": 1482,
-    "accesses": 3174,
+    "accesses": 3176,
     "pairs": {
-      "comparisons": 3723,
-      "cartesianBound": 427957,
+      "comparisons": 3725,
+      "cartesianBound": 428882,
       "largestBucket": 11,
-      "buckets": 1325,
+      "buckets": 1327,
       "skips": {
         "confined": 1815,
         "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1839
+        "read-read": 1841
       },
       "suppressed": 0,
       "candidates": 36
@@ -254,7 +254,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 461,
+      "accesses": 463,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,
@@ -786,12 +786,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 33.579,
+      "actual": 34.222,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.473,
+      "actual": 0.462,
       "met": true
     }
   }

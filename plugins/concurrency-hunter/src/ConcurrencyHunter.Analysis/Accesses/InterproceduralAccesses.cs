@@ -149,6 +149,8 @@ public static class InterproceduralAccesses
                                 .Select(registration => (registration.BodyId!, registration.OperationId!.Value))
                                 .ToHashSet();
         var decided = DecidedCounts(input);
+        knownBuiltIn += decided.KnownBuiltIn;
+        knownProject += decided.KnownProject;
         var counters = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             [CoverageCounters.REACHABLE_BODIES] = heap.ReachableBodies.Count,
@@ -161,9 +163,9 @@ public static class InterproceduralAccesses
             [CoverageCounters.KNOWN_CALL] = knownBuiltIn + knownProject,
             [CoverageCounters.KNOWN_CALL_BUILT_IN] = knownBuiltIn,
             [CoverageCounters.KNOWN_CALL_PROJECT] = knownProject,
-            [CoverageCounters.OPAQUE_BY_PROJECT] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.Project }),
+            [CoverageCounters.OPAQUE_BY_PROJECT] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.Project }) + decided.OpaqueByProject,
             [CoverageCounters.MODEL_ENTRY_REJECTED] = 0,
-            [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false, DeclaredOpaque: false }),
+            [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false, DeclaredOpaque: false }) + decided.OutOfRange,
             // The delegates handed to opaque calls, not the calls: one creation passed to two calls is one delegate. A factory
             // `GetOrAdd` or `AddOrUpdate` runs where it is called is handed to no opaque call (R11).
             [CoverageCounters.DELEGATE_TO_OPAQUE] = opaque.Where(item => !factorySites.Contains((memberOf.GetValueOrDefault(item.BodyId) ?? item.BodyId, item.Call.OperationId)) &&
@@ -229,10 +231,12 @@ public static class InterproceduralAccesses
     /// every object it is on is an array's element; a dispatch counts an opaque call where some object is decided as a member of the
     /// table, and an element operation where some is an array's element.
     /// </summary>
-    private static (int Opaque, int Element) DecidedCounts(InterproceduralInput input)
+    /// <param name="input">The scope and solved heap whose interface calls are counted.</param>
+    private static (int Opaque, int Element, int KnownBuiltIn, int KnownProject, int OpaqueByProject, int OutOfRange) DecidedCounts(InterproceduralInput input)
     {
         var heap = input.Heap;
         var (opaque, element) = (0, 0);
+        var (knownBuiltIn, knownProject, opaqueByProject, outOfRange) = (0, 0, 0, 0);
         foreach (var group in heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal))
         {
             var instances = group.ToArray();
@@ -264,10 +268,27 @@ public static class InterproceduralAccesses
                                        .Distinct(StringComparer.Ordinal)
                                        .ToArray();
                 var (table, elements, other) = (false, false, regions.Length == 0);
+                var (projectedBuiltIn, projectedProject, projectedOpaque, projectedOutOfRange) = (false, false, false, false);
                 foreach (var region in regions)
                 {
-                    var member = CollectionObjects.Decision(implementations, CollectionObjects.KindOf(heap.Regions[region], input.Scope.Program,
-                                                                                                      input.Scope.Summaries, method))?.Member;
+                    var kind = CollectionObjects.KindOf(heap.Regions[region], input.Scope.Program, input.Scope.Summaries, method);
+                    var implementation = implementations.FirstOrDefault(candidate => candidate.Kind == kind);
+                    if (implementation?.Library is { } library)
+                    {
+                        if (library is { InRange: true, DeclaredOpaque: false })
+                        {
+                            if (library.Layer == IrModelLayer.Project) projectedProject = true;
+                            else projectedBuiltIn = true;
+                        }
+                        else
+                        {
+                            other = true;
+                            projectedOpaque |= library is { DeclaredOpaque: true, Layer: IrModelLayer.Project };
+                            projectedOutOfRange |= library is { InRange: false, DeclaredOpaque: false };
+                        }
+                        continue;
+                    }
+                    var member = CollectionObjects.Decision(implementations, kind)?.Member;
                     if (member is null)
                     {
                         // A dispatch to a body of the run's own counts as that call, and no unresolved object is counted here.
@@ -281,11 +302,15 @@ public static class InterproceduralAccesses
                         other = true;
                 }
 
+                knownBuiltIn += projectedBuiltIn ? 1 : 0;
+                knownProject += projectedProject ? 1 : 0;
+                opaqueByProject += projectedOpaque ? 1 : 0;
+                outOfRange += projectedOutOfRange ? 1 : 0;
                 return (table, elements, other);
             }
         }
 
-        return (opaque, element);
+        return (opaque, element, knownBuiltIn, knownProject, opaqueByProject, outOfRange);
     }
 
     private sealed record State(string Instance, string? Interval, BodySegment Segment);
@@ -579,7 +604,9 @@ public static class InterproceduralAccesses
     /// <summary>Whether objects of a type are an array or a collection ADR 0010 models, which hold what their storages hold.</summary>
     internal static bool IsCollectionType(ProgramIndex program, string? typeKey) => CollectionKindOf(program, typeKey).IsCollection;
 
-    private static (bool IsCollection, bool IsConcurrent) CollectionKindOf(ProgramIndex program, string? typeKey)
+    internal static bool IsConcreteCollectionType(ProgramIndex program, string typeKey) => CollectionKindOf(program, typeKey, concreteOnly: true).IsCollection;
+
+    private static (bool IsCollection, bool IsConcurrent) CollectionKindOf(ProgramIndex program, string? typeKey, bool concreteOnly = false)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         for (var key = typeKey; key is not null && visited.Add(key); key = program.Type(key)?.BaseTypeKey)
@@ -589,12 +616,12 @@ public static class InterproceduralAccesses
             (bool IsCollection, bool IsConcurrent) kind = FieldSlot.WithoutTypeArguments(key[(key.IndexOf(':') + 1)..]) switch
             {
                 "System.Collections.Generic.List" or "System.Collections.Generic.Dictionary" or "System.Collections.Generic.HashSet" or
-                    "System.Collections.Generic.Queue" or "System.Collections.Generic.Stack" or "System.Collections.Generic.LinkedList" or
-                    "System.Collections.Generic.LinkedListNode" => (true, false),
+                    "System.Collections.Generic.Queue" or "System.Collections.Generic.Stack" or "System.Collections.Generic.LinkedList" => (true, false),
+                "System.Collections.Generic.LinkedListNode" when !concreteOnly => (true, false),
                 // A pair holds a key and a value, and a live view of a dictionary what the dictionary holds; neither is any field's
                 // resource, only a holder of objects (ADR 0010, phase 5b second run).
                 "System.Collections.Generic.KeyValuePair" or "System.Collections.Generic.Dictionary.KeyCollection" or
-                    "System.Collections.Generic.Dictionary.ValueCollection" => (true, false),
+                    "System.Collections.Generic.Dictionary.ValueCollection" when !concreteOnly => (true, false),
                 "System.Collections.Concurrent.ConcurrentDictionary" or "System.Collections.Concurrent.ConcurrentQueue" or
                     "System.Collections.Concurrent.ConcurrentStack" or "System.Collections.Concurrent.ConcurrentBag" => (true, true),
                 _ => (false, false)
@@ -1525,6 +1552,11 @@ public static class InterproceduralAccesses
                 var effects = hosted
                     ? enumerates ? [SequenceEnumeration(instance)] : []
                     : instance.Summary.ArgumentEffects
+                              .Concat(instance.Summary.OpaqueCalls.SelectMany(call => CollectionObjects.LibraryCalls(call,
+                                  value => _heap.Resolve(instance.Id, value), region => ObjectKind(region)))
+                                  .Concat(instance.Summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call,
+                                      value => _heap.Resolve(instance.Id, value), region => ObjectKind(region, call.Target))))
+                                  .SelectMany(call => CollectionObjects.LibraryEffects(call, call.HeldLocks)))
                               .Where(effect => !effect.IsDeferred && input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId));
                 var deepReads = effects
                                         .SelectMany(effect => Expanded(effect, instance, new HashSet<string>(StringComparer.Ordinal)))
@@ -1535,7 +1567,9 @@ public static class InterproceduralAccesses
                                                     IrLibraryEffectKind.DeepRead => DeepReadAccesses(effect, instance, node),
                                                     IrLibraryEffectKind.Enumerate when effect.Member is not null => StandingMemberAccesses(effect, instance),
                                                     IrLibraryEffectKind.Enumerate => EnumerationAccesses(effect, instance, node),
-                                                    _ => ArgumentWriteAccesses(effect, instance)
+                                                    IrLibraryEffectKind.WriteArgument => ArgumentWriteAccesses(effect, instance),
+                                                    IrLibraryEffectKind.WriteCells => CellWriteAccesses(effect, instance, node),
+                                                    _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
                                                 })
                                                 .ToArray()))
                                         .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false))
@@ -1792,6 +1826,11 @@ public static class InterproceduralAccesses
         /// No getter, converter or <c>ToString</c> runs: only fields are read. An unknown effect walks the same way with its own kind
         /// of access, and without a wildcard on a library object, whose own state is no resource (R1).
         /// </summary>
+        /// <param name="read">The effect to expand.</param>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="node">The execution path at the effect.</param>
+        /// <param name="unknownEffect">Whether the effect is an unresolved call.</param>
+        /// <param name="declaringTypeKey">The state visible through a restricted receiver.</param>
         private IReadOnlyList<SummaryAccess> DeepReadAccesses(SummaryArgumentEffect read, MethodInstance instance, PathNode node,
                                                               bool unknownEffect = false, string? declaringTypeKey = null)
         {
@@ -1840,6 +1879,8 @@ public static class InterproceduralAccesses
                 // Through the receiver of a member only the declaring type's state and its bases' is seen (R1).
                 if (fields is not null && depth == 0 && holder is null && objects.Contains(regionId))
                     fields = reach.Seen(fields, declaringTypeKey);
+                foreach (var kept in _heap.PointsTo(regionId, PathValue.KEPT))
+                    pending.Enqueue((kept, depth + 1, null));
                 if (CollectionKind(regionId).IsCollection)
                 {
                     // A collection reached through a field or the cells of a held one is read as its holder's is; one handed over
@@ -1921,6 +1962,11 @@ public static class InterproceduralAccesses
 
             return accesses;
         }
+
+        private IReadOnlyList<SummaryAccess> CellWriteAccesses(SummaryArgumentEffect write, MethodInstance instance, PathNode node) =>
+            EnumerationAccesses(write, instance, node).Where(access => access.Selector is not null)
+                .Select(access => access with { Kind = SummaryAccessKind.Store, Selector = ElementSelector.Unknown, Atomic = null, IsCompound = false })
+                .ToArray();
 
         /// <summary>The accesses a member of the table makes when no field of its body names the receiver: its own effects on the
         /// structure and on the cell its key names — every cell where it names none — of each collection the objects it may be are or
@@ -2144,6 +2190,17 @@ public static class InterproceduralAccesses
 
         private IEnumerable<SummaryArgumentEffect> Expanded(SummaryArgumentEffect effect, MethodInstance instance, HashSet<string> visited)
         {
+            switch (effect.Kind)
+            {
+                case IrLibraryEffectKind.WriteCells:
+                    return [effect];
+                case IrLibraryEffectKind.DeepRead:
+                case IrLibraryEffectKind.WriteArgument:
+                case IrLibraryEffectKind.Enumerate:
+                    break;
+                default:
+                    throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.");
+            }
             if (_heap.LibrarySequences.Count == 0 || effect.Member is not null)
                 return [effect];
             var regions = effect.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
@@ -2228,6 +2285,7 @@ public static class InterproceduralAccesses
         /// is no collection, every object it reaches, however deep and through whatever holds it, of a type it enumerates. Its
         /// enumerator may hand out any of them, and the call never runs it to learn which (R3). A sequence that names no element
         /// type, or names <c>object</c>, may yield anything it reaches.</summary>
+        /// <param name="region">The sequence region.</param>
         private IEnumerable<string> SequenceElements(string region)
         {
             if (CollectionKind(region).IsCollection)
@@ -2259,7 +2317,7 @@ public static class InterproceduralAccesses
             // What an object holds: the objects in a collection's cells, and what every field of it points to.
             IEnumerable<string> Reached(string holder) =>
                 (CollectionKind(holder).IsCollection ? HeldBy(holder) : [])
-                    .Concat(_heap.FieldsOf(holder).Where(slot => !PathValue.IsStorage(slot)).SelectMany(slot => _heap.PointsTo(holder, slot)))
+                    .Concat(_heap.FieldsOf(holder).Where(slot => !PathValue.IsStorage(slot) || slot == PathValue.KEPT).SelectMany(slot => _heap.PointsTo(holder, slot)))
                     .Where(target => _heap.Regions[target].Kind != HeapRegionKind.Delegate);
 
             static string TypeName(string typeKey) => FieldSlot.WithoutTypeArguments(typeKey[(typeKey.IndexOf(':') + 1)..]);
@@ -3043,8 +3101,11 @@ public static class InterproceduralAccesses
 
         /// <summary>A region's context-free identity (R6): a registration's keys, lifetime and number; an allocation's or delegate
         /// creation's body and site ordinal; a static's declaring type; a receiver's type. Other kinds have context-free identities.</summary>
+        /// <param name="region">The region whose reporting identity is needed.</param>
         private string RegionKey(HeapRegion region)
         {
+            if (region.ModelCreationKey is { } key)
+                return key;
             switch (region.Kind)
             {
                 case HeapRegionKind.Di:

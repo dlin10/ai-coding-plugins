@@ -324,10 +324,13 @@ _Avoid_: scope, completeness score
 
 **Library model**:
 What the analysis knows about one member of one assembly version it has no body for: for each
-argument, whether the member reads it deep, writes it or leaves it alone; what it returns — the
-argument itself, one of its elements, a new collection holding them, or a **Library sequence** that
-yields them when enumerated; and for each delegate it receives, that delegate's **Delegate fate**. A model belongs to exactly one **Model
-layer**.
+argument and for the object it is called on, whether the member reads it deep, writes it, writes
+the cells of an array and what it puts there, or leaves it alone; what it returns — the argument
+itself, one of its elements, a new collection holding them, a **Library sequence** that yields them
+when enumerated, a new object of its return type, or a **Kept object**; what it assigns to its `out`
+and `ref` arguments; what it leaves with the object it is called on; and for each delegate it
+receives, that delegate's **Delegate fate**. What a model does not say the member returns or
+assigns is nothing the program can reach. A model belongs to exactly one **Model layer**.
 _Avoid_: library semantics table, built-in semantics, stub, annotation
 
 **Model layer**:
@@ -378,6 +381,16 @@ holder the heap cannot follow any more — handed to a call without a body other
 is called on, stored where a timer or the framework reads it — makes the delegate's fate
 `unknown-execution` as well.
 _Avoid_: container, owner (an owner is an execution, see **Ownership**)
+
+**Kept object**:
+An object a library object keeps after a **Known call** handed it over — the value a cache stores,
+the object a factory made for it — and hands back to whoever calls a member its model says returns
+what it keeps. Whoever reaches the keeper reaches the kept object, so an object kept by a shared
+library object is shared however local the code that created it. Keepers the analysis has no object
+for, and so cannot tell apart, keep into one store for each library type, shared by the whole
+process scope. Nothing ever leaves the store: a removal is not modelled.
+_Avoid_: cached value, held object (a **Holder** keeps a delegate), element (a collection's cells are
+**Element storage**)
 
 **Model generator**:
 The part of the server that produces generated **Library models**: it decompiles the library, writes
@@ -457,6 +470,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - An **Opaque call** becomes a **Semantic gap** only under the gap's conditions; every other opaque call is counted in **Coverage**.
 - A **Known call** into a member of an immutable framework type touches nothing only when every argument it receives is immutable too; an argument that is not gets that argument's own effect, such as a **Deep read**.
 - A **Known call** runs a delegate it receives only as its model's **Delegate fate** says; a member that takes a delegate its model gives no fate for is an **Opaque call**, and a lambda that becomes an expression tree is data, not code.
+- A **Kept object** has the **Ownership** of what reaches it through its keeper: kept by a shared
+  library object, or by keepers the analysis cannot tell apart, it is shared, even when the
+  execution that created it is the only one that touches it directly.
 - A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection or happens-before.
 - The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and a **Holder** is decided by what can reach the delegate, not by the calls the **Driver** happened to observe.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.

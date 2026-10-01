@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
@@ -215,6 +216,7 @@ public static class IrLowering
             accessors.Accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null));
 
     /// <summary>A field as every access to it names it.</summary>
+    /// <param name="field">The field symbol.</param>
     internal static IrFieldRef FieldRef(IFieldSymbol field) =>
         new(
             field.ContainingAssembly.Name,
@@ -227,10 +229,12 @@ public static class IrLowering
             SymbolNames.TypeIdentity(field.ContainingType))
         {
             IsVolatile = field.IsVolatile,
-            IsContainingTypeReadOnly = field.ContainingType.IsReadOnly
+            IsContainingTypeReadOnly = field.ContainingType.IsReadOnly,
+            FieldTypeKey = SymbolNames.TypeKey(field.Type)
         };
 
     /// <summary>The backing field of an automatic property as every access to it names it.</summary>
+    /// <param name="property">The property symbol.</param>
     internal static IrFieldRef PropertyField(IPropertySymbol property) =>
         new(
             property.ContainingAssembly.Name,
@@ -240,9 +244,10 @@ public static class IrLowering
             property.IsStatic,
             property.SetMethod is null,
             SymbolNames.Type(property.Type),
-            SymbolNames.TypeIdentity(property.ContainingType));
+            SymbolNames.TypeIdentity(property.ContainingType)) { FieldTypeKey = SymbolNames.TypeKey(property.Type) };
 
     /// <summary>The storage of a captured primary constructor parameter as every access to it names it.</summary>
+    /// <param name="parameter">The captured parameter symbol.</param>
     internal static IrFieldRef PrimaryConstructorParameterField(IParameterSymbol parameter) =>
         new(
             parameter.ContainingType.ContainingAssembly.Name,
@@ -252,7 +257,7 @@ public static class IrLowering
             false,
             false,
             SymbolNames.Type(parameter.Type),
-            SymbolNames.TypeIdentity(parameter.ContainingType));
+            SymbolNames.TypeIdentity(parameter.ContainingType)) { FieldTypeKey = SymbolNames.TypeKey(parameter.Type) };
 
     /// <summary>The field and property initializers of <paramref name="type"/> with the member each initializes, instance or
     /// static, ordered by file path (ordinal) and span start.</summary>
@@ -2053,16 +2058,22 @@ public static class IrLowering
 
         /// <summary>A method or constructor with no body at hand — none in source, or an `extern` one declared there — writes its
         /// `out` arguments where it is called, since no body will say where (R3, open question 23).</summary>
+        /// <param name="method">The body-less member being called.</param>
+        /// <param name="operations">The argument operations at the call site.</param>
+        /// <param name="arguments">Their lowered values and output versions.</param>
         private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments)
         {
             if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern)
                 return;
 
-            foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out))
+            var model = _context.LibraryModels.Find(method);
+            bool HasOutput(IArgumentOperation argument) => model is { Kind: LibraryMatchKind.Known } && model.Outputs.ContainsKey(argument.Parameter!.Name);
+            foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out ||
+                                                                  argument.Parameter?.RefKind == RefKind.Ref && HasOutput(argument)))
             {
                 if (arguments.At(argument.Parameter!.Ordinal) is not int address)
                     continue;
-                var written = Unknown(argument, "opaque-out-value");
+                var written = HasOutput(argument) ? arguments.RefResults[argument.Parameter.Ordinal] : Unknown(argument, "opaque-out-value");
                 _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null, Provenance(argument, "opaque-out")));
             }
         }
@@ -2281,6 +2292,9 @@ public static class IrLowering
         /// <c>params</c> array or slice the call creates, which are arguments of their own. A value of an immutable type touches
         /// nothing and is left out; a framework slice handed over ready is marked, since its effect is on the storage it is cut
         /// from.</summary>
+        /// <param name="call">The lowered library call.</param>
+        /// <param name="argumentOperations">The arguments' source operations.</param>
+        /// <param name="arguments">The arguments' lowered values and ordinals.</param>
         private IrCallOperation AnnotateLibraryCall(IrCallOperation call, IEnumerable<IArgumentOperation> argumentOperations,
                                                     LoweredArguments arguments)
         {
@@ -2289,6 +2303,11 @@ public static class IrLowering
 
             var effects = library.Effects.Select(effect =>
             {
+                if (effect.Kind == IrLibraryEffectKind.WriteCells)
+                {
+                    var target = effect.ParameterOrdinal == IrLibraryCall.RECEIVER ? call.ReceiverValue : ArgumentValue(arguments, effect.ParameterOrdinal);
+                    return effect with { Arguments = target is int array ? [new IrLibraryArgument(array, false)] : [] };
+                }
                 var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal == effect.ParameterOrdinal);
                 if (argument is null)
                     return effect;
@@ -2392,7 +2411,7 @@ public static class IrLowering
                 Collection = collection,
                 // A call through an interface is decided by the object its receiver points to, which only the heap knows: it carries
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
-                Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation) : [],
+                Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation, _context.LibraryModels) : [],
                 Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels) : null,
                 IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
@@ -2622,11 +2641,13 @@ public static class IrLowering
 
         /// <summary>Lowers the arguments in evaluation order, then defines a new version of every local or parameter passed by
         /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds.</summary>
+        /// <param name="arguments">The arguments to lower in evaluation order.</param>
         private LoweredArguments LowerArguments(IEnumerable<IArgumentOperation> arguments)
         {
             var values = new List<int>();
             var ordinals = new List<int>();
             var passedByReference = new List<(int Ordinal, ISymbol Symbol)>();
+            var refResults = new Dictionary<int, int>();
             foreach (var argument in arguments)
             {
                 var ordinal = argument.Parameter?.Ordinal ?? -1;
@@ -2636,19 +2657,27 @@ public static class IrLowering
                     ordinals.Add(ordinal);
                 }
 
-                if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentSymbol(argument) is { } symbol)
+                var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
+                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol) is { Kind: LibraryMatchKind.Known } model &&
+                             model.Outputs.ContainsKey(parameter.Name);
+                if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentSymbol(argument) is { } symbol &&
+                    !(output && symbol is ILocalSymbol { RefKind: not RefKind.None }))
                     passedByReference.Add((ordinal, symbol));
+                else if (output)
+                    refResults[ordinal] = AddTemporary(argument.Parameter!.Type);
             }
 
-            var refResults = new Dictionary<int, int>();
+            var finalVersions = new Dictionary<ISymbol, int>(SymbolEqualityComparer.Default);
             foreach (var (ordinal, symbol) in passedByReference)
             {
                 if (!_ssaPlan.TryGetVariable(symbol, out var variable))
                     throw new InvalidOperationException($"No SSA variable was planned for '{symbol.Name}'.");
                 var defined = ResolveToken(NextDefinition(variable));
                 SetCurrent(variable, defined);
-                refResults[ordinal] = defined;
+                finalVersions[symbol] = defined;
             }
+            foreach (var (ordinal, symbol) in passedByReference)
+                refResults[ordinal] = finalVersions[symbol];
 
             return new LoweredArguments(values, ordinals, refResults);
         }
@@ -3934,7 +3963,10 @@ public static class IrLowering
         /// snapshot, a list's count and enumeration alone; on an array, what the same code does to the array directly. A kind whose
         /// member the table does not model is left out, and the call stays what a direct call of that member is on its objects.
         /// </summary>
-        internal static IReadOnlyList<IrImplementation> ImplementationsOf(IMethodSymbol method, Compilation compilation)
+        /// <param name="method">The interface member called.</param>
+        /// <param name="compilation">The compilation providing interface maps and array members.</param>
+        /// <param name="libraryModels">The scoped models, or the built-in models when omitted.</param>
+        internal static IReadOnlyList<IrImplementation> ImplementationsOf(IMethodSymbol method, Compilation compilation, LibraryModels? libraryModels = null)
         {
             if (method is not { IsStatic: false, ContainingType: { TypeKind: TypeKind.Interface } called })
                 return [];
@@ -3957,9 +3989,9 @@ public static class IrLowering
             {
                 var array = compilation.CreateArrayTypeSymbol(compilation.GetSpecialType(SpecialType.System_Object), rank);
                 if (array.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition, called.OriginalDefinition)) &&
-                    ArrayMember(method, called, rank) is { } member)
+                    ArrayMember(method, called, rank, compilation, libraryModels ?? LibraryModels.BuiltIn) is { } member)
                 {
-                    implementations.Add(new IrImplementation(kind, member));
+                    implementations.Add(member with { Kind = kind });
                 }
             }
 
@@ -4069,11 +4101,32 @@ public static class IrLowering
         /// <c>Contains</c> and <c>IndexOf</c> read every cell as a list's <c>Contains</c> and a <c>foreach</c> over the array do, with the
         /// structure they read too, <c>Count</c> and <c>IsReadOnly</c> touch nothing, enumeration is a
         /// <c>foreach</c> over the array, and a member the array refuses by throwing has no effect — among them the indexer, <c>Contains</c>
-        /// and <c>IndexOf</c> of a multi-dimensional one, which need rank one. Null for a member that stays what a direct call of it is:
-        /// <c>CopyTo</c>, the non-generic <c>Clear</c>, which is <c>Array.Clear</c>, and every other.</summary>
-        private static IrCollectionCall? ArrayMember(IMethodSymbol method, INamedTypeSymbol called, int rank)
+        /// and <c>IndexOf</c> of a multi-dimensional one, which need rank one. <c>CopyTo</c> and the non-generic <c>Clear</c> carry
+        /// the scoped model of the direct <c>System.Array</c> member; null for every other undecided member.</summary>
+        /// <param name="method">The interface member called.</param>
+        /// <param name="called">The interface declaring that member.</param>
+        /// <param name="rank">The rank of the receiver array.</param>
+        /// <param name="compilation">The compilation resolving the direct member.</param>
+        /// <param name="libraryModels">The scoped models, with project precedence.</param>
+        private static IrImplementation? ArrayMember(IMethodSymbol method, INamedTypeSymbol called, int rank, Compilation compilation,
+                                                    LibraryModels libraryModels)
         {
             var generic = called.IsGenericType;
+            if (method.Name == "CopyTo" && Bcl.TypeName(called) is "System.Collections.ICollection" or "System.Collections.Generic.ICollection`1" ||
+                method.Name == "Clear" && Bcl.TypeName(called) == "System.Collections.IList")
+            {
+                var direct = compilation.GetSpecialType(SpecialType.System_Array).GetMembers(method.Name).OfType<IMethodSymbol>()
+                    .Single(candidate => method.Name == "Clear" ? candidate.Parameters.Length == 1 :
+                        candidate.Parameters.Length == 2 && candidate.Parameters[1].Type.SpecialType == SpecialType.System_Int32);
+                if (LibraryCalls.Of(direct, libraryModels) is not { } library)
+                    return null;
+                return new IrImplementation("", new IrCollectionCall(SymbolNames.Method(direct), IrCollectionEffect.None, IrCollectionEffect.None, null, false))
+                {
+                    Library = library,
+                    DeclaringTypeKey = SymbolNames.TypeKey(direct.ContainingType),
+                    ReceiverParameterOrdinal = direct.IsStatic ? 0 : null
+                };
+            }
             (IrCollectionEffect Structure, IrCollectionEffect Element, bool Keyed)? effects = (method.Name, rank) switch
             {
                 ("get_Item", 1) => (IrCollectionEffect.None, IrCollectionEffect.Read, true),
@@ -4086,7 +4139,7 @@ public static class IrLowering
                 _ => null
             };
             return effects is var (structure, element, keyed)
-                ? new IrCollectionCall($"{ARRAY}.{method.Name}", structure, element, keyed ? 0 : null, false)
+                ? new IrImplementation("", new IrCollectionCall($"{ARRAY}.{method.Name}", structure, element, keyed ? 0 : null, false))
                 : null;
         }
     }
@@ -4103,9 +4156,14 @@ public static class IrLowering
                 return null;
             // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.
             var typed = method.ReducedFrom is null ? method : definition;
-            var effects = match.Effects.Select(effect => new IrLibraryEffect(
-                                               effect.Kind == LibraryEffectKind.DeepRead ? IrLibraryEffectKind.DeepRead : IrLibraryEffectKind.WriteArgument,
-                                               definition.Parameters.Single(parameter => parameter.Name == effect.Parameter).Ordinal))
+            var effects = match.Effects.Select(effect => new IrLibraryEffect(effect.Kind switch
+                                               {
+                                                   LibraryEffectKind.DeepRead => IrLibraryEffectKind.DeepRead,
+                                                   LibraryEffectKind.WriteArgument => IrLibraryEffectKind.WriteArgument,
+                                                   LibraryEffectKind.WriteCells => IrLibraryEffectKind.WriteCells,
+                                                   _ => throw new UnreachableException($"Unknown effect kind {effect.Kind}.")
+                                               }, effect.Parameter == "this" ? IrLibraryCall.RECEIVER :
+                                                   definition.Parameters.Single(parameter => parameter.Name == effect.Parameter).Ordinal))
                                    .ToArray();
             var fates = match.Fates.Select(fate =>
             {
@@ -4118,12 +4176,14 @@ public static class IrLowering
                     LibraryFateKind.Iterator => IrFateKind.Iterator,
                     LibraryFateKind.Holder => IrFateKind.Holder,
                     LibraryFateKind.Startup => IrFateKind.Startup,
-                    _ => IrFateKind.UnknownExecution
+                    LibraryFateKind.UnknownExecution => IrFateKind.UnknownExecution,
+                    _ => throw new UnreachableException($"Unknown fate kind {fate.Kind}.")
                 }, fate.Holder switch
                 {
                     LibraryHolderKind.Result => IrHolderKind.Result,
                     LibraryHolderKind.This => IrHolderKind.This,
-                    _ => null
+                    null => null,
+                    _ => throw new UnreachableException($"Unknown holder kind {fate.Holder}.")
                 }, inputs.Select(input => (IReadOnlyList<IrModelValue>)input.Select(value => Value(typed, value)).ToArray()).ToArray());
             }).ToArray();
             return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
@@ -4131,41 +4191,78 @@ public static class IrLowering
                                      match.DeclaredOpaque)
             {
                 Fates = fates,
-                Result = match.Result is { } result
-                    ? new IrLibraryResult(result.Kind switch
-                    {
-                        LibraryResultKind.Sequence => IrResultKind.Sequence,
-                        LibraryResultKind.Collection => IrResultKind.Collection,
-                        LibraryResultKind.Dictionary => IrResultKind.Dictionary,
-                        _ => IrResultKind.OneOf
-                    }, result.Values.Select(value => Value(typed, value)).ToArray())
-                    : null,
+                Keeps = match.Keeps.ToDictionary(keep => KeeperOrdinal(typed, keep.Key),
+                                                 keep => (IReadOnlyList<IrModelValue>)keep.Value.Select(value => Value(typed, value)).ToArray()),
+                KeeperTypeKeys = match.Keeps.Keys.Where(name => name != "result")
+                    .Concat(match.Fates.SelectMany(fate => fate.Inputs ?? []).SelectMany(input => input).Concat(match.Result?.Values ?? [])
+                                 .Concat(match.Stores.Values.SelectMany(values => values)).Concat(match.Outputs.Values.SelectMany(output => output.Values))
+                                 .Concat(match.Keeps.Values.SelectMany(values => values)).SelectMany(Keepers))
+                    .Distinct(StringComparer.Ordinal).ToDictionary(name => KeeperOrdinal(typed, name), name =>
+                        SymbolNames.TypeKey((name == "this" ? typed.ContainingType : Parameter(typed, name).Type).OriginalDefinition)),
+                Stores = match.Stores.ToDictionary(store => store.Key == "this" ? IrLibraryCall.RECEIVER : Parameter(typed, store.Key).Ordinal,
+                                                   store => (IReadOnlyList<IrModelValue>)store.Value.Select(value => Value(typed, value)).ToArray()),
+                Outputs = match.Outputs.ToDictionary(output => Parameter(typed, output.Key).Ordinal, output => Result(typed, output.Value)),
+                OutputTypeKeys = match.Outputs.Keys.ToDictionary(name => Parameter(typed, name).Ordinal, name => SymbolNames.TypeKey(Parameter(typed, name).Type)),
+                Result = match.Result is { } result ? Result(typed, result) : null,
                 ResultTypeKey = method.MethodKind == MethodKind.Constructor ? SymbolNames.TypeKey(method.ContainingType)
                     : method.ReturnsVoid ? null
                     : SymbolNames.TypeKey(method.ReturnType)
             };
         }
 
+        private static IrLibraryResult Result(IMethodSymbol method, LibraryResult result) => new(result.Kind switch
+        {
+            LibraryResultKind.Sequence => IrResultKind.Sequence,
+            LibraryResultKind.Collection => IrResultKind.Collection,
+            LibraryResultKind.Dictionary => IrResultKind.Dictionary,
+            LibraryResultKind.OneOf => IrResultKind.OneOf,
+            LibraryResultKind.New => IrResultKind.New,
+            _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
+        }, result.Values.Select(value => Value(method, value)).ToArray());
+
         private static IrModelValue Value(IMethodSymbol method, LibraryValue value) => value switch
         {
+            Providers.LibraryModels.ThisValue => new IrModelThis(),
+            KeptValue kept => new IrModelKept(KeeperOrdinal(method, kept.Keeper)),
             ArgumentValue argument => new IrModelArgument(Parameter(method, argument.Parameter).Ordinal),
             ReturnsValue returns => new IrModelReturns(Parameter(method, returns.Delegate).Ordinal),
             HolderArgumentValue holder => new IrModelHolderArgument(holder.Index),
             ElementsValue elements => new IrModelElements(Value(method, elements.Source), ElementTypeKey(StaticType(method, elements.Source))),
             SequenceValue sequence => new IrModelSequence(sequence.Values.Select(item => Value(method, item)).ToArray()),
             GroupingValue grouping => new IrModelGrouping(Value(method, grouping.Key), Value(method, grouping.Values)),
-            _ => throw new ArgumentOutOfRangeException(nameof(value))
+            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
+        };
+
+        private static int KeeperOrdinal(IMethodSymbol method, string keeper) => keeper switch
+        {
+            "this" => IrLibraryCall.RECEIVER,
+            "result" => IrLibraryCall.RESULT,
+            _ => Parameter(method, keeper).Ordinal
+        };
+
+        private static IEnumerable<string> Keepers(LibraryValue value) => value switch
+        {
+            KeptValue kept => [kept.Keeper],
+            ElementsValue elements => Keepers(elements.Source),
+            SequenceValue sequence => sequence.Values.SelectMany(Keepers),
+            GroupingValue grouping => Keepers(grouping.Key).Concat(Keepers(grouping.Values)),
+            ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
+            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
 
         private static IParameterSymbol Parameter(IMethodSymbol method, string name) => method.Parameters.Single(parameter => parameter.Name == name);
 
         /// <summary>The type a value has as the call names it, null where it is none the model can say.</summary>
+        /// <param name="method">The member as the caller names it.</param>
+        /// <param name="value">The model value whose static type is requested.</param>
         private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value) => value switch
         {
+            Providers.LibraryModels.ThisValue => method.ContainingType,
             ArgumentValue argument => Parameter(method, argument.Parameter).Type,
             ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,
             ElementsValue elements => ElementType(StaticType(method, elements.Source)),
-            _ => null
+            SequenceValue or GroupingValue or HolderArgumentValue or KeptValue => null,
+            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
 
         private static ITypeSymbol? ElementType(ITypeSymbol? type) =>

@@ -221,11 +221,17 @@ public sealed class CollectionRouteMatrixTests
     /// <summary>An interface member an array decides, or leaves to the direct call it is (R5): the code on the array directly, and the
     /// code through each interface of the array that has the member, both over a receiver <c>{R}</c> and an index <c>{I}</c>, so that
     /// every route of R3 runs both and compares them there.</summary>
-    private sealed record ArrayCase(int Rank, string Member, bool Decided, string Canonical, string Statement)
+    /// <param name="Rank">The receiver array's rank.</param>
+    /// <param name="Member">The interface member name.</param>
+    /// <param name="Decided">Whether the scoped map decides the call.</param>
+    /// <param name="Canonical">The direct array statement.</param>
+    /// <param name="Statement">The statement through an interface.</param>
+    /// <param name="DirectCall">Whether the row retains the label of a direct-library counterpart.</param>
+    private sealed record ArrayCase(int Rank, string Member, bool Decided, string Canonical, string Statement, bool DirectCall = false)
     {
         public string Kind => Rank == 1 ? CollectionObjects.ARRAY : CollectionObjects.MULTIDIMENSIONAL_ARRAY;
 
-        public string Name => $"{(Rank == 1 ? "Item[]" : "int[,]")}.{Member}{(Decided ? "" : " (direct call)")}";
+        public string Name => $"{(Rank == 1 ? "Item[]" : "int[,]")}.{Member}{(DirectCall ? " (direct call)" : "")}";
     }
 
     private static readonly ArrayCase[] ArrayCases =
@@ -242,8 +248,8 @@ public sealed class CollectionRouteMatrixTests
         new(1, "Contains", true, "_ = First; foreach (var item in {R}) { }", "_ = {R}.Contains(First);"),
         new(1, "IndexOf", true, "_ = First; foreach (var item in {R}) { }", "_ = {R}.IndexOf(First);"),
         new(1, "GetEnumerator", true, "foreach (var item in {R}) (item as Item)!.Hits = 1;", "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
-        new(1, "CopyTo", false, "{R}.CopyTo(Target, {I});", "{R}.CopyTo(Target, {I});"),
-        new(1, "Clear", false, "Array.Clear({R});", "{R}.Clear();"),
+        new(1, "CopyTo", true, "{R}.CopyTo(Target, {I});", "{R}.CopyTo(Target, {I});", true),
+        new(1, "Clear", true, "Array.Clear({R});", "{R}.Clear();", true),
 
         new(2, "get_Item", true, "_ = {R};", "_ = {R}[{I}];"),
         new(2, "set_Item", true, "_ = {R};", "{R}[{I}] = 1;"),
@@ -256,8 +262,8 @@ public sealed class CollectionRouteMatrixTests
         new(2, "Contains", true, "_ = {R};", "_ = {R}.Contains(1);"),
         new(2, "IndexOf", true, "_ = {R};", "_ = {R}.IndexOf(1);"),
         new(2, "GetEnumerator", true, "foreach (var cell in {R}) { }", "foreach (var cell in {R}) { }"),
-        new(2, "CopyTo", false, "{R}.CopyTo(Target, {I});", "{R}.CopyTo(Target, {I});"),
-        new(2, "Clear", false, "Array.Clear({R});", "{R}.Clear();")
+        new(2, "CopyTo", true, "{R}.CopyTo(Target, {I});", "{R}.CopyTo(Target, {I});", true),
+        new(2, "Clear", true, "Array.Clear({R});", "{R}.Clear();", true)
     ];
 
     /// <summary>A way of a case: its label, the id of its root, the code of its root's body and helpers, the interface member it goes
@@ -472,6 +478,7 @@ public sealed class CollectionRouteMatrixTests
     }
 
     /// <summary>The interfaces of an array through which a member is decided as the case says, or left undecided where it says so.</summary>
+    /// <param name="arrayCase">The array member case whose interface routes are selected.</param>
     private static IEnumerable<(string Label, string Interface, string Through)> ArrayInterfaces(ArrayCase arrayCase)
     {
         var compilation = Probe.Value;
@@ -481,7 +488,9 @@ public sealed class CollectionRouteMatrixTests
         foreach (var @interface in array.AllInterfaces)
         {
             if (@interface.GetMembers(arrayCase.Member).OfType<IMethodSymbol>().FirstOrDefault() is { } member &&
-                Decides(member, arrayCase.Kind) is not null == arrayCase.Decided)
+                Decides(member, arrayCase.Kind) is not null == arrayCase.Decided &&
+                (arrayCase.Member != "Clear" ||
+                    (CollectionObjects.Decision(IrLowering.Collections.ImplementationsOf(member, compilation), arrayCase.Kind)?.Library is not null) == arrayCase.DirectCall))
             {
                 yield return (@interface.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat), @interface.ToDisplayString(), MemberId(arrayCase.Kind, member));
             }

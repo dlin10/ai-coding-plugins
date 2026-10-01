@@ -26,6 +26,10 @@ public sealed class CollectionStorageRuleTests
 
     private static readonly Storage[] Storages =
     [
+        new("kept", "[kept]", type => $"Kept.ICache<{type}>", type => $"new Kept.Cache<{type}>()",
+            (box, value) => $"Kept.Lib.Put({box}, {value});", (box, body) => $"{{ var held = Kept.Lib.GetValue({box}); {body} }}"),
+        new("model-cells", "[]", type => $"{type}[]", type => $"new {type}[1]",
+            (box, value) => $"Cells.Lib.Fill({box}, {value});", (box, body) => $"{{ var held = {box}[0]; {body} }}"),
         new("list", "[]", type => $"List<{type}>", type => $"new List<{type}>()",
             (box, value) => $"{box}.Add({value});", (box, body) => $"{{ var held = {box}[0]; {body} }}"),
         new("dictionary-value", "[]", type => $"Dictionary<string, {type}>", type => $"new Dictionary<string, {type}>()",
@@ -41,7 +45,11 @@ public sealed class CollectionStorageRuleTests
         var data = new TheoryData<string, string>();
         foreach (var rule in Rules)
         foreach (var storage in Storages)
+        {
+            if (storage.Name is "model-cells" or "kept" && rule is not ("escape" or "publication" or "gap-origin" or "unknown-effect"))
+                continue;
             data.Add(rule, storage.Name);
+        }
         return data;
     }
 
@@ -127,8 +135,10 @@ public sealed class CollectionStorageRuleTests
     }
 
     /// <summary>A lock on what a collection holds, when a gap's result went in, is decided by the gap as a lock on its result is.</summary>
+    /// <param name="storage">The storage whose gap origin is compared with array cells.</param>
     private static async Task<bool> FollowsGapOrigin(Storage storage)
     {
+        using var repo = new CellModelRepository(Models);
         var result = await PhaseOneAnalyzer.AnalyzeAsync(Solution($$"""
             using System.Collections.Generic;
 
@@ -147,7 +157,7 @@ public sealed class CollectionStorageRuleTests
                 protected override Task ExecuteAsync(CancellationToken stoppingToken) { work.Count = 2; return Task.CompletedTask; }
             }
             """ + Startup("services.AddSingleton<Work>(); services.AddHostedService<Locker>(); services.AddHostedService<Writer>();")),
-                                                         ROOT_DIRECTORY, CancellationToken.None);
+                                                         ROOT_DIRECTORY, repo.Root, CancellationToken.None);
 
         return result.Findings.Any(finding => string.Join(".", finding.Resource.AccessPath) == "Count" &&
                                               !finding.AccessA.Operation.IsUnknownEffect() && !finding.AccessB.Operation.IsUnknownEffect() &&
@@ -255,10 +265,24 @@ public sealed class CollectionStorageRuleTests
     private static int Line(string source, string text) =>
         System.Array.FindIndex((Usings + source).Split('\n'), line => line.Contains(text, StringComparison.Ordinal)) + 1;
 
-    private static EngineRun Analyze(string source) => AnalyzeScope(Solution(source), "scope:Fixture");
+    private static readonly string Models = MergeModels();
+
+    private static string MergeModels()
+    {
+        using var cells = System.Text.Json.JsonDocument.Parse(ModelCellFixture.Models);
+        using var kept = System.Text.Json.JsonDocument.Parse(KeptFixture.Models);
+        var entries = cells.RootElement.GetProperty("models").EnumerateArray().Concat(kept.RootElement.GetProperty("models").EnumerateArray());
+        return "{\"schemaVersion\":1,\"assemblies\":[\"Cells\",\"Kept\"],\"models\":[" + string.Join(",", entries.Select(entry => entry.GetRawText())) + "]}";
+    }
+
+    private static EngineRun Analyze(string source)
+    {
+        var solution = Solution(source);
+        return AnalyzeScope(solution, "scope:Fixture", ModelCellFixture.Resolve(solution, Models));
+    }
 
     private static Solution Solution(string source) =>
-        FixtureSolution.Create(new FixtureOptions { MetadataReferences = [OpaqueLibrary.Value] }, ("Case.cs", Usings + source));
+        FixtureSolution.Create(new FixtureOptions { MetadataReferences = [OpaqueLibrary.Value, ModelCellFixture.Library, KeptFixture.Library] }, ("Case.cs", Usings + source));
 
     /// <summary>A library the run has no source of: every member is an opaque call the library table does not describe.</summary>
     private static readonly Lazy<MetadataReference> OpaqueLibrary = new(() =>

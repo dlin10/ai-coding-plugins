@@ -14,8 +14,8 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 /// <summary>The delegates of the collections (R7, ADR 0010): the members of a <c>List</c> that take one and <c>RemoveWhere</c> of a
 /// <c>HashSet</c> run it where the call stands, handed what the cells hold, with the accesses of what they do, and the <c>System.Array</c>
-/// statics that take one are built-in <c>invoke-now</c> models handed the array's cells — but <c>Sort</c> with a comparison, which stays
-/// opaque. Each collection holds objects of a type of its own, so what a delegate is handed names where it came from; a spare object
+/// statics that take one are built-in <c>invoke-now</c> models handed the array's cells. Each collection holds objects of a type of its
+/// own, so what a delegate is handed names where it came from; a spare object
 /// outside them all is what an over-approximation would add.</summary>
 public sealed class CollectionDelegateMemberTests
 {
@@ -186,19 +186,20 @@ public sealed class CollectionDelegateMemberTests
                       "FindLastIndex", "ForEach", "Sort", "TrueForAll"],
                      statics.Select(method => method.Name).Order(StringComparer.Ordinal));
         Assert.Equal("M:System.Array.Sort``1(``0[],System.Comparison{``0})", DocumentationCommentId.CreateDeclarationId(sort));
-        Assert.DoesNotContain(DocumentationCommentId.CreateDeclarationId(sort)!, modelled);
-        Assert.All(statics.Where(method => method.Name != "Sort"), method => Assert.Contains(Id(method), modelled));
+        Assert.All(statics, method => Assert.Contains(Id(method), modelled));
     }
 
     [Fact]
-    public void Array_Sort_with_a_comparison_stays_opaque()
+    public void Array_Sort_with_a_comparison_runs_it_now_and_writes_the_cells()
     {
         var run = Run("System.Array.Sort(_state.Cells, (a, b) => { _state.Count = 1; return 0; });");
         var without = Run("");
 
-        Assert.Equal(1, run.Counter(CoverageCounters.OPAQUE_CALL) - without.Counter(CoverageCounters.OPAQUE_CALL));
-        Assert.Equal(1, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE) - without.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
-        Assert.Contains(Worker(run, "Count"), access => KindOf(run, access) == ExecutionKind.UnknownDelegateCall);
+        Assert.Equal(0, run.Counter(CoverageCounters.OPAQUE_CALL) - without.Counter(CoverageCounters.OPAQUE_CALL));
+        Assert.Equal(0, run.Counter(CoverageCounters.DELEGATE_TO_OPAQUE) - without.Counter(CoverageCounters.DELEGATE_TO_OPAQUE));
+        Assert.All(Worker(run, "Count"), access => Assert.Equal(ExecutionKind.Root, KindOf(run, access)));
+        Assert.Equal(["cell Write", "structure Read"], OnCollection(run, "Cells"));
+        Assert.Empty(run.Collection.Coverage.Gaps);
     }
 
     /// <summary>One row per member of R7 that takes a delegate: the delegate runs in the worker's own execution, handed what the cells

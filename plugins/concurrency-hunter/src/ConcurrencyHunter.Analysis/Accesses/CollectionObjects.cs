@@ -63,8 +63,91 @@ public static class CollectionObjects
     }
 
     /// <summary>What a call is on an object of <paramref name="kind"/>; null where it decides nothing for it.</summary>
+    /// <param name="implementations">The scoped implementations carried by the call.</param>
+    /// <param name="kind">The receiver object's kind.</param>
     public static IrImplementation? Decision(IReadOnlyList<IrImplementation> implementations, string? kind) =>
-        kind is null ? null : implementations.FirstOrDefault(implementation => implementation.Kind == kind);
+        kind is null ? null : implementations.FirstOrDefault(implementation => implementation.Kind == kind &&
+            (implementation.Library is null or { InRange: true, DeclaredOpaque: false }));
+
+    /// <summary>Projects an interface call onto the scoped direct library member on each receiver kind that has one.</summary>
+    /// <param name="call">The original interface call.</param>
+    /// <param name="resolve">Resolves an abstract receiver to heap regions.</param>
+    /// <param name="kindOf">Classifies a receiver, excluding source implementations.</param>
+    public static IEnumerable<SummaryOpaqueCall> LibraryCalls(SummaryOpaqueCall call, Func<AbstractValue, IReadOnlySet<string>> resolve,
+                                                               Func<string, string?> kindOf)
+    {
+        // Resolving a receiver creates its allocation region, so a call no library member can stand for resolves nothing.
+        if (!call.Implementations.Any(implementation => implementation.Library is not null))
+            yield break;
+        foreach (var group in call.Receivers.SelectMany(resolve).Distinct(StringComparer.Ordinal)
+            .Select(region => (Region: region, Implementation: call.Implementations.FirstOrDefault(implementation => implementation.Kind == kindOf(region))))
+            .Where(item => item.Implementation?.Library is not null).GroupBy(item => item.Implementation!))
+        {
+            var receivers = group.Select(item => (AbstractValue)new RegionValue(item.Region)).ToHashSet();
+            yield return call with
+            {
+                Callee = group.Key.Member.Member,
+                Receivers = group.Key.ReceiverParameterOrdinal is null ? receivers : new HashSet<AbstractValue>(),
+                Arguments = group.Key.ReceiverParameterOrdinal is int ordinal ? [new CallArgument(ordinal, receivers)] : call.Arguments,
+                Library = group.Key.Library,
+                DeclaringTypeKey = group.Key.DeclaringTypeKey,
+                Implementations = []
+            };
+        }
+    }
+
+    /// <summary>Projects a dispatched interface call onto direct array library members.</summary>
+    /// <param name="call">The original dispatched call.</param>
+    /// <param name="resolve">Resolves an abstract receiver to heap regions.</param>
+    /// <param name="kindOf">Classifies a receiver, excluding source implementations.</param>
+    public static IEnumerable<SummaryOpaqueCall> LibraryCalls(CallTransfer call, Func<AbstractValue, IReadOnlySet<string>> resolve,
+                                                               Func<string, string?> kindOf) =>
+        LibraryCalls(new SummaryOpaqueCall(call.OperationId, call.Callee ?? call.Target, [])
+        {
+            Receivers = call.Receivers,
+            Arguments = call.Arguments,
+            Implementations = call.Implementations,
+            Provenance = call.Provenance,
+            Conditions = call.Conditions,
+            HeldLocks = call.HeldLocks
+        }, resolve, kindOf);
+
+    /// <summary>The effects and enumerations of a known library call, using its direct parameter bindings and enumeration moments.</summary>
+    /// <param name="call">The direct or projected library call.</param>
+    /// <param name="heldLocks">The locks held at its call site.</param>
+    /// <param name="bind">Optional bindings retaining the direct call's collection and slice information.</param>
+    public static IEnumerable<SummaryArgumentEffect> LibraryEffects(SummaryOpaqueCall call, IReadOnlyList<HeldLockValue> heldLocks,
+                                                                    Func<IrLibraryEffectKind, int, IEnumerable<SummaryArgumentEffect>>? bind = null)
+    {
+        if (!call.IsKnown || call.Provenance is null)
+            yield break;
+        IReadOnlySet<AbstractValue> Values(int ordinal) => ordinal == IrLibraryCall.RECEIVER ? call.Receivers :
+            call.Arguments.Where(argument => argument.ParameterOrdinal == ordinal).SelectMany(argument => argument.Values).ToHashSet();
+        IEnumerable<SummaryArgumentEffect> Bind(IrLibraryEffectKind kind, int ordinal) => bind is not null ? bind(kind, ordinal) :
+            [new SummaryArgumentEffect(kind, call.OperationId, Values(ordinal), null, false, call.Provenance, heldLocks)
+            {
+                IsSequence = kind is IrLibraryEffectKind.DeepRead or IrLibraryEffectKind.WriteArgument
+            }];
+        var library = call.Library!;
+        var deferred = library.Result?.Kind == IrResultKind.Sequence;
+        foreach (var effect in library.Effects)
+        foreach (var bound in Bind(effect.Kind, effect.ParameterOrdinal))
+            yield return bound with { IsDeferred = deferred, Conditions = call.Conditions };
+        foreach (var moment in new[] { false, true })
+        {
+            foreach (var kept in library.EnumeratedKeepers(moment))
+                yield return new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, call.OperationId,
+                    new HashSet<AbstractValue> { new PathValue(new LibraryKeeperValue(call.OperationId, kept.KeeperOrdinal, Read: true), [PathValue.KEPT]) },
+                    null, false, call.Provenance, heldLocks) { IsDeferred = moment, Conditions = call.Conditions };
+            foreach (var ordinal in library.EnumeratedArguments(moment))
+            {
+                if (deferred == moment && library.Effects.Any(effect => effect.ParameterOrdinal == ordinal && effect.Kind == IrLibraryEffectKind.DeepRead))
+                    continue;
+                foreach (var bound in Bind(IrLibraryEffectKind.Enumerate, ordinal))
+                    yield return bound with { IsDeferred = moment, Conditions = call.Conditions };
+            }
+        }
+    }
 
     /// <summary>Whether a region was made by a view of a <c>ConcurrentDictionary</c>, called directly or through an interface.</summary>
     private static bool TakesSnapshot(HeapRegion region, SummaryCache summaries)

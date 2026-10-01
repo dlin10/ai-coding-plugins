@@ -127,6 +127,26 @@ ConcurrencyHunter.Core.Tests.Engine.ArgumentWriteTests.Update_Attach_and_Remove_
 ConcurrencyHunter.Core.Tests.Engine.ArgumentWriteTests.Update_Attach_and_Remove_write_the_entity(call: "_shop.Update(_state.Entity);")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArgumentWriteTests.Write_under_the_callers_lock_is_protected	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArgumentWriteTests.Written_field_is_not_also_read_at_the_call	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Copy_stores_the_source_elements_into_the_destination	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.CopyTo_reads_the_receivers_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.CopyTo_stores_the_receivers_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Every_System_Array_member_that_writes_cells_is_modelled_or_excluded	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Fill_stores_its_value	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "ICollection", member: "CopyTo", opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "ICollection", member: "CopyTo", opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "ICollection<Item>", member: "CopyTo", opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "ICollection<Item>", member: "CopyTo", opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "IList", member: "Clear", opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_call_follows_a_project_model_of_the_direct_member(through: "IList", member: "Clear", opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_CopyTo_and_Clear_on_an_array_make_what_the_direct_call_makes	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_projections_keep_every_receiver_for_opaque_result_stores(receiver: "_state.Source", shared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_projections_keep_every_receiver_for_opaque_result_stores(receiver: "stoppingToken.IsCancellationRequested ? _state.Mat"···, shared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_projections_keep_every_receiver_for_opaque_result_stores(receiver: "stoppingToken.IsCancellationRequested ? _state.Sou"···, shared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_projections_keep_every_receiver_for_opaque_result_stores(receiver: "stoppingToken.IsCancellationRequested ? new Item[1"···, shared: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Interface_projections_keep_every_receiver_for_opaque_result_stores(receiver: "stoppingToken.IsCancellationRequested ? new Item[1"···, shared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Resize_assigns_a_new_array_holding_the_old_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.SetValue_writes_a_cell_of_its_receiver	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayCellWriterFamilyTests.Sort_with_a_comparison_runs_it_now_on_the_cells_and_writes_them	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_a_List_pairs_with_an_indexer_set_on_the_cell_as_well_as_the_structure	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_a_string_array_pairs_with_a_cell_write	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Foreach_over_an_array_against_a_read_of_a_cell_is_no_finding	Passed
@@ -144,6 +164,99 @@ ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.C) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "foreach (var x in _state.Seq) { x.Value = 1; }", write: "_ = _state.First.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayEnumerationTests.Loop_variable_is_each_object_the_enumerated_array_holds(read: "System.ReadOnlySpan<Item> span = _state.C; foreach"···, write: "_ = _state.First.Value;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "Clear", form: "\"outputs\":{\"array\":\"new\"}", reason: "out or ref")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "Clear", form: "\"result\":\"sequence(elements(arg:array))\"", reason: "needs an interface")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"fates\":{\"array\":{\"fate\":\"invoke-now\"}}", reason: "not delegate-typed")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"outputs\":{\"array\":\"new\"}", reason: "out or ref")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"result\":\"[arg:array]\"", reason: "needs a member that returns something")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"result\":\"collection(elements(arg:array))\"", reason: "needs an array")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"result\":\"dictionary(elements(arg:array),elemen"···, reason: "needs a Dictionary")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Clauses_the_projected_members_cannot_carry_are_rejected(member: "CopyTo", form: "\"result\":\"new\"", reason: "void")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "empty", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "keeps", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "kept-argument", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "nested-kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "opaque", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "reads-deep", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "stores", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "this", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "writes-arg", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Matrix", clause: "writes-cells", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "empty", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "keeps", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "kept-argument", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "nested-kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "opaque", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "reads-deep", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "stores", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "this", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "writes-arg", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "_state.Vector", clause: "writes-cells", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "empty", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "keeps", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "kept-argument", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "nested-kept", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "opaque", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "reads-deep", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "stores", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "this", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "writes-arg", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "Clear", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "writes-cells", through: "IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "empty", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "keeps", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "kept-argument", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "nested-kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "opaque", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "reads-deep", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "stores", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "this", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "writes-arg", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Matrix", clause: "writes-cells", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "empty", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "empty", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "keeps", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "keeps", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "kept-argument", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "kept-argument", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "kept", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "nested-kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "nested-kept", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "opaque", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "opaque", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "reads-deep", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "reads-deep", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "stores", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "stores", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "this", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "this", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "writes-arg", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "writes-arg", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "writes-cells", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "_state.Vector", clause: "writes-cells", through: "ICollection<object>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "empty", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "keeps", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "kept-argument", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "nested-kept", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "opaque", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "reads-deep", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "stores", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "this", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "writes-arg", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Projected_model_agrees_with_the_direct_call_oracle(member: "CopyTo", receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "writes-cells", through: "ICollection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "_state.Matrix", clause: "keeps", feedsShared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "_state.Matrix", clause: "stores", feedsShared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "_state.Vector", clause: "keeps", feedsShared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "_state.Vector", clause: "stores", feedsShared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "new object[1]", clause: "keeps", feedsShared: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "new object[1]", clause: "stores", feedsShared: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "keeps", feedsShared: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ArrayProjectionModelMatrixTests.Semantic_gap_feeding_agrees_with_the_direct_call_oracle(receiver: "stoppingToken.IsCancellationRequested ? _state.Vec"···, clause: "stores", feedsShared: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Array_length_is_a_known_call_without_access	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.Length_on_a_shared_array_makes_no_gap	Passed
 ConcurrencyHunter.Core.Tests.Engine.ArrayShapeMemberTests.LongLength_and_GetLongLength_are_known_calls_without_access	Passed
@@ -219,7 +332,7 @@ ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Open_region_wildcard_mee
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Pair_set_equals_the_reference_loop	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Two_members_with_one_display_path_are_two_buckets	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Wildcard_bucket_meets_every_bucket_of_its_region_and_itself	Passed
-ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_Sort_with_a_comparison_stays_opaque	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_Sort_with_a_comparison_runs_it_now_and_writes_the_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "ConvertAll", statement: "System.Array.ConvertAll(_state.Cells, x => { x.Hit"···, result: "alloc:State..ctor()#Spare")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "Exists", statement: "_ = System.Array.Exists(_state.Cells, x => { x.Hit"···, result: "")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "Find", statement: "System.Array.Find(_state.Cells, x => { x.Hits = 1;"···, result: "alloc:State..ctor()#ArrayItem")	Passed
@@ -2759,10 +2872,14 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_ever
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "deep-read", storage: "list")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "escape", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "escape", storage: "dictionary-value")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "escape", storage: "kept")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "escape", storage: "list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "escape", storage: "model-cells")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "gap-origin", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "gap-origin", storage: "dictionary-value")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "gap-origin", storage: "kept")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "gap-origin", storage: "list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "gap-origin", storage: "model-cells")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "handed-delegate", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "handed-delegate", storage: "dictionary-value")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "handed-delegate", storage: "list")	Passed
@@ -2771,13 +2888,17 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_ever
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "join-handle", storage: "list")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "publication", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "publication", storage: "dictionary-value")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "publication", storage: "kept")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "publication", storage: "list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "publication", storage: "model-cells")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "quiet-event", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "quiet-event", storage: "dictionary-value")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "quiet-event", storage: "list")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "unknown-effect", storage: "dictionary-key")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "unknown-effect", storage: "dictionary-value")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "unknown-effect", storage: "kept")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "unknown-effect", storage: "list")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionStorageRuleTests.Rule_follows_every_storage_as_it_follows_array_cells(rule: "unknown-effect", storage: "model-cells")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionTableExtensionTests.AddAfter_changes_the_structure	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionTableExtensionTests.Clear_against_a_read_of_a_cell_pairs_on_the_cells(field: "List", read: "_ = _state.List.First!.Value;")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionTableExtensionTests.Clear_against_a_read_of_a_cell_pairs_on_the_cells(field: "Queue", read: "_ = _state.Queue.Peek();")	Passed
@@ -3387,6 +3508,24 @@ ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Overlapping_guards_ov
 ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Semaphore_held_at_yield_protects_foreach_body	Passed
 ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Unknown_enumeration_of_shared_project_stays_inside_each_process_scope	Passed
 ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Unknown_enumeration_overlaps_itself	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Deep_read_of_a_keeper_reads_kept_objects	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Empty_keepers_of_one_wave_all_go_to_the_type_store	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Escape_through_a_keeper_names_the_keeping_call	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Holder_kept_by_a_keeper_handed_to_a_call_without_a_body_adds_an_unknown_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_is_not_a_delegate_holder	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_whose_object_arrives_during_propagation_keeps_into_it_and_not_into_the_type_store	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keepers_without_an_object_share_one_store_per_type	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeps_act_at_the_call_even_with_a_sequence_result	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Kept_iterator_is_enumerated_where_the_elements_of_kept_are_read	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Kept_value_is_returned_by_a_later_call_on_the_same_keeper	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Kept_value_of_a_keeper_of_one_execution_stays_confined	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Kept_value_of_a_shared_keeper_is_escaped	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Opaque_result_kept_by_a_shared_keeper_feeds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Opaque_result_kept_in_a_type_store_feeds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Result_keeper_keeps_into_the_new_object	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Stores_of_two_types_stay_apart	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Type_store_fallback_stays_when_the_keepers_object_arrives_later	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Unknown_effect_through_a_keeper_reaches_kept_objects	Passed
 ConcurrencyHunter.Core.Tests.Engine.KnownCallCoverageTests.Arguments_of_a_known_call_are_not_unproven_references	Passed
 ConcurrencyHunter.Core.Tests.Engine.KnownCallCoverageTests.Base_call_from_a_source_override_is_a_known_call	Passed
 ConcurrencyHunter.Core.Tests.Engine.KnownCallCoverageTests.Base_property_read_from_a_source_override_is_a_known_call	Passed
@@ -3458,6 +3597,9 @@ ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Foreach_over_a_selector
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Foreach_over_a_sequence_yields_its_sources_elements	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Grouping_enumerated_through_IGrouping_yields_its_elements	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Grouping_Key_is_what_the_key_selector_returned	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Invoke_now_inputs_are_enumerated_at_the_call_even_with_a_sequence_result(origin: "argument")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Invoke_now_inputs_are_enumerated_at_the_call_even_with_a_sequence_result(origin: "both moments")	Passed
+ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Invoke_now_inputs_are_enumerated_at_the_call_even_with_a_sequence_result(origin: "delegate return")	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Iterator_copied_into_a_list_is_enumerated_in_the_caller	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Iterator_fate_with_an_unresolved_delegate_is_a_dispatch_at_each_enumeration	Passed
 ConcurrencyHunter.Core.Tests.Engine.LibrarySequenceTests.Iterator_handed_to_an_opaque_call_still_gets_an_unknown_enumeration	Passed
@@ -3549,6 +3691,43 @@ ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Static_store_and_load_are
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_condition_on_the_read_with_an_independent_value_has_no_dependency	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_lock_carries_the_lock_values	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Thirteen_segment_path_collapses_to_a_wildcard_at_the_default_limit_only	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_hides_the_same_calls_read_of_those_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_is_never_atomic	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_keeps_what_the_cells_hold	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_pairs_with_a_cell_read_of_the_same_array	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "Action action = () => Cells.Lib.Rewrite(_state.Num"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "Cells.Lib.Rewrite(_state.Numbers);")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "Cells.Lib.Rewrite(Get());")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "Rewrite(_state.Numbers);")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "var array = _state.Numbers; Cells.Lib.Rewrite(arra"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_reaches_an_array_through_every_route(work: "var box = new List<int[]> { _state.Numbers }; Cell"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Object_stored_into_a_shared_array_is_escaped	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Opaque_result_stored_into_a_confined_array_does_not	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Opaque_result_stored_into_a_shared_array_feeds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Stores_act_at_the_call_even_with_a_sequence_result	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Stores_puts_its_values_into_the_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Writes_cells_on_this_writes_the_receivers_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Writes_cells_writes_every_cell_of_the_array_argument	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Breadth_first_graph_order_continues_across_result_outputs_and_the_next_call	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Calls_on_one_line_and_nested_bodies_follow_the_ordinary_members_source_order(route: "lambda")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Calls_on_one_line_and_nested_bodies_follow_the_ordinary_members_source_order(route: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Calls_on_one_line_and_nested_bodies_follow_the_ordinary_members_source_order(route: "ordinary")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_are_counted_after_generic_substitution(kind: "method", secondType: "Address", ordinal: 3)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_are_counted_after_generic_substitution(kind: "method", secondType: "Other", ordinal: 2)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_are_counted_after_generic_substitution(kind: "type", secondType: "Address", ordinal: 3)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_are_counted_after_generic_substitution(kind: "type", secondType: "Other", ordinal: 2)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_in_nested_bodies_count_in_their_ordinary_member(explicitSites: "Action a = () => { _ = new Address(); }; a(); _ = "···, ordinal: 3)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_in_nested_bodies_count_in_their_ordinary_member(explicitSites: "Action untouched = () => { _ = new Address(); }; _"···, ordinal: 3)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Explicit_sites_in_nested_bodies_count_in_their_ordinary_member(explicitSites: "void A() { _ = new Address(); } A(); _ = new Addre"···, ordinal: 3)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Legacy_results_and_sequences_do_not_count_as_new_graph_objects(legacy: "_ = new Address[0].Select(item => item);", kind: "List", displayType: "System.Collections.Generic.List<Address>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Legacy_results_and_sequences_do_not_count_as_new_graph_objects(legacy: "_ = new Address[0].ToDictionary(item => item);", kind: "Map", displayType: "System.Collections.Generic.Dictionary<Address, Add"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Legacy_results_and_sequences_do_not_count_as_new_graph_objects(legacy: "_ = new Address[0].ToList();", kind: "List", displayType: "System.Collections.Generic.List<Address>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Outputs_are_counted_in_parameter_order_after_the_result(form: "collection", type: "System.Collections.Generic.List<Fixture:Address>", explicitSites: 2)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Outputs_are_counted_in_parameter_order_after_the_result(form: "dictionary", type: "System.Collections.Generic.Dictionary<Fixture:Addr"···, explicitSites: 2)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Outputs_are_counted_in_parameter_order_after_the_result(form: "new", type: "Address", explicitSites: 2)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Partial_initializers_at_equal_positions_are_ordered_by_file_then_position(reverseDocuments: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Partial_initializers_at_equal_positions_are_ordered_by_file_then_position(reverseDocuments: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCreationOrdinalMatrixTests.Sequence_outputs_do_not_count_as_new_graph_objects	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Failed_replace_keeps_the_previous_lock_whole	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.First_run_writes_the_rows_of_each_version_met	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Lock_is_sorted_without_bom_with_lf_and_a_final_newline	Passed
@@ -3594,6 +3773,36 @@ ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "unkno
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "UTF-16", bytes: [123, 0, 34, 0, 115, ···])	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unreadable_locks(name: "wrong member", bytes: [123, 34, 115, 99, 104, ···])	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelLockTests.Unwritable_lock_keeps_the_resolution_in_memory_and_says_so	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Built_in_outputs_use_the_result_grammar	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Collection_output_is_a_new_collection_of_the_parameter_type	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Dictionary_output_holds_keys_and_values_apart	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Entries_differing_only_in_outputs_disagree	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Helper_parameter_output_reaches_the_callers_local(call: "ForwardOut(out value);")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Helper_parameter_output_reaches_the_callers_local(call: "ForwardRef(ref value);")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Helper_ref_parameter_assignment_without_a_model_reaches_the_callers_local	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Opaque_result_assigned_through_an_output_to_a_confined_field_does_not	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Opaque_result_assigned_through_an_output_to_a_shared_field_feeds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Out_cell_is_written_and_holds_the_output	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Out_field_is_written_and_holds_the_output	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Out_local_holds_what_the_model_assigns	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_display_continues_after_explicit_creations_in_source_order	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_display_does_not_count_earlier_collection_results(work: "var result = new Item[0].ToDictionary(item => item"···, type: "System.Collections.Generic.Dictionary<Item, Item>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_display_does_not_count_earlier_collection_results(work: "var result = new Item[0].ToList(); Outputs.Lib.Col"···, type: "System.Collections.Generic.List<Item>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_is_filled_at_the_call_even_with_a_sequence_result	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_objects_never_enter_the_calls_result	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_on_a_parameter_that_is_neither_out_nor_ref_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Output_that_does_not_convert_to_the_parameter_type_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Ref_argument_without_an_output_is_as_today	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Ref_field_with_an_output_is_written_and_holds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Ref_local_output_replaces_its_previous_points_to	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Ref_local_with_an_output_holds_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Ref_through_a_reference_location_is_written_and_holds_the_output	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Sequence_output_enumerates_only_its_own_values	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Sequence_output_is_a_library_sequence_of_its_own	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Two_helper_outputs_to_one_parameter_reach_the_callers_local	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Two_outputs_of_one_type_make_two_objects_apart_from_the_result	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Two_outputs_to_one_reference_location_hold_both_objects	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelOutputTests.Two_outputs_to_one_variable_leave_it_holding_both	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Catch_handler_does_not_hold_a_lock_taken_inside_the_try	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Early_return_inside_a_lock_keeps_the_rest_of_the_body_held	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Finally_body_does_not_hold_a_lock_taken_inside_the_try	Passed
@@ -3615,6 +3824,29 @@ ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Write_after_a_lock_stateme
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Write_after_a_nested_reacquisition_is_still_held	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Write_after_an_explicit_try_finally_exit_is_not_held	Passed
 ConcurrencyHunter.Core.Tests.Engine.MustHeldLockTests.Write_inside_a_static_readonly_lock_holds_the_single_object	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Array_root_holds_new_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Collection_field_holds_a_new_collection_of_new_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Dictionary_root_holds_new_keys_and_values	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Display_ordinal_does_not_count_earlier_collection_results(work: "_ = new Address[0].ToDictionary(address => address"···, type: "System.Collections.Generic.Dictionary<Address, Add"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Display_ordinal_does_not_count_earlier_collection_results(work: "_ = new Address[0].ToList(); _ = JsonSerializer.De"···, type: "System.Collections.Generic.List<Address>")	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Display_ordinal_follows_the_explicit_creations_of_the_method	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Display_ordinals_follow_the_walk_across_two_graphs_in_one_method	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Field_of_a_generic_base_holds_an_object_of_the_substituted_type	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Graph_stops_at_the_summary_depth	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Interface_or_struct_field_holds_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.List_root_holds_new_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Making_the_graph_is_no_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.New_graph_objects_are_not_of_exact_type	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.New_objects_of_two_invocations_pair_only_once_published	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.New_output_is_a_new_graph_of_the_parameter_type	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.New_result_is_an_object_created_at_the_call	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Object_interface_and_abstract_roots_have_no_graph	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Property_backing_field_of_a_new_object_holds_a_new_object	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Result_without_a_form_still_links_to_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Source_collection_base_has_substituted_new_elements	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Source_field_of_a_new_object_holds_a_new_object	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Two_fields_of_one_type_hold_two_objects	Passed
+ConcurrencyHunter.Core.Tests.Engine.NewResultTests.Two_fields_of_one_type_make_two_fingerprints	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Access_in_the_unknown_call_has_the_symbol_of_its_member_and_a_root_kind_of_its_own	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Delegate_handed_to_a_dynamic_call_runs_in_an_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Delegate_handed_to_an_interface_call_without_a_receiver_object_runs_in_an_unknown_execution	Passed
@@ -3780,6 +4012,8 @@ ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Explicit_and_implicit_inte
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Fields_carry_static_and_readonly_flags	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Generic_type_and_its_methods_are_keyed_on_the_original_definition	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Implicit_type_initializer_exists_only_for_static_initializers	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Inherited_instance_field_type_key_is_substituted_through_a_generic_base	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Instance_fields_carry_their_type_keys_in_walk_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Interface_member_resolves_to_the_override_of_its_implementation	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Metadata_base_type_is_indexed_with_its_methods	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Method_of_a_closed_generic_type_resolves_through_its_definition	Passed
@@ -4418,19 +4652,48 @@ ConcurrencyHunter.Core.Tests.Engine.UserSliceOffsetTests.Unknown_constructor_arg
 ConcurrencyHunter.Core.Tests.Engine.UserSliceOffsetTests.Unknown_slice_argument_is_unknown	Passed
 ConcurrencyHunter.Core.Tests.Engine.UserSliceOffsetTests.User_slice_over_span_proves_its_offset	Passed
 ConcurrencyHunter.Core.Tests.Engine.UserSliceOffsetTests.Window_pairs_with_direct_cell	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Added_until_is_accepted(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Added_until_is_accepted(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Changed_until_is_refused(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Changed_until_is_refused(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Entry_with_until_needs_a_replacement_of_its_case_at_that_phase(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Entry_with_until_needs_a_replacement_of_its_case_at_that_phase(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Every_broken_rule_has_its_own_message	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.NotDefect_entry_may_be_the_replacement(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.NotDefect_entry_may_be_the_replacement(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Real_expectation_file_breaks_no_rule	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Real_expectation_file_keeps_every_until_of_HEAD	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Removed_until_is_refused(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Removed_until_is_refused(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unchanged_until_is_accepted_when_the_entry_moves_between_lists	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_is_read_for_both_lists_and_defaults_to_null	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_be_a_known_phase(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_be_a_known_phase(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: False, until: "5a")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: False, until: "5b")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: True, until: "5a")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: True, until: "5b")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Access_pair_matches_in_either_order	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Confidence_is_not_compared_before_phase_2	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Confidence_mismatch_from_phase_2_fails_the_match	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Entry_is_checked_up_to_the_phase_before_its_until	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Entry_is_ignored_from_its_until_phase	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Expired_entry_confidence_is_not_compared	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Finding_matching_an_active_entry_satisfies_it	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Finding_matching_no_entry_is_a_false_positive	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Finding_matching_only_a_later_phase_entry_is_ignored	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Finding_matching_only_an_entry_past_its_until_is_a_false_positive	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Later_entry_still_exempts_a_finding_after_an_earlier_entry_expires	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Later_phase_notDefect_is_ignored	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Missing_finding_for_an_active_entry_is_reported	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.NotDefect_past_its_until_forbids_nothing	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.NotDefect_with_accesses_forbids_only_that_pair	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.NotDefect_without_accesses_forbids_any_finding_on_the_resource	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phase_1b_entry_confidence_is_compared_at_phase_2	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phase_2b_entry_is_ignored_at_phase_2_and_checked_at_phase_2b	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phases_order_from_0_through_1a_1b_to_8	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Unknown_entry_phase_is_refused_even_when_its_until_has_passed	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Unknown_until_phase_is_refused_by_the_matcher	Passed
 ConcurrencyHunter.Core.Tests.IrConstructionTests.Allocation_site_ordinals_count_initializers_and_lambdas_in_source_order	Passed
 ConcurrencyHunter.Core.Tests.IrConstructionTests.Array_creation_is_an_allocation_with_element_stores	Passed
 ConcurrencyHunter.Core.Tests.IrConstructionTests.Auto_property_synthesized_getter_and_setter_use_its_backing_field	Passed
@@ -4681,6 +4944,21 @@ ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_fi
 ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [123, 34, 109, 111, 100, ···])	Passed
 ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [123, 34, 115, 99, 104, ···])	Passed
 ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [255])	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Built_in_entry_with_writes_cells_and_stores_loads	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Entries_differing_only_in_stores_disagree	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Dictionary", result: "dictionary(arg:key,sequence(arg:a,arg:b))", accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Dictionary", result: "dictionary(arg:key,sequence(arg:b,arg:a))", accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:a,arg:b)]", accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:a,arg:bad)]", accepted: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:b,arg:a)]", accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:bad,arg:a)]", accepted: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Reads_deep_on_this_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Stored_value_that_does_not_convert_to_the_element_type_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Stores_without_writes_cells_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.This_on_a_static_member_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Writes_arg_on_this_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Writes_cells_on_a_parameter_that_is_not_an_array_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Writes_cells_on_this_of_a_type_other_than_System_Array_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.#cctor")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.#ctor(System.Int32)")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.<Run>g__Local|0_0(System.Int32)~System.Int32")	Passed
@@ -4826,6 +5104,13 @@ ConcurrencyHunter.Core.Tests.Providers.InjectionBindingTests.Registered_struct_s
 ConcurrencyHunter.Core.Tests.Providers.InjectionBindingTests.Two_public_constructors_bind_nothing_and_name_the_count	Passed
 ConcurrencyHunter.Core.Tests.Providers.InjectionBindingTests.Unregistered_parameter_type_binds_with_an_unregistered_resolution	Passed
 ConcurrencyHunter.Core.Tests.Providers.InjectionBindingTests.Unresolved_registration_uncertainty_reaches_the_binding	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Built_in_entry_with_keeps_and_kept_loads_and_reaches_the_match	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Entries_differing_only_in_keeps_disagree	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Keeper_naming_a_missing_parameter_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Kept_result_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Result_keeper_without_new_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.This_keeper_on_a_static_member_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Typed_leaf_beside_kept_is_still_checked	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Another_overload_of_a_listed_name_is_not_known	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Effect_without_a_parameter_name_fails_the_build	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Empty_assembly_name_fails_the_build	Passed
@@ -4883,6 +5168,7 @@ ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "Zip(first, second, resultSelector)", members: "Zip(first,second,resultSelector)", inputs: "resultSelector:[E(first)][E(second)]", result: "sequence(returns:resultSelector)", effects: "")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source),arg:defaultValue]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source)]", result: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[this]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "arg:_value2", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "arg:source", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "collection(arg:a,returns:b)", result: True)	Passed
@@ -4890,6 +5176,7 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "dictionary(returns:keySelector,elements(arg:source"···, result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "elements(arg:source)", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "elements(returns:collectionSelector)", result: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "elements(this)", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "grouping(returns:keySelector,elements(arg:source))", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "holder-arg:0", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "holder-arg:12", result: False)	Passed
@@ -4899,6 +5186,7 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "sequence(grouping(returns:k,sequence(returns:e)))", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "sequence(grouping(returns:keySelector,elements(arg"···, result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "sequence(returns:selector)", result: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "this", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_entry_with_fates_and_a_result_loads	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Every_built_in_fate_and_result_fits_its_member	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "di-factory", entry: ",\"fates\":{\"f\":{\"fate\":\"di-factory\"}}", reason: "phase 5d")	Passed
@@ -4940,6 +5228,7 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text:
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "[arg:a,]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "[arg:a] ", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "[arg:a]", result: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "[this,]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "arg: source", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "arg:", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "arg:1source", result: False)	Passed
@@ -4960,6 +5249,12 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text:
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "holder-arg:x", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "sequence()", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "sequence(arg:a,)", result: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "this:x", result: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_values(text: "this", result: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.Entries_differing_only_in_new_disagree	Passed
+ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_as_a_result_and_an_output_loads_in_both_layers	Passed
+ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_inside_one_of_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_on_a_void_member_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_is_a_scope_of_itself_and_its_transitive_project_references	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_test_project_is_not_a_scope(testFramework: "Microsoft.Testing.Platform")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_test_project_is_not_a_scope(testFramework: "Microsoft.VisualStudio.TestPlatform.ObjectModel")	Passed

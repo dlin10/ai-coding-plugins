@@ -180,6 +180,95 @@ public sealed class ExpectationMatcherTests
         Assert.Equal(["older: F1 is High, expected low"], report.ConfidenceMismatches);
     }
 
+    [Fact]
+    public void Entry_is_checked_up_to_the_phase_before_its_until()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "5b", finding) with { Until = "5d" }]);
+
+        Assert.True(ExpectationMatcher.Match([], file, "5a").IsExactMatch);
+        Assert.Equal(["expected"], ExpectationMatcher.Match([], file, "5b").Missing);
+        Assert.Equal(["expected"], ExpectationMatcher.Match([], file, "5c").Missing);
+        Assert.True(ExpectationMatcher.Match([], file, "5d").IsExactMatch);
+    }
+
+    [Fact]
+    public void Entry_is_ignored_from_its_until_phase()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "5b", finding) with { Until = "5d" }]);
+
+        Assert.True(ExpectationMatcher.Match([], file, "5d").IsExactMatch);
+        Assert.True(ExpectationMatcher.Match([], file, "5e").IsExactMatch);
+    }
+
+    [Fact]
+    public void Finding_matching_only_an_entry_past_its_until_is_a_false_positive()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "5b", finding) with { Until = "5d" }]);
+
+        Assert.True(ExpectationMatcher.Match([finding], file, "5c").IsExactMatch);
+        Assert.Equal(["F1"], ExpectationMatcher.Match([finding], file, "5d").FalsePositives);
+        Assert.Equal(["F1"], ExpectationMatcher.Match([finding], file, "5e").FalsePositives);
+    }
+
+    [Fact]
+    public void NotDefect_past_its_until_forbids_nothing()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var entry = new NotDefectExpectation("guarded", "5b",
+                                            new ExpectationResource(finding.Resource.Region, finding.Resource.AccessPath),
+                                            Until: "5d");
+        var file = File(notDefects: [entry]);
+
+        Assert.Equal(["guarded: F1"], ExpectationMatcher.Match([finding], file, "5c").ForbiddenHits);
+        foreach (var phase in new[] { "5d", "5e" })
+        {
+            var report = ExpectationMatcher.Match([finding], file, phase);
+            Assert.Empty(report.ForbiddenHits);
+            Assert.Equal(["F1"], report.FalsePositives);
+        }
+    }
+
+    [Fact]
+    public void Expired_entry_confidence_is_not_compared()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var expired = Expected("expired", "5b", finding) with { Confidence = "low", Until = "5d" };
+        var file = File(findings: [expired, Expected("replacement", "5d", finding)]);
+
+        Assert.True(ExpectationMatcher.Match([finding], file, "5d").IsExactMatch);
+    }
+
+    [Fact]
+    public void Later_entry_still_exempts_a_finding_after_an_earlier_entry_expires()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var expired = Expected("expired", "5b", finding) with { Until = "5d" };
+        var file = File(findings: [expired, Expected("later", "5e", finding) with { Until = "6" }]);
+
+        Assert.True(ExpectationMatcher.Match([finding], file, "5d").IsExactMatch);
+    }
+
+    [Fact]
+    public void Unknown_until_phase_is_refused_by_the_matcher()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "5b", finding) with { Until = "unknown" }]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExpectationMatcher.Match([], file, "5d"));
+    }
+
+    [Fact]
+    public void Unknown_entry_phase_is_refused_even_when_its_until_has_passed()
+    {
+        var finding = Finding("F1", ("Controller.Set()", "write"), ("Controller.Set()", "write"));
+        var file = File(findings: [Expected("expected", "unknown", finding) with { Until = "5d" }]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExpectationMatcher.Match([], file, "5e"));
+    }
+
     private static ExpectationFile File(IReadOnlyList<FindingExpectation>? findings = null,
                                         IReadOnlyList<NotDefectExpectation>? notDefects = null) =>
         new("1", findings ?? [], notDefects ?? []);

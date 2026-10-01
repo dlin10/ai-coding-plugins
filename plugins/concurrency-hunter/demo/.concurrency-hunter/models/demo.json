@@ -5,6 +5,27 @@
   "versions": { "minimum": "8.0.0.0", "maximumExclusive": "11.0.0.0" },
   "models": [
     {
+      "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate``1(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,``0},Microsoft.Extensions.Caching.Memory.MemoryCacheEntryOptions)",
+      "assemblies": ["Microsoft.Extensions.Caching.Abstractions"],
+      "effects": {},
+      "fates": { "factory": { "fate": "invoke-now" } },
+      "keeps": { "cache": ["returns:factory"] },
+      "result": "[returns:factory,kept:cache]"
+    },
+    {
+      "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.Set``1(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,``0)",
+      "assemblies": ["Microsoft.Extensions.Caching.Abstractions"],
+      "effects": {},
+      "keeps": { "cache": ["arg:value"] },
+      "result": "[arg:value]"
+    },
+    {
+      "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.TryGetValue``1(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,``0@)",
+      "assemblies": ["Microsoft.Extensions.Caching.Abstractions"],
+      "effects": {},
+      "outputs": { "value": "[kept:cache]" }
+    },
+    {
       "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u0060\u00601(\u0060\u00600,System.Text.Json.JsonSerializerOptions)~System.Byte[]",
       "opaque": true
     },

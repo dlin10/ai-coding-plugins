@@ -285,6 +285,41 @@ public sealed class ProgramIndexTests
         Assert.False(index.Method("body:Fixture:M:Auto.Nested.get_Size")!.HasSourceBody);
     }
 
+    [Fact]
+    public void Instance_fields_carry_their_type_keys_in_walk_order()
+    {
+        var index = Index("""
+            public class Item { }
+            public class Base { public Item BaseField; }
+            public class Store(Item captured) : Base
+            {
+                public Item Field;
+                public Item Property { get; set; }
+                public Item Read() => captured;
+            }
+            """);
+        var fields = index.InstanceFieldsOf("Fixture:Store")!;
+        Assert.Equal(new[] { "Field", "Property", "captured", "BaseField" }, fields.Select(field => field.Name));
+        Assert.All(fields, field => Assert.Equal("Fixture:Item", field.FieldTypeKey));
+        Assert.All(fields, field => Assert.Equal("Item", field.Type));
+    }
+
+    [Fact]
+    public void Inherited_instance_field_type_key_is_substituted_through_a_generic_base()
+    {
+        var index = Index("""
+            public class Item { }
+            public class Base<T> { public T Field; public T Property { get; set; } }
+            public class Middle<T> : Base<T> { }
+            public class Derived : Middle<Item> { }
+            """);
+        var fields = index.InstanceFieldsOf("Fixture:Derived")!;
+        Assert.Equal(new[] { "Field", "Property" }, fields.Select(field => field.Name));
+        Assert.All(fields, field => Assert.Equal("Fixture:Item", field.FieldTypeKey));
+        Assert.All(fields, field => Assert.Equal("Base<Fixture:Item>", field.ContainingTypeId));
+        Assert.All(fields, field => Assert.Equal("T", field.Type));
+    }
+
     private static ProgramIndex Index(string source) => IndexAndCompilation(source).Index;
 
     private static (ProgramIndex Index, Compilation Compilation) IndexAndCompilation(string source)

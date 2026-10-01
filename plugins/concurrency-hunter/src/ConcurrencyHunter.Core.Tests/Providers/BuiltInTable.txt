@@ -129,14 +129,14 @@ M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extension
 M M:Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Microsoft.Extensions.Logging.ILogger,System.String,System.Object[]) | reads-deep:args | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
 M M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger(Microsoft.Extensions.Logging.ILoggerFactory,System.Type)~Microsoft.Extensions.Logging.ILogger |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
 M M:Microsoft.Extensions.Logging.LoggerFactoryExtensions.CreateLogger``1(Microsoft.Extensions.Logging.ILoggerFactory)~Microsoft.Extensions.Logging.ILogger{``0} |  | Microsoft.Extensions.Logging.Abstractions@8.0.0.0-11.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonConverter[])~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonConverter[])~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
-M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonSerializerSettings)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonConverter[])~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject(System.String,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.Object |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonConverter[])~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
+M M:Newtonsoft.Json.JsonConvert.DeserializeObject``1(System.String,Newtonsoft.Json.JsonSerializerSettings)~``0 |  | Newtonsoft.Json@13.0.0.0-14.0.0.0 | result=new
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonConverter[])~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
@@ -145,8 +145,19 @@ M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Js
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:System.Array.Clear(System.Array) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.Clear(System.Array,System.Int32,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.ConstrainedCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]
 M M:System.Array.ConvertAll``2(``0[],System.Converter{``0,``1})~``1[] |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | result=collection(returns:converter) | fates=converter:invoke-now[elements(arg:array)]
+M M:System.Array.Copy(System.Array,System.Array,System.Int32) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]
+M M:System.Array.Copy(System.Array,System.Array,System.Int64) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]
+M M:System.Array.Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]
+M M:System.Array.Copy(System.Array,System.Int64,System.Array,System.Int64,System.Int64) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]
+M M:System.Array.CopyTo(System.Array,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=array=[elements(this)]
+M M:System.Array.CopyTo(System.Array,System.Int64) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=array=[elements(this)]
 M M:System.Array.Exists``1(``0[],System.Predicate{``0})~System.Boolean |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | fates=match:invoke-now[elements(arg:array)]
+M M:System.Array.Fill``1(``0[],``0) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=array=[arg:value]
+M M:System.Array.Fill``1(``0[],``0,System.Int32,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=array=[arg:value]
 M M:System.Array.FindAll``1(``0[],System.Predicate{``0})~``0[] |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | result=collection(elements(arg:array)) | fates=match:invoke-now[elements(arg:array)]
 M M:System.Array.FindIndex``1(``0[],System.Int32,System.Int32,System.Predicate{``0})~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | fates=match:invoke-now[elements(arg:array)]
 M M:System.Array.FindIndex``1(``0[],System.Int32,System.Predicate{``0})~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | fates=match:invoke-now[elements(arg:array)]
@@ -162,6 +173,20 @@ M M:System.Array.GetLongLength(System.Int32)~System.Int64 |  | System.Runtime@8.
 M M:System.Array.GetLowerBound(System.Int32)~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
 M M:System.Array.GetUpperBound(System.Int32)~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
 M M:System.Array.IndexOf``1(``0[],``0)~System.Int32 | reads-deep:array,reads-deep:value | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.Resize``1(``0[]@,System.Int32) |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | outputs=array=collection(elements(arg:array))
+M M:System.Array.Reverse(System.Array) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.Reverse(System.Array,System.Int32,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.Reverse``1(``0[]) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.Reverse``1(``0[],System.Int32,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
+M M:System.Array.SetValue(System.Object,System.Int32) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int32,System.Int32) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int32,System.Int32,System.Int32) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int32[]) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int64) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int64,System.Int64) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int64,System.Int64,System.Int64) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.SetValue(System.Object,System.Int64[]) | writes-cells:this | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=this=[arg:value]
+M M:System.Array.Sort``1(``0[],System.Comparison{``0}) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | fates=comparison:invoke-now[elements(arg:array)][elements(arg:array)]
 M M:System.Array.TrueForAll``1(``0[],System.Predicate{``0})~System.Boolean |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | fates=match:invoke-now[elements(arg:array)]
 M M:System.Array.get_Length~System.Int32 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
 M M:System.Array.get_LongLength~System.Int64 |  | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
@@ -380,8 +405,8 @@ M M:System.Text.Json.JsonException.#ctor(System.String) |  | System.Text.Json@8.
 M M:System.Text.Json.JsonException.#ctor(System.String,System.Exception) |  | System.Text.Json@8.0.0.0-11.0.0.0
 M M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64}) |  | System.Text.Json@8.0.0.0-11.0.0.0
 M M:System.Text.Json.JsonException.#ctor(System.String,System.String,System.Nullable{System.Int64},System.Nullable{System.Int64},System.Exception) |  | System.Text.Json@8.0.0.0-11.0.0.0
-M M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)~System.Object |  | System.Text.Json@8.0.0.0-11.0.0.0
-M M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions)~``0 |  | System.Text.Json@8.0.0.0-11.0.0.0
+M M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)~System.Object |  | System.Text.Json@8.0.0.0-11.0.0.0 | result=new
+M M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions)~``0 |  | System.Text.Json@8.0.0.0-11.0.0.0 | result=new
 M M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.String | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
 M M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)~System.Byte[] | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0
 M M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)~System.Byte[] | reads-deep:value | System.Text.Json@8.0.0.0-11.0.0.0

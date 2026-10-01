@@ -295,6 +295,14 @@ public sealed record IrProvenance(SourceSpan Span, string ContainingSymbol, stri
 
 /// <summary><see cref="ContainingTypeIdentity"/> identifies the containing type beside <see cref="Assembly"/> when it differs from
 /// the display name <see cref="ContainingType"/>: in a closed generic, each type argument carries its own assembly.</summary>
+/// <param name="Assembly">The declaring assembly.</param>
+/// <param name="ContainingType">The declaring type's display name.</param>
+/// <param name="Name">The field's access name.</param>
+/// <param name="Kind">The kind of field storage.</param>
+/// <param name="IsStatic">Whether the field belongs to the type.</param>
+/// <param name="IsReadOnly">Whether the field is readonly.</param>
+/// <param name="Type">The field type's display name.</param>
+/// <param name="ContainingTypeIdentity">The assembly-aware declaring type identity, when needed.</param>
 public sealed record IrFieldRef(string Assembly, string ContainingType, string Name, IrFieldKind Kind,
                                 bool IsStatic, bool IsReadOnly, string Type, string? ContainingTypeIdentity = null)
 {
@@ -304,6 +312,9 @@ public sealed record IrFieldRef(string Assembly, string ContainingType, string N
     public bool IsVolatile { get; init; }
 
     public bool IsContainingTypeReadOnly { get; init; }
+
+    /// <summary>The assembly-aware field type key, when the field's type is known.</summary>
+    public string? FieldTypeKey { get; init; }
 }
 
 public sealed record IrPhiInput(IrFlowPredecessor Predecessor, int Value);

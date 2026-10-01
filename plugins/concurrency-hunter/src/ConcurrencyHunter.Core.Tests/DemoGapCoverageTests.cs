@@ -43,8 +43,8 @@ public sealed class DemoGapCoverageTests
 
         Assert.Equal(SemanticGapKinds.UNKNOWN_LIBRARY, gap.Kind);
         Assert.Equal(1, web.Skips.GetValueOrDefault(CoverageCounters.OPAQUE_BY_PROJECT));
-        // The project-model-holder-fate case's EqualityComparer<Tag>.Create is the one call the project layer knows.
-        Assert.Equal(1, web.Skips.GetValueOrDefault(CoverageCounters.KNOWN_CALL_PROJECT));
+        // The comparer and the three cache calls are known by the project layer.
+        Assert.Equal(4, web.Skips.GetValueOrDefault(CoverageCounters.KNOWN_CALL_PROJECT));
         Assert.Equal(0, web.Skips.GetValueOrDefault(CoverageCounters.MODEL_ENTRY_REJECTED));
         Assert.DoesNotContain(web.Diagnostics, diagnostic => diagnostic.StartsWith("library-models:", StringComparison.Ordinal));
     }

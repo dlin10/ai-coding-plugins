@@ -10,6 +10,6 @@ kind: FlowAnonymousFunction | demo: 0 | eshop: 18 | question: 68
 kind: InterpolatedString | demo: 0 | eshop: 72 | question: 69
 kind: InterpolatedStringText | demo: 0 | eshop: 114 | question: 69
 kind: Interpolation | demo: 0 | eshop: 83 | question: 69
-kind: SimpleAssignment | demo: 8 | eshop: 24 | question: 63
+kind: SimpleAssignment | demo: 9 | eshop: 24 | question: 63
 kind: Tuple | demo: 0 | eshop: 6 | question: 70
 kind: TypeOf | demo: 1 | eshop: 19 | question: 64

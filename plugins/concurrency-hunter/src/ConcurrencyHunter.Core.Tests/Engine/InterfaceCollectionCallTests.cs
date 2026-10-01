@@ -188,20 +188,17 @@ public sealed class InterfaceCollectionCallTests
         var run = Analyze(ActionSource("ThingCollection.CopyTo(Copies, 0);"));
         var direct = Analyze(ActionSource("Things.CopyTo(Copies, 0);"));
 
-        // The unknown effect reaches the destination's cells and the object they hold, as it does for the direct call.
+        // Both forms copy the elements and write the destination's cells, while reading the receiver's cells.
         foreach (var form in new[] { run, direct })
         {
-            Assert.Contains(form.Collection.Accesses, access => access.Operation.IsUnknownEffect() && Path(access.Resource) == "Copies.[?]");
-            Assert.Contains(form.Collection.Accesses, access => access.Operation.IsUnknownEffect() && Path(access.Resource) == "Value");
-            Assert.Single(form.Collection.Coverage.Gaps, gap => gap.Callee.Contains(".CopyTo(", StringComparison.Ordinal));
+            Assert.Contains(form.Collection.Accesses, access => access.Operation == AccessOperation.Write && Path(access.Resource) == "Copies.[?]");
+            Assert.Contains(form.Collection.Accesses, access => access.Operation == AccessOperation.Read && Path(access.Resource) == "Things.[?]");
+            Assert.DoesNotContain(form.Collection.Accesses, access => access.Operation.IsUnknownEffect());
+            Assert.Empty(form.Collection.Coverage.Gaps);
         }
 
-        Assert.Equal(UnknownEffects(direct), UnknownEffects(run));
+        Assert.Equal(Everything(direct), Everything(run));
     }
-
-    private static IReadOnlyList<string> UnknownEffects(EngineRun run) =>
-        run.Collection.Accesses.Where(access => access.Operation.IsUnknownEffect())
-           .Select(access => access.Resource.Identity).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
     [Fact]
     public void Multidimensional_array_through_IList_is_refused_but_enumerated()

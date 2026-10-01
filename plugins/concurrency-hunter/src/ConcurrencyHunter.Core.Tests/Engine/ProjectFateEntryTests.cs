@@ -35,7 +35,7 @@ public sealed class ProjectFateEntryTests
                 public static void Mixed(Version version, Action<string> action) { }
                 public static void Produce(Func<int> make, Action<object> use) { }
                 public static void After(Action first, Action<object> then) { }
-                public static void Take(IEnumerable<string> source, Version other, Action<object> action) { }
+                public static void Take(IEnumerable<string> source, Version other, Action<IEnumerable<string>> action) { }
                 public static void Run(Action callback) { }
                 public static void Twice(Action first, Action second) { }
                 public static void Many(Action[] actions) { }

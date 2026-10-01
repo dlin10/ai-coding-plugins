@@ -12,6 +12,303 @@
   },
   "models": [
     {
+      "member": "M:System.Array.Clear(System.Array)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Clear(System.Array,System.Int32,System.Int32)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Copy(System.Array,System.Array,System.Int32)",
+      "effects": {
+        "destinationArray": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "destinationArray": [
+          "elements(arg:sourceArray)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Copy(System.Array,System.Array,System.Int64)",
+      "effects": {
+        "destinationArray": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "destinationArray": [
+          "elements(arg:sourceArray)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)",
+      "effects": {
+        "destinationArray": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "destinationArray": [
+          "elements(arg:sourceArray)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Copy(System.Array,System.Int64,System.Array,System.Int64,System.Int64)",
+      "effects": {
+        "destinationArray": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "destinationArray": [
+          "elements(arg:sourceArray)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.ConstrainedCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)",
+      "effects": {
+        "destinationArray": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "destinationArray": [
+          "elements(arg:sourceArray)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.CopyTo(System.Array,System.Int32)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "array": [
+          "elements(this)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.CopyTo(System.Array,System.Int64)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "array": [
+          "elements(this)"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Fill``1(``0[],``0)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "array": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Fill``1(``0[],``0,System.Int32,System.Int32)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "array": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Resize``1(``0[]@,System.Int32)",
+      "effects": {},
+      "outputs": {
+        "array": "collection(elements(arg:array))"
+      }
+    },
+    {
+      "member": "M:System.Array.Reverse(System.Array)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Reverse(System.Array,System.Int32,System.Int32)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Reverse``1(``0[])",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Reverse``1(``0[],System.Int32,System.Int32)",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int32)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int32,System.Int32)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int32,System.Int32,System.Int32)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int32[])",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int64)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int64,System.Int64)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int64,System.Int64,System.Int64)",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.SetValue(System.Object,System.Int64[])",
+      "effects": {
+        "this": [
+          "writes-cells"
+        ]
+      },
+      "stores": {
+        "this": [
+          "arg:value"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Array.Sort``1(``0[],System.Comparison{``0})",
+      "effects": {
+        "array": [
+          "writes-cells"
+        ]
+      },
+      "fates": {
+        "comparison": {
+          "fate": "invoke-now",
+          "inputs": [
+            [
+              "elements(arg:array)"
+            ],
+            [
+              "elements(arg:array)"
+            ]
+          ]
+        }
+      }
+    },
+    {
       "member": "M:System.Object.#ctor",
       "effects": {}
     },
@@ -143,7 +440,7 @@
           ]
         }
       },
-      "note": "Phase 5c run B: the System.Array statics that take a delegate and no comparer run it during the call, handed the array's cells. Sort<T>(T[], Comparison<T>) stays opaque: no effect writes an array's cells."
+      "note": "Phase 5c run B: the System.Array statics that take a delegate and no comparer run it during the call, handed the array's cells."
     },
     {
       "member": "M:System.Array.Exists``1(``0[],System.Predicate{``0})~System.Boolean",

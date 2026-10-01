@@ -111,14 +111,17 @@ internal static class ProjectModelResolver
                                         group.Key.ResolvedVersion)
             {
                 Result = conflict ? null : first.Result,
-                Fates = conflict ? [] : first.Fates
+                Fates = conflict ? [] : first.Fates,
+                Stores = conflict ? new Dictionary<string, IReadOnlyList<LibraryValue>>() : first.Stores,
+                Outputs = conflict ? new Dictionary<string, LibraryResult>() : first.Outputs,
+                Keeps = conflict ? new Dictionary<string, IReadOnlyList<LibraryValue>>() : first.Keeps
             });
         }
         return (models.Count == 0 ? LibraryModels.BuiltIn : LibraryModels.WithProject(models), rejections);
     }
 
     private static bool Alike(ProjectModelEntry a, ProjectModelEntry b) => a.Opaque == b.Opaque &&
-        (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates));
+        (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates, a.Stores, b.Stores, a.Outputs, b.Outputs, a.Keeps, b.Keeps));
 
     private static SupportedAssemblyVersion Range(ProjectModelEntry entry, IAssemblySymbol assembly)
     {
@@ -133,10 +136,10 @@ internal static class ProjectModelResolver
                                                 method.ContainingAssembly.Identity.Version >= range.Maximum) ?
                    "assembly version is outside the entry's versions." :
                method.MethodKind == MethodKind.PropertySet ? "setters are not supported." :
-               LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation) is { } refusal ? refusal :
+               LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation, entry.Effects, entry.Stores, entry.Outputs, entry.Keeps) is { } refusal ? refusal :
                LibraryModels.IsRecognizedType(typeName) ? "a phase 3-4 recognizer owns this type." :
                method.DeclaringSyntaxReferences.Length != 0 ? "member has a body in the run." :
-               entry.Effects.Any(effect => method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?
+               entry.Effects.Any(effect => effect.Parameter != "this" && method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?
                    "an effect names a missing parameter." : null;
     }
 

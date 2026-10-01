@@ -13,7 +13,10 @@ public enum LibraryEffectKind
     DeepRead,
 
     /// <summary>A write of every field of the argument's own regions, one level deep.</summary>
-    WriteArgument
+    WriteArgument,
+
+    /// <summary>An ordinary write of every cell of each array the target points to.</summary>
+    WriteCells
 }
 
 public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
@@ -21,16 +24,27 @@ public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
     public static LibraryEffect DeepReadOf(string parameter) => new(LibraryEffectKind.DeepRead, parameter);
 
     public static LibraryEffect WriteOf(string parameter) => new(LibraryEffectKind.WriteArgument, parameter);
+
+    public static LibraryEffect WriteCellsOf(string parameter) => new(LibraryEffectKind.WriteCells, parameter);
 }
 
 /// <summary>One member the library model describes: the <see cref="DocumentationCommentId"/> of its original definition, the assemblies it
 /// may be declared in with their version ranges, and its effects; a member with none touches nothing. <see cref="Result"/> and
 /// <see cref="Fates"/> say what the call returns and where the delegates it receives run.</summary>
+/// <param name="Id">The member's declaration id.</param>
+/// <param name="Assemblies">The supported assemblies and version ranges.</param>
+/// <param name="Effects">The effects on the member's targets.</param>
+/// <param name="Layer">The model's layer.</param>
+/// <param name="DeclaredOpaque">Whether the entry makes the member opaque.</param>
+/// <param name="ResolvedVersion">The assembly version a project entry resolved in.</param>
 public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects,
                                   ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null)
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
 }
 
 /// <summary>A type every one of whose members is known without effect when it takes only immutable arguments (R2). With
@@ -50,11 +64,21 @@ public enum LibraryMatchKind
 
 /// <summary>A call a library model recognizes: the member's id, its effects, and the assembly it was found in with the range the model
 /// supports for that assembly.</summary>
+/// <param name="Kind">Whether the member is known, opaque or out of range.</param>
+/// <param name="MemberId">The matched member's declaration id.</param>
+/// <param name="Effects">The model's effects.</param>
+/// <param name="Assembly">The assembly declaring the member.</param>
+/// <param name="Range">The model's supported version range.</param>
+/// <param name="Layer">The model's layer.</param>
+/// <param name="DeclaredOpaque">Whether a project entry declares the member opaque.</param>
 public sealed record LibraryMatch(LibraryMatchKind Kind, string MemberId, IReadOnlyList<LibraryEffect> Effects, AssemblyIdentity Assembly,
                                   SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false)
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
 }
 
 /// <summary>The built-in library models of TD-034a: known calls by exact member identity, assembly name and version range,
@@ -288,7 +312,7 @@ public sealed class LibraryModels
 
     private static LibraryMatch? Match(LibraryModel model, IAssemblySymbol? assembly, string id) =>
         Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
-            ? match with { Result = model.Result, Fates = model.Fates }
+            ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps }
             : null;
 
     private static LibraryMatch? Match(SupportedAssemblyVersion? range, IAssemblySymbol? assembly, string id,

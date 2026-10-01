@@ -11,7 +11,8 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// a member the map decides differently, and one a new version of the framework adds, is a decision someone makes.</summary>
 public sealed class InterfaceMemberCoverageTests
 {
-    /// <summary>The members of the interfaces of each kind that no member of the table models, as kind, interface and member.</summary>
+    /// <summary>The members of the interfaces of each kind that neither the table nor a direct array library model decides,
+    /// as kind, interface and member.</summary>
     private static readonly string[] Opaque =
     [
         "System.Collections.Concurrent.ConcurrentBag: System.Collections.Concurrent.IProducerConsumerCollection<T>.CopyTo",
@@ -107,20 +108,15 @@ public sealed class InterfaceMemberCoverageTests
         "System.Collections.Generic.Stack: System.Collections.ICollection.CopyTo",
         "System.Collections.Generic.Stack: System.Collections.ICollection.get_IsSynchronized",
         "System.Collections.Generic.Stack: System.Collections.ICollection.get_SyncRoot",
-        "[,]: System.Collections.ICollection.CopyTo",
         "[,]: System.Collections.ICollection.get_IsSynchronized",
         "[,]: System.Collections.ICollection.get_SyncRoot",
-        "[,]: System.Collections.IList.Clear",
         "[,]: System.Collections.IList.get_IsFixedSize",
         "[,]: System.Collections.IStructuralComparable.CompareTo",
         "[,]: System.Collections.IStructuralEquatable.Equals",
         "[,]: System.Collections.IStructuralEquatable.GetHashCode",
         "[,]: System.ICloneable.Clone",
-        "[]: System.Collections.Generic.ICollection<T>.CopyTo",
-        "[]: System.Collections.ICollection.CopyTo",
         "[]: System.Collections.ICollection.get_IsSynchronized",
         "[]: System.Collections.ICollection.get_SyncRoot",
-        "[]: System.Collections.IList.Clear",
         "[]: System.Collections.IList.get_IsFixedSize",
         "[]: System.Collections.IStructuralComparable.CompareTo",
         "[]: System.Collections.IStructuralEquatable.Equals",

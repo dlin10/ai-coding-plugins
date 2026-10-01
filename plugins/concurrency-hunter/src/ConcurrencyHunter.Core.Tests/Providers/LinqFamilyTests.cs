@@ -258,8 +258,16 @@ public sealed class LinqFamilyTests
             string.Concat((fate.Inputs ?? []).Select(input => "[" + string.Join(',', input.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]"))));
 
     private static string Effects(LibraryModel member) =>
-        string.Join(',', member.Effects.Select(effect => $"{(effect.Kind == LibraryEffectKind.DeepRead ? "reads-deep" : "writes-arg")}:{effect.Parameter}")
+        string.Join(',', member.Effects.Select(effect => $"{Effect(effect.Kind)}:{effect.Parameter}")
                                        .Order(StringComparer.Ordinal));
+
+    private static string Effect(LibraryEffectKind kind) => kind switch
+    {
+        LibraryEffectKind.DeepRead => "reads-deep",
+        LibraryEffectKind.WriteArgument => "writes-arg",
+        LibraryEffectKind.WriteCells => "writes-cells",
+        _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {kind}.")
+    };
 
     private static string Ranges(LibraryModel member) =>
         string.Join(';', member.Assemblies.Select(range => $"{range.AssemblyName}@{range.Minimum}-{range.MaximumExclusive}"));

@@ -10,6 +10,9 @@ internal sealed record ProjectModelEntry(string Path, int Position, string Membe
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
+    public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
 }
 
 internal sealed record ModelRejection(string Path, string? Entry, string Reason)
@@ -160,7 +163,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
     private static ProjectModelEntry ParseEntry(JsonElement entry, string path, int position, IReadOnlyList<string>? defaults,
                                                 (Version Minimum, Version Maximum)? defaultVersions)
     {
-        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "opaque", "note"]);
+        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps", "opaque", "note"]);
         if (!entry.TryGetProperty("member", out var memberValue) || memberValue.ValueKind != JsonValueKind.String ||
             memberValue.GetString() is not { } member ||
             !BuiltInModelReader.IsMemberId(member) && !IsPattern(member))
@@ -197,6 +200,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                     {
                         "reads-deep" => LibraryEffect.DeepReadOf(effect.Name),
                         "writes-arg" => LibraryEffect.WriteOf(effect.Name),
+                        "writes-cells" => LibraryEffect.WriteCellsOf(effect.Name),
                         _ => throw new FormatException($"unknown effect kind '{name}'.")
                     });
                 }
@@ -204,8 +208,11 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         }
         var hasResult = entry.TryGetProperty("result", out var resultValue);
         var hasFates = entry.TryGetProperty("fates", out var fatesValue);
-        if (hasOpaque && (hasResult || hasFates))
-            throw new FormatException("result and fates go only with effects.");
+        var hasStores = entry.TryGetProperty("stores", out var storesValue);
+        var hasOutputs = entry.TryGetProperty("outputs", out var outputsValue);
+        var hasKeeps = entry.TryGetProperty("keeps", out var keepsValue);
+        if (hasOpaque && (hasResult || hasFates || hasStores || hasOutputs || hasKeeps))
+            throw new FormatException("result, fates, stores, outputs and keeps go only with effects.");
         if (hasResult && resultValue.ValueKind != JsonValueKind.String)
             throw new FormatException("result must be a string.");
         var fates = new List<RawFate>();
@@ -215,11 +222,50 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             foreach (var fate in fatesValue.EnumerateObject())
                 fates.Add(Fate(fate));
         }
-        var (result, parsedFates) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates);
+        Dictionary<string, string[]>? rawStores = null;
+        if (hasStores)
+        {
+            Properties(storesValue, null);
+            rawStores = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var store in storesValue.EnumerateObject())
+            {
+                if (store.Value.ValueKind != JsonValueKind.Array || store.Value.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String))
+                    throw new FormatException("stores must map a target to a non-empty array of values.");
+                rawStores.Add(store.Name, store.Value.EnumerateArray().Select(value => value.GetString()!).ToArray());
+            }
+        }
+        Dictionary<string, string>? rawOutputs = null;
+        if (hasOutputs)
+        {
+            Properties(outputsValue, null);
+            rawOutputs = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var output in outputsValue.EnumerateObject())
+            {
+                if (output.Value.ValueKind != JsonValueKind.String)
+                    throw new FormatException("outputs must map a parameter to a result string.");
+                rawOutputs.Add(output.Name, output.Value.GetString()!);
+            }
+        }
+        Dictionary<string, string[]>? rawKeeps = null;
+        if (hasKeeps)
+        {
+            Properties(keepsValue, null);
+            rawKeeps = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var keep in keepsValue.EnumerateObject())
+            {
+                if (keep.Value.ValueKind != JsonValueKind.Array || keep.Value.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String))
+                    throw new FormatException("keeps must map a keeper to a non-empty array of values.");
+                rawKeeps.Add(keep.Name, keep.Value.EnumerateArray().Select(value => value.GetString()!).ToArray());
+            }
+        }
+        var (result, parsedFates, stores, outputs, keeps) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates, effects, rawStores, rawOutputs, rawKeeps);
         return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque)
         {
             Result = result,
-            Fates = parsedFates
+            Fates = parsedFates,
+            Stores = stores,
+            Outputs = outputs,
+            Keeps = keeps
         };
     }
 

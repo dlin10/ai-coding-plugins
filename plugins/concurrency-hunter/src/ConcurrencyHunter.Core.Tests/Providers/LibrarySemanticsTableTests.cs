@@ -373,7 +373,11 @@ public sealed class LibrarySemanticsTableTests
         Assert.All(Table.Members.Where(member => member.Effects.Count != 0), member =>
         {
             var method = (IMethodSymbol)DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value).Single();
-            Assert.All(member.Effects, effect => Assert.Contains(method.Parameters, parameter => parameter.Name == effect.Parameter));
+            Assert.All(member.Effects, effect =>
+            {
+                if (effect.Parameter == "this") Assert.False(method.IsStatic);
+                else Assert.Contains(method.Parameters, parameter => parameter.Name == effect.Parameter);
+            });
         });
     }
 
@@ -400,17 +404,22 @@ public sealed class LibrarySemanticsTableTests
         var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
                          .ToHashSet();
-        var list = Phase5aList.Concat(runB).ToHashSet();
+        var list = Phase5aList.Concat(runB).Concat(ArrayCellWriters).ToHashSet();
         var resultOnly = Phase5aList.Select(entry => entry.Id)
                                     .Where(id => R6Phase5aNames.Any(name => id.StartsWith($"M:System.Linq.Enumerable.{name}``", StringComparison.Ordinal)))
                                     .ToArray();
         var described = Table.Members.Where(member => member.Fates.Count != 0 || member.Result is not null).Select(member => member.Id);
+        var deserializers = Phase5aList.Select(entry => entry.Id).Where(id =>
+            id.StartsWith("M:System.Text.Json.JsonSerializer.Deserialize", StringComparison.Ordinal) ||
+            id.StartsWith("M:Newtonsoft.Json.JsonConvert.DeserializeObject", StringComparison.Ordinal)).ToArray();
 
-        Assert.Equal(Phase5aList.Length + runB.Length, list.Count);
+        Assert.Equal(Phase5aList.Length + runB.Length + ArrayCellWriters.Length, list.Count);
         Assert.Empty(table.Except(list));
         Assert.Empty(list.Except(table));
         Assert.Equal(15, resultOnly.Length);
-        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Order(StringComparer.Ordinal), described.Order(StringComparer.Ordinal));
+        Assert.Equal(10, deserializers.Length);
+        Assert.All(Table.Members.Where(member => deserializers.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("new", member.Result?.ToString()));
+        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Order(StringComparer.Ordinal), described.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -794,19 +803,54 @@ public sealed class LibrarySemanticsTableTests
     /// <summary>The members phase 5c run B adds with their effects: <c>Comparer&lt;T&gt;.Create</c> and every public Enumerable method taking
     /// a delegate and neither an <c>IEqualityComparer</c> nor an <c>IComparer</c>, of which ExceptBy and IntersectBy read their
     /// <c>second</c> deep, and every public static of <c>System.Array</c> taking a delegate and no <c>IComparer</c> but <c>Sort</c>.</summary>
+    private static readonly (string Id, string Effects)[] ArrayCellWriters =
+    [
+        ("M:System.Array.Clear(System.Array)", "WriteCells:array"),
+        ("M:System.Array.Clear(System.Array,System.Int32,System.Int32)", "WriteCells:array"),
+        ("M:System.Array.Copy(System.Array,System.Array,System.Int32)", "WriteCells:destinationArray"),
+        ("M:System.Array.Copy(System.Array,System.Array,System.Int64)", "WriteCells:destinationArray"),
+        ("M:System.Array.Copy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)", "WriteCells:destinationArray"),
+        ("M:System.Array.Copy(System.Array,System.Int64,System.Array,System.Int64,System.Int64)", "WriteCells:destinationArray"),
+        ("M:System.Array.ConstrainedCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32)", "WriteCells:destinationArray"),
+        ("M:System.Array.CopyTo(System.Array,System.Int32)", "WriteCells:array"),
+        ("M:System.Array.CopyTo(System.Array,System.Int64)", "WriteCells:array"),
+        ("M:System.Array.Fill``1(``0[],``0)", "WriteCells:array"),
+        ("M:System.Array.Fill``1(``0[],``0,System.Int32,System.Int32)", "WriteCells:array"),
+        ("M:System.Array.Resize``1(``0[]@,System.Int32)", ""),
+        ("M:System.Array.Reverse(System.Array)", "WriteCells:array"),
+        ("M:System.Array.Reverse(System.Array,System.Int32,System.Int32)", "WriteCells:array"),
+        ("M:System.Array.Reverse``1(``0[])", "WriteCells:array"),
+        ("M:System.Array.Reverse``1(``0[],System.Int32,System.Int32)", "WriteCells:array"),
+        ("M:System.Array.SetValue(System.Object,System.Int32)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int32,System.Int32)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int32,System.Int32,System.Int32)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int32[])", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int64)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int64,System.Int64)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int64,System.Int64,System.Int64)", "WriteCells:this"),
+        ("M:System.Array.SetValue(System.Object,System.Int64[])", "WriteCells:this"),
+    ];
+
     private static (string Id, string Effects)[] RunBFamilies() =>
         new[] { "System.Linq.Enumerable", "System.Array" }
             .SelectMany(type => Real.Value.GetTypeByMetadataName(type)!.GetMembers().OfType<IMethodSymbol>())
-            .Where(method => method.DeclaredAccessibility == Accessibility.Public && method.IsStatic && method.Name != "Sort" &&
+            .Where(method => method.DeclaredAccessibility == Accessibility.Public && method.IsStatic &&
                              method.Parameters.Any(parameter => parameter.Type.TypeKind == TypeKind.Delegate) &&
                              !method.Parameters.Any(parameter => parameter.Type.OriginalDefinition.Name is "IEqualityComparer" or "IComparer"))
-            .Select(method => (DocumentationCommentId.CreateDeclarationId(method)!, method.Name is "ExceptBy" or "IntersectBy" ? "DeepRead:second" : ""))
+            .Select(method => (DocumentationCommentId.CreateDeclarationId(method)!, method.Name is "ExceptBy" or "IntersectBy" ? "DeepRead:second" :
+                method.ContainingType.SpecialType == SpecialType.System_Array && method.Name == "Sort" ? "WriteCells:array" : ""))
             .Append(("M:System.Collections.Generic.Comparer`1.Create(System.Comparison{`0})~System.Collections.Generic.Comparer{`0}", ""))
             .ToArray();
 
     private static string Effects(IEnumerable<LibraryEffect> effects) =>
         string.Join(",", effects.OrderBy(effect => effect.Kind).ThenBy(effect => effect.Parameter, StringComparer.Ordinal)
-                                .Select(effect => $"{effect.Kind}:{effect.Parameter}"));
+                                .Select(effect => $"{effect.Kind switch
+                                {
+                                    LibraryEffectKind.DeepRead => "DeepRead",
+                                    LibraryEffectKind.WriteArgument => "WriteArgument",
+                                    LibraryEffectKind.WriteCells => "WriteCells",
+                                    _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
+                                }}:{effect.Parameter}"));
 
     private static (string Assembly, string Parameter) Summary(LibraryMatch match) =>
         (match.Assembly.Name, Assert.Single(match.Effects, effect => effect.Kind == LibraryEffectKind.DeepRead).Parameter);

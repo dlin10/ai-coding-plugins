@@ -124,6 +124,9 @@ public static class MethodSummaryBuilder
                     case IrCallOperation { Library: { InRange: true, DeclaredOpaque: false, Result: not null }, ResultValue: int modelled }:
                         ModelCall(modelled);
                         break;
+                    case IrCallOperation { Library: { InRange: true, DeclaredOpaque: false, Outputs.Count: > 0 } } outputCall:
+                        _modeledCalls.Add(outputCall.Id);
+                        break;
                 }
             }
         }
@@ -289,6 +292,7 @@ public static class MethodSummaryBuilder
                             Arguments = Arguments(call, delegates),
                             ServiceCall = call.ServiceCall,
                             Library = call.Library,
+                            HeldLocks = locks,
                             IsGroupingKey = call.IsGroupingKey,
                             Collection = call.Collection,
                             Implementations = call.Implementations,
@@ -300,30 +304,40 @@ public static class MethodSummaryBuilder
                         });
                         if (call.Library is { InRange: true } library)
                         {
-                            // A call that returns a library sequence does nothing to its arguments where it stands: its effects and the
-                            // enumeration of what it names the elements of happen where the sequence is enumerated (R5).
-                            var deferred = library.Result?.Kind == IrResultKind.Sequence;
-                            argumentEffects.AddRange(library.Effects.SelectMany(effect => effect.Arguments, (effect, argument) =>
-                                                                                    new SummaryArgumentEffect(effect.Kind, call.Id,
-                                                                                     Final(Points(argument.Value), delegates), Collection(argument.Value),
-                                                                                     argument.IsSlice, call.Provenance, locks)
-                                                                                    {
-                                                                                        IsSequence = argument.IsSequence,
-                                                                                        IsDeferred = deferred
-                                                                                    }));
-                            // An argument the model names the elements of is enumerated at the call as a `foreach` enumerates it, once
-                            // however often the model names it; a deep read of it already reads what an enumeration would (R3).
-                            foreach (var ordinal in library.EnumeratedArguments())
+                            foreach (var store in library.Stores)
                             {
-                                if (library.Effects.Any(effect => effect.Kind == IrLibraryEffectKind.DeepRead && effect.ParameterOrdinal == ordinal) ||
-                                    call.ArgumentAt(ordinal) is not int sequence)
-                                    continue;
-                                argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, call.Id, Final(Points(sequence), delegates),
-                                                                              Collection(sequence), SpanTypes.Names(_values[sequence].Type),
-                                                                              call.Provenance, locks)
+                                var target = store.Key == IrLibraryCall.RECEIVER ? call.ReceiverValue : call.ArgumentAt(store.Key);
+                                elements.Add(new ElementTransfer(call.Id, ElementOperationKind.Store, Final(Points(target), delegates),
+                                                                 new HashSet<AbstractValue> { new LibraryStoredValue(call.Id, store.Key) })
                                 {
-                                    IsDeferred = deferred
+                                    IsCollection = true,
+                                    Producers = ValueOrigin.Union(store.Value.Select(value => ModelOrigin(call, value, delegates)))
                                 });
+                            }
+                            foreach (var keep in library.Keeps)
+                                elements.Add(new ElementTransfer(call.Id, ElementOperationKind.Store,
+                                                                 new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
+                                                                 new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
+                                {
+                                    Slot = PathValue.KEPT,
+                                    IsCollection = true,
+                                    Producers = ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(call, value, delegates)))
+                                });
+                            argumentEffects.AddRange(CollectionObjects.LibraryEffects(opaqueCalls[^1], locks, Bind));
+
+                            IEnumerable<SummaryArgumentEffect> Bind(IrLibraryEffectKind kind, int ordinal)
+                            {
+                                if (kind == IrLibraryEffectKind.Enumerate)
+                                {
+                                    if ((ordinal == IrLibraryCall.RECEIVER ? call.ReceiverValue : call.ArgumentAt(ordinal)) is int sequence)
+                                        yield return new SummaryArgumentEffect(kind, call.Id, Final(Points(sequence), delegates), Collection(sequence),
+                                                                              SpanTypes.Names(_values[sequence].Type), call.Provenance, locks);
+                                    yield break;
+                                }
+                                foreach (var argument in library.Effects.Where(effect => effect.Kind == kind && effect.ParameterOrdinal == ordinal)
+                                                                       .SelectMany(effect => effect.Arguments))
+                                    yield return new SummaryArgumentEffect(kind, call.Id, Final(Points(argument.Value), delegates), Collection(argument.Value),
+                                                                          argument.IsSlice, call.Provenance, locks) { IsSequence = argument.IsSequence };
                             }
                         }
 
@@ -514,6 +528,7 @@ public static class MethodSummaryBuilder
         /// <summary>Every write of a call's or a <c>dynamic</c> operation's result into a field, an array cell or a collection that holds
         /// it, with the objects written into (R4). The result is followed through assignments, conversions, phis and awaits, and
         /// no further: what a callee does with it is the callee's.</summary>
+        /// <param name="delegates">The final delegate creations used to resolve the stored objects.</param>
         private List<SummaryResultStore> ResultStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
             var stores = new List<SummaryResultStore>();
@@ -533,6 +548,35 @@ public static class MethodSummaryBuilder
 
             foreach (var operation in _operations)
             {
+                if (operation is IrCallOperation original)
+                foreach (var (modelCall, receiverKinds) in LibraryModelCalls(original))
+                {
+                    var model = modelCall.Library!;
+                    if (!model.InRange || model.DeclaredOpaque)
+                        continue;
+                    foreach (var store in model.Stores)
+                    {
+                        var target = store.Key == IrLibraryCall.RECEIVER ? modelCall.ReceiverValue : modelCall.ArgumentAt(store.Key);
+                        foreach (var source in ValueOrigin.Union(store.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                            stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), null)
+                            {
+                                Receivers = Final(Points(original.ReceiverValue), delegates),
+                                ReceiverKinds = receiverKinds,
+                                InterfaceMethod = receiverKinds is null ? null : InterfaceMethodOf(original)
+                            });
+                    }
+                    foreach (var keep in model.Keeps)
+                    foreach (var source in ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                        stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new LibraryKeeperValue(modelCall.Id, keep.Key) }, null));
+                    foreach (var output in model.Outputs)
+                    {
+                        if (modelCall.ArgumentAt(output.Key) is not int argument)
+                            continue;
+                        foreach (var reference in References(argument))
+                        foreach (var source in ValueOrigin.Union(output.Value.Values.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                            stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new ReferenceLocationValue(reference, Read: false) }, null));
+                    }
+                }
                 (int Value, int? Target, IrFieldRef? Field, IReadOnlySet<string>? Kinds)[] written = operation switch
                 {
                     IrStoreFieldOperation store => [(store.Value, store.ReceiverValue, store.Field.IsStatic ? store.Field : null, null)],
@@ -559,6 +603,41 @@ public static class MethodSummaryBuilder
 
             return stores;
         }
+
+        private static IEnumerable<(IrCallOperation Call, IReadOnlySet<string>? Kinds)> LibraryModelCalls(IrCallOperation call)
+        {
+            if (call.Library is not null)
+                yield return (call, null);
+            foreach (var implementation in call.Implementations.Where(implementation => implementation.Library is not null))
+            {
+                yield return (call with
+                {
+                    Library = implementation.Library,
+                    ReceiverValue = implementation.ReceiverParameterOrdinal is null ? call.ReceiverValue : null,
+                    ArgumentValues = implementation.ReceiverParameterOrdinal is not null && call.ReceiverValue is int receiver ? [receiver] : call.ArgumentValues,
+                    ArgumentParameterOrdinals = implementation.ReceiverParameterOrdinal is int ordinal ? [ordinal] : call.ArgumentParameterOrdinals
+                }, new HashSet<string> { implementation.Kind });
+            }
+        }
+
+        private ValueOrigin ModelOrigin(IrCallOperation call, IrModelValue value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) => value switch
+        {
+            IrModelArgument argument => call.ArgumentAt(argument.ParameterOrdinal) is int input ? Producers(input) : ValueOrigin.None,
+            IrModelThis => call.ReceiverValue is int receiver ? Producers(receiver) : ValueOrigin.None,
+            IrModelElements { Source: IrModelArgument argument } => call.ArgumentAt(argument.ParameterOrdinal) is int input
+                ? new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(input), delegates)] } : ValueOrigin.None,
+            IrModelElements { Source: IrModelThis } => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(call.ReceiverValue), delegates)] },
+            IrModelElements elements => ModelOrigin(call, elements.Source, delegates),
+            IrModelSequence sequence => ValueOrigin.Union(sequence.Values.Select(item => ModelOrigin(call, item, delegates))),
+            IrModelGrouping grouping => ValueOrigin.Union([ModelOrigin(call, grouping.Key, delegates), ModelOrigin(call, grouping.Values, delegates)]),
+            IrModelReturns => new ValueOrigin(new HashSet<int> { call.Id }, new HashSet<int>(), []),
+            IrModelKept kept => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), [])
+            {
+                Kept = [new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, kept.KeeperOrdinal, Read: true) }]
+            },
+            IrModelHolderArgument => ValueOrigin.None,
+            _ => throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.")
+        };
 
         /// <summary>Which objects a call puts the argument of <paramref name="ordinal"/> into: for its own member, every object it is on
         /// where that member holds it (null) and none where it does not (empty); for a call through an interface, the kinds of objects it
@@ -670,12 +749,26 @@ public static class MethodSummaryBuilder
         /// holds it; what a member hands out, and the view a member makes, go into a storage of this call site on each object of those
         /// kinds, which is what the call's result and <c>out</c> arguments are. A member the object refuses holds and hands out nothing.
         /// </summary>
+        /// <param name="call">The interface call whose implementations supply transfers.</param>
+        /// <param name="delegates">The delegate creations used to resolve receiver values.</param>
         private IEnumerable<ElementTransfer> ImplementationTransfers(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
             if (call is not { Collection: null, ReceiverValue: int collection } || InterfaceMethodOf(call) is not { } method)
                 yield break;
 
             var receivers = Final(Points(collection), delegates);
+            foreach (var (modelCall, kinds) in LibraryModelCalls(call).Where(item => item.Kinds is not null))
+            foreach (var keep in modelCall.Library!.Keeps)
+                yield return new ElementTransfer(call.Id, ElementOperationKind.Store,
+                    new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
+                    new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
+                {
+                    Slot = PathValue.KEPT,
+                    IsCollection = true,
+                    Producers = ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))),
+                    ArrayKinds = keep.Key == IrLibraryCall.RECEIVER ? kinds : null,
+                    InterfaceMethod = method
+                };
             foreach (var (implementation, kinds) in ImplementationGroups(call))
             {
                 var member = implementation.Member;
@@ -988,6 +1081,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>Where a value comes from in the body: the calls and <c>dynamic</c> operations whose result it is, the parameters it
         /// is, and the fields it is read from (<see cref="ValueOrigin"/>).</summary>
+        /// <param name="value">The IR value whose origins are followed.</param>
         private ValueOrigin Producers(int value)
         {
             var calls = new HashSet<int>();
@@ -996,6 +1090,7 @@ public static class MethodSummaryBuilder
             var captured = new HashSet<string>(StringComparer.Ordinal);
             var elements = new List<IReadOnlySet<AbstractValue>>();
             var keys = new List<IReadOnlySet<AbstractValue>>();
+            var kept = new List<IReadOnlySet<AbstractValue>>();
             var visited = new HashSet<int>();
             var pending = new Stack<int>([value]);
             while (pending.TryPop(out var current))
@@ -1065,8 +1160,25 @@ public static class MethodSummaryBuilder
                     case IrAwaitOperation awaited:
                         pending.Push(awaited.TaskValue ?? awaited.AwaitableValue);
                         break;
+                    case IrCallOperation { Library: { InRange: true, DeclaredOpaque: false } model } call
+                        when call.RefResults.Any(pair => pair.Value == current && model.Outputs.ContainsKey(pair.Key)):
+                    {
+                        var outputOrigin = ValueOrigin.Union(call.RefResults.Where(pair => pair.Value == current && model.Outputs.ContainsKey(pair.Key))
+                                                           .SelectMany(pair => model.Outputs[pair.Key].Values)
+                                                           .Select(value => ModelOrigin(call, value, new Dictionary<CreationSite, DelegateCreationValue>())));
+                        calls.UnionWith(outputOrigin.Calls);
+                        parameters.UnionWith(outputOrigin.Parameters);
+                        fields.AddRange(outputOrigin.Fields);
+                        captured.UnionWith(outputOrigin.Captured);
+                        elements.AddRange(outputOrigin.Elements);
+                        keys.AddRange(outputOrigin.Keys);
+                        kept.AddRange(outputOrigin.Kept);
+                        break;
+                    }
                     case IrCallOperation call when call.ResultValue == current:
                         calls.Add(call.Id);
+                        if (call.Library is { InRange: true, DeclaredOpaque: false, Result: { } form })
+                            kept.AddRange(ValueOrigin.Union(form.Values.Select(item => ModelOrigin(call, item, new Dictionary<CreationSite, DelegateCreationValue>()))).Kept);
                         break;
                     case IrUnknownOperation { DynamicCallee: not null } dynamic:
                         calls.Add(dynamic.Id);
@@ -1074,7 +1186,7 @@ public static class MethodSummaryBuilder
                 }
             }
 
-            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements, Keys = keys };
+            var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements, Keys = keys, Kept = kept };
             return origin.IsNone ? ValueOrigin.None : origin;
         }
 
@@ -1327,6 +1439,7 @@ public static class MethodSummaryBuilder
                 IrLoadFieldOperation { Field.IsStatic: true } load => [new StaticFieldValue(load.Field)],
                 IrLoadFieldOperation { ReceiverValue: int receiver } load => Extend(_points[receiver], FieldSlot.Key(load.Field)),
                 IrLoadElementOperation load => Extend(_points[load.ReceiverValue], PathValue.ELEMENT),
+                IrLoadReferenceOperation load => References(load.AddressValue).Select(target => (AbstractValue)new ReferenceLocationValue(target, Read: true)).ToHashSet(),
                 // The object a `foreach` is at is one the storage it enumerates holds, whichever enumerator hands it out; a slice is
                 // the storage it is cut from (ADR 0010, TD-043).
                 // A dictionary's enumeration hands out pairs, each an object of its own holding a key and a value apart (ADR 0010,

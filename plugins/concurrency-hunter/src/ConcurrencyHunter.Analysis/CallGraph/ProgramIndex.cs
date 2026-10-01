@@ -109,6 +109,7 @@ public sealed class ProgramIndex
     /// <summary>The instance fields of an object of <paramref name="typeKey"/>, its own and those of its source base types, each
     /// named for the closed type that holds it; null when the type itself is not declared in source. A base from metadata ends
     /// the walk: its state is a library object's, which is no resource.</summary>
+    /// <param name="typeKey">The constructed type whose instance fields are requested.</param>
     public IReadOnlyList<IrFieldRef>? InstanceFieldsOf(string typeKey)
     {
         var fields = new List<IrFieldRef>();
@@ -120,9 +121,11 @@ public sealed class ProgramIndex
                 return fields.Count == 0 && visited.Count == 1 ? null : fields;
             var substitution = type.TypeParameterKeys.Zip(arguments).Where(pair => pair.First != pair.Second)
                                    .ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
-            fields.AddRange(type.InstanceFields.Select(field => field.ContainingTypeIdentity is { } identity && substitution.Count != 0
-                                                                    ? field with { ContainingTypeIdentity = Substitute(identity, substitution) }
-                                                                    : field));
+            fields.AddRange(type.InstanceFields.Select(field => substitution.Count == 0 ? field : field with
+            {
+                ContainingTypeIdentity = field.ContainingTypeIdentity is { } identity ? Substitute(identity, substitution) : null,
+                FieldTypeKey = field.FieldTypeKey is { } fieldType ? Substitute(fieldType, substitution) : null
+            }));
             current = type.BaseTypeKey is { } baseKey ? Substitute(baseKey, substitution) : null;
         }
 
@@ -289,7 +292,8 @@ public sealed class ProgramIndex
 
     /// <summary>A type key with every outermost type-argument list replaced by its argument count, and those arguments in
     /// order, containing types first.</summary>
-    private static (string Shape, IReadOnlyList<string> Arguments) Shape(string typeKey)
+    /// <param name="typeKey">The constructed type key to decompose by shape.</param>
+    internal static (string Shape, IReadOnlyList<string> Arguments) Shape(string typeKey)
     {
         var shape = new StringBuilder();
         var arguments = new List<string>();

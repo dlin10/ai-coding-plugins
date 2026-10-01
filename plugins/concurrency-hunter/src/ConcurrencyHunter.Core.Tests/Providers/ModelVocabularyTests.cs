@@ -19,7 +19,8 @@ public sealed class ModelVocabularyTests
     /// <summary>A compilation over the metadata references the engine fixture compiles against.</summary>
     private static readonly Lazy<Compilation> Fixture = new(() => CSharpCompilation.Create(
         "Models", [],
-        StubAssemblies.PlatformWithout([]).Concat(StubAssemblies.Names.Select(name => StubAssemblies.Get(name, StubAssemblies.DefaultVersion(name)))),
+        StubAssemblies.PlatformWithout([]).Concat(StubAssemblies.Names.Select(name => StubAssemblies.Get(name, StubAssemblies.DefaultVersion(name))))
+                                         .Append(MetadataReference.CreateFromFile(typeof(Newtonsoft.Json.JsonConvert).Assembly.Location)),
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
 
     /// <summary>How many parameters the <c>Invoke</c> of a built-in member's delegate parameter takes.</summary>
@@ -32,13 +33,15 @@ public sealed class ModelVocabularyTests
     [Fact]
     public void Every_built_in_fate_and_result_fits_its_member()
     {
-        var described = LibraryModels.BuiltIn.Members.Where(member => member.Fates.Count != 0 || member.Result is not null).ToArray();
+        var described = LibraryModels.BuiltIn.Members.Where(member => member.Fates.Count != 0 || member.Result is not null ||
+            member.Effects.Any(effect => effect.Kind == LibraryEffectKind.WriteCells) || member.Stores.Count != 0 || member.Outputs.Count != 0 || member.Keeps.Count != 0).ToArray();
 
         Assert.All(described, member =>
         {
             var methods = Resolve(member.Id);
             Assert.NotEmpty(methods);
-            Assert.All(methods, method => Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, Fixture.Value)));
+            Assert.All(methods, method => Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, Fixture.Value,
+                member.Effects, member.Stores, member.Outputs, member.Keeps)));
         });
         Assert.Equal(CarriedByTheFiles(), described.Length);
     }
@@ -64,6 +67,9 @@ public sealed class ModelVocabularyTests
     [InlineData("grouping(returns:keySelector,elements(arg:source))", false)]
     [InlineData("sequence(grouping(returns:k,sequence(returns:e)))", false)]
     [InlineData("arg:_value2", false)]
+    [InlineData("this", false)]
+    [InlineData("elements(this)", false)]
+    [InlineData("[this]", true)]
     [InlineData("sequence(returns:selector)", true)]
     [InlineData("collection(elements(arg:source))", true)]
     [InlineData("collection(arg:a,returns:b)", true)]
@@ -76,6 +82,9 @@ public sealed class ModelVocabularyTests
 
     [Theory]
     [InlineData("arg: source", false)]
+    [InlineData("this:x", false)]
+    [InlineData("this", true)]
+    [InlineData("[this,]", true)]
     [InlineData(" arg:source", false)]
     [InlineData("argument:source", false)]
     [InlineData("arg:", false)]
@@ -156,7 +165,9 @@ public sealed class ModelVocabularyTests
             using var document = JsonDocument.Parse(stream);
             count += document.RootElement.GetProperty("models").EnumerateArray().Count(entry =>
                 entry.TryGetProperty("result", out _) ||
-                entry.TryGetProperty("fates", out var fates) && fates.EnumerateObject().Any());
+                entry.TryGetProperty("fates", out var fates) && fates.EnumerateObject().Any() ||
+                entry.TryGetProperty("stores", out _) || entry.TryGetProperty("outputs", out _) || entry.TryGetProperty("keeps", out _) ||
+                entry.GetProperty("effects").EnumerateObject().Any(effect => effect.Value.EnumerateArray().Any(kind => kind.GetString() == "writes-cells")));
         }
         return count;
     }

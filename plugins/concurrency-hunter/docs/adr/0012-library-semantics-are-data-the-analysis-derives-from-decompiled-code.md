@@ -21,7 +21,19 @@ written:
   a sequence of its source's elements, `Select` one of what its selector returned, `ToDictionary` a
   dictionary keyed by what one delegate returned and holding what the other returned, and each
   delegate is handed the elements of the source. A result the model does not describe is linked to
-  nothing, as a known call's result was before. `di-factory` needs the service and the lifetime of a
+  nothing, as a known call's result was before. The same values say three more things a member
+  does (phase 5d, run A2). It writes the cells of an array — its argument's, or its receiver's for
+  an instance member — and may say what it puts there: `Array.Sort` rewrites the cells it reads,
+  `Array.Fill` puts its value in every one, `Array.Copy` the source's elements. It assigns its `out`
+  and `ref` arguments: `Array.Resize` a new array holding the old one's elements. It leaves values
+  with an object and hands them back later, as a cache does: `GetOrCreate` keeps what its factory
+  returned with the cache and returns that or anything kept there before, `Set` keeps its value, and
+  `TryGetValue` assigns what is kept to its `out` argument. What an object keeps is a **Kept
+  object**, reachable from its keeper, so a cache that is shared shares it. A keeper the heap has no
+  object for — a cache the framework registers where the analysis cannot see — keeps into one store
+  for each type, shared by the process scope. And a result may be a new object whose whole graph is
+  new, as a deserializer's is: each field of a source type holds a new object along each access
+  path, up to the summaries' depth. `di-factory` needs the service and the lifetime of a
   registration, so it comes with the generator, which derives it from a registration it sees. Models
   come in **Model layers** with provenance: built-in
   (shipped in the executable), project (written by the team in the repository), generated (by the
@@ -83,7 +95,18 @@ call returns, as question 29 first asked. It says that `Take` yields its source'
 that `Select` yields what its selector returned, what a `ToDictionary` holds as keys and as values, or
 what a `GroupBy` group holds. Rejected: handing each delegate parameter whatever of its type the
 call's arguments reach. It needs no data, but it guesses at the library the model exists to
-describe, and it cannot say where a delegate's result goes.
+describe, and it cannot say where a delegate's result goes. Rejected (run A2): a result marked
+shared, with no store behind it. It makes the object `GetOrCreate` returns shared, but a value one
+request puts in with `Set` and another takes out with `Get` stays unlinked, which is the common
+case of a cache. Rejected: a cache modelled as a dictionary with keys. It would tell two keys apart,
+but a library object's keys are values the heap has to track through the caller's code, and a store
+per keeper answers the question that matters — who can reach what was kept. Rejected: an undescribed
+result read as an unknown shared object. It is the open-world answer, but it adds an object to every
+known call's result and moves every finding set at once; a model says `new` where the result is a
+new object, and an undescribed result stays linked to nothing. Keepers the heap cannot tell apart
+share one store per type, which may join two caches that are in fact different; that is a false
+pair at worst, where a store per call site would have missed every value one site kept and another
+read.
 
 The consequences to hold. The plugin now writes to the repository, and only there: generated
 models under `.concurrency-hunter/models/`, never a source file, project file or build output. The

@@ -2,6 +2,83 @@
   "schemaVersion": "1",
   "findings": [
     {
+      "id": "project-model-kept-object",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectModelKeptObject.SettingsController.Post()#Demo.Web.Cases.ProjectModelKeptObject.Settings", "accessPath": ["Version"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectModelKeptObject.SettingsController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ProjectModelKeptObject.SettingsController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "project-model-try-get-value",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectModelTryGetValue.SessionWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.ProjectModelTryGetValue.Session", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectModelTryGetValue.SessionController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ProjectModelTryGetValue.SessionController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "deserialize-returns-new-object/changes",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.DeserializeReturnsNewObject.ProfileWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.DeserializeReturnsNewObject.Address", "accessPath": ["Changes"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DeserializeReturnsNewObject.ProfileController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.DeserializeReturnsNewObject.ProfileController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "deserialize-returns-new-object/current",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.DeserializeReturnsNewObject.ProfileStore@Singleton", "accessPath": ["Current"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.DeserializeReturnsNewObject.ProfileWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.DeserializeReturnsNewObject.ProfileController.Post()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "array-sort-writes-cells/compared-self",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArraySortWritesCells.Board@Singleton", "accessPath": ["Compared"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "array-sort-writes-cells/cells-worker",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArraySortWritesCells.Board@Singleton", "accessPath": ["Cells", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
+      "id": "array-sort-writes-cells/cells-self",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ArraySortWritesCells.Board@Singleton", "accessPath": ["Cells", "[?]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ArraySortWritesCells.BoardController.Post()", "operation": "write" }
+      ]
+    },
+    {
       "id": "static-field-unlocked-read-write/post-self",
       "phase": "1a",
       "rule": "DCA1001",
