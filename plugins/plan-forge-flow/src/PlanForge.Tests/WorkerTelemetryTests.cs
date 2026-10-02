@@ -50,8 +50,10 @@ public sealed class WorkerTelemetryTests : IDisposable
         Assert.Equal(1, record.GetProperty("attempt").GetInt32());
         Assert.Equal("succeeded", record.GetProperty("outcome").GetString());
         Assert.Equal("00:00:00", record.GetProperty("duration").GetString());
+        Assert.Equal(record.GetProperty("duration").GetString(), record.GetProperty("wallDuration").GetString());
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("toolDuration").ValueKind);
         Assert.Equal(Encoding.UTF8.GetByteCount("roleприветschema"), record.GetProperty("promptBytes").GetInt64());
-        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$",
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$",
                        record.GetProperty("at").GetString()!);
         Assert.False(record.TryGetProperty("round", out _));
         Assert.False(record.TryGetProperty("costUsd", out _));

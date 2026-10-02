@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.39.1
+# Plan Forge Flow 0.39.2
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -209,6 +209,18 @@ human-readable. The tools hand back the plan and timeline paths on worker result
 metadata only after a successful Scout call, so the orchestrator can put the current documents in
 front of you while the run is still moving; telemetry stays at the stable Run path and adds no MCP
 result.
+
+Each telemetry entry's `at` is the local time the server starts that attempt's vendor process,
+formatted as `yyyy-MM-dd HH:mm:ss`. Entries are appended on completion; sort by `at` for start
+order. `wallDuration` is the process lifetime, `toolDuration` is the union of its observed
+tool-use/result intervals, and `duration` is their difference: time outside tool calls, including
+API waits. Parallel calls count once. A background command contributes only until its tool call
+returns, even if the command keeps running. Tool intervals use the server's monotonic clock when
+stream events arrive and are bounded by the process lifetime; stream buffering can affect them.
+Without tool boundaries, or with missing IDs or unmatched boundaries, `toolDuration` is explicitly
+`null` and `duration` equals `wallDuration`. Durations use `hh:mm:ss`, with total hours unbounded;
+wall and tool times are truncated to seconds before subtraction so the displayed values add up.
+The ISO timestamps in `forge.log` retain their existing meaning and format.
 
 In telemetry, `inputTokens` is the complete input processed by the Worker attempt, including cache
 reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that

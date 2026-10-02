@@ -108,12 +108,12 @@ internal sealed class ClaudeCliSession : IVendorSession
         try
         {
             JsonElement? structured = null;
-            await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+            await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct, attempt))
             {
                 if (!TryParse(line, out var message)) continue;
                 using (message)
                 {
-                    structured = Observe(message.RootElement) ?? structured;
+                    structured = Observe(message.RootElement, attempt) ?? structured;
                 }
             }
 
@@ -171,7 +171,12 @@ internal sealed class ClaudeCliSession : IVendorSession
 
     /// <summary>Returns the structured payload when this message carries it.</summary>
     /// <param name="root">The parsed JSONL message.</param>
-    internal JsonElement? Observe(JsonElement root)
+    internal JsonElement? Observe(JsonElement root) => Observe(root, null);
+
+    /// <summary>Reads one stream message and measures its tool boundaries for the current attempt.</summary>
+    /// <param name="root">The parsed JSONL message.</param>
+    /// <param name="attempt">The process attempt to measure, or null when only reading events.</param>
+    internal JsonElement? Observe(JsonElement root, VendorAttempt? attempt)
     {
         // A line can parse as JSON without being a message — a bare string, for one. Asking such a
         // root for a property throws, and that crash used to take the whole run down under a
@@ -250,12 +255,12 @@ internal sealed class ClaudeCliSession : IVendorSession
         switch (type.GetString())
         {
             case "assistant":
-                return ObserveAssistant(content);
+                return ObserveAssistant(content, attempt);
 
             // Tool results ride back to the model as user messages; their outcome — a failed test
             // run, a denied command — is what the run log needs for a post-mortem.
             case "user":
-                ObserveToolResults(content);
+                ObserveToolResults(content, attempt);
                 return null;
 
             default:
@@ -263,7 +268,7 @@ internal sealed class ClaudeCliSession : IVendorSession
         }
     }
 
-    private JsonElement? ObserveAssistant(JsonElement content)
+    private JsonElement? ObserveAssistant(JsonElement content, VendorAttempt? attempt)
     {
         JsonElement? structured = null;
 
@@ -279,6 +284,9 @@ internal sealed class ClaudeCliSession : IVendorSession
                 // --json-schema is served by a tool: the object arrives as this call's input.
                 case "tool_use" when block.TryGetProperty("name", out var name):
                     var toolName = name.GetString();
+                    var call = block.TryGetProperty("id", out var callId) && callId.ValueKind is JsonValueKind.String
+                        ? callId.GetString() : null;
+                    if (call is not null) _toolNames[call] = toolName ?? "?";
                     if (toolName is STRUCTURED_OUTPUT_TOOL && block.TryGetProperty("input", out var input))
                     {
                         structured = input.Clone();
@@ -286,13 +294,13 @@ internal sealed class ClaudeCliSession : IVendorSession
                     else
                     {
                         var detail = ToolInput(block);
-                        if (block.TryGetProperty("id", out var callId) && callId.GetString() is { } call)
+                        if (call is not null)
                         {
-                            _toolNames[call] = toolName ?? "?";
                             if (detail?.FirstOrDefault(field => field.Name == "command").Value is { } command)
                                 _toolCommands[call] = command;
                         }
 
+                        attempt?.ToolStarted(call);
                         _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolUse, toolName ?? "?", detail));
                     }
                     break;
@@ -302,15 +310,15 @@ internal sealed class ClaudeCliSession : IVendorSession
         return structured;
     }
 
-    private void ObserveToolResults(JsonElement content)
+    private void ObserveToolResults(JsonElement content, VendorAttempt? attempt)
     {
         foreach (var block in content.EnumerateArray())
         {
             if (!TryRead(block, "type", out var blockType) || blockType.GetString() is not "tool_result") continue;
 
-            var name = block.TryGetProperty("tool_use_id", out var callId)
-                       && callId.GetString() is { } call
-                       && _toolNames.TryGetValue(call, out var known)
+            var call = block.TryGetProperty("tool_use_id", out var callId) && callId.ValueKind is JsonValueKind.String
+                ? callId.GetString() : null;
+            var name = call is not null && _toolNames.TryGetValue(call, out var known)
                 ? known
                 : "?";
 
@@ -318,6 +326,7 @@ internal sealed class ClaudeCliSession : IVendorSession
             var detail = new List<(string Name, string? Value)> { ("isError", isError ? "true" : "false") };
             if (ResultText(block) is { Length: > 0 } output) detail.Add(("output", RunLog.Tail(output)));
 
+            if (name is not STRUCTURED_OUTPUT_TOOL) attempt?.ToolCompleted(call);
             _events.Writer.Emit("claude", new VendorEvent(VendorEventKind.ToolResult, name, detail));
         }
     }

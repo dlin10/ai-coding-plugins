@@ -1,5 +1,12 @@
 # Plan Forge Flow releases
 
+## 0.39.2
+
+- Worker telemetry records process `wallDuration`, the union of matched tool-call intervals as
+  `toolDuration`, and their difference as `duration` (issue #135). Missing or incomplete boundaries
+  leave `toolDuration` null and retain wall time as `duration`. `at` is now local process send time
+  in `yyyy-MM-dd HH:mm:ss`; old files are not migrated. The meanings of `duration` and `at` change.
+
 ## 0.39.1
 
 Executable task gates run only on the server, avoiding a duplicate run by the Builder (issue #134,

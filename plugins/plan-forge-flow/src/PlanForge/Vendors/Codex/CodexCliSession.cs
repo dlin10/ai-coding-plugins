@@ -87,10 +87,10 @@ internal sealed class CodexCliSession : IVendorSession
 
             try
             {
-                await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+                await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct, attempt))
                 {
                     if (!TryParse(line, out var document)) continue;
-                    using (document) Observe(document.RootElement);
+                    using (document) Observe(document.RootElement, attempt);
                 }
 
                 if (_turnFailed)
@@ -252,7 +252,12 @@ internal sealed class CodexCliSession : IVendorSession
     /// directly, as they already drive the Claude and Cursor sessions.
     /// </summary>
     /// <param name="root">The parsed JSONL message.</param>
-    internal void Observe(JsonElement root)
+    internal void Observe(JsonElement root) => Observe(root, null);
+
+    /// <summary>Reads one stream message and measures its tool boundaries for the current attempt.</summary>
+    /// <param name="root">The parsed JSONL message.</param>
+    /// <param name="attempt">The process attempt to measure, or null when only reading events.</param>
+    internal void Observe(JsonElement root, VendorAttempt? attempt)
     {
         if (root.ValueKind is not JsonValueKind.Object)
         {
@@ -280,6 +285,8 @@ internal sealed class CodexCliSession : IVendorSession
             case "item.started":
                 if (TryItem(root, "command_execution", out var startedItem))
                 {
+                    attempt?.ToolStarted(TryRead(startedItem, "id", out var itemId) && itemId.ValueKind is JsonValueKind.String
+                        ? itemId.GetString() : null);
                     List<(string Name, string? Value)>? fields = null;
                     if (TryRead(startedItem, "command", out var command) && command.GetString() is { } commandText)
                         (fields ??= []).Add(("command", commandText));
@@ -288,6 +295,8 @@ internal sealed class CodexCliSession : IVendorSession
                 }
                 else if (TryItem(root, "mcp_tool_call", out var startedCall))
                 {
+                    attempt?.ToolStarted(TryRead(startedCall, "id", out var callId) && callId.ValueKind is JsonValueKind.String
+                        ? callId.GetString() : null);
                     List<(string Name, string? Value)>? fields = null;
                     if (TryRead(startedCall, "arguments", out var callArguments))
                         (fields ??= []).Add(("input", RunLog.Truncate(callArguments.GetRawText())));
@@ -299,11 +308,15 @@ internal sealed class CodexCliSession : IVendorSession
             case "item.completed":
                 if (TryItem(root, "command_execution", out var completedItem))
                 {
+                    attempt?.ToolCompleted(TryRead(completedItem, "id", out var itemId) && itemId.ValueKind is JsonValueKind.String
+                        ? itemId.GetString() : null);
                     _events.Writer.Emit("codex",
                         new VendorEvent(VendorEventKind.ToolResult, "command_execution", CommandExecutionDetail(completedItem)));
                 }
                 else if (TryItem(root, "mcp_tool_call", out var completedCall))
                 {
+                    attempt?.ToolCompleted(TryRead(completedCall, "id", out var callId) && callId.ValueKind is JsonValueKind.String
+                        ? callId.GetString() : null);
                     _events.Writer.Emit("codex",
                         new VendorEvent(VendorEventKind.ToolResult, McpToolName(completedCall), McpToolCallDetail(completedCall)));
                 }
