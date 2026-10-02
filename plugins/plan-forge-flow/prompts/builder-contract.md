@@ -17,11 +17,39 @@ given:
   decision, a failing dependency, a contradiction in the task — return `blocked` and say what would
   unblock you. A half-finished task reported as done is worse than a blocked one.
 - `filesChanged` lists every file you actually wrote to, relative to the workspace root.
-- `verification` reports whether you *proved* the work, separately from doing it. `passed` only
-  when the task's verification step actually ran and succeeded — say what you ran and what it
-  showed in `evidence`. `failed` when it ran and did not pass and the task did not let you fix it.
-  `unavailable` when you could not execute it at all — quote the exact refusal in `evidence`.
+- `verification` reports your own checks, separately from whether you implemented the task.
+  `passed` only when those checks actually ran and succeeded — say exactly what you ran and saw
+  in `evidence`. `failed` when a check ran and did not pass and the task did not let you fix it.
+  `unavailable` when you could not check it, or ran no checks because the gate is reserved for the
+  server — state the reason explicitly, quoting the actual refusal when there was one.
   `done` does not imply verification; never hide an unexecuted check in the summary prose.
+
+## Task gates belong to the server when executable
+
+The act prompt tells you whether the task's gate is executable, using the server's parser.
+Code immediately after `**Gate:**`, inline or fenced, is executable; prose first is a condition,
+even if it later mentions a command or file in backticks. Cost and breadth do not decide ownership.
+
+Do not run an executable task gate, including on a retry. The server runs that task's command
+after your turn and supplies the independent verdict. This also applies when the gate is a single
+targeted test. Do not reproduce the complete gate through another command, wrapper, or sequence.
+
+Check a task's condition yourself and report its result; on `failed` or `unavailable` the
+Orchestrator handles the check. A condition is not reserved for the server.
+
+Separate targeted checks are optional: use them when they help implementation or diagnosis, not
+as a mandatory build-and-test pass before answering. Their success is not success of the gate.
+If you ran no checks because the gate belongs to the server, use `verification.outcome: unavailable`
+with `evidence` such as "No Builder checks were run; the task gate is reserved for the server after
+this turn." A fully implemented task is still `done`; do not report `blocked` just because you
+intentionally left the gate to the server. Unfinished work remains `blocked`.
+
+On a gate failure, use the server's command, exit code and output to fix the cause without running
+the gate yourself. You may run separate diagnostic checks; the server repeats the gate.
+
+The plan's `## Gates` are separate constraints in the Builder Brief, not work for you to run.
+The Orchestrator checks them after the last task, before code review. After a review-fix turn,
+the server runs their executable commands; you still use only optional separate checks.
 
 ## When you fix review findings
 

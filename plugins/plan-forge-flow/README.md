@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.39.0
+# Plan Forge Flow 0.39.1
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -25,7 +25,7 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
-| `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
+| `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs the plan's executable `## Gates` on the host |
 | `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
@@ -38,6 +38,10 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 The draft the critic reads states its own intent: a `## Requirements` section above the tasks,
 numbered and cited by the tasks that serve them, and the checks that would catch a requirement being
 violated — a `Gate` ending each task, plus a `## Gates` section for whatever no single task owns.
+Only the server runs an executable task gate, including on retries. The Builder checks conditions
+and may run separate targeted checks; when it leaves verification to the server, it reports
+`unavailable` with that explicit reason. The Orchestrator runs plan-wide gates before code review,
+and the server runs their executable commands after review fixes.
 The requirements are under review beside the tasks, and only what they exclude is settled, so a plan
 aimed at the wrong thing is a finding rather than a clean approve.
 
