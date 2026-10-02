@@ -57,7 +57,7 @@ internal sealed class CursorAgentSession : IVendorSession
 
             try
             {
-                var text = await ReadResultAsync(spec, ct);
+                var text = await ReadResultAsync(spec, ct, measured);
                 if (SchemaInPrompt.TryExtract(text, schema, out var value, out lastFailure))
                 {
                     measured.Succeeded();
@@ -94,16 +94,16 @@ internal sealed class CursorAgentSession : IVendorSession
         return ValueTask.CompletedTask;
     }
 
-    internal async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct)
+    internal async Task<string> ReadResultAsync(ProcessSpec spec, CancellationToken ct, VendorAttempt? attempt = null)
     {
         var result = string.Empty;
-        await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct))
+        await foreach (var line in StreamingProcess.RunWorkerAsync(spec, ct, attempt))
         {
             JsonDocument message;
             try { message = JsonDocument.Parse(line); }
             catch (JsonException) { continue; }
 
-            using (message) result = Observe(message.RootElement) ?? result;
+            using (message) result = Observe(message.RootElement, attempt) ?? result;
         }
 
         return result;
@@ -111,7 +111,12 @@ internal sealed class CursorAgentSession : IVendorSession
 
     /// <summary>Returns the run's final text when this message carries it.</summary>
     /// <param name="root">The parsed JSONL message.</param>
-    internal string? Observe(JsonElement root)
+    internal string? Observe(JsonElement root) => Observe(root, null);
+
+    /// <summary>Reads one stream message and measures its tool boundaries for the current attempt.</summary>
+    /// <param name="root">The parsed JSONL message.</param>
+    /// <param name="attempt">The process attempt to measure, or null when only reading events.</param>
+    internal string? Observe(JsonElement root, VendorAttempt? attempt)
     {
         // Same hazard as ClaudeCliSession.Observe (issue #41): a line that parses as JSON but not
         // as an object would throw on the property probe and end the run under a misleading
@@ -138,7 +143,7 @@ internal sealed class CursorAgentSession : IVendorSession
                 return payload.GetString() ?? string.Empty;
 
             case "tool_call":
-                ObserveToolCall(root);
+                ObserveToolCall(root, attempt);
                 return null;
 
             default:
@@ -155,7 +160,8 @@ internal sealed class CursorAgentSession : IVendorSession
     /// so a run whose every shell call failed reached the log looking like a clean one.
     /// </summary>
     /// <param name="root">The parsed tool-call message.</param>
-    private void ObserveToolCall(JsonElement root)
+    /// <param name="attempt">The process attempt to measure, or null when only reading events.</param>
+    private void ObserveToolCall(JsonElement root, VendorAttempt? attempt)
     {
         if (!root.TryGetProperty("subtype", out var subtype)
             || !root.TryGetProperty("tool_call", out var call)
@@ -179,6 +185,10 @@ internal sealed class CursorAgentSession : IVendorSession
             if (!member.Name.EndsWith(CallSuffix, StringComparison.Ordinal)) continue;
 
             var tool = member.Name[..^CallSuffix.Length];
+            var callId = call.TryGetProperty("toolCallId", out var id) && id.ValueKind is JsonValueKind.String
+                ? id.GetString() : null;
+            if (started is true) attempt?.ToolStarted(callId);
+            else attempt?.ToolCompleted(callId);
             _events.Writer.Emit("cursor", started is true
                 ? new VendorEvent(VendorEventKind.ToolUse, tool, Arguments(member.Value))
                 : new VendorEvent(VendorEventKind.ToolResult, tool, Outcome(member.Value)));

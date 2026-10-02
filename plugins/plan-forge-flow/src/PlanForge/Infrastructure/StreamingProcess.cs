@@ -97,23 +97,26 @@ internal static class StreamingProcess
                                                     CancellationToken ct,
                                                     TimeSpan? exitDrain = null,
                                                     OutputBounds? bounds = null) =>
-        RunCoreAsync(spec, timeout, null, ct, exitDrain, bounds);
+        RunCoreAsync(spec, timeout, null, ct, exitDrain, bounds, null);
 
-    public static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec, CancellationToken ct) =>
-        RunWorkerAsync(spec, _workerIdleTimeout, ct);
+    public static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec, CancellationToken ct,
+                                                          VendorAttempt? attempt = null) =>
+        RunWorkerAsync(spec, _workerIdleTimeout, ct, attempt: attempt);
 
     internal static IAsyncEnumerable<string> RunWorkerAsync(ProcessSpec spec,
                                                             TimeSpan idleTimeout,
                                                             CancellationToken ct,
-                                                            OutputBounds? bounds = null) =>
-        RunCoreAsync(spec, null, idleTimeout, ct, null, bounds);
+                                                            OutputBounds? bounds = null,
+                                                            VendorAttempt? attempt = null) =>
+        RunCoreAsync(spec, null, idleTimeout, ct, null, bounds, attempt);
 
     private static async IAsyncEnumerable<string> RunCoreAsync(ProcessSpec spec,
                                                                TimeSpan? timeout,
                                                                TimeSpan? idleTimeout,
                                                                [EnumeratorCancellation] CancellationToken ct,
                                                                TimeSpan? exitDrain,
-                                                               OutputBounds? bounds)
+                                                               OutputBounds? bounds,
+                                                               VendorAttempt? attempt)
     {
         var limits = bounds ?? OutputBounds.Default;
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -133,6 +136,13 @@ internal static class StreamingProcess
             ("cwd", spec.WorkingDirectory),
             ("timeout", timeout?.ToString()),
             ("idleTimeout", idleTimeout?.ToString()));
+
+        if (attempt is not null)
+        {
+            process.Exited += (_, _) => attempt.ProcessExited();
+            process.EnableRaisingEvents = true;
+            attempt.ProcessStarted();
+        }
 
         if (!process.Start())
         {
@@ -232,6 +242,7 @@ internal static class StreamingProcess
         }
 
         await exited.ConfigureAwait(false);
+        attempt?.ProcessExited();
 
         var error = await DrainAsync(stderr).ConfigureAwait(false);
         log?.Write(process.ExitCode == 0 ? "info" : "error", SOURCE, "process.exit",

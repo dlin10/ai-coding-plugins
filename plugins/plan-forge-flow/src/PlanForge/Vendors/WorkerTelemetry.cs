@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -38,8 +37,8 @@ internal sealed class VendorTurn(RoleSpec role, Selection selection, string vend
 
     internal string TurnId => _turnId;
 
-    public VendorAttempt Start(long promptBytes, string? resumeToken) =>
-        new(role.Telemetry, vendor, role.Role, selection, _turnId, ++_attempts, promptBytes, resumeToken);
+    public VendorAttempt Start(long promptBytes, string? resumeToken, TimeProvider? clock = null) =>
+        new(role.Telemetry, vendor, role.Role, selection, _turnId, ++_attempts, promptBytes, resumeToken, clock);
 
     public static long PromptBytes(params string[] fragments)
     {
@@ -53,6 +52,15 @@ internal sealed class VendorTurn(RoleSpec role, Selection selection, string vend
 /// Captures one process launch. The default outcome is failure, so even a launch exception reaches
 /// telemetry; callers only name the other terminal states they actually observe.
 /// </summary>
+/// <param name="context">The run's telemetry destination and act identity, when enabled.</param>
+/// <param name="vendor">The vendor identifier.</param>
+/// <param name="role">The worker's role.</param>
+/// <param name="selection">The requested model, effort and speed.</param>
+/// <param name="turnId">The session call shared by any schema retries.</param>
+/// <param name="attempt">The process attempt number within that call.</param>
+/// <param name="promptBytes">The UTF-8 size of the prompt sent to this attempt.</param>
+/// <param name="resumeToken">The session being resumed, or null for a fresh session.</param>
+/// <param name="clock">The timing source; defaults to the host's clock.</param>
 internal sealed class VendorAttempt(WorkerTelemetryContext? context,
                                     string vendor,
                                     VendorRole role,
@@ -60,32 +68,73 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
                                     string turnId,
                                     int attempt,
                                     long promptBytes,
-                                    string? resumeToken)
+                                    string? resumeToken,
+                                    TimeProvider? clock = null)
 {
-    private readonly long _startedAt = Stopwatch.GetTimestamp();
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
+    private long _startedAt = (clock ?? TimeProvider.System).GetTimestamp();
+    private long _exitedAt = -1;
+    private string _at = FormatLocalTimestamp((clock ?? TimeProvider.System).GetLocalNow());
+    private readonly HashSet<string> _openCalls = new(StringComparer.Ordinal);
+    private readonly List<(long Start, long End)> _toolIntervals = [];
+    private long _toolsStartedAt;
+    private bool _sawTools;
+    private bool _incompleteTools;
     private string _outcome = "failed";
-    private TimeSpan? _duration;
-    private string? _at;
     private bool _finished;
 
-    public void Succeeded() => Terminal("succeeded");
+    public void ProcessStarted()
+    {
+        _startedAt = _clock.GetTimestamp();
+        _at = FormatLocalTimestamp(_clock.GetLocalNow());
+    }
 
-    public void InvalidOutput() => Terminal("invalid_output");
+    public void ProcessExited() => Interlocked.CompareExchange(ref _exitedAt, _clock.GetTimestamp(), -1);
 
-    public void Failed() => Terminal("failed");
+    public void ToolStarted(string? callId)
+    {
+        _sawTools = true;
+        if (string.IsNullOrEmpty(callId) || !_openCalls.Add(callId))
+        {
+            _incompleteTools = true;
+            return;
+        }
+
+        if (_openCalls.Count == 1) _toolsStartedAt = _clock.GetTimestamp();
+    }
+
+    public void ToolCompleted(string? callId)
+    {
+        _sawTools = true;
+        if (string.IsNullOrEmpty(callId) || !_openCalls.Remove(callId))
+        {
+            _incompleteTools = true;
+            return;
+        }
+
+        if (_openCalls.Count == 0) _toolIntervals.Add((_toolsStartedAt, _clock.GetTimestamp()));
+    }
+
+    public void Succeeded() => _outcome = "succeeded";
+
+    public void InvalidOutput() => _outcome = "invalid_output";
+
+    public void Failed() => _outcome = "failed";
 
     public void Cancelled()
     {
         // A cancellation observed after accepting the structured result does not rewrite success.
-        if (_outcome is not "succeeded") Terminal("cancelled");
+        if (_outcome is not "succeeded") _outcome = "cancelled";
     }
 
+    /// <summary>Appends the attempt's timing and provider counters once.</summary>
     /// <param name="usage">The provider counters the attempt's terminal event reported, already its own.</param>
     /// <param name="reportedSessionId">The session id the process reported, when it did.</param>
     /// <param name="servedFastState">The speed the vendor says it served, where it says: claude's <c>fast_mode_state</c>.</param>
     public void Finish(WorkerUsage usage, string? reportedSessionId, string? servedFastState = null) =>
         Finish(_ => usage, reportedSessionId, servedFastState);
 
+    /// <summary>Appends the attempt's timing and counters derived from the session's previous report.</summary>
     /// <param name="usage">
     /// The attempt's own usage, given what its session's latest recorded attempt reported — null for a
     /// fresh session. A Vendor that reports a running total for its session subtracts that report.
@@ -97,8 +146,26 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
         if (_finished) return;
         _finished = true;
 
-        if (_duration is null) CaptureTerminal();
         if (context is null) return;
+
+        var exitedAt = Volatile.Read(ref _exitedAt);
+        if (exitedAt < 0) exitedAt = _clock.GetTimestamp();
+        var wallDuration = _clock.GetElapsedTime(_startedAt, exitedAt);
+        TimeSpan? toolDuration = null;
+        if (_sawTools && !_incompleteTools && _openCalls.Count == 0)
+        {
+            toolDuration = TimeSpan.Zero;
+            foreach (var interval in _toolIntervals)
+            {
+                var start = Math.Clamp(interval.Start, _startedAt, exitedAt);
+                var end = Math.Clamp(interval.End, start, exitedAt);
+                toolDuration += _clock.GetElapsedTime(start, end);
+            }
+        }
+
+        // Quantize before subtracting so the three displayed durations still add up to the second.
+        wallDuration = TimeSpan.FromSeconds((long)wallDuration.TotalSeconds);
+        if (toolDuration is { } tools) toolDuration = TimeSpan.FromSeconds((long)tools.TotalSeconds);
 
         var resumed = resumeToken is { Length: > 0 };
         var sessionId = reportedSessionId is { Length: > 0 }
@@ -112,7 +179,7 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
             var own = usage(resumed ? WorkerTelemetryFile.LastReport(earlier, vendor, resumeToken!) : null);
 
             return new WorkerUsageRecord(
-                _at!,
+                _at,
                 "vendor.usage",
                 context.Act,
                 context.Round,
@@ -129,7 +196,9 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
                 turnId,
                 attempt,
                 _outcome,
-                FormatDuration(_duration!.Value),
+                FormatDuration(wallDuration - (toolDuration ?? TimeSpan.Zero)),
+                FormatDuration(wallDuration),
+                toolDuration is { } measuredTools ? FormatDuration(measuredTools) : null,
                 promptBytes,
                 own.InputTokens,
                 own.CacheReadTokens,
@@ -152,19 +221,7 @@ internal sealed class VendorAttempt(WorkerTelemetryContext? context,
     }
 
     internal static string FormatLocalTimestamp(DateTimeOffset at) =>
-        at.ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz", CultureInfo.InvariantCulture);
-
-    private void Terminal(string outcome)
-    {
-        _outcome = outcome;
-        CaptureTerminal();
-    }
-
-    private void CaptureTerminal()
-    {
-        _duration = Stopwatch.GetElapsedTime(_startedAt);
-        _at = FormatLocalTimestamp(DateTimeOffset.Now);
-    }
+        at.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 }
 
 internal sealed record WorkerUsageRecord(string At,
@@ -185,6 +242,8 @@ internal sealed record WorkerUsageRecord(string At,
                                          int Attempt,
                                          string Outcome,
                                          string Duration,
+                                         string WallDuration,
+                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ToolDuration,
                                          long PromptBytes,
                                          long? InputTokens,
                                          long? CacheReadTokens,
