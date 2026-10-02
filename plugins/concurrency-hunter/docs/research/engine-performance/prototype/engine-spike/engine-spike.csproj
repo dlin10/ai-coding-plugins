@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RestoreSources>$(USERPROFILE)\.nuget\packages</RestoreSources>
+    <!-- the engine as already built; nothing in the repository is built or changed -->
+    <EngineBin>C:\Dev\CodexPlugins\plugins\concurrency-hunter\src\ConcurrencyHunter.Core.Tests\bin\Release\net10.0</EngineBin>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="ConcurrencyHunter.Core.Tests"><HintPath>$(EngineBin)\ConcurrencyHunter.Core.Tests.dll</HintPath></Reference>
+    <Reference Include="ConcurrencyHunter.Core"><HintPath>$(EngineBin)\ConcurrencyHunter.Core.dll</HintPath></Reference>
+    <Reference Include="ConcurrencyHunter.Analysis"><HintPath>$(EngineBin)\ConcurrencyHunter.Analysis.dll</HintPath></Reference>
+    <Reference Include="Microsoft.CodeAnalysis"><HintPath>$(EngineBin)\Microsoft.CodeAnalysis.dll</HintPath></Reference>
+    <Reference Include="Microsoft.CodeAnalysis.CSharp"><HintPath>$(EngineBin)\Microsoft.CodeAnalysis.CSharp.dll</HintPath></Reference>
+  </ItemGroup>
+
+  <!-- the engine's runtime dependencies come from the built test bin, copied next to this tool -->
+  <Target Name="CopyEngineBin" AfterTargets="Build">
+    <ItemGroup>
+      <EngineFile Include="$(EngineBin)\*.dll;$(EngineBin)\runtimes\win-x64\native\libz3.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(EngineFile)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

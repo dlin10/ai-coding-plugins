@@ -1,0 +1,105 @@
+threads (engine-time, total, name), unit milliseconds
+      180028.8     180028.8  Thread (45880)
+           0.0     180028.8  Thread (25496)
+           0.0     180028.8  Thread (8272)
+           0.0     180028.8  Thread (8608)
+           0.0     180027.8  Thread (53620)
+           0.0     180026.5  Thread (44060)
+           0.0      19692.5  Thread (57140)
+           0.0       4146.7  Thread (11676)
+
+thread Thread (45880): 180028.8 milliseconds sampled
+
+top 45 by inclusive time
+  100.00%  Process64 engine-spike (60136) Args:  C:\Users\Admin\AppData\Local\Temp\claude\C--Dev-CodexPlugins-plugins-concurrency-hunter\5b276eb1-9c67-454f-a2...
+  100.00%  (Non-Activities)
+  100.00%  Threads
+  100.00%  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+  100.00%  Thread (45880)
+  100.00%  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  100.00%  System.Private.CoreLib.il!System.Threading.ThreadPoolWorkQueue.Dispatch()
+  100.00%  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  100.00%  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.Thread,class System.Threading.Exec...
+  100.00%  System.Private.CoreLib.il!System.Threading.Tasks.Task`1[System.__Canon].InnerInvoke()
+  100.00%  engine-spike!Program+<>c__DisplayClass0_0.<<Main>$>b__3()
+  100.00%  ConcurrencyHunter.Core.Tests!ConcurrencyHunter.Core.Tests.Engine.EngineFixture.Solve(class ConcurrencyHunter.Core.Tests.Engine.WholeProgramRun,clas...
+  100.00%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram.Solve(class ConcurrencyHunter.Heap.ScopeProgram,class ConcurrencyHunter.Heap.Analysi...
+  100.00%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Run()
+  100.00%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Propagate()
+   99.99%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Process(class InstanceState)
+   99.79%  CPU_TIME
+   98.65%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Call(class InstanceState,class ConcurrencyHunter.Heap.CallTransfer)
+   95.83%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Eval(class InstanceState,class ConcurrencyHunter.Heap.AbstractValue)
+   94.75%  System.Linq.il!System.Linq.Enumerable.ToHashSet(class System.Collections.Generic.IEnumerable`1<!!0>,class System.Collections.Generic.IEqualityCompa...
+   94.61%  System.Linq.il!System.Linq.Enumerable+SelectManySingleSelectorIterator`2[System.ValueTuple`2[System.__Canon,System.__Canon],System.__Canon].MoveNext()
+   94.59%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver+<ReferenceLocations>d__156.MoveNext()
+   94.48%  System.Linq.il!System.Linq.Enumerable+IEnumerableWhereIterator`1[System.ValueTuple`4[System.__Canon,System.Int32,System.__Canon,System.__Canon]].To...
+   52.63%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.DeadReceiver(class InstanceState,class ConcurrencyHunter.Heap.CallTransfer,cl...
+   41.37%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.EligibleReceivers(class InstanceState,class ConcurrencyHunter.Heap.CallTransf...
+    8.09%  System.Private.CoreLib.il!System.Threading.Thread.<PollGC>g__PollGCWorker|70_0()
+    2.70%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.SummaryCache.Get(class System.String)
+    2.64%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Build()
+    2.33%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Instance(class System.String,class System.String,class System.Collections.Gen...
+    1.84%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder.Build(class ConcurrencyHunter.Ir.IrBody,class ConcurrencyHunter.CallGraph.Pr...
+    1.17%  System.Linq.il!System.Linq.Enumerable.<ToArray>g__EnumerableToArray|324_0(class System.Collections.Generic.IEnumerable`1<!!0>)
+    1.13%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Bind(class InstanceState,class ConcurrencyHunter.Heap.CallTransfer,class Inst...
+    1.08%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Eval(class InstanceState,class System.Collections.Generic.IEnumerable`1<class...
+    1.04%  System.Linq.il!System.Linq.Enumerable+ArraySelectIterator`2[System.__Canon,System.__Canon].ToArray()
+    1.04%  System.Linq.il!System.Linq.Enumerable+<SelectIterator>d__251`2[System.Int32,System.__Canon].MoveNext()
+    1.04%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder+<>c__DisplayClass67_0.<Arguments>b__0(int32,int32)
+    0.89%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.References(int32,int32)
+    0.68%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.EvalPath(class InstanceState,class ConcurrencyHunter.Heap.PathValue)
+    0.65%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.NumericOrigin(int32)
+    0.64%  ConcurrencyHunter.Analysis!ConcurrencyHunter.CallGraph.ProgramIndex+<Supertypes>d__41.MoveNext()
+    0.62%  ConcurrencyHunter.Analysis!ConcurrencyHunter.CallGraph.ProgramIndex.Substitute(class System.String,class System.Collections.Generic.IReadOnlyDictio...
+    0.61%  System.Linq.il!System.Linq.Enumerable+IEnumerableSelectIterator`2[System.__Canon,System.__Canon].MoveNext()
+    0.61%  System.Text.RegularExpressions.il!System.Text.RegularExpressions.Regex.Replace(class System.Text.RegularExpressions.MatchEvaluator,class System.Tex...
+    0.60%  System.Text.RegularExpressions.il!System.Text.StructListBuilder`1[System.ReadOnlyMemory`1[System.Char]].GrowAndAdd(!0)
+    0.60%  System.Linq.il!System.Linq.Enumerable+ListSelectIterator`2[System.ValueTuple`2[System.Int32,System.Boolean],System.__Canon].ToArray()
+
+top 45 by exclusive time
+   88.13%  System.Linq.il!System.Linq.Enumerable+IEnumerableWhereIterator`1[System.ValueTuple`4[System.__Canon,System.Int32,System.__Canon,System.__Canon]].To...
+    8.09%  System.Private.CoreLib.il!System.Threading.Thread.<PollGC>g__PollGCWorker|70_0()
+    0.51%  System.Private.CoreLib.il!System.Object.MemberwiseClone()
+    0.36%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.NumericOrigin(int32)
+    0.27%  System.Linq.il!System.Linq.Enumerable+SelectManySingleSelectorIterator`2[System.__Canon,System.__Canon].ToArray()
+    0.11%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Load(class System.String,class System.String)
+    0.10%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.References(int32,int32)
+    0.10%  System.Private.CoreLib.il!System.SpanHelpers.SequenceEqual(unsigned int8&,unsigned int8&,unsigned int)
+    0.09%  System.Private.CoreLib.il!System.Runtime.CompilerServices.CastHelpers.IsInstance_Helper(void*,class System.Object)
+    0.09%  System.Text.RegularExpressions.il!System.Text.RegularExpressions.RegexInterpreter.TryMatchAtCurrentPosition(value class System.ReadOnlySpan`1<wchar>)
+    0.08%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Closure(class System.String)
+    0.08%  System.Private.CoreLib.il!System.Collections.Generic.Dictionary`2[System.Int32,System.__Canon].TryGetValue(!0,!1&)
+    0.08%  System.Private.CoreLib.il!System.Runtime.CompilerServices.CastHelpers.IsInstanceOfClass(void*,class System.Object)
+    0.08%  System.Private.CoreLib.il!System.Collections.Generic.NonRandomizedStringEqualityComparer+OrdinalComparer.GetHashCode(class System.String)
+    0.07%  System.Private.CoreLib.il!System.Collections.Generic.HashSet`1[System.Int32].Add(!0)
+    0.07%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder+<>c__DisplayClass88_0.<References>b__1(class ConcurrencyHunter.Ir.Ir...
+    0.07%  System.Linq.il!System.Linq.Enumerable+ArraySelectIterator`2[System.__Canon,System.__Canon].ToArray()
+    0.07%  System.Linq.il!System.Linq.Enumerable.Any(class System.Collections.Generic.IEnumerable`1<!!0>,class System.Func`2<!!0,bool>)
+    0.07%  System.Private.CoreLib.il!System.Runtime.CompilerServices.CastHelpers.IsInstanceOfInterface(void*,class System.Object)
+    0.06%  System.Private.CoreLib.il!System.Collections.Generic.HashSet`1[System.Int32].Initialize(int32)
+    0.06%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Alternatives(class System.Collections.Generic.IReadOnlyList`1<class ...
+    0.05%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Origin(int32)
+    0.05%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Solve()
+    0.05%  System.Private.CoreLib.il!System.Buffer.MemmoveInternal(unsigned int8&,unsigned int8&,unsigned int)
+    0.04%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.Process(class InstanceState)
+    0.04%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Compare(class ConcurrencyHunter.Ir.IrCompareOperation,value class Co...
+    0.04%  System.Private.CoreLib.il!System.Runtime.CompilerServices.CastHelpers.IsInstanceOfAny(void*,class System.Object)
+    0.03%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.AllocationRegion(class InstanceState,class ConcurrencyHunter.Heap.CreationSite)
+    0.03%  System.Linq.il!System.Linq.Enumerable+SelectManySingleSelectorIterator`2[System.__Canon,System.__Canon].MoveNext()
+    0.03%  System.Private.CoreLib.il!System.Collections.Generic.HashSet`1[System.Int32].ConstructFrom(class System.Collections.Generic.HashSet`1<!0>)
+    0.03%  System.Private.CoreLib.il!System.Marvin.ComputeHash32(unsigned int8&,unsigned int32,unsigned int32,unsigned int32)
+    0.03%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Build()
+    0.02%  System.Private.CoreLib.il!System.Array.Clone()
+    0.02%  System.Text.RegularExpressions.il!System.Text.RegularExpressions.RegexReplacement.ReplaceSimpleText(class System.Text.RegularExpressions.Regex,clas...
+    0.02%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder..ctor(class ConcurrencyHunter.Ir.IrBody,class ConcurrencyHunter.Call...
+    0.02%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.TypeOf(int32)
+    0.02%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Accesses.MustHeldLocks+Solver.Transfer(class ConcurrencyHunter.Ir.IrBlock,class System.Collections.Gen...
+    0.02%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.WholeProgram+Solver.ActivateTypeInitializer(class System.String,class InstanceState,class System....
+    0.02%  ConcurrencyHunter.Analysis!ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder.Producers(int32)
+    0.02%  System.Private.CoreLib.il!System.Collections.Generic.Dictionary`2[System.Int32,System.__Canon].get_Item(!0)
+    0.02%  System.Linq.il!System.Linq.Enumerable.TryGetFirst(class System.Collections.Generic.IEnumerable`1<!!0>,class System.Func`2<!!0,bool>,bool&)
+    0.02%  System.Private.CoreLib.il!System.Runtime.CompilerServices.RuntimeHelpers.InitializeArray(class System.Array,value class System.RuntimeFieldHandle)
+    0.02%  System.Private.CoreLib.il!System.RuntimeType.InitializeCache()
+    0.02%  System.Private.CoreLib.il!System.Collections.Generic.Dictionary`2[System.__Canon,System.__Canon].FindValue(!0)
+    0.02%  System.Private.CoreLib.il!System.Collections.Generic.Dictionary`2[System.Int32,System.__Canon].FindValue(!0)

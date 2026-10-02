@@ -1,0 +1,75 @@
+C:/Users/Admin/AppData/Local/Temp/claude/C--Dev-CodexPlugins-plugins-concurrency-hunter/5b276eb1-9c67-454f-a288-317f3abe95af/scratchpad/corelib-spike/profile/exec-all-2.gcdump: 5,550,472 nodes, 3,900.0 MB, 0 references; process working set 0 MB, commit 0 MB; average count multiplier 1, size multiplier 1
+reachable 5,548,593 of 5,550,472 nodes; dominators in 17 passes; root retains   3,899.9 MB
+
+top 8 types by retained size (outermost instances)        count      shallow     retained
+  [.NET Roots]                                                                                                    1       0.0 MB   3,899.9 MB
+  [local vars]                                                                                                    1       0.0 MB   3,866.6 MB
+  Builder                                                                                                         1       0.0 MB   3,513.4 MB
+  System.Collections.Generic.HashSet<System.ValueTuple<System.String,System.String,System.String,Co...            1       0.0 MB   3,483.3 MB
+  Entry<System.ValueTuple<System.String,System.String,System.String,ConcurrencyHunter.Execution.Bod...            1       3.5 MB   3,483.1 MB
+  System.String (Bytes > 10K)                                                                                74,778   3,452.9 MB   3,452.9 MB
+  System.String                                                                                             704,334      92.1 MB      92.1 MB
+  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Ir.IrBody>                                1       0.0 MB      57.9 MB
+
+top 8 types by shallow size                                    count      shallow     retained
+  System.String (Bytes > 10K)                                                                                74,778   3,452.9 MB   3,452.9 MB
+  System.String                                                                                             704,334      92.1 MB      92.1 MB
+  System.String (Bytes > 100K)                                                                                  240      40.0 MB      40.0 MB
+  Entry<System.String>[] (Bytes > 1K)                                                                         5,958      13.7 MB      17.7 MB
+  Microsoft.CodeAnalysis.CSharp.Symbols.ConstructedNamedTypeSymbol                                           79,998      12.2 MB      32.3 MB
+  System.Int32[]                                                                                            172,259       9.4 MB       9.4 MB
+  System.String (Bytes > 1K)                                                                                  3,403       8.6 MB       8.6 MB
+  ConcurrencyHunter.Ir.IrValue                                                                              140,792       7.5 MB      11.6 MB
+
+types matching "Execution."                                  count      shallow     retained
+  System.ValueTuple<System.String,System.String,System.Collections.Generic.HashSet<System.String>,ConcurrencyHunter.Execution.BodySegment>[...            1       4.0 MB      24.6 MB
+  Entry<System.ValueTuple<System.String,System.String,System.String,ConcurrencyHunter.Execution.BodySegment,System.String>>[] (Bytes > 1M)                1       3.5 MB   3,483.1 MB
+  System.ValueTuple<System.String,System.Collections.Generic.HashSet<System.String>,ConcurrencyHunter.Execution.BodySegment,System.String>[...            1       0.5 MB       1.5 MB
+  ConcurrencyHunter.Execution.ExecutionStep                                                                                                           5,581       0.3 MB       0.3 MB
+  Entry<ConcurrencyHunter.Execution.ExecutionStep>[] (Bytes > 100K)                                                                                       1       0.1 MB       0.4 MB
+  ConcurrencyHunter.Execution.ExecutionInstance                                                                                                          30       0.0 MB       0.0 MB
+  ConcurrencyHunter.Execution.ExecutionEntry[]                                                                                                           31       0.0 MB       0.0 MB
+  ConcurrencyHunter.Execution.ExecutionEntry                                                                                                             30       0.0 MB       0.0 MB
+  System.Collections.Generic.List<ConcurrencyHunter.Execution.ExecutionEntry>                                                                            30       0.0 MB       0.0 MB
+  Entry<System.String,ConcurrencyHunter.Execution.ExecutionInstance>[]                                                                                    1       0.0 MB       0.0 MB
+  Entry<System.String,System.Collections.Generic.List<ConcurrencyHunter.Execution.ExecutionEntry>>[]                                                      1       0.0 MB       0.0 MB
+  System.ValueTuple<System.String,ConcurrencyHunter.Execution.ExecutionEntry,System.String>[]                                                             2       0.0 MB       0.0 MB
+  Entry<System.String,System.Collections.Generic.HashSet<ConcurrencyHunter.Execution.ExecutionStep>>[]                                                    1       0.0 MB       0.4 MB
+  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Execution.ExecutionInstance>                                                      1       0.0 MB       0.0 MB
+  System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<ConcurrencyHunter.Execution.ExecutionEntry>>                        1       0.0 MB       0.0 MB
+  System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.HashSet<ConcurrencyHunter.Execution.ExecutionStep>>                      1       0.0 MB       0.4 MB
+  System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<ConcurrencyHunter.Execution.TimerStep>>                             1       0.0 MB       0.0 MB
+  System.Collections.Generic.Dictionary<System.String,System.Collections.Generic.List<System.ValueTuple<ConcurrencyHunter.Execution.TimerSt...            1       0.0 MB       0.0 MB
+  System.Collections.Generic.Dictionary<System.ValueTuple<System.String,System.Int32>,ConcurrencyHunter.Execution.TimerKind>                              1       0.0 MB       0.0 MB
+  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Execution.HappensBefore+Flow>                                                     1       0.0 MB       0.0 MB
+  System.Collections.Generic.HashSet<System.ValueTuple<System.String,System.String,System.String,ConcurrencyHunter.Execution.BodySegment,Sy...            1       0.0 MB   3,483.3 MB
+  System.Collections.Generic.HashSet<ConcurrencyHunter.Execution.ExecutionStep>                                                                           1       0.0 MB       0.4 MB
+  System.Collections.Generic.HashSet<ConcurrencyHunter.Execution.SpawnAnchor>                                                                             1       0.0 MB       0.0 MB
+  ConcurrencyHunter.Execution.TimerSteps                                                                                                                  1       0.0 MB       0.0 MB
+  ConcurrencyHunter.Execution.AsyncSegments                                                                                                               1       0.0 MB       0.0 MB
+  System.Collections.Generic.Queue<System.ValueTuple<System.String,ConcurrencyHunter.Execution.ExecutionEntry,System.String>>                             1       0.0 MB       0.0 MB
+  System.Collections.Generic.List<System.ValueTuple<System.String,System.String,System.Collections.Generic.HashSet<System.String>,Concurren...            1       0.0 MB      24.6 MB
+  System.Collections.Generic.Stack<System.ValueTuple<System.String,System.Collections.Generic.HashSet<System.String>,ConcurrencyHunter.Exec...            1       0.0 MB       1.5 MB
+  System.Collections.Generic.GenericEqualityComparer<System.ValueTuple<System.String,System.String,System.String,ConcurrencyHunter.Executio...            1       0.0 MB       0.0 MB
+  System.ValueTuple<System.String,System.String,System.Collections.Generic.HashSet<System.String>,ConcurrencyHunter.Execution.BodySegment>[]              1       0.0 MB       0.0 MB
+  System.Collections.Generic.GenericEqualityComparer<ConcurrencyHunter.Execution.SpawnAnchor>                                                             1       0.0 MB       0.0 MB
+  System.Collections.Generic.GenericEqualityComparer<ConcurrencyHunter.Execution.ExecutionStep>                                                           1       0.0 MB       0.0 MB
+  System.Collections.Generic.EnumEqualityComparer<ConcurrencyHunter.Execution.BodySegment>                                                                1       0.0 MB       0.0 MB
+
+top 8 objects by retained size, with the types dominating them (nearest first)
+    3,866.6 MB  [local vars]  (children 567)
+      <- 
+    3,513.4 MB  Builder  (children 35)
+      <- [local vars]
+    3,483.3 MB  System.Collections.Generic.HashSet<System.ValueTuple<System.String,System.String,System...  (children 2)
+      <- Builder <- [local vars]
+    3,483.1 MB  Entry<System.ValueTuple<System.String,System.String,System.String,ConcurrencyHunter.Exe...  (children 226,218)
+      <- System.Collections.Generic.HashSet<System.ValueTuple<System.String,... <- Builder <- [local vars]
+       57.9 MB  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Ir.IrBody>  (children 4)
+      <- [local vars]
+       57.9 MB  Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 10K)  (children 1,952)
+      <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       40.5 MB  ConcurrencyHunter.CallGraph.ProgramIndex  (children 15)
+      <- [local vars]
+       24.6 MB  System.Collections.Generic.List<System.ValueTuple<System.String,System.String,System.Co...  (children 1)
+      <- Builder <- [local vars]

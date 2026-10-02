@@ -1,0 +1,13 @@
+
+[20:45:31.930] harness pid 46052; free commit 18.7 GB
+[20:46:05.112] heap solve started
+[20:46:05.121] counters pid 57496
+[20:46:14.829] executions started
+[20:46:20.131] working set 2067 MB: stacks, then gcdump 1
+[20:46:21.200] stacks done (exit 0)
+[20:46:25.817] gcdump 1 done (exit 0)
+[20:46:29.467] working set 4118 MB, free commit 14.7 GB: stacks, then gcdump 2
+[20:46:35.318] gcdump 2 done (exit 0)
+[20:49:28.123] machine guard: free commit 1.49 GB, working set 15915 MB; stopping harness pid 46052
+[20:49:29.460] harness exited: -1
+[20:49:29.463] end

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <!-- nothing is downloaded: no package references, and restore may only look at the local cache -->
+    <RestoreSources>$(USERPROFILE)\.nuget\packages</RestoreSources>
+    <GcDumpTool>$(USERPROFILE)\.dotnet\tools\.store\dotnet-gcdump\10.0.745401\dotnet-gcdump\10.0.745401\tools\net8.0\any</GcDumpTool>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="dotnet-gcdump"><HintPath>$(GcDumpTool)\dotnet-gcdump.dll</HintPath></Reference>
+    <Reference Include="Microsoft.Diagnostics.FastSerialization"><HintPath>$(GcDumpTool)\Microsoft.Diagnostics.FastSerialization.dll</HintPath></Reference>
+    <Reference Include="Microsoft.Diagnostics.Tracing.TraceEvent"><HintPath>$(GcDumpTool)\Microsoft.Diagnostics.Tracing.TraceEvent.dll</HintPath></Reference>
+  </ItemGroup>
+
+</Project>

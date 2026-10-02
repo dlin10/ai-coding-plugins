@@ -1,0 +1,108 @@
+C:/Users/Admin/AppData/Local/Temp/claude/C--Dev-CodexPlugins-plugins-concurrency-hunter/5b276eb1-9c67-454f-a288-317f3abe95af/scratchpad/corelib-spike/profile/solve-four-1.gcdump: 8,921,630 nodes, 645.4 MB, 0 references; process working set 0 MB, commit 0 MB; average count multiplier 1, size multiplier 1
+reachable 8,919,813 of 8,921,630 nodes; dominators in 9 passes; root retains     645.3 MB
+
+top 25 types by retained size (outermost instances)        count      shallow     retained
+  [.NET Roots]                                                                                                    1       0.0 MB     645.3 MB
+  [local vars]                                                                                                    1       0.0 MB     611.9 MB
+  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Ir.IrBody>                                1       0.0 MB     240.3 MB
+  Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K)                                               1       0.3 MB     240.3 MB
+  ConcurrencyHunter.Ir.IrBody                                                                                10,627       1.0 MB     237.9 MB
+  System.String                                                                                           1,640,199     209.5 MB     209.5 MB
+  ConcurrencyHunter.Ir.IrBlock                                                                               71,219       4.9 MB     176.9 MB
+  ConcurrencyHunter.Ir.IrBlock[]                                                                             10,617       0.8 MB     171.7 MB
+  System.Collections.Generic.List<ConcurrencyHunter.Ir.IrOperation>                                          70,675       2.2 MB     160.7 MB
+  ConcurrencyHunter.Ir.IrOperation[]                                                                         49,397       3.3 MB     105.2 MB
+  ConcurrencyHunter.Ir.IrProvenance                                                                         298,262      13.7 MB     104.2 MB
+  ConcurrencyHunter.Heap.MethodSummary                                                                        2,719       0.6 MB      53.6 MB
+  System.Collections.Generic.List<ConcurrencyHunter.Ir.IrValue>                                              10,627       0.3 MB      52.8 MB
+  ConcurrencyHunter.Ir.IrValue                                                                              405,920      21.7 MB      47.6 MB
+  ConcurrencyHunter.Analysis.SourceSpan                                                                     299,065      11.4 MB      45.2 MB
+  ConcurrencyHunter.CallGraph.ProgramIndex                                                                        1       0.0 MB      39.8 MB
+  ConcurrencyHunter.Ir.IrOperation[] (Bytes > 100K)                                                               6       1.1 MB      39.7 MB
+  Solver                                                                                                          1       0.0 MB      37.5 MB
+  ConcurrencyHunter.Ir.IrCallOperation                                                                       39,593       6.0 MB      34.5 MB
+  Microsoft.CodeAnalysis.CSharp.Symbols.ConstructedNamedTypeSymbol                                           80,057      12.2 MB      32.3 MB
+  ConcurrencyHunter.Ir.IrConvertOperation                                                                    77,294       3.5 MB      30.8 MB
+  ConcurrencyHunter.Ir.IrStoreElementOperation                                                               67,087       3.1 MB      29.6 MB
+  InstanceState                                                                                              10,213       1.5 MB      24.4 MB
+  ConcurrencyHunter.CallGraph.ProgramMethod                                                                  34,360       3.7 MB      22.3 MB
+  ParsedSyntaxTree                                                                                            1,743       0.3 MB      22.2 MB
+
+top 25 types by shallow size                                    count      shallow     retained
+  System.String                                                                                           1,640,199     209.5 MB     209.5 MB
+  ConcurrencyHunter.Ir.IrValue                                                                              405,920      21.7 MB      47.6 MB
+  System.Int32[]                                                                                            421,744      14.8 MB      14.8 MB
+  ConcurrencyHunter.Ir.IrProvenance                                                                         298,262      13.7 MB     104.2 MB
+  Microsoft.CodeAnalysis.CSharp.Symbols.ConstructedNamedTypeSymbol                                           80,057      12.2 MB      32.3 MB
+  System.String (Bytes > 1K)                                                                                  6,797      12.1 MB      12.1 MB
+  ConcurrencyHunter.Analysis.SourceSpan                                                                     299,065      11.4 MB      45.2 MB
+  System.String (Bytes > 10K)                                                                                   325       9.7 MB       9.7 MB
+  System.Collections.Generic.HashSet<ConcurrencyHunter.Heap.AbstractValue>                                  136,812       8.4 MB      16.5 MB
+  System.Collections.Generic.HashSet<System.String>                                                         135,153       8.2 MB      15.3 MB
+  System.String (Bytes > 100K)                                                                                   38       7.2 MB       7.2 MB
+  AvlNode<Microsoft.CodeAnalysis.CSharp.Symbols.TypeParameterSymbol,Microsoft.CodeAnalysis.CSharp.S...       97,924       6.7 MB       6.7 MB
+  ConcurrencyHunter.Ir.IrCallOperation                                                                       39,593       6.0 MB      34.5 MB
+  Microsoft.CodeAnalysis.CSharp.Symbols.TypeWithAnnotations[]                                               109,456       6.0 MB       6.0 MB
+  Entry<ConcurrencyHunter.Heap.AbstractValue>[]                                                              75,176       5.2 MB       5.6 MB
+  Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax                                                 111,444       5.1 MB       5.1 MB
+  ConcurrencyHunter.Heap.ElementTransfer                                                                     41,384       5.1 MB      14.4 MB
+  ConcurrencyHunter.Ir.IrBlock                                                                               71,219       4.9 MB     176.9 MB
+  ConcurrencyHunter.Ir.IrBranch                                                                              79,601       4.9 MB       5.5 MB
+  ConcurrencyHunter.Ir.IrFlowPredecessor                                                                    202,407       4.6 MB       4.6 MB
+  System.Collections.Generic.HashSet<System.Int32>                                                           66,306       4.0 MB       6.0 MB
+  Microsoft.CodeAnalysis.SourceLocation                                                                     129,187       3.9 MB       3.9 MB
+  SourceOrdinaryMethodSymbolSimple                                                                           21,342       3.9 MB      10.6 MB
+  Microsoft.CodeAnalysis.CSharp.Symbols.SourceSimpleParameterSymbol                                          45,728       3.8 MB       5.2 MB
+  Microsoft.CodeAnalysis.CSharp.Syntax.LiteralExpressionSyntax                                               82,391       3.8 MB       3.8 MB
+
+top 25 objects by retained size, with the types dominating them (nearest first)
+      611.9 MB  [local vars]  (children 308)
+      <- 
+      240.3 MB  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Ir.IrBody>  (children 3)
+      <- [local vars]
+      240.3 MB  Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K)  (children 21,254)
+      <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       39.8 MB  ConcurrencyHunter.CallGraph.ProgramIndex  (children 15)
+      <- [local vars]
+       37.5 MB  Solver  (children 62)
+      <- [local vars]
+       20.3 MB  System.Collections.Generic.Dictionary<System.String,ConcurrencyHunter.Heap.WholeProgram...  (children 3)
+      <- Solver <- [local vars]
+       20.2 MB  Entry<System.String,ConcurrencyHunter.Heap.WholeProgram+InstanceState>[] (Bytes > 100K)  (children 20,426)
+      <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- Solver <- [local vars]
+       17.1 MB  ConcurrencyHunter.Ir.IrBody  (children 9)
+      <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       13.8 MB  ConcurrencyHunter.Ir.IrBody  (children 9)
+      <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       13.1 MB  ConcurrencyHunter.Ir.IrBlock[]  (children 3)
+      <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       13.1 MB  ConcurrencyHunter.Ir.IrBlock  (children 4)
+      <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       13.1 MB  System.Collections.Generic.List<ConcurrencyHunter.Ir.IrOperation>  (children 1)
+      <- ConcurrencyHunter.Ir.IrBlock <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       13.1 MB  ConcurrencyHunter.Ir.IrOperation[] (Bytes > 100K)  (children 31,107)
+      <- System.Collections.Generic.List<ConcurrencyHunter.Ir.IrOperation> <- ConcurrencyHunter.Ir.IrBlock <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt...
+       10.6 MB  ConcurrencyHunter.Ir.IrBlock[]  (children 3)
+      <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       10.6 MB  ConcurrencyHunter.Ir.IrBlock  (children 4)
+      <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       10.6 MB  System.Collections.Generic.List<ConcurrencyHunter.Ir.IrOperation>  (children 1)
+      <- ConcurrencyHunter.Ir.IrBlock <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+       10.6 MB  ConcurrencyHunter.Ir.IrOperation[] (Bytes > 100K)  (children 24,291)
+      <- System.Collections.Generic.List<ConcurrencyHunter.Ir.IrOperation> <- ConcurrencyHunter.Ir.IrBlock <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt...
+        9.8 MB  []c__DisplayClass0_0  (children 8)
+      <- [local vars]
+        9.6 MB  System.Collections.Generic.Dictionary<System.String,System.ValueTuple<Microsoft.CodeAna...  (children 3)
+      <- []c__DisplayClass0_0 <- [local vars]
+        9.4 MB  Entry<System.String,System.ValueTuple<Microsoft.CodeAnalysis.IMethodSymbol,Microsoft.Co...  (children 103,080)
+      <- System.Collections.Generic.Dictionary<System.String,System.ValueTup... <- []c__DisplayClass0_0 <- [local vars]
+        7.5 MB  ConcurrencyHunter.Ir.IrBody  (children 9)
+      <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+        7.1 MB  ConcurrencyHunter.Ir.IrBody  (children 9)
+      <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+        6.1 MB  System.Object[] (Bytes > 1K)  (children 858)
+      <- 
+        5.8 MB  ConcurrencyHunter.Ir.IrBlock[]  (children 3)
+      <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]
+        5.8 MB  ConcurrencyHunter.Ir.IrBlock  (children 4)
+      <- ConcurrencyHunter.Ir.IrBlock[] <- ConcurrencyHunter.Ir.IrBody <- Entry<System.String,ConcurrencyHunter.Ir.IrBody>[] (Bytes > 100K) <- System.Collections.Generic.Dictionary<System.String,ConcurrencyHunt... <- [local vars]

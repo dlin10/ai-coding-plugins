@@ -1,0 +1,65 @@
+Thread (0x4D38):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.Monitor.Wait(class System.Object,int32)
+  System.Private.CoreLib.il!System.Threading.ManualResetEventSlim.Wait(int32,value class System.Threading.CancellationToken)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.SpinThenBlockingWait(int32,value class System.Threading.CancellationToken)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.InternalWaitCore(int32,value class System.Threading.CancellationToken)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.InternalWait(int32,value class System.Threading.CancellationToken)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.Wait(int32,value class System.Threading.CancellationToken)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.Wait(value class System.TimeSpan,value class System.Threading.CancellationToken)
+  engine-spike!Program.<<Main>$>g__Capped|0_10(class System.String,class System.Func`1<!!0>)
+  engine-spike!Program.<Main>$(class System.String[])
+
+Thread (0x3B74):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.Thread.Sleep(int32)
+  engine-spike!Program+<>c__DisplayClass0_0.<<Main>$>b__19()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x6C30):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+GateThread.GateThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x10168):
+  CPU_TIME
+  System.Linq.il!System.Linq.Enumerable+EnumerableSorter`2[System.__Canon,System.__Canon].CompareAnyKeys(int32,int32)
+  System.Private.CoreLib.il!System.Collections.Generic.ArraySortHelper`1[System.Int32].IntroSort(value class System.Span`1<!0>,int32,class System.Comparison`1<!0>)
+  System.Private.CoreLib.il!System.Collections.Generic.ArraySortHelper`1[System.Int32].Sort(value class System.Span`1<!0>,class System.Comparison`1<!0>)
+  System.Linq.il!System.Linq.Enumerable+EnumerableSorter`2[System.__Canon,System.__Canon].QuickSort(int32[],int32,int32)
+  System.Linq.il!System.Linq.Enumerable+EnumerableSorter`1[System.__Canon].Sort(!0[],int32)
+  System.Linq.il!System.Linq.Enumerable+OrderedIterator`2[System.__Canon,System.__Canon].MoveNext()
+  System.Private.CoreLib.il!System.String.Join(class System.String,class System.Collections.Generic.IEnumerable`1<class System.String>)
+  ConcurrencyHunter.Analysis!ConcurrencyHunter.Execution.ExecutionModel+Builder.Walk(class System.String,class ConcurrencyHunter.Execution.ExecutionEntry,class System.String)
+  ConcurrencyHunter.Analysis!ConcurrencyHunter.Execution.ExecutionModel+Builder.Build()
+  ConcurrencyHunter.Analysis!ConcurrencyHunter.Execution.ExecutionModel.Build(class ConcurrencyHunter.Heap.ScopeProgram,class ConcurrencyHunter.Heap.HeapSolution)
+  ConcurrencyHunter.Core.Tests!ConcurrencyHunter.Core.Tests.Engine.EngineFixture.Execute(class ConcurrencyHunter.Core.Tests.Engine.HeapRun)
+  engine-spike!Program+<>c__DisplayClass0_0.<<Main>$>b__4()
+  System.Private.CoreLib.il!System.Threading.Tasks.Task`1[System.__Canon].InnerInvoke()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.Thread,class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.ThreadPoolWorkQueue.Dispatch()
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x4050):
+  [Native Frames]
+  System.Private.CoreLib.il!Interop+Kernel32.GetQueuedCompletionStatus(int,unsigned int32&,unsigned int&,int&,int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0xE608):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+  System.Private.CoreLib.il!System.Diagnostics.Tracing.CounterGroup.PollForValues()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0xB7FC):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOne(value class System.TimeSpan)
+  System.Diagnostics.DiagnosticSource.il!System.Diagnostics.Metrics.AggregationManager.CollectWorker()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
