@@ -16,6 +16,7 @@ if not defined VERSION (
 
 set "CACHE=%LOCALAPPDATA%\cache-detective\bin\%VERSION%"
 set "EXE=%CACHE%\cachedet.exe"
+if exist "%EXE%" goto :run
 set "URL=https://github.com/dlin10/ai-coding-plugins/releases/download/cache-detective-v%VERSION%/cachedet.exe"
 set "DOWNLOAD=%CACHE%\cachedet.%RANDOM%.download"
 >&2 echo cache-detective: downloading cachedet.exe %VERSION% from %URL%
@@ -23,6 +24,7 @@ if not exist "%CACHE%" mkdir "%CACHE%" 2>nul
 "%SystemRoot%\System32\curl.exe" -fLsS -o "%DOWNLOAD%" "%URL%" 1>&2
 if errorlevel 1 goto :fetchfailed
 move /y "%DOWNLOAD%" "%EXE%" >nul 2>&1
+if errorlevel 1 goto :fetchfailed
 if exist "%EXE%" goto :run
 
 :fetchfailed
