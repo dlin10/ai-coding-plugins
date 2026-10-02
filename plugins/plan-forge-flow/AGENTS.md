@@ -247,6 +247,11 @@ secrets. It runs before the empty-diff return, so a documentation-only tree is s
 none of this does is stop a worker reading an excluded file off disk; see
 [docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
+The Builder checks condition gates itself and may run separate targeted checks. It must not run an
+executable task gate, including on retries: the server owns that check. If it ran no checks because
+the gate belongs to the server, its verification is `unavailable` with an explicit reason; completed
+implementation remains `done`. See [docs/adr/0027](docs/adr/0027-leave-task-gates-to-the-server.md).
+
 The one thing that is *verified* rather than prevented is a task's gate. After every builder turn,
 `Acts/Gatekeeper.cs` runs the command that immediately follows `**Gate:**` in the task (or the
 executable `## Gates` entries after a fix round) on the host through `Acts/GateRunner.cs`, and a

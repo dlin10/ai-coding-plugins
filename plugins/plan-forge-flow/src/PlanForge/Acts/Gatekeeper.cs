@@ -145,7 +145,9 @@ internal static class Gatekeeper
               .AppendLine(pending)
               .AppendLine()
               .AppendLine("The same command runs again on the host after this turn, and the work is not counted "
-                          + "until it exits 0. Make it pass; do not report `done` on the strength of a check you ran yourself.");
+                          + "until it exits 0. Do not run this gate yourself. Fix the cause; separate targeted checks are optional. "
+                          + "Report only those checks in verification, or unavailable with an explicit reason if you left "
+                          + "verification to the server. Their success does not prove the gate passed.");
     }
 
     private static string Describe(GateRun gate)

@@ -337,7 +337,17 @@ executes the task's gate on the host — from `workspaceRoot`, in PowerShell, wi
 the task counts. After every `forge.review.fix` it does the same with the `## Gates` entries. A gate
 is executable only when the code comes **first** after the label: `**Gate:** `dotnet test …` …`.
 Prose before the backticks makes the gate a condition — the server records it as `not executable`
-and the builder's self-report is all you have. So:
+and the builder's self-report is all you have.
+
+**Only the server runs executable task gates**, including on retries. The act prompt communicates
+the existing parser's classification to the Builder. Do not change ownership based on a command's
+cost, move a task gate to `## Gates`, or require an existing plan to be revised and re-approved.
+The Builder checks condition gates itself; on `failed` or `unavailable`, you check them.
+Separate targeted Builder checks are optional, not a required build-and-test pass. The Builder
+must not reproduce its executable gate under another command, wrapper, or sequence, even when
+the gate is a single targeted test. Plan-wide gates follow the separate schedule below.
+
+Write gate commands as follows:
 
 - One PowerShell command line, placed immediately after `**Gate:**` (or `**G1.**`). Chain with
   `;` — a native command exiting non-zero ends the script with that code — and make a condition
@@ -553,6 +563,11 @@ gate command on the host after the builder's turn, and reports `outcome`, the `c
 `exitCode`, the tail of its `output`, and `seconds`. The code review reads the diff, not either of
 them.
 
+If the Builder ran no checks because an executable gate belongs to the server, its verification
+is `unavailable` with that explicit reason, not `failed`. Fully implemented work is still `done`;
+the server runs its gate as usual. Optional Builder checks report only their own actual results,
+never a claim that the gate passed. A genuine inability to check still reports its exact reason.
+
 Read `gate.outcome` first:
 
 - **`passed`** — the task counts, whatever the builder said about its own verification, and whatever
@@ -562,8 +577,9 @@ Read `gate.outcome` first:
   still says what it could not check, so read that before you narrate the task as a clean success.
 - **`failed`** or **`timeout`** — the `status` is `gate_failed`, `tasksCompleted` did not move, and
   the next `forge.build.next` retries the same task with the gate's command, exit code and output in
-  front of the builder. Call it again. If the same gate fails twice more, stop and show the user the
-  output rather than spending a fourth turn: the gate may be wrong, the environment may be missing
+  front of the builder. The Builder fixes the cause without running the gate; separate diagnostic
+  checks are optional, and the server repeats the gate. Call it again. If the same gate fails twice
+  more, stop and show the user the output rather than spending a fourth turn: the gate may be wrong, the environment may be missing
   a variable, or the task may be beyond the builder. A `## Gates` failure after `forge.review.fix`
   is the same signal with no task to withhold — the next fix carries it — so do not start the next
   `forge.review.code` round on a `gate_failed` fix without deciding what to do about it.

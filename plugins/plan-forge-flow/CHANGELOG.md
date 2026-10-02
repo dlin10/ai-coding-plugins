@@ -1,5 +1,17 @@
 # Plan Forge Flow releases
 
+## 0.39.1
+
+Executable task gates run only on the server, avoiding a duplicate run by the Builder (issue #134,
+docs/adr/0027).
+
+- The Builder receives the server's classification of the task gate and leaves executable gates,
+  including retries, to the server. Separate targeted checks are optional and do not prove the gate
+  passed. When no such checks run, verification is `unavailable` with an explicit reason.
+- Condition gates remain the Builder's responsibility, with failed or unavailable checks handled by
+  the Orchestrator. Server gate failures retain the existing retry behavior, and the schedule for
+  plan-wide gates is unchanged.
+
 ## 0.39.0
 
 The Builder no longer keeps one session for the whole Run (issue #129, docs/adr/0026). On claude

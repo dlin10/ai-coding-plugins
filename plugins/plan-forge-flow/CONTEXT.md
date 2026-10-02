@@ -73,7 +73,7 @@ these terms replace it.
 | **Run instructions** | The user's own free text for a Run's Workers, one for the Critic and one for the Builder, recorded by `forge.instructions.set` and kept in the run state. They travel in the **act prompt** — the user turn — never in the **role instructions**, which are the role contract loaded from `prompts/<vendor>/<role>.md` and reach a vendor by its own channel (`developer_instructions` for codex, the head of the prompt for cursor). A Critic is fresh every round and is handed its text every round; a Builder is handed its text only by a call that starts a session, so a change made mid-session reaches the next session and not the running one. Every new plan task and code-review round starts such a session, and so do vendor switches, reopened plans, and re-approval after the Builder Brief changes. A code-review Critic is additionally shown the Builder's text as data, framed as context for judging the diff. Nothing but the secret guard checks them, and nothing checks that the text is the user's own rather than the orchestrator's — see `docs/adr/0019`. |
 | **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. The server also writes `background_killed` when the turn ended with a Killed background task, and then runs no gate. Only `done` is progress. A `blocked`, `gate_failed` or `background_killed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
 | **Killed background task** | A command a Worker started in the background that was still running when its turn ended, so the Vendor killed it with the process. The Worker never saw its result. Detected on claude only, where the stream reports it; named in the build result for a Builder, logged for a Critic. Not a "background job": a **Job** is a delegated act. |
-| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
+| **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. `unavailable` also covers a Builder that ran no checks because the executable gate belongs to the server, with that reason in the evidence. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -149,6 +149,13 @@ the critic, because a build writes `bin/` and `obj/` into the tree it is judging
 read-only guarantee covers the agent's own edits, not the side effects of a command it ran. A gate
 that is a condition rather than a command is still a self-reported claim, so for those the rule below
 stands: anything but `passed` is the orchestrator's to run itself.
+
+Only the server runs an executable task gate, including on retries. The Builder receives the
+parser's classification in its act prompt and may run separate targeted checks when useful, but
+does not repeat the gate or a complete equivalent. A condition remains the Builder's to check.
+A Builder that ran no checks because the gate is reserved for the server reports verification
+`unavailable` with that reason; a completed implementation is still `done`. The task gate and
+plan-wide gate schedules stay distinct. See `docs/adr/0027`.
 
 None of this adds an artifact. The requirements live in the plan file, `PlanTasks` walks only what
 is under `## Approach`, and both review acts already send the whole plan — `PlanReview` the draft,
