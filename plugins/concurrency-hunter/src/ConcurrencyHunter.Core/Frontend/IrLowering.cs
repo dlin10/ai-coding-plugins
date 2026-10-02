@@ -3542,6 +3542,21 @@ public static class IrLowering
         }
     }
 
+    /// <summary>The recognizer of the lowering that claims the members of a top-level type by the type's metadata name alone, wherever
+    /// the type is declared: <c>collections</c> (ADR 0010), <c>spawn</c>, <c>timer</c>, <c>lock</c>, <c>service-call</c>, or
+    /// <c>recognized</c> for the other types whose calls are never unresolved (R1); <c>null</c> for a type none of them claims. The
+    /// lowering itself claims members of metadata types only; the model generator asks this of a decompiled library's own types, whose
+    /// calls in an analysis run would never reach a model (SPEC TD-034b).</summary>
+    /// <param name="metadataName">The metadata name of a top-level type, such as <c>System.Collections.Generic.List`1</c>.</param>
+    internal static string? RecognizerOf(string metadataName) =>
+        Collections.ClaimsType(metadataName) ? "collections"
+        : Bcl.IsSpawnType(metadataName) ? "spawn"
+        : Bcl.IsTimerType(metadataName) ? "timer"
+        : Synchronization.ClaimsType(metadataName) ? "lock"
+        : ServiceCalls.ClaimsType(metadataName) ? "service-call"
+        : LibraryModels.IsRecognizedType(metadataName) || SpanTypes.Names(metadataName) ? "recognized"
+        : null;
+
     /// <summary>The task, thread, parallel and timer members of the BCL the lowering recognizes, by the metadata name of the type
     /// declaring the called member. A type declared in source never matches, so a same-named user type is an ordinary call, and a
     /// derived type that does not override a member still calls the BCL one.</summary>
@@ -3565,8 +3580,17 @@ public static class IrLowering
 
         /// <summary>Whether a type is one whose members the lowering recognizes, so a call of it in another form is unrecognized
         /// rather than an ordinary call.</summary>
-        internal static bool IsRecognizedType(string type) =>
-            type is TASK or TASK_T or FACTORY or FACTORY_T or EXTENSIONS or PARALLEL or THREAD_POOL or THREAD or TIMER or WAIT_HANDLE or TIMERS_TIMER;
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool IsRecognizedType(string type) => IsSpawnType(type) || IsTimerType(type);
+
+        /// <summary>Whether a type is one whose members start or join work.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool IsSpawnType(string type) =>
+            type is TASK or TASK_T or FACTORY or FACTORY_T or EXTENSIONS or PARALLEL or THREAD_POOL or THREAD or WAIT_HANDLE;
+
+        /// <summary>Whether a type is a timer whose callbacks the lowering starts.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool IsTimerType(string type) => type is TIMER or TIMERS_TIMER;
 
         internal static bool IsTask(ITypeSymbol? type, bool withValueTask) =>
             Name(type) is TASK or TASK_T || withValueTask && Name(type) is VALUE_TASK or VALUE_TASK_T;
@@ -3660,6 +3684,10 @@ public static class IrLowering
         private const string READER_WRITER_LOCK_SLIM = "System.Threading.ReaderWriterLockSlim";
 
         internal static bool IsMonitor(IMethodSymbol method) => Bcl.TypeOf(method) == MONITOR;
+
+        /// <summary>Whether a type is a primitive whose members this recognizer reads as entries and exits.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool ClaimsType(string type) => type is MONITOR or LOCK or MUTEX or SEMAPHORE_SLIM or READER_WRITER_LOCK_SLIM;
 
         /// <summary>What a call does, read from the type of the object it works on: <c>WaitOne</c> is declared by
         /// <c>WaitHandle</c>, so only the receiver says whether it is a mutex.</summary>
@@ -3920,6 +3948,10 @@ public static class IrLowering
                 FactoryArgument = method.OriginalDefinition.Parameters
                                         .FirstOrDefault(parameter => parameter.Type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Method })?.Ordinal
             };
+
+        /// <summary>Whether the collection table describes the members of a type, a dictionary's views among them.</summary>
+        /// <param name="type">The metadata name of a top-level type.</param>
+        internal static bool ClaimsType(string type) => IsModelled(type);
 
         private static bool IsModelled(string type) =>
             type is LIST or DICTIONARY or CONCURRENT_DICTIONARY or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG or HASH_SET or QUEUE or
@@ -4330,6 +4362,10 @@ public static class IrLowering
 
         private static readonly SupportedAssemblyVersion HTTP_ABSTRACTIONS =
             SupportedAssemblyVersion.Framework("Microsoft.AspNetCore.Http.Abstractions");
+
+        /// <summary>Whether a type declares locator or scope-creation members this recognizer reads.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool ClaimsType(string type) => type is SERVICE_PROVIDER or PROVIDER_EXTENSIONS or SCOPE_FACTORY;
 
         internal static IrServiceCall? Of(IInvocationOperation invocation, Compilation compilation, CancellationToken cancellationToken)
         {

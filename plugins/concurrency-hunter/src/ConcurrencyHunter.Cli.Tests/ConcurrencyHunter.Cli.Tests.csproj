@@ -35,6 +35,8 @@
              Link="Fixtures/RepositoryFiles.cs" />
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/DemoWorkspace.cs"
              Link="Fixtures/DemoWorkspace.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/GenerationInstall.cs"
+             Link="Fixtures/GenerationInstall.cs" />
   </ItemGroup>
 
 </Project>

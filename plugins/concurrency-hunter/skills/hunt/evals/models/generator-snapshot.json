@@ -1,0 +1,355 @@
+{
+  "members": [
+    {
+      "member": "M:Google.Protobuf.FieldCodec.ForMessage``1(System.UInt32,Google.Protobuf.MessageParser{``0})",
+      "implementation": {
+        "assemblyVersion": "3.21.9.0",
+        "fileVersion": "3.21.9.0",
+        "mvid": "2f4141cc-f5a5-4604-aa0b-ceb8fe78a4dd"
+      },
+      "classified": {
+        "parser": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 40
+    },
+    {
+      "member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
+      "implementation": {
+        "assemblyVersion": "3.21.9.0",
+        "fileVersion": "3.21.9.0",
+        "mvid": "2f4141cc-f5a5-4604-aa0b-ceb8fe78a4dd"
+      },
+      "classified": {
+        "factory": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 22
+    },
+    {
+      "member": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {
+        "action": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 184
+    },
+    {
+      "member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {
+        "onRetry": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "sleepDurationProvider": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 32
+    },
+    {
+      "member": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {
+        "onRetry": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "sleepDurationProvider": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 33
+    },
+    {
+      "member": "M:Polly.Policy.Execute(System.Action)",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {
+        "action": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 181
+    },
+    {
+      "member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {
+        "onRetry": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "sleepDurationProvider": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 31
+    },
+    {
+      "member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 337
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 338
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "iterator",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 353
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 347
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "selector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 342
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "selector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 367
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 344
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 338
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "invoke-now",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 351
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "2c6486c6-ad7b-4316-9e8e-a234f0317db4"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 350
+    },
+    {
+      "member": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
+      "implementation": {
+        "assemblyVersion": "8.0.0.0",
+        "fileVersion": "8.0.3126.42015",
+        "mvid": "742bdb9f-0b11-4c54-853a-5770c9beaf55"
+      },
+      "classified": {
+        "match": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "reachedBodies": 45
+    }
+  ],
+  "packages": [
+    {
+      "assembly": "Google.Protobuf",
+      "package": "Google.Protobuf",
+      "implementationVersion": "3.21.9",
+      "bodies": 2623,
+      "externBodies": 1,
+      "members": 2,
+      "driversSynthesized": 2
+    },
+    {
+      "assembly": "Polly",
+      "package": "Polly",
+      "implementationVersion": "7.2.3",
+      "bodies": 978,
+      "externBodies": 0,
+      "members": 5,
+      "driversSynthesized": 5
+    },
+    {
+      "assembly": "System.Linq",
+      "package": null,
+      "implementationVersion": "8.0.31",
+      "bodies": 853,
+      "externBodies": 5,
+      "members": 10,
+      "driversSynthesized": 10
+    },
+    {
+      "assembly": "System.Security.Claims",
+      "package": null,
+      "implementationVersion": "8.0.31",
+      "bodies": 125,
+      "externBodies": 0,
+      "members": 1,
+      "driversSynthesized": 1
+    }
+  ],
+  "exact": 11
+}

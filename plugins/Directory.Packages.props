@@ -9,6 +9,8 @@
          pinning here keeps the demo from drifting onto a different Dapper than the one the SQL
          recognisers were written against. -->
     <PackageVersion Include="Dapper" Version="2.1.79" />
+    <!-- concurrency-hunter's model generator (SPEC TD-034b) decompiles library implementations in memory. -->
+    <PackageVersion Include="ICSharpCode.Decompiler" Version="11.1.0.9782" />
     <!-- Compile-only in CacheDetective.Cli (ExcludeAssets="runtime"): MSBuildLocator loads the real
          MSBuild out of the installed SDK at runtime, so this version governs the reference surface
          only. See docs/adr/0001. -->

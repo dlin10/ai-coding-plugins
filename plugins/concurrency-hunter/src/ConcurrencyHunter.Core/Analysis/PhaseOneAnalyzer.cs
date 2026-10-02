@@ -1,10 +1,8 @@
 using System.Diagnostics;
 using ConcurrencyHunter.Accesses;
-using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
-using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Roots;
@@ -134,39 +132,11 @@ public static class PhaseOneAnalyzer
             var (models, modelRejections) = ProjectModelResolver.Resolve(projectModels, compilations, modelLock);
             diagnostics.AddRange(modelRejections.Select(rejection => rejection.Diagnostic));
 
+            var run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models, limits, lowered, null,
+                                        cancellationToken);
+            Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
+            diagnostics.AddRange(run.DiscoveryDiagnostics);
             step.Restart();
-            var index = DiIndexBuilder.Build(scope.Id, projectFiles, rootDirectory, cancellationToken);
-            diagnostics.AddRange(index.Diagnostics.Select(diagnostic => $"di: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
-
-            var context = new RootDiscoveryContext(scope.Id, compilations, rootDirectory, index, cancellationToken);
-            var scopeRoots = new List<ExecutionRootDescriptor>();
-            var rootsPerProvider = new SortedDictionary<string, int>(StringComparer.Ordinal);
-            var rootIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var provider in registry.Providers)
-            {
-                var result = provider.Discover(context);
-                var providerDiagnostics = result.Diagnostics.ToList();
-                foreach (var root in result.Roots)
-                {
-                    if (rootIds.Add(root.StableRootId))
-                    {
-                        scopeRoots.Add(root);
-                        continue;
-                    }
-
-                    providerDiagnostics.Add(new RootDiscoveryDiagnostic(
-                        provider.ProviderId, RootDiscoveryDiagnosticCode.DiscoveryFailed, root.StableRootId,
-                        $"stable root id {root.StableRootId} was already produced by an earlier provider", []));
-                }
-
-                rootsPerProvider[provider.ProviderId] = scopeRoots.Count(root => root.ProviderId == provider.ProviderId);
-                diagnostics.AddRange(providerDiagnostics.Select(diagnostic =>
-                    $"{diagnostic.ProviderId}: {diagnostic.Code} {diagnostic.AffectedScope}: {diagnostic.Reason}"));
-            }
-
-            var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, cancellationToken);
-            diagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
-                                         .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
             diagnostics.AddRange(compiledProjects.SelectMany(compiled => LibraryModels.BuiltIn.OutOfRangeReferences(compiled.Compilation)
                                                                                               .Where(reference => outOfRangeReported.Add((compiled.Project.Id, reference.Assembly.Name)))
                                                                                               .Select(reference =>
@@ -175,44 +145,22 @@ public static class PhaseOneAnalyzer
                 $"{reference.Assembly.Version}, outside the supported range {reference.Range.Minimum} up to {reference.Range.MaximumExclusive}; " +
                 "the calls of its members only the built-in models describe are opaque calls.")));
 
+            // Scope discovery still spans the DI index, the providers, the bindings and the out-of-range diagnostics.
+            Add(timings, SCOPE_DISCOVERY, run.Times.RootDiscovery);
             Record(timings, SCOPE_DISCOVERY, step);
-            var program = ProgramIndexBuilder.Build(scope.Id, compilations, rootDirectory, cancellationToken);
-            Record(timings, PROGRAM_INDEX, step);
-            var lowering = new Stopwatch();
-            var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-            var lower = Members(compilations, rootDirectory, models, lowered, metadataSupertypes, diagnostics, cancellationToken);
-            IReadOnlyList<IrBody> TimedMembers(string bodyId)
-            {
-                lowering.Start();
-                try
-                {
-                    return lower(bodyId);
-                }
-                finally
-                {
-                    lowering.Stop();
-                }
-            }
-
-            var reachable = ReachableSet.Build(new ReachabilityInput(program, scopeRoots, index, bindings, TimedMembers));
-            timings[REACHABLE_SET] = timings.GetValueOrDefault(REACHABLE_SET) + step.Elapsed - lowering.Elapsed;
-            timings[LOWERING] = timings.GetValueOrDefault(LOWERING) + lowering.Elapsed;
+            diagnostics.AddRange(run.LoweringDiagnostics);
+            Add(timings, PROGRAM_INDEX, run.Times.ProgramIndex);
+            Add(timings, LOWERING, run.Times.Lowering);
+            Add(timings, REACHABLE_SET, run.Times.ReachableSet);
+            Add(timings, SUMMARIES_AND_FIXPOINT, run.Times.SummariesAndFixpoint);
+            Add(timings, EXECUTIONS, run.Times.Executions);
+            Add(timings, ACCESSES, run.Times.Accesses);
+            var collection = run.Collection;
+            // Pairing spans the pairing and the gap marks only, as it did before the pipeline: the bookkeeping above is not its own.
             step.Restart();
-            var summaries = new SummaryCache(reachable.Bodies, program, limits);
-            var scopeProgram = new ScopeProgram(scope.Id, scopeRoots, reachable, summaries, program, index, bindings)
-            {
-                MetadataSupertypes = metadataSupertypes
-            };
-            var heap = WholeProgram.Solve(scopeProgram, limits);
-            Record(timings, SUMMARIES_AND_FIXPOINT, step);
-            var executions = ExecutionModel.Build(scopeProgram, heap);
-            Record(timings, EXECUTIONS, step);
-            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
-            var collection = InterproceduralAccesses.Collect(interprocedural);
-            Record(timings, ACCESSES, step);
-            var scopePairs = pairing(collection.Accesses, executions, heap);
+            var scopePairs = pairing(collection.Accesses, run.Executions, run.Heap);
             // Before the solver: the checks a semantic gap decides are part of what the budget is spent in the order of (TD-039).
-            scopePairs = scopePairs with { Pairs = GapDecisions.Mark(scopePairs.Pairs, interprocedural, collection.Coverage.Gaps) };
+            scopePairs = scopePairs with { Pairs = GapDecisions.Mark(scopePairs.Pairs, run.Interprocedural, collection.Coverage.Gaps) };
             Record(timings, PAIRING, step);
             // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
             // run's share of its deadline. A solver that never started answers every question Unknown (ADR 0004).
@@ -220,10 +168,10 @@ public static class PhaseOneAnalyzer
             scopePairs = refined.Pairs;
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
             Record(timings, SOLVER, step);
-            sizes.Add(new ScopeSize(scope.Id, heap.ReachableBodies.Count, summaries.Built, heap.Regions.Count, heap.Instances.Count,
-                                    collection.Accesses.Count(access => !access.IsConstructionLocal)));
+            sizes.Add(new ScopeSize(scope.Id, run.Heap.ReachableBodies.Count, run.Summaries.Built, run.Heap.Regions.Count,
+                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal)));
 
-            roots.AddRange(scopeRoots);
+            roots.AddRange(run.Roots);
             accesses.AddRange(collection.Accesses);
             pairs.AddRange(scopePairs.Pairs);
             comparisons += scopePairs.Comparisons;
@@ -234,7 +182,7 @@ public static class PhaseOneAnalyzer
             suppressed += scopePairs.Suppressed;
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
-            coverage.Add(new ScopeCoverage(scope.Id, rootsPerProvider, diagnostics, index.Registrations.Count,
+            coverage.Add(new ScopeCoverage(scope.Id, run.RootsPerProvider, diagnostics, run.Index.Registrations.Count,
                                            Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count))
             {
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
@@ -298,55 +246,6 @@ public static class PhaseOneAnalyzer
         step.Restart();
     }
 
-    /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,
-    /// lowered once and cached by compilation, since two projects can share an assembly name and a declaration, not a body.</summary>
-    private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
-                                                               LibraryModels models,
-                                                               Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
-                                                               Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
-                                                               List<string> diagnostics, CancellationToken cancellationToken)
-    {
-        var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
-        foreach (var compilation in compilations)
-        {
-            foreach (var method in Methods(compilation.Assembly.GlobalNamespace))
-                methods.TryAdd(IrLowering.RootBodyId(method), (method, compilation));
-        }
-
-        return bodyId =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!methods.TryGetValue(bodyId, out var member))
-                return [];
-            if (!lowered.TryGetValue((member.Compilation, bodyId, models), out var loweredMethod))
-            {
-                try
-                {
-                    loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
-                                                     models);
-                }
-                catch (Exception error) when (error is ArgumentException or InvalidOperationException)
-                {
-                    loweredMethod = null;
-                    diagnostics.Add($"lowering: {bodyId}: {error.Message}");
-                }
-
-                lowered[(member.Compilation, bodyId, models)] = loweredMethod;
-            }
-
-            if (loweredMethod is null)
-                return [];
-            foreach (var (type, supertypes) in loweredMethod.MetadataSupertypes)
-                metadataSupertypes[type] = supertypes;
-            return loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();
-        };
-    }
-
-    private static IEnumerable<IMethodSymbol> Methods(INamespaceSymbol @namespace) =>
-        @namespace.GetTypeMembers().SelectMany(NestedAndSelf)
-                  .SelectMany(type => type.GetMembers().OfType<IMethodSymbol>())
-                  .Concat(@namespace.GetNamespaceMembers().SelectMany(Methods));
-
-    private static IEnumerable<INamedTypeSymbol> NestedAndSelf(INamedTypeSymbol type) =>
-        new[] { type }.Concat(type.GetTypeMembers().SelectMany(NestedAndSelf));
+    private static void Add(Dictionary<string, TimeSpan> timings, string name, TimeSpan elapsed) =>
+        timings[name] = timings.GetValueOrDefault(name) + elapsed;
 }

@@ -17,6 +17,10 @@ internal static class Program
           concurrency-hunter mcp        Serve the Model Context Protocol over stdio.
           concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc]
                                         Measure one analysis and write it as JSON.
+          concurrency-hunter generate --assembly <name> --version <version> --member <declaration id>
+                                      [--package <id>] [--framework netX.0] --out <file>
+                                        Classify where one library member runs the delegates it takes,
+                                        and write the answer as JSON.
           concurrency-hunter --version  Print the version.
           concurrency-hunter --help     Print this help.
         """;
@@ -45,6 +49,8 @@ internal static class Program
                 return await RunMcpAsync().ConfigureAwait(false);
             case "metrics":
                 return await MetricsCommand.RunAsync(args[1..], error).ConfigureAwait(false);
+            case "generate":
+                return GenerateCommand.Run(args[1..], error);
             default:
                 error.WriteLine($"Unknown command: {args[0]}");
                 error.WriteLine(USAGE);

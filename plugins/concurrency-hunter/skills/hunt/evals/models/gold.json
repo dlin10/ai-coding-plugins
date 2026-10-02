@@ -146,6 +146,7 @@
   "key": "WaitAndRetry",
   "id": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
   "label": "holder",
+  "holder": "result",
   "delegateParams": [
    "sleepDurationProvider",
    "onRetry"
@@ -157,6 +158,7 @@
   "key": "WaitAndRetryAsync",
   "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
   "label": "holder",
+  "holder": "result",
   "delegateParams": [
    "sleepDurationProvider",
    "onRetry"
@@ -168,6 +170,7 @@
   "key": "WaitAndRetryForeverAsync",
   "id": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
   "label": "holder",
+  "holder": "result",
   "delegateParams": [
    "sleepDurationProvider",
    "onRetry"
@@ -199,6 +202,7 @@
   "key": "MessageParserCtor",
   "id": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
   "label": "holder",
+  "holder": "result",
   "delegateParams": [
    "factory"
   ],
@@ -209,6 +213,7 @@
   "key": "ForMessage",
   "id": "M:Google.Protobuf.FieldCodec.ForMessage``1(System.UInt32,Google.Protobuf.MessageParser{``0})",
   "label": "holder",
+  "holder": "result",
   "delegateParams": [
    "parser"
   ],

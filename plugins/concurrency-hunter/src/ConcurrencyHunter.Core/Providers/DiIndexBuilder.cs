@@ -44,6 +44,10 @@ public static class DiIndexBuilder
         [DiIndex.HOSTED_SERVICE_METHOD] = (HOSTED_EXTENSIONS, DiLifetime.Singleton)
     };
 
+    /// <summary>Whether a type, by its metadata name, declares registration methods this index reads.</summary>
+    /// <param name="metadataName">The metadata name of a top-level type.</param>
+    internal static bool IsRegistrationType(string metadataName) => Methods.Values.Any(method => method.ContainingType == metadataName);
+
     public static DiIndex Build(string scopeId, IEnumerable<Compilation> compilations, string rootDirectory,
                                 CancellationToken cancellationToken) =>
         Build(scopeId, compilations.Select(compilation => (compilation, (string?)null)), rootDirectory, cancellationToken);

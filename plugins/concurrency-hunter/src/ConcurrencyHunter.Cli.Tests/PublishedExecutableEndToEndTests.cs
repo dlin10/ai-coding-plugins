@@ -11,6 +11,8 @@ namespace ConcurrencyHunter.Cli.Tests;
 public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 {
     private const string REQUIRE_VARIABLE = "CONCURRENCYHUNTER_REQUIRE_E2E";
+    private const string ENUMERABLE_ALL =
+        "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})";
     private static readonly TimeSpan HANDSHAKE_TIMEOUT = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ANALYSIS_TIMEOUT = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan PUBLISH_TIMEOUT = TimeSpan.FromMinutes(10);
@@ -234,11 +236,123 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>R7: the decompiler ships inside the single published executable, which classifies a member of the installed
+    /// runtime.</summary>
+    [Fact]
+    public async Task Published_executable_classifies_with_the_decompiler_inside()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"concurrency-hunter-generate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+
+        try
+        {
+            var publish = Path.Combine(directory, "publish");
+            var executable = await PublishAsync(publish);
+            Assert.DoesNotContain(Directory.GetFiles(publish), file => Path.GetFileName(file).StartsWith("ICSharpCode.", StringComparison.OrdinalIgnoreCase));
+
+            var answer = Path.Combine(directory, "answer.json");
+            await RunAsync(executable, GenerateArguments(answer), ANALYSIS_TIMEOUT);
+
+            AssertClassifiesAll(answer);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    /// <summary>
+    /// R1: <c>generate</c> writes no file but its output. Its working directory, temporary, packages and application-data folders
+    /// are each an empty folder the current user may not write to or delete from, so a write there fails the run instead of
+    /// leaving no trace; the single-file host extracts into a writable folder of its own, and the proxy points at a closed port.
+    /// </summary>
+    [Fact]
+    public async Task Published_generate_writes_nothing_but_its_output_file()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"concurrency-hunter-boundary-{Guid.NewGuid():N}");
+        var denied = new[] { "work", "temp", "tmp", "nuget", "appdata", "localappdata" }.ToDictionary(name => name, name => Path.Combine(directory, name));
+        var extract = Path.Combine(directory, "extract");
+        var outFolder = Path.Combine(directory, "out");
+        var user = $@"{Environment.UserDomainName}\{Environment.UserName}";
+        foreach (var folder in denied.Values.Append(extract).Append(outFolder))
+            Directory.CreateDirectory(folder);
+
+        try
+        {
+            var executable = await PublishAsync(Path.Combine(directory, "publish"));
+            foreach (var folder in denied.Values)
+            {
+                // Every write and delete right by its specific name: icacls's simple W and D carry SYNCHRONIZE, which would deny
+                // listing the folder too.
+                await RunAsync("icacls", [folder, "/deny", $"{user}:(OI)(CI)(WD,AD,WEA,WA,DE,DC)"], HANDSHAKE_TIMEOUT);
+                Assert.Throws<UnauthorizedAccessException>(() => File.WriteAllText(Path.Combine(folder, "probe.txt"), ""));
+                Assert.Throws<UnauthorizedAccessException>(() => Directory.CreateDirectory(Path.Combine(folder, "probe")));
+                Assert.Empty(Directory.EnumerateFileSystemEntries(folder));
+            }
+
+            var answer = Path.Combine(outFolder, "answer.json");
+            await RunAsync(executable, GenerateArguments(answer), ANALYSIS_TIMEOUT, start =>
+            {
+                start.WorkingDirectory = denied["work"];
+                start.Environment["TEMP"] = denied["temp"];
+                start.Environment["TMP"] = denied["tmp"];
+                start.Environment["NUGET_PACKAGES"] = denied["nuget"];
+                start.Environment["APPDATA"] = denied["appdata"];
+                start.Environment["LOCALAPPDATA"] = denied["localappdata"];
+                start.Environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = extract;
+                start.Environment["HTTP_PROXY"] = "http://127.0.0.1:9";
+                start.Environment["HTTPS_PROXY"] = "http://127.0.0.1:9";
+            });
+
+            AssertClassifiesAll(answer);
+            // A folder deleted through its parent's delete-child right would be missing here.
+            Assert.All(denied, folder => Assert.True(Directory.Exists(folder.Value), $"generate deleted the {folder.Key} folder"));
+            Assert.All(denied, folder => Assert.True(!Directory.EnumerateFileSystemEntries(folder.Value).Any(),
+                                                     $"generate left {string.Join(", ", Directory.EnumerateFileSystemEntries(folder.Value))} in {folder.Key}"));
+            Assert.Equal(["answer.json"], Directory.GetFileSystemEntries(outFolder).Select(Path.GetFileName));
+        }
+        finally
+        {
+            foreach (var folder in denied.Values.Where(Directory.Exists))
+                await RunAsync("icacls", [folder, "/remove:d", user, "/T"], HANDSHAKE_TIMEOUT);
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    /// <summary>Publishes the executable into a folder of its own.</summary>
+    /// <param name="directory">The folder.</param>
+    private async Task<string> PublishAsync(string directory)
+    {
+        var project = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "src", "ConcurrencyHunter.Cli", "ConcurrencyHunter.Cli.csproj");
+        await RunAsync("dotnet", ["publish", project, "-c", "Release", "-o", directory, "--disable-build-servers", "-nodeReuse:false"], PUBLISH_TIMEOUT);
+        var executable = Path.Combine(directory, "concurrency-hunter.exe");
+        Assert.True(File.Exists(executable), $"The publish produced no executable in {directory}.");
+        return executable;
+    }
+
+    /// <summary><c>generate</c> for <c>Enumerable.All</c> of the installed runtime's major.</summary>
+    /// <param name="answer">The output file.</param>
+    private static string[] GenerateArguments(string answer) =>
+        ["generate", "--assembly", "System.Linq", "--version", Environment.Version.Major.ToString(), "--member", ENUMERABLE_ALL, "--out", answer];
+
+    private static void AssertClassifiesAll(string answer)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllBytes(answer));
+        Assert.Equal("invoke-now", document.RootElement.GetProperty("classified").GetProperty("predicate").GetProperty("fate").GetString());
+        Assert.False(string.IsNullOrEmpty(document.RootElement.GetProperty("generation").GetProperty("implementation").GetProperty("mvid").GetString()));
+    }
+
     private static int Counter(JsonElement counters, string name) =>
         counters.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
 
     /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed.</summary>
-    private async Task RunAsync(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout)
+    /// <param name="fileName">The program.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <param name="timeout">How long it may run.</param>
+    /// <param name="configure">Sets the working directory or the environment, when given.</param>
+    private async Task RunAsync(string fileName, IReadOnlyList<string> arguments, TimeSpan timeout, Action<ProcessStartInfo>? configure = null)
     {
         var start = new ProcessStartInfo(fileName)
         {
@@ -248,6 +362,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         };
         foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
+        configure?.Invoke(start);
 
         using var process = Process.Start(start)!;
         var standardOutput = process.StandardOutput.ReadToEndAsync();

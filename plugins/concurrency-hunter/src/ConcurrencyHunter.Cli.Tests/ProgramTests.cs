@@ -43,6 +43,19 @@ public sealed class ProgramTests
     }
 
     [Fact]
+    public async Task Usage_names_generate()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        var exitCode = await Program.RunAsync(["--help"], output, error);
+
+        Assert.Equal(ExitCode.Ok, exitCode);
+        Assert.Contains("concurrency-hunter generate --assembly <name> --version <version> --member <declaration id>", output.ToString());
+        Assert.Contains("[--package <id>] [--framework netX.0] --out <file>", output.ToString());
+    }
+
+    [Fact]
     public async Task Unknown_command_returns_usage_error_and_names_the_command()
     {
         using var output = new StringWriter();

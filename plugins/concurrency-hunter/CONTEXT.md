@@ -400,16 +400,28 @@ _Avoid_: model inference, AI generator (the generator runs no AI)
 
 **Driver**:
 A small program the **Model generator** synthesizes from one member's signature: an action that calls
-the member with probe lambdas and, in further actions, enumerates the result or calls each member
-of the object that may keep the delegate. Where a probe's write lands is the answer.
+the member with probe lambdas and probe objects and, in further actions, enumerates the result or
+calls each member of the object that may keep the delegate. Where a probe lambda's write lands is the
+answer for a delegate; what the member did to a probe object is the answer for an argument.
 _Avoid_: harness, test, stub
 
 **Open-world rule**:
 Library code is not a closed world: a delegate the **Model generator** did not see run, or saw run
 and still kept after the call, may be run later by code no root reaches, so its fate is
 `unknown-execution`. The absence of an observed call proves nothing; an observed trigger list is
-never taken as complete.
+never taken as complete. The same holds for what a member does to its arguments: the accesses the
+driver saw to the objects it handed over are a lower bound, so when anything the analysis cannot
+see — a call without a body, an **Unknown execution** — reached those objects, the member gets no
+generated model at all rather than a partial one.
 _Avoid_: conservative default, fallback
+
+**Unsafe narrowing**:
+A generated answer that claims less than the truth: a **Delegate fate** other than the true one,
+unless it is `unknown-execution`, or `holder` on the returned object where the truth is `iterator`,
+since enumerating a result calls its members; or a **Library model** that leaves out a read, a
+write, a kept value or a result the member has, or describes a member that should stay opaque. The
+model evals count it, and it must be zero; an answer wider than the truth is safe, only less useful.
+_Avoid_: false negative (a finding the report misses), wrong label
 
 ### The report
 
@@ -522,9 +534,11 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   could be read as a **Resource** a **Known call** reads or writes. Resolved in the phase-5a
   interview: it is not a resource. A **Known call** is described only by what it does to its
   arguments, so a member that changes that state is not known and stays an **Opaque call**, while
-  one that only reads it is known and touches nothing; the `DbContext` and `DbSet` members are the
-  exception the SPEC fixes as opaque persistence, which is why a `DbContext` shared between
-  executions is not seen until phase 5g.
+  one that only reads it is known and touches nothing. Amended in the phase-5d run B1 interview: a
+  member whose only change to that state is keeping what it was handed — protobuf's
+  `RepeatedField<T>.Add` keeps its item — is known, and its model says so as a **Kept object**.
+  The `DbContext` and `DbSet` members are the exception the SPEC fixes as opaque persistence,
+  which is why a `DbContext` shared between executions is not seen until phase 5g.
 - An object handed over through a `Channel<T>` could be linked from the writer to the reader.
   Resolved on 2026-09-23 for the first version, and restated in phase 5b: the object the reader gets
   back is not linked to the written one, and when the written object is shared the write is a
