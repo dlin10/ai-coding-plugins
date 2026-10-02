@@ -1,5 +1,13 @@
 # Plan Forge Flow releases
 
+## 0.39.3
+
+- Codex Builders run without the Codex sandbox or approval prompts on fresh and resumed turns,
+  including implementation and review fixes (docs/adr/0028). Critic and Scout retain `read-only`.
+- `builderRoots` remains accepted and persisted for compatibility, but no longer produces a Codex
+  writable-roots override. The forge skill no longer requires the Orchestrator to perform edits
+  that the Builder's sandbox would refuse.
+
 ## 0.39.2
 
 - Worker telemetry records process `wallDuration`, the union of matched tool-call intervals as

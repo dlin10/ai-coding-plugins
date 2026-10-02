@@ -364,7 +364,7 @@ internal sealed class ForgeTools
     /// <param name="approved">The user's approval decision.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="gateEnvironment">Optional environment variables required by gate commands.</param>
-    /// <param name="builderRoots">Optional extra paths the builder may write.</param>
+    /// <param name="builderRoots">Compatibility-only absolute paths retained in the Run; vendors ignore them.</param>
     /// <param name="decisions">Optional final plan decisions, applied only with an approval.</param>
     /// <returns>The recorded decision, the task count and the filtered drift, as JSON.</returns>
     [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval also records tasks, gateEnvironment and builderRoots; code-review entries do not block it.")]
@@ -375,7 +375,7 @@ internal sealed class ForgeTools
                                                  [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
                                                  CancellationToken ct,
                                                  [Description("Environment variables for the gate commands the server runs on the host after every build and fix turn, e.g. {\"CD_TEST_SQL_CONN\": \"Server=…\"}. Ask the user for what the plan's gates need before you confirm; the values are kept in the run state and only their names are logged.")] Dictionary<string, string>? gateEnvironment = null,
-                                                 [Description("Absolute paths outside the workspace the builder may write to, e.g. a sibling checkout a task edits. Passed to a codex builder as sandbox_workspace_write.writable_roots; other vendors ignore it.")] string[]? builderRoots = null,
+                                                 [Description("Compatibility-only absolute paths retained in the run state. Vendors ignore this field; it does not control Builder permissions.")] string[]? builderRoots = null,
                                                  [Description("Optional complete typed plan decision batch. Approved confirmation applies it before checking for unresolved active plan entries; refused confirmation rejects it without mutation.")] OrchestratorDecisionBatch? decisions = null)
     {
         if (!approved && decisions is not null)

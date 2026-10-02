@@ -214,19 +214,16 @@ internal sealed class CodexCliSession : IVendorSession
         arguments.Add("-c");
         arguments.Add(SELF_PLUGIN_DISABLE);
 
-        // codex exec resume has no -s, so one spelling of the sandbox covers a builder's first turn
-        // and every later one, at the cost of the flag's pre-launch validation of a bad value.
-        var sandbox = role.Role is VendorRole.Builder ? "workspace-write" : "read-only";
-        arguments.Add("-c");
-        arguments.Add("sandbox_mode=" + TomlValue.String(sandbox));
-
-        // The extra roots a builder may write to, as the TOML array `sandbox_workspace_write.writable_roots`
-        // takes them (config reference for codex 0.153, checked 2026-09-05). Never for a critic: its
-        // sandbox is read-only and the key would widen nothing.
-        if (role.Role is VendorRole.Builder && role.WritableRoots is { Count: > 0 } roots)
+        // Builders use the launching process's permissions on fresh and resumed turns. Critic and
+        // Scout keep a read-only sandbox; the config key also works on exec resume. See docs/adr/0028.
+        if (role.Role is VendorRole.Builder)
+        {
+            arguments.Add("--dangerously-bypass-approvals-and-sandbox");
+        }
+        else
         {
             arguments.Add("-c");
-            arguments.Add("sandbox_workspace_write.writable_roots=[" + string.Join(", ", roots.Select(TomlValue.String)) + "]");
+            arguments.Add("sandbox_mode=" + TomlValue.String("read-only"));
         }
 
         // `codex exec` has nobody to approve an MCP call, so one nothing approved fails (issue #90).

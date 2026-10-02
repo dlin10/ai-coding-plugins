@@ -55,17 +55,16 @@ internal enum VendorRole
     Scout
 }
 
+/// <summary>The Worker role, its instructions, and Run context carried to a Vendor launch.</summary>
+/// <param name="Role">Whether the Worker is Critic, Builder, or Scout.</param>
 /// <param name="SystemPrompt">Role instructions, loaded from prompts/&lt;vendor&gt;/&lt;role&gt;.md.</param>
-/// <param name="WritableRoots">
-/// Absolute paths outside the workspace a Builder may write to, from <c>forge.begin</c>. Carried
-/// on the role because it is a fact about the builder's sandbox, and only codex has a sandbox to
-/// tell; the other vendors ignore it.
-/// </param>
+/// <param name="WritableRoots">Compatibility-only Builder paths from <c>forge.plan.confirm</c>; vendors ignore them.</param>
 /// <param name="WorkerTools">
 /// Patterns naming the MCP servers this worker may call unasked, from <c>forge.begin</c>; null or
 /// empty grants none. Each vendor matches them against its own server list at start — see
 /// <see cref="Vendors.WorkerTools"/>.
 /// </param>
+/// <param name="Telemetry">The Run telemetry context for this Worker attempt, when one is recorded.</param>
 internal sealed record RoleSpec(VendorRole Role,
                                 string SystemPrompt,
                                 IReadOnlyList<string>? WritableRoots = null,
