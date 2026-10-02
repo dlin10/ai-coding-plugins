@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.39.0
+# Plan Forge Flow 0.39.2
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -25,7 +25,7 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
-| `forge.build.next` | Builds one task of the approved plan, then runs the task's gate command on the host; a failing gate withholds the task and briefs the retry |
+| `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs the plan's executable `## Gates` on the host |
 | `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
@@ -38,6 +38,10 @@ a read-only bounded-reconnaissance process, and none of the three revises the pl
 The draft the critic reads states its own intent: a `## Requirements` section above the tasks,
 numbered and cited by the tasks that serve them, and the checks that would catch a requirement being
 violated — a `Gate` ending each task, plus a `## Gates` section for whatever no single task owns.
+Only the server runs an executable task gate, including on retries. The Builder checks conditions
+and may run separate targeted checks; when it leaves verification to the server, it reports
+`unavailable` with that explicit reason. The Orchestrator runs plan-wide gates before code review,
+and the server runs their executable commands after review fixes.
 The requirements are under review beside the tasks, and only what they exclude is settled, so a plan
 aimed at the wrong thing is a finding rather than a clean approve.
 
@@ -205,6 +209,18 @@ human-readable. The tools hand back the plan and timeline paths on worker result
 metadata only after a successful Scout call, so the orchestrator can put the current documents in
 front of you while the run is still moving; telemetry stays at the stable Run path and adds no MCP
 result.
+
+Each telemetry entry's `at` is the local time the server starts that attempt's vendor process,
+formatted as `yyyy-MM-dd HH:mm:ss`. Entries are appended on completion; sort by `at` for start
+order. `wallDuration` is the process lifetime, `toolDuration` is the union of its observed
+tool-use/result intervals, and `duration` is their difference: time outside tool calls, including
+API waits. Parallel calls count once. A background command contributes only until its tool call
+returns, even if the command keeps running. Tool intervals use the server's monotonic clock when
+stream events arrive and are bounded by the process lifetime; stream buffering can affect them.
+Without tool boundaries, or with missing IDs or unmatched boundaries, `toolDuration` is explicitly
+`null` and `duration` equals `wallDuration`. Durations use `hh:mm:ss`, with total hours unbounded;
+wall and tool times are truncated to seconds before subtraction so the displayed values add up.
+The ISO timestamps in `forge.log` retain their existing meaning and format.
 
 In telemetry, `inputTokens` is the complete input processed by the Worker attempt, including cache
 reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that

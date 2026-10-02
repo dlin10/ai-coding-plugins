@@ -36,6 +36,7 @@ internal sealed class Build
             return new BuildOutcome(null, state.TasksCompleted, tasks.Count);
 
         var task = tasks[state.TasksCompleted];
+        var gate = PlanGates.TaskGate(task.Text);
 
         // Which session this turn belongs to is settled before the prompt is composed, because the
         // user's instructions go to a builder exactly once: the turn that starts a session carries
@@ -44,7 +45,7 @@ internal sealed class Build
         var scope = BuilderSession.TaskScope(task.Number);
         var resumeToken = BuilderSession.ResumeToken(state, _vendor.Id, scope);
 
-        var prompt = Compose(task, tasks.Count, state.PendingGateFailure,
+        var prompt = Compose(task, tasks.Count, gate, state.PendingGateFailure,
                              resumeToken is null ? state.BuilderInstructions : null,
                              resumeToken is null ? state.TaskChanges : null);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
@@ -81,7 +82,6 @@ internal sealed class Build
 
         // The host's run of the task's gate, where the gate is a command, is what decides the task
         // — not the builder's account of the checks it ran. See docs/adr/0015.
-        var gate = PlanGates.TaskGate(task.Text);
         var killed = session.KilledBackgroundTasks;
         SpeedWarning = session.SpeedWarning;
         var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), killed, state, ct);
@@ -112,6 +112,7 @@ internal sealed class Build
     /// </summary>
     /// <param name="task">The task to build.</param>
     /// <param name="total">How many tasks the plan has, for the task's heading.</param>
+    /// <param name="gate">The parsed executable task gate, or null for a condition or absent gate.</param>
     /// <param name="pendingGateFailure">What the last gate or turn left owing, or null when nothing is.</param>
     /// <param name="instructions">The user's builder instructions, for a fresh session only.</param>
     /// <param name="earlier">
@@ -119,8 +120,8 @@ internal sealed class Build
     /// them, and the files on disk are their result.
     /// </param>
     /// <returns>The prompt text.</returns>
-    private static string Compose(PlanTask task, int total, string? pendingGateFailure, string? instructions,
-                                  IReadOnlyList<TaskChange>? earlier)
+    private static string Compose(PlanTask task, int total, GateCommand? gate, string? pendingGateFailure,
+                                  string? instructions, IReadOnlyList<TaskChange>? earlier)
     {
         var prompt = new StringBuilder();
         if (earlier is { Count: > 0 })
@@ -138,6 +139,20 @@ internal sealed class Build
         prompt.Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
               .AppendLine()
               .AppendLine(task.Text);
+
+        if (gate is not null)
+            prompt.AppendLine()
+                  .AppendLine("# Task gate")
+                  .AppendLine()
+                  .AppendLine("The server runs this task's executable gate after your turn. Do not run the task gate, "
+                              + "including on a retry; report only your own checks in verification.");
+        else if (PlanGates.HasGate(task.Text))
+            prompt.AppendLine()
+                  .AppendLine("# Task gate")
+                  .AppendLine()
+                  .AppendLine("The task gate is a condition, not an executable command. Check the task's condition yourself "
+                              + "and report its result in verification; the Orchestrator handles failed or unavailable checks.");
+
         Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
         RunInstructions.Append(prompt, instructions);
         return prompt.ToString();

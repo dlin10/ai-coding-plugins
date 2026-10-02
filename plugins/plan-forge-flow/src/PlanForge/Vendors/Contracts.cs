@@ -193,8 +193,11 @@ internal sealed record BuildResult(string Status,
 /// The builder's own account of whether it proved the work, separate from whether it did the work.
 /// Self-reported: reacting to <c>unavailable</c> or <c>failed</c> belongs to the orchestrator where
 /// the gate is a condition rather than a command. Where it is a command, <see cref="GateRun"/> is
-/// the server's own answer and this report is context, not verdict.
+/// the server's own answer and this report is context, not verdict. A builder that ran no checks
+/// because the executable gate belongs to the server reports <c>unavailable</c> with that reason.
 /// </summary>
+/// <param name="Outcome">Whether the builder's checks passed, failed, could not run, or were left to the server.</param>
+/// <param name="Evidence">The actual checks and results, or an explicit reason for unavailable verification.</param>
 internal sealed record Verification(string Outcome, string Evidence);
 
 /// <summary>

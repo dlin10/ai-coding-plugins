@@ -146,6 +146,15 @@ public sealed class DecisionLedgerSkillTests
     }
 
     [Fact]
+    public void Executable_task_gates_stay_with_the_server_and_plan_wide_gates_keep_their_schedule()
+    {
+        Contains("Only the server runs executable task gates", "Separate targeted Builder checks are optional",
+                 "its verification is `unavailable` with that explicit reason", Skill());
+        Contains("After the last task and before the first review round, run the plan's `## Gates` entries yourself",
+                 "After every `forge.review.fix`", Skill());
+    }
+
+    [Fact]
     public void Flow_documents_and_chat_surface_decisions_and_retries()
     {
         Contains("Surface each critique, decision, reopening proposal", "cut-short retry", "concise chat narration", Skill());
