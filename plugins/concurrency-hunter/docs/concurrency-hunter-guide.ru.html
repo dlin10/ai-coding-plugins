@@ -244,6 +244,9 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
       <a href="#edge-selectors">Индексы и Z3</a>
       <a href="#edge-iterators">Итераторы и async</a>
       <a href="#edge-unknown">Неизвестный код</a>
+      <a href="#library-models">Модели библиотек</a>
+      <a href="#model-values">Делегаты и объекты моделей</a>
+      <a href="#generator">Как работает generate</a>
       <a href="#edge-findings">Одна гонка — одна находка</a>
       <div class="nav-part">IV · Сопровождение</div>
       <a href="#code-map">Карта кода</a>
@@ -251,7 +254,7 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
       <a href="#invariants">Правила</a>
       <a href="#howto">Частые задачи</a>
       <a href="#status">Состояние разработки</a>
-      <a href="#discrepancies">Расхождения кода и SPEC</a>
+      <a href="#debugging">Как искать причину ошибки</a>
       <a href="#glossary">Словарь</a>
     </nav>
   </aside>
@@ -265,10 +268,9 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
         <span class="fact"><b>C#</b> · .NET 8–10</span>
         <span class="fact">сервер <b>Windows x64</b></span>
         <span class="fact"><b>MCP</b>-сервер + skill хоста</span>
-        <span class="fact">~<b>26 тыс.</b> строк движка</span>
-        <span class="fact"><b>2 401</b> тестов в baseline</span>
-        <span class="fact"><b>254</b> ожидания demo</span>
-        <span class="fact">текущая фаза <b>5b</b></span>
+        <span class="fact"><b>JSON</b>-модели библиотек</span>
+        <span class="fact"><b>generate</b> · классификация делегатов</span>
+        <span class="fact">сверено с кодом <b>2 октября 2026</b></span>
       </div>
       <details class="toc-mobile">
         <summary>Оглавление</summary>
@@ -283,7 +285,8 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
 
     <div class="prose">
       <p>Документ идёт от общего к частному. <a href="#part-1">Часть I</a> — какую проблему решает плагин и из чего он состоит. <a href="#part-2">Часть II</a> — общий алгоритм: одна решающая процедура и конвейер, который применяет её, не перебирая все пары. <a href="#part-3">Часть III</a> — частные случаи на коде из <code>demo/</code>: где интуиция подводит и что анализатор отвечает. <a href="#part-4">Часть IV</a> — практическое: карта кода, тесты и гейты, правила, которые нельзя нарушать, и что ещё предстоит сделать.</p>
-      <p>Предполагается, что вы знаете, что такое гонка данных, <code>lock</code> и <code>async</code>/<code>await</code>, но ничего не знаете об устройстве плагина. Источники истины — <a href="PRD.md">PRD</a>, <a href="SPEC.md">SPEC</a>, <a href="../CONTEXT.md"><code>CONTEXT.md</code></a> и <a href="adr/">ADR</a>; руководство их не заменяет, а связывает с кодом.</p>
+      <p>Предполагается, что вы знаете, что такое гонка данных, <code>lock</code> и <code>async</code>/<code>await</code>, но ничего не знаете об устройстве плагина. Реализованное поведение здесь описано по исходникам и тестам рабочей копии. <a href="PRD.md">PRD</a> объясняет задачи продукта, <a href="SPEC.md">SPEC</a> — контракты и планируемые возможности, <a href="../CONTEXT.md"><code>CONTEXT.md</code></a> — термины, <a href="adr/">ADR</a> — причины архитектурных решений. Наличие возможности в SPEC само по себе не означает, что она уже подключена к обычному run.</p>
+      <p>Для первого знакомства прочитайте общую картину и <a href="#walkthrough">сквозной пример</a>, затем выполните команды из <a href="#testing">раздела проверки</a>. Для работы над библиотеками начните с <a href="#library-models">моделей</a> и <a href="#generator">генератора</a>. Если исправляете пропуск или лишнюю находку, используйте <a href="#debugging">маршрут отладки по слоям</a>.</p>
     </div>
 <div class="part" id="part-1">
   <div class="part-label">Часть I <span>Общая картина</span></div>
@@ -377,13 +380,13 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
 <section id="scope">
   <h2>Что плагин делает и чего не делает</h2>
   <div class="prose">
-  <p>Пользователь вызывает одну команду <code>/concurrency-hunter [target]</code> в Claude Code, Codex или Cursor. Target — <code>.sln</code>, <code>.slnx</code>, <code>.csproj</code> или каталог. Плагин загружает solution через Roslyn и MSBuild, анализирует его статически, ничего не запуская и не меняя, и оставляет <em>report bundle</em> из трёх файлов: <code>report.md</code>, <code>findings.json</code> и <code>run-metadata.json</code>.</p>
+  <p>Пользователь вызывает skill <code>concurrency-hunter:hunt</code> с необязательным target; форма команды зависит от хоста (например, <code>/concurrency-hunter:hunt [target]</code>). Target — <code>.sln</code>, <code>.slnx</code>, <code>.csproj</code> или каталог. Плагин загружает проект через Roslyn и MSBuild и статически анализирует C#; само приложение для поиска гонок запускать не нужно. Сервер оставляет <em>report bundle</em>: <code>report.md</code>, <code>findings.json</code> и <code>run-metadata.json</code>. Исходники приложения он не исправляет. При использовании шаблонов проектных моделей анализ может обновить <code>.concurrency-hunter/models/models.lock.json</code>; отдельная команда <code>generate</code> пишет JSON в указанный <code>--out</code>.</p>
   </div>
 
   <div class="table-wrap"><table>
-    <thead><tr><th>Входит в первую версию</th><th>Не входит</th></tr></thead>
+    <thead><tr><th>Реализовано</th><th>Граница поддержки</th></tr></thead>
     <tbody>
-      <tr><td>Общее состояние в управляемой куче <strong>одного процесса</strong></td><td>Гонки в БД, EF Core, Redis, файлах, между процессами и машинами</td></tr>
+      <tr><td>Общее состояние в управляемой куче <strong>одного процесса</strong></td><td>Гонки внешнего хранилища: БД, Redis, файлы; межпроцессные и распределённые гонки. Entity tracking EF Core отдельно не моделируется</td></tr>
       <tr><td>Точки старта исполнения: controller actions, minimal API, gRPC-методы, <code>BackgroundService</code> и <code>IHostedService</code></td><td>Middleware, filters, SignalR, Razor Pages, MassTransit (вторая волна провайдеров)</td></tr>
       <tr><td>Порождение работы: <code>Task.Run</code>, <code>StartNew</code>, <code>ContinueWith</code>, <code>WhenAll</code>, fire-and-forget, <code>async void</code>, <code>QueueUserWorkItem</code>, <code>Thread</code>, <code>Parallel.*</code>, таймеры, <code>PeriodicTimer</code></td><td>Deadlock, starvation, livelock, производительность</td></tr>
       <tr><td>Защита: <code>lock</code>/<code>Monitor</code>, <code>System.Threading.Lock</code>, <code>Mutex</code>, <code>SemaphoreSlim(1)</code>, <code>ReaderWriterLockSlim</code>, <code>Interlocked</code>, <code>Volatile</code>, concurrent-коллекции</td><td><code>Channel&lt;T&gt;</code>, <code>ManualResetEvent</code>, <code>Barrier</code>, <code>SpinLock</code> как доказательство порядка или защиты</td></tr>
@@ -412,7 +415,7 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
   <p>Плагин состоит из двух частей, которые разговаривают по протоколу MCP. Разделение продиктовано тем, что умеют хосты: у Claude Code, Codex и Cursor команда плагина — это skill (инструкция для агента хоста), а единственный программный интерфейс — stdio MCP-сервер. Сервер не может сам запустить AI или отменить субагента (<a href="adr/0001-the-skill-drives-the-run.md">ADR 0001</a>).</p>
   <ul>
     <li><strong>Skill</strong> (<code>skills/hunt/SKILL.md</code>) — единственный оркестратор. Он запускает анализ, опрашивает сервер, раздаёт субагентам хоста группы находок для текстового объяснения и просит сервер отрендерить отчёт.</li>
-    <li><strong>Server</strong> (<code>ConcurrencyHunter.Cli</code>, один процесс на run) — детерминированный анализатор и конечный автомат. Он хранит состояние run и дедлайн, проверяет всё, что приносит AI, и сам пишет отчёт.</li>
+    <li><strong>Server</strong> (<code>ConcurrencyHunter.Cli</code>, один активный run на сервер) — детерминированный анализатор и конечный автомат. Он хранит состояние run и дедлайн, проверяет всё, что приносит AI, и сам пишет отчёт.</li>
   </ul>
   </div>
 
@@ -440,7 +443,7 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
 
       <rect x="468" y="20" width="336" height="300" rx="10" class="box-sunken"/>
       <text x="484" y="44" class="t-bold">MCP-сервер</text>
-      <text x="484" y="61" class="t-small t-muted">ConcurrencyHunter.Cli, stdio, один процесс на run</text>
+      <text x="484" y="61" class="t-small t-muted">ConcurrencyHunter.Cli, stdio, один активный run</text>
       <rect x="488" y="78" width="296" height="44" rx="7" class="box"/>
       <text x="636" y="98" text-anchor="middle" class="t-bold">RunRegistry</text>
       <text x="636" y="114" text-anchor="middle" class="t-small t-muted">состояние, фаза, дедлайн 30 мин</text>
@@ -473,7 +476,7 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
       <text x="636" y="381" text-anchor="middle" class="t-mono">report.md · findings.json · run-metadata.json</text>
     </svg>
     </div>
-    <figcaption><b>Кто за что отвечает.</b> Skill ведёт run, но не принимает решений о находках. Сервер анализирует, хранит дедлайн, принимает от AI только текст, прошедший проверку, и сам рендерит отчёт. Сейчас реализованы пять инструментов с рисунка; <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code> и <code>run_cancel</code> для AI-разрешения semantic gaps запланированы в фазе 5d.</figcaption>
+    <figcaption><b>Кто за что отвечает.</b> Skill ведёт run, но не принимает решений о находках. Сервер анализирует, хранит дедлайн, принимает от AI только текст, прошедший проверку, и сам рендерит отчёт. Публичный MCP-контракт состоит из пяти инструментов на рисунке. Инструментов <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code> и <code>run_cancel</code> в <code>RunTools</code> нет. Команда <code>generate</code> — отдельная CLI-команда, а не MCP-инструмент.</figcaption>
   </figure>
 
   <div class="prose">
@@ -485,14 +488,14 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
   <div class="table-wrap"><table>
     <thead><tr><th>Статус</th><th>Когда</th></tr></thead>
     <tbody>
-      <tr><td><code>CompleteWithFindings</code></td><td>Все фазы завершены, у всех групп High и Medium есть принятый narrative, находки есть</td></tr>
+      <tr><td><code>CompleteWithFindings</code></td><td>Анализ завершён, все проекты загружены, дедлайн соблюдён, у всех групп High и Medium есть принятый narrative; находки есть</td></tr>
       <tr><td><code>CompleteClean</code></td><td>То же, но находок нет. Только этот статус разрешает фразу «в проанализированном scope находок нет»</td></tr>
-      <tr><td><code>Incomplete</code></td><td>Фаза не завершилась: проект не загрузился, сработал дедлайн, обязательная AI-роль не отработала. Отчёт всё равно пишется из skeleton</td></tr>
+      <tr><td><code>Incomplete</code></td><td>Не все проекты загружены, истёк дедлайн, анализ не закончен или группе High/Medium не хватает принятого narrative. Отчёт строится из доступного skeleton</td></tr>
       <tr><td><code>Failed</code></td><td>Анализ нельзя начать или получить достоверный частичный результат</td></tr>
-      <tr><td><code>Cancelled</code></td><td>Run отменил пользователь или хост. В коде этого статуса пока нет: он появится вместе с инструментом <code>run_cancel</code> в фазе 5d</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
+  <p><code>CompleteClean</code> означает отсутствие находок в пределах модели анализа, а не доказанную безопасность приложения. Semantic gaps и неподдержанные операции нужно читать в coverage: сами по себе они не переводят run в <code>Incomplete</code>. Статуса <code>Cancelled</code> в реализации нет.</p>
   <p>Дедлайн принадлежит серверу: через 30 минут после <code>run_start</code> он перестаёт выдавать работу, а всё, что пришло позже, записывает как <em>late response</em> и не применяет. Отменить уже запущенного субагента сервер не может, и это честно записано в спецификации; гарантия в другом — опоздавший ответ никогда не меняет находки.</p>
   </div>
 </section>
@@ -500,7 +503,7 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
 <section id="vocabulary">
   <h2>Минимальный словарь</h2>
   <div class="prose">
-  <p>Словарь плагина живёт в <a href="../CONTEXT.md"><code>CONTEXT.md</code></a>, и код, схемы инструментов и отчёт используют эти слова строго в одном смысле. Некоторые обычные слова там намеренно запрещены: не «поток», а <em>execution instance</em>; не «переменная», а <em>resource</em>. Английские термины в тексте ниже оставлены как есть, потому что именно их вы встретите в коде. Полный словарь — в <a href="#glossary">конце документа</a>.</p>
+  <p>Словарь плагина живёт в <a href="../CONTEXT.md"><code>CONTEXT.md</code></a>. Термины нужны, чтобы различать близкие вещи: execution instance — логическое исполнение, которое может продолжиться на другом потоке ОС; resource — место в памяти, к которому могут вести разные переменные. Английские названия оставлены рядом с объяснениями, чтобы вы узнавали их в коде. Полный словарь — в <a href="#glossary">конце документа</a>.</p>
   </div>
   <dl class="terms">
     <div class="term"><dt>Execution root</dt><dd>Точка, откуда фреймворк или рантайм начинает независимое исполнение: HTTP action, <code>ExecuteAsync</code> hosted service, callback таймера, gRPC-метод.</dd></div>
@@ -514,7 +517,9 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
     <div class="term"><dt>Protection</dt><dd>Синхронизатор (его region) и режим, который доступ удерживает на <em>всех</em> путях к нему. «Может быть удержан» — не защита.</dd></div>
     <div class="term"><dt>Candidate → Finding</dt><dd>Пара доступов, прошедшая дешёвые фильтры, — кандидат. Кандидат, переживший уточнение, становится находкой с одним правилом DCA100x.</dd></div>
     <div class="term"><dt>Occurrence</dt><dd>Один способ достичь пары мест доступа: пара roots с путями вызовов. У находки их может быть много.</dd></div>
-    <div class="term"><dt>Semantic gap</dt><dd>Вызов, который детерминированный анализ не смог разобрать и который трогает общее изменяемое состояние. Честно показывается в отчёте как неопределённость.</dd></div>
+    <div class="term"><dt>Semantic gap</dt><dd>Неразобранный вызов, который касается общего изменяемого состояния, получает делегат или передаёт результат в общий объект. Честно показывается в отчёте как неопределённость.</dd></div>
+    <div class="term"><dt>Alias / points-to</dt><dd>Две ссылки — aliases, если могут вести к одному объекту. Points-to хранит для значения множество возможных объектов; так анализ связывает синтаксически разные обращения к одной памяти.</dd></div>
+    <div class="term"><dt>Coverage</dt><dd>Что анализ удалось охватить и что осталось неизвестным: проекты, roots, неподдержанные операции, gaps и применённые модели. Это не процент покрытия тестами.</dd></div>
   </dl>
 </section>
 </div>
@@ -566,7 +571,7 @@ return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
 <section id="pipeline">
   <h2>Конвейер анализа</h2>
   <div class="prose">
-  <p>Процедура выше применяется не к «всем парам всех доступов» — их слишком много. Анализ устроен как конвейер, где дешёвые шаги идут раньше дорогих, а дорогая точность оплачивается только для пар, у которых уже есть общий ресурс, конфликтующие операции и возможное пересечение. Так он реально выполняется в коде (<code>PhaseOneAnalyzer.AnalyzeAsync</code>):</p>
+  <p>Процедура выше применяется не к «всем парам всех доступов» — их слишком много. Анализ устроен как конвейер, где дешёвые шаги идут раньше дорогих, а дорогая точность оплачивается только для пар, у которых уже есть общий ресурс, конфликтующие операции и возможное пересечение. Общий run ведёт <code>PhaseOneAnalyzer.AnalyzeAsync</code>, а повторно используемую часть для одного scope выполняет <code>ScopePipeline.Run</code>:</p>
   </div>
 
   <figure>
@@ -606,40 +611,35 @@ return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
       </g>
     </svg>
     </div>
-    <figcaption><b>Шаги в том порядке, в каком их выполняет код.</b> Шаги 3–11 выполняются отдельно для каждого process scope: куча строится заново, поэтому статик в двух приложениях — два объекта. Выделенные шаги 6–8 — ядро анализа и самый большой код. Бюджет решателя общий на весь run.</figcaption>
+    <figcaption><b>Шаги в том порядке, в каком их выполняет код.</b> Шаги 3–11 выполняются отдельно для каждого process scope: куча строится заново, поэтому статик в двух приложениях — два объекта. <code>ScopePipeline.Run</code> объединяет шаги 3–8; pairing, Z3 и создание findings остаются у вызывающего. Выделенные шаги 6–8 — ядро анализа и самый большой код. Бюджет решателя общий на весь run.</figcaption>
   </figure>
 
   <div class="prose">
+  <p>До цикла по scopes <code>PhaseOneAnalyzer</code> читает проектные модели и model lock. Для компиляций каждого scope <code>ProjectModelResolver</code> сопоставляет модели с точными символами; затем передаёт готовый набор в <code>ScopePipeline</code>. После анализа scopes внешний конвейер сохраняет lock. Сам <code>ScopePipeline</code> файлов моделей не читает и lock не пишет. Поэтому генератор может использовать тот же движок с другими roots и библиотечными моделями, не запуская полный пользовательский run.</p>
   <p>Несколько свойств конвейера, о которых стоит знать заранее:</p>
   <ul>
     <li><strong>Ленивое опускание в IR.</strong> <code>ReachableSet</code> строит граф вызовов по иерархии классов и опускает в IR тело метода в момент, когда впервые до него доходит. Тело вне reachable set не анализируется и не считается против coverage. Ошибка опускания одного тела превращается в диагностику <code>lowering:</code> и пустое тело, а не в падение run.</li>
     <li><strong>Слой <code>Analysis</code> не знает Roslyn.</strong> Всё после IR (куча, исполнения, пары, находки, отчёт) живёт в проекте <code>ConcurrencyHunter.Analysis</code>, у которого нет ни одной ссылки на пакеты или проекты. Это проверяют тесты <code>AnalysisBoundaryTests</code>. Roslyn, Z3 и провайдеры — в <code>ConcurrencyHunter.Core</code>.</li>
-    <li><strong>Никакого декартова произведения.</strong> Пары перебираются только внутри buckets. На demo это 1 369 сравнений вместо 389 404 возможных пар.</li>
+    <li><strong>Никакого декартова произведения.</strong> Пары перебираются внутри buckets одного ресурса. Разница между числом сравнений и полным перебором видна в <code>metrics</code>: <code>comparisons</code> и <code>cartesianBound</code>.</li>
     <li><strong>Детерминизм.</strong> Порядок обхода, нумерация значений, порядок вопросов к решателю — стабильны. Demo-гейт трижды анализирует demo и требует побайтно одинаковый <code>findings.json</code>.</li>
   </ul>
   </div>
 
-  <h3>Куда уходят пары на demo</h3>
+  <h3>Как читать счётчики пар</h3>
   <div class="prose">
-  <p>Реальные счётчики из снапшота <code>ConcurrencyHunter.Cli.Tests/Snapshots/demo.json</code>: 1 238 доступов, из которых bucket-индекс составил 1 369 сравнений. Каждая строка — причина, по которой пару отбросили (в порядке проверки), длина полосы пропорциональна числу пар:</p>
+  <p><code>metrics</code> позволяет увидеть, на каком основании анализ исключает пары. Это полезнее одного числа находок: после правки отсутствие находки может означать как доказанную защиту, так и потерянный доступ. Сравнивайте также <code>reachableBodies</code>, <code>regions</code>, <code>instances</code> и <code>accesses</code>.</p>
   </div>
-  <div class="table-wrap">
-    <table class="bars">
-      <thead><tr><th>Фильтр (счётчик в коде)</th><th>Что доказано</th><th class="num">Пар</th><th style="width:34%">Доля от 1 369</th></tr></thead>
-      <tbody>
-        <tr><td><code>read-read</code></td><td>обе стороны только читают</td><td class="num">788</td><td><span class="bar" style="width:57.6%"></span></td></tr>
-        <tr><td><code>no-conflicting-operation</code></td><td>ни одна сторона не пишет неатомарно</td><td class="num">67</td><td><span class="bar" style="width:4.9%"></span></td></tr>
-        <tr><td><code>no-overlap</code></td><td>разные scope или исполнения не пересекаются</td><td class="num">279</td><td><span class="bar" style="width:20.4%"></span></td></tr>
-        <tr><td><code>ordered</code></td><td>happens-before в одну из сторон</td><td class="num">21</td><td><span class="bar" style="width:1.5%"></span></td></tr>
-        <tr><td><code>confined</code></td><td>регион принадлежит одному исполнению</td><td class="num">8</td><td><span class="bar" style="width:0.6%"></span></td></tr>
-        <tr><td><code>unsatisfiable-path</code></td><td>дешёвое противоречие guard-ов</td><td class="num">2</td><td><span class="bar" style="width:0.15%"></span></td></tr>
-        <tr><td><code>disjoint-iteration</code></td><td>разные итерации <code>Parallel.For</code> по своему индексу</td><td class="num">1</td><td><span class="bar" style="width:0.07%"></span></td></tr>
-        <tr><td><code>suppressed</code></td><td>защита <code>sufficient</code></td><td class="num">17</td><td><span class="bar" style="width:1.2%"></span></td></tr>
-        <tr><td><code>unsatisfiable-query</code></td><td>Z3 ответил UNSAT</td><td class="num">4</td><td><span class="bar" style="width:0.3%"></span></td></tr>
-        <tr class="row-strong"><td><strong>кандидаты</strong></td><td>стали находками: 170 находок, 179 occurrences, 139 групп</td><td class="num"><strong>182</strong></td><td><span class="bar bar-strong" style="width:13.3%"></span></td></tr>
-      </tbody>
-    </table>
-  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Счётчик</th><th>Что произошло</th></tr></thead>
+    <tbody>
+      <tr><td><code>read-read</code>, <code>no-conflicting-operation</code></td><td>Виды операций не образуют конфликт.</td></tr>
+      <tr><td><code>no-overlap</code>, <code>ordered</code>, <code>confined</code></td><td>Исполнения не пересекаются, доказан порядок либо объект изолирован.</td></tr>
+      <tr><td><code>unsatisfiable-path</code>, <code>disjoint-iteration</code></td><td>Дешёвая проверка установила несовместимость условий или разные элементы итераций.</td></tr>
+      <tr><td><code>suppressed</code></td><td>Доказана достаточная общая защита. Это счётчик фильтра синхронизации, а не пользовательский suppression.</td></tr>
+      <tr><td><code>unsatisfiable-query</code></td><td>Z3 доказал несовместимость условий пары.</td></tr>
+      <tr><td><code>candidates</code>, <code>findings</code>, <code>occurrences</code></td><td>Пары, находки и пути их достижения — разные единицы. Несколько кандидатов могут стать одной находкой с несколькими occurrences.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <section id="walkthrough">
@@ -678,8 +678,8 @@ services.AddSingleton&lt;Inventory&gt;().AddSingleton&lt;OrderService&gt;();</co
   <ul>
     <li><strong><code>IrBody</code></strong> — одно на метод, лямбду или локальную функцию. Id тела: <code>body:{Assembly}:{DocCommentId}</code>, у вложенных — суффиксы <code>#lambda{n}</code> и <code>#local:{Name}</code>.</li>
     <li><strong>Блоки и регионы</strong> копируются из CFG Roslyn один к одному, включая try/catch/finally. <code>EffectiveFlowGraph</code> добавляет рёбра входа и выхода из <code>finally</code> и исключительные рёбра из каждого блока try в обработчики.</li>
-    <li><strong>Значения</strong> пронумерованы в пределах тела: параметры, receiver, локальные, временные, константы. SSA-версии и phi строит <code>SsaPlan</code>.</li>
-    <li><strong>Операции</strong> — 31 вид. У каждой есть <code>IrProvenance</code>: файл, строка, колонка, содержащий символ, вид синтаксиса и тег правила опускания (<code>increment</code>, <code>lock-statement</code>, <code>await</code>…).</li>
+    <li><strong>Значения</strong> пронумерованы в пределах тела: параметры, receiver, локальные, временные, константы. SSA-версии и phi строит <code>SsaPlan</code>. SSA означает, что каждое присваивание получает свой номер значения: <code>x = 1; x = 2;</code> даёт два значения. В месте слияния веток <code>phi</code> перечисляет значения, которые могли прийти из этих веток.</li>
+    <li><strong>Операции</strong> перечислены в <code>IrOperations.cs</code>. У каждой есть <code>IrProvenance</code>: файл, строка, колонка, содержащий символ, вид синтаксиса и тег правила опускания (<code>increment</code>, <code>lock-statement</code>, <code>await</code>…).</li>
   </ul>
   </div>
   <div class="table-wrap"><table>
@@ -711,14 +711,16 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   <p>Как опускаются важные для конкурентности конструкции:</p>
   <ul>
     <li><strong><code>x++</code>, <code>x += y</code>, <code>??=</code></strong> над полем или auto-property: load → compute → store с <code>ReadModifyWriteOf</code>. Над <code>volatile</code>-полем операции дополнительно помечаются <code>atomic</code>.</li>
+    <li><strong>Массивы, индексаторы и свойства с телами.</strong> <code>a[i]++</code> и <code>a[i] += x</code> сохраняют чтение, вычисление и запись ячейки; свойства и индексаторы вызывают getter и setter. Receiver и индексы вычисляются один раз, postfix возвращает прочитанное значение, prefix — записанное. У неподдержанной цели сохраняются вычисления её операндов. Контракт проверяет <code>CompoundAssignmentLoweringTests</code>.</li>
     <li><strong>Свойства.</strong> Автоматическое свойство (невиртуальное, из исходников) читается и пишется как поле-backing field. Остальные — вызовы getter/setter.</li>
     <li><strong><code>lock</code> над объектом</strong> Roslyn сам переписывает в <code>Monitor.Enter(o, ref taken)</code>/<code>Exit</code> в try/finally — frontend превращает их в <code>acquire</code>/<code>release</code>. <code>lock</code> над <code>System.Threading.Lock</code> компилятор не переписывает и региона не даёт, поэтому секцию frontend восстанавливает по span оператора.</li>
     <li><strong>Примитивы</strong> <code>Monitor</code>, <code>Lock</code>, <code>Mutex</code>, <code>SemaphoreSlim</code>, <code>ReaderWriterLockSlim</code> распознаёт класс <code>Synchronization</code>. Любая перегрузка с таймаутом — условный захват: замок держится только на ветке, где флаг успеха истинен. <code>WaitAsync</code> ничего не держит, пока его результат не выжидают.</li>
     <li><strong><code>Interlocked</code> и <code>Volatile</code></strong> над полем или элементом становятся обычным load/store плюс пометка <code>atomic</code>.</li>
+    <li><strong>Неявные вызовы C#.</strong> Pattern matching, деконструкция и перечисление могут вызывать пользовательские члены, хотя в тексте нет обычного вызова метода. Эти пути проверяют <code>PatternImpliedCallTests</code>, <code>DeconstructionCallTests</code> и <code>ExplicitEnumerationTests</code>. При расширении frontend важно сохранить их эффекты и provenance.</li>
     <li><strong>async и итераторы</strong> опускаются по исходному CFG, без state machine компилятора: <code>await</code> — операция <code>await</code>, <code>yield return</code> — операция <code>yield</code>.</li>
     <li><strong>Лямбды и локальные функции</strong> — отдельные тела. Захваченные переменные приходят во вложенное тело как входящие SSA-переменные с общим <code>SymbolKey</code>.</li>
     <li><strong>Вызовы BCL</strong> (<code>Task.Run</code>, <code>Thread.Start</code>, <code>Parallel.*</code>, <code>Timer</code>…) получают после <code>call</code> дополнительные операции <code>spawn</code>, <code>join</code>, <code>when-all</code>, <code>timer</code> (<code>AnnotateBclCall</code>). Распознавание — по имени метаданных, поэтому пользовательский тип с именем BCL-типа не распознаётся никогда.</li>
-    <li><strong>Коллекции, таблица библиотек, DI-locator</strong> — аннотации на <code>call</code>: <code>Collection</code>, <code>Library</code>, <code>ServiceCall</code>.</li>
+    <li><strong>Коллекции, модели библиотек, DI-locator</strong> — аннотации на <code>call</code>: <code>Collection</code>, <code>Library</code>, <code>ServiceCall</code>.</li>
   </ul>
   </div>
   <div class="note code-map">
@@ -754,14 +756,14 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p><code>Core/Providers/</code>: <code>IExecutionRootProvider.cs</code>, <code>AspNetCoreRootProvider.cs</code>, <code>HostingRootProvider.cs</code>, <code>ProviderRegistry.cs</code> (единственный composition root — <code>BuiltInProviders.Create()</code>), <code>DiIndexBuilder.cs</code>, <code>InjectionBindings.cs</code>, <code>ProcessScopes.cs</code>. Модель — <code>Analysis/Roots/</code> и <code>Analysis/Di/</code>. Граф — <code>Analysis/CallGraph/ReachableSet.cs</code> и <code>ProgramIndex.cs</code>. Шаблон нового провайдера — <code>SyntheticProviderEndToEndTests.cs</code> (около 40 строк без изменений ядра).</p>
+  <p><code>Core/Providers/</code>: <code>IExecutionRootProvider.cs</code>, <code>AspNetCoreRootProvider.cs</code>, <code>HostingRootProvider.cs</code>, <code>ProviderRegistry.cs</code> (встроенный набор создаёт <code>BuiltInProviders.Create()</code>), <code>DiIndexBuilder.cs</code>, <code>InjectionBindings.cs</code>, <code>ProcessScopes.cs</code>. Модель — <code>Analysis/Roots/</code> и <code>Analysis/Di/</code>. Граф — <code>Analysis/CallGraph/ReachableSet.cs</code> и <code>ProgramIndex.cs</code>. Шаблон нового провайдера — <code>SyntheticProviderEndToEndTests.cs</code>; генератор передаёт собственный registry с <code>DriverRootProvider</code>.</p>
   </div>
 </section>
 
 <section id="stage-heap">
   <h2>Куча: регионы, points-to и ownership</h2>
   <div class="prose">
-  <p>Куча отвечает на первый вопрос процедуры — один ли это объект. Это field-sensitive points-to анализ в стиле Андерсена по местам аллокации, с ограниченной чувствительностью к контексту.</p>
+  <p>Куча отвечает на первый вопрос процедуры — один ли это объект. Это field-sensitive points-to анализ в стиле Андерсена по местам аллокации, с ограниченной чувствительностью к контексту. На практике значение связывается с множеством возможных объектов: <code>x → {A, B}</code>. Field-sensitive означает, что <code>A.Left</code> и <code>A.Right</code> хранят разные множества. Анализ знает не конкретный объект из запущенной программы, а то, какие объекты могли быть созданы в указанном месте кода.</p>
   <h3>Регионы</h3>
   </div>
   <div class="table-wrap"><table>
@@ -821,6 +823,7 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   <p>Лимиты — в <code>AnalysisLimits(MaxAccessPathDepth = 8, MaxContextsPerMethod = 16, MaxSccIterations = 16)</code> (<code>Heap/MethodSummary.cs</code>). Их можно переопределить переменной окружения <code>CH_ANALYSIS_LIMITS=depth,contexts,scc</code> или ключом <code>metrics --limits</code>; значения выбраны на demo и eShop (<code>skills/hunt/evals/metrics/limits.md</code>).</p>
 
   <h3>Summaries и fixpoint</h3>
+  <p><em>Summary</em> — описание поведения одного метода через его входы и выходы: например, «пишет поле <code>Value</code> у первого аргумента». Оно не привязано к конкретному caller. В месте вызова движок подставляет реальные регионы аргументов. <em>Fixpoint</em> — повторение этого распространения, пока новые связи перестают появляться: возврат фабрики может открыть receiver следующего вызова, а тот — новые поля и вызовы.</p>
   <p><code>MethodSummaryBuilder</code> строит для каждого тела summary без контекста: доступы с удерживаемыми замками и guard-ами, записи, возвраты, вызовы, делегаты, spawns и joins, зависимости «эта запись вычислена из этого чтения». <code>SummaryCache</code> строит их лениво. Затем <code>WholeProgram.Solve</code> решает всё вместе — граф вызовов, points-to, разрешение DI, фабрики, type initializers, handles задач и таймеров:</p>
   </div>
 <pre><code class="language-none">Run():
@@ -831,14 +834,17 @@ Propagate():
     loop:
         before = _changes
         for instance in порядок создания:
-            Process(instance)   // ячейки, записи, возвраты, делегаты, статики → type init,
+            Process(instance)   // ячейки, записи, возвраты, модели, делегаты, type init,
                                 // Call / Locate / Spawn / TimerCallback / Handoff / WhenAll / Unwrap
             if instance что-то изменил: CountRound(instance)
+        EscapeCapturedHolders() // holder, ушедший в неизвестный код, расширяет исполнения делегата
         ConstructFactory(каждая регистрация)
+        ApplySinks()            // здесь псевдокод: связи со стоками общих объектов
         if _changes == before: break      // множества только растут → конечность</code></pre>
   <div class="prose">
   <p>Две защиты от взрыва. Когда у тела набирается 16 контекстов, все дальнейшие вызовы этого тела связываются с одним экземпляром <code>@merged</code>. Когда экземпляр меняет что-то в 16 проходах подряд, вычисляется его сильно связная компонента в графе экземпляров, и если она циклическая, все её тела сливаются (счётчик <code>scc-budget-exceeded</code>). Слияние консервативно: эффекты объединяются, регион помечается как merged.</p>
 
+  <p>Точные типы объектов также помогают отбросить невозможный dispatch: если receiver доказанно <code>List&lt;T&gt;</code>, вызов члена несовместимого типа не исполняется. Это не полное доказательство всех веток программы. При неизвестном receiver анализ сохраняет неопределённость. Примеры — <code>TypeSafetyTests</code>, <code>LateReceiverTests</code> и demo <code>type-test-fast-path</code>.</p>
   <h3>Ownership</h3>
   <p>Ownership вычисляется уже после fixpoint, в <code>ExecutionModel</code>, потому что для него нужно знать исполнения. Первое подходящее правило решает:</p>
   <ol>
@@ -1463,7 +1469,8 @@ public sealed class Ledger                   // AddSingleton&lt;Ledger&gt;(); д
   </figure>
 
   <div class="prose">
-  <p>Какие ресурсы трогает каждый член, записано в таблице членов (ADR 0010 и её поправка 5b). Несколько неочевидных строк: <code>Count</code> и <code>ContainsKey</code> читают только структуру; индексатор-get читает структуру и ячейку; удаление пишет и ячейку, потому что переход «есть → нет» тоже можно потерять; <code>Insert</code>/<code>RemoveAt</code> у <code>List&lt;T&gt;</code> сдвигают соседей и пишут ячейку <code>[?]</code>; перечисление читает структуру и все ячейки. <code>HashSet</code>, <code>Queue</code>, <code>Stack</code> и <code>LinkedList</code> моделируются так же, всегда с ячейкой <code>[?]</code>.</p>
+  <p>Какие ресурсы трогает каждый распознанный член коллекции, записано в его модели операций (ADR 0010). Несколько неочевидных строк: <code>Count</code> и <code>ContainsKey</code> читают только структуру; индексатор-get читает структуру и ячейку; удаление пишет и ячейку, потому что переход «есть → нет» тоже можно потерять; <code>Insert</code>/<code>RemoveAt</code> у <code>List&lt;T&gt;</code> сдвигают соседей и пишут ячейку <code>[?]</code>; перечисление читает структуру и все ячейки. <code>HashSet</code>, <code>Queue</code>, <code>Stack</code> и <code>LinkedList</code> моделируются так же, всегда с ячейкой <code>[?]</code>.</p>
+  <p>Кроме доступов к структуре и ячейкам, куча хранит связи с объектами внутри коллекции. У словаря ключи и значения учитываются отдельно; новый список из существующей последовательности получает новый контейнер, но ссылки на прежние элементы. Вызов через <code>IEnumerable&lt;T&gt;</code> или интерфейс коллекции разрешается по точному типу receiver, если этот тип известен. Это проверяют <code>CollectionElementStorageTests</code>, <code>DictionaryKeyStorageTests</code>, <code>InterfaceCollectionCallTests</code> и <code>ArrayProjectionModelMatrixTests</code>.</p>
   <p>У <code>ConcurrentDictionary</code> оба ресурса атомарны: пары двух <code>GetOrAdd</code> нет, и перечисление во время изменения — определённое поведение (<code>concurrent-dictionary-enumerate-while-mutate/concurrent-dictionary</code> <span class="chip ok">нет</span>). Но последовательность атомарных вызовов не атомарна:</p>
   </div>
 
@@ -1567,7 +1574,7 @@ finally { _state.Gate.Release(); }</code></pre>
 
   <figure class="narrow">
     <div class="svg-wrap">
-    <svg viewBox="0 0 640 300" role="img" aria-label="Вызов без тела: известный вызов по таблице, иначе opaque с UnknownEffect; opaque, трогающий общий изменяемый регион или делегат, становится semantic gap">
+    <svg viewBox="0 0 640 300" role="img" aria-label="Вызов без тела: известный вызов по модели, иначе opaque с UnknownEffect; opaque, трогающий общий изменяемый регион или делегат, становится semantic gap">
       <defs>
         <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fill-ink"/></marker>
       </defs>
@@ -1575,13 +1582,13 @@ finally { _state.Gate.Release(); }</code></pre>
       <text x="320" y="39" text-anchor="middle" class="t-bold">вызов без тела в run</text>
       <line x1="320" y1="54" x2="320" y2="84" class="ln" marker-end="url(#arr5)"/>
       <rect x="170" y="86" width="300" height="40" rx="8" class="box-sunken"/>
-      <text x="320" y="111" text-anchor="middle">описан таблицей семантики библиотек?</text>
+      <text x="320" y="111" text-anchor="middle">описан моделью члена и версии?</text>
       <line x1="170" y1="106" x2="110" y2="106" class="ln"/>
       <line x1="110" y1="106" x2="110" y2="160" class="ln" marker-end="url(#arr5)"/>
       <text x="140" y="98" text-anchor="middle" class="t-small">да</text>
       <rect x="20" y="162" width="180" height="56" rx="8" class="box-ok"/>
       <text x="110" y="185" text-anchor="middle" class="t-bold">known call</text>
-      <text x="110" y="203" text-anchor="middle" class="t-small">эффекты из таблицы</text>
+      <text x="110" y="203" text-anchor="middle" class="t-small">эффекты из модели</text>
       <line x1="470" y1="106" x2="530" y2="106" class="ln"/>
       <line x1="530" y1="106" x2="530" y2="160" class="ln" marker-end="url(#arr5)"/>
       <text x="500" y="98" text-anchor="middle" class="t-small">нет</text>
@@ -1594,12 +1601,12 @@ finally { _state.Gate.Release(); }</code></pre>
       <text x="440" y="279" text-anchor="middle" class="t-small">если достаёт до общего изменяемого региона или получил делегат</text>
     </svg>
     </div>
-    <figcaption><b>Три исхода вызова без тела.</b> Known call описан таблицей и никогда не gap. Opaque call получает консервативный <code>UnknownEffect</code> — «может прочитать и записать всё, до чего достаёт». Gap-ом он становится только тогда, когда это действительно может повлиять на находки.</figcaption>
+    <figcaption><b>Три исхода вызова без тела.</b> Known call описан моделью и никогда не gap. Opaque call получает консервативный <code>UnknownEffect</code> — «может прочитать и записать всё, до чего достаёт». Gap-ом он становится только тогда, когда это действительно может повлиять на находки.</figcaption>
   </figure>
 
   <div class="prose">
-  <h3>Known call: таблица семантики библиотек</h3>
-  <p>Таблица (<code>ConcurrencyHunter.Core/Providers/LibrarySemantics/</code>, по файлу на семейство: <code>System.*</code>, логирование, System.Text.Json, Newtonsoft.Json, <code>HttpClient</code>, LINQ без делегатов, EF Core как opaque persistence) описывает член по точному <code>DocumentationCommentId</code>, имени сборки и диапазону версий. Эффектов три: без эффекта; <code>reads-deep</code> — чтение всего, что достижимо из аргумента, как делает сериализатор; <code>writes-arg</code> — запись собственных полей аргумента. Другая перегрузка или версия вне диапазона — уже opaque.</p>
+  <h3>Known call: модель конкретного члена библиотеки</h3>
+  <p><code>Core/Providers/LibraryModels/</code> сопоставляет вызов с JSON-моделью по точному члену, имени сборки и диапазону версий. Модель описывает чтения и записи, возвращаемые объекты и исполнение переданных делегатов. Built-in наборы лежат в <code>BuiltIn/*.json</code>; проект может уточнить или отменить их своей моделью. Детали формата и примеры разобраны в <a href="#library-models">следующей главе</a>. Вне поддержанного диапазона версия остаётся opaque, если её не покрывает подходящая проектная модель.</p>
   </div>
   <div class="case">
     <div class="case-head"><span class="case-name">json-serialize-reads-deep</span><span class="chips"><span class="chip bad">DCA1001 · Deterministic</span></span></div>
@@ -1613,7 +1620,7 @@ _settings.Limits.Max = 100;                                  // worker
   <h3>Opaque call: <code>UnknownEffect</code></h3>
   <p>Неизвестный вызов не считается «ничего не делающим». Его эффект — одно обращение вида <code>UnknownEffect</code>, которое читает и пишет всё, что достижимо из receiver и аргументов, до глубины summaries и wildcard дальше. В процедуре конфликта он ведёт себя как запись. Но есть важные сужения, каждое из которых снимает огромный шум:</p>
   <ul>
-    <li>Объект одного исполнения (<code>Owned</code>, <code>ThreadConfined</code>) такой вызов только <em>читает</em>: вызов ничей ownership не меняет. Измерение на eShop: обратное правило давало 913 новых находок против 2.</li>
+    <li>Объект одного исполнения (<code>Owned</code>, <code>ThreadConfined</code>) такой вызов только <em>читает</em>: вызов ничей ownership не меняет. Это явное допущение модели анализа, а не гарантия поведения любой внешней библиотеки.</li>
     <li><code>readonly</code>-поле тоже только читается (кроме reflection), а то, на что оно указывает, получает эффект целиком.</li>
     <li>Через receiver виден только тип, объявивший член: библиотечный член, вызванный на объекте из исходников (<code>base</code>-конструктор, унаследованный <code>HttpContext</code>), полей исходников не видит.</li>
     <li>На структуре thread-safe коллекции эффект атомарен, как её собственные члены.</li>
@@ -1623,7 +1630,7 @@ _settings.Limits.Max = 100;                                  // worker
     <div class="case-head"><span class="case-name">unknown-call-model-not-noop</span><span class="chips"><span class="chip bad">DCA1001 · Medium</span></span></div>
 <pre><code class="language-csharp">public sealed class Inbox { public readonly List&lt;string&gt; Items = new(); }   // AddSingleton&lt;Inbox&gt;()
 
-CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне всех таблиц
+CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член без подходящей модели
 [HttpGet] public int Get() =&gt; _inbox.Items.Count;   // action читает структуру</code></pre>
     <div class="case-body"><p>Вызов — semantic gap вида <code>unknown-library</code>. Он <em>решает</em> одну из проверок находки (здесь — операцию: одна из сторон и есть его <code>UnknownEffect</code>), поэтому этот компонент оценки становится 10 баллов, а итоговый score ограничен 79 — метка не выше Medium. Gap, который лишь стоит на пути вызовов до доступа, находку не меняет.</p></div>
   </div>
@@ -1644,7 +1651,220 @@ CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне вс�
   <h3>Semantic gap</h3>
   <p>Opaque call становится gap-ом, только когда его <code>UnknownEffect</code> достаёт до изменяемого региона с ownership <code>Escaped</code>/<code>Shared</code>/<code>Unknown</code>, когда ему передан делегат, или когда его результат записывается в поле общего региона. Вызов только со строками, числами и неизменяемыми типами gap-ом не бывает (<code>reflection-primitive-args-no-gap</code> <span class="chip ok">нет gap</span>). Виды gap: <code>reflection</code>, <code>dynamic</code>, <code>unresolved-dispatch</code> (interface/virtual/delegate-вызов без известного объекта), <code>model-gap</code> (service locator с неконстантным типом) и <code>unknown-library</code>. Gap один на callee в пределах process scope. Их порядок в отчёте — <em>materiality</em>: сначала число roots, потом число регионов, потом число мест вызова, без общего «скора».</p>
   <p>Классический пример, где gap честно оставляет неопределённость, — <code>Channel&lt;T&gt;</code> (<code>channel-handoff</code> <span class="chip ok">нет находки</span>): объект, прочитанный consumer-ом, с записанным producer-ом не связан, а запись в канал общего объекта видна как gap в coverage — неопределённость, а не безопасность.</p>
-  <p>Сейчас gaps только показываются: в отчёте (coverage и uncertainty) и в confidence. AI-разрешение gap-ов — пакеты для субагентов, проверка ответов и повторный fixpoint — запланировано в фазах 5c–5d.</p>
+  <p>Gaps видны в coverage, uncertainty и confidence; AI-разрешение gaps с повторным fixpoint не подключено. Known call с fate <code>unknown-execution</code> — другой случай: модель уже дала консервативный ответ о делегате, поэтому сам вызов не становится semantic gap.</p>
+  </div>
+</section>
+
+<section id="library-models">
+  <h2>Библиотечные модели: от JSON до эффекта в анализе</h2>
+  <div class="prose">
+  <p>Когда код вызывает библиотечный метод, Roslyn знает его сигнатуру, но в загруженном solution обычно нет его тела. <em>Library model</em> сообщает анализатору то, что нужно для поиска гонок: какие объекты метод читает и меняет, что возвращает и где запускает переданные делегаты. Например, у <code>JsonSerializer.Serialize</code> важно глубокое чтение аргумента, а у <code>Enumerable.Where</code> — отложенный вызов предиката при перечислении.</p>
+  <p>Модель — исполняемые для анализатора данные. <code>IrLowering</code> прикрепляет её к операции <code>call</code>; summaries сохраняют её смысл; <code>WholeProgram</code> строит связи объектов и вызовов; <code>ExecutionModel</code> определяет исполнения; <code>InterproceduralAccesses</code> получает обращения к памяти. Поэтому ошибка модели может менять findings, даже если C#-код движка не менялся.</p>
+  <h3>Откуда берётся модель</h3>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Источник</th><th>Где лежит</th><th>Как применяется</th></tr></thead>
+    <tbody>
+      <tr><td>Built-in</td><td><a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/BuiltIn/">Core/Providers/LibraryModels/BuiltIn/</a>: семь JSON-файлов, встроенных в сборку.</td><td><code>LibraryModels.BuiltIn</code> загружает их один раз на процесс. Наборы: System, LINQ, logging, System.Text.Json, Newtonsoft.Json, HttpClient, EF Core.</td></tr>
+      <tr><td>Project</td><td><code>.concurrency-hunter/models/**/*.json</code> анализируемого репозитория.</td><td>Имеет приоритет над built-in, в том числе через <code>"opaque": true</code>. Несогласованные project-записи для одного члена дают opaque и диагностику.</td></tr>
+      <tr><td>Generated / AI</td><td>В архитектуре предусмотрены отдельные слои.</td><td>Обычный run их пока не загружает. Reader пропускает корневые подкаталоги <code>models/generated/</code> и <code>models/ai/</code>. Выход CLI <code>generate</code> — отдельный формат классификации.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p><code>RepositoryRoot.Find</code> ищет вверх от каталога solution ближайший каталог с <code>.concurrency-hunter</code>. Если такого нет, использует ближайший Git-корень, иначе сам каталог solution. Это позволяет вложенному demo иметь собственные модели. Reader разбирает JSON и его грамматику; resolver проверяет модель уже против реальных символов компиляции: существуют ли параметры, допустимы ли типы и судьбы делегатов.</p>
+  <p>Идентичность — declaration id исходного определения метода, имя и версия сборки. Это позволяет различать перегрузки и generic-методы. Диапазон <code>minimum</code> включителен, <code>maximumExclusive</code> — нет. Модель похожего метода в другой сборке не подходит. Член с телом в исходниках анализируется по телу; root/spawn/synchronization/collection recognizers имеют собственную семантику и не должны получать второй конкурирующий способ описания.</p>
+  <h3>Прочитать одну запись целиком</h3>
+  <p>Ниже самостоятельный файл в формате проектной модели. Он описывает ту же перегрузку <code>Where</code>, что и built-in набор; копировать его в проект для обычного LINQ не требуется.</p>
+  </div>
+<pre><code class="language-json">{
+  "schemaVersion": 1,
+  "assemblies": ["System.Linq"],
+  "versions": { "minimum": "8.0.0.0", "maximumExclusive": "11.0.0.0" },
+  "models": [
+    {
+      "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "effects": {},
+      "result": "sequence(elements(arg:source))",
+      "fates": {
+        "predicate": {
+          "fate": "iterator",
+          "inputs": [["elements(arg:source)"]]
+        }
+      }
+    }
+  ]
+}</code></pre>
+  <div class="prose">
+  <ol>
+    <li><code>member</code> выбирает конкретную перегрузку. В обозначении Roslyn двойной backtick указывает generic-параметры метода; это часть идентификатора.</li>
+    <li><code>effects: {}</code> не объявляет дополнительных прямых чтений или записей аргументов этой моделью. Это не означает, что предикат ничего не делает.</li>
+    <li><code>sequence(elements(arg:source))</code> создаёт абстрактную ленивую последовательность, элементы которой — те же объекты, что и у <code>source</code>.</li>
+    <li><code>iterator</code> относит исполнение <code>predicate</code> к месту перечисления результата.</li>
+    <li><code>inputs</code> содержит по одному списку возможных значений на параметр самого делегата. Предикат получает элементы <code>source</code>. Без этого описания анализ не знает, какие объекты пришли в его параметр.</li>
+  </ol>
+  <h3>Проектное переопределение и model lock</h3>
+  <p>Команда может явно оставить член opaque, например если не доверяет встроенной модели для своего использования. Настоящий пример находится в <a href="../demo/.concurrency-hunter/models/demo.json">demo/.concurrency-hunter/models/demo.json</a>: <code>SerializeToUtf8Bytes</code> объявлен opaque, а <code>EqualityComparer&lt;T&gt;.Create</code> описан через holder. Такая запись меняет семантику вызова, а не скрывает его finding.</p>
+  <p>Для группы перегрузок проектная запись может использовать шаблон вроде <code>M:System.Text.Json.JsonSerializer.Serialize(*)</code>. <code>ModelLock</code> разворачивает его в точные declaration id для встреченной версии сборки и сохраняет в <code>models.lock.json</code>. При следующем анализе этой версии использует закреплённый список; новая версия получает отдельную строку. Удалённые шаблоны убираются из lock, когда файлы моделей удалось прочитать. Модель и lock предназначены для ревью и хранения в Git.</p>
+  <p>Некорректная запись даёт диагностику <code>library-models:</code> и не применяется. Это отличается от валидной записи <code>opaque: true</code>: отклонённая запись не обязательно отменяет built-in модель. Для контроля смотрите <code>known-call-built-in</code>, <code>known-call-project</code>, <code>opaque-by-project</code> и диагностику coverage.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде и чем проверять</div>
+    <p><a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/LibraryVocabulary.cs">LibraryVocabulary.cs</a> — язык и проверка совместимости типов. <code>BuiltInModelReader</code> и <code>ProjectModelFiles</code> — чтение; <code>ProjectModelResolver</code> — символы и приоритет; <code>ModelLock</code> — шаблоны. Тесты: <code>BuiltInModelFileTests</code>, <code>DeclarationIdGrammarTests</code>, <code>ProjectModelTests</code>, <code>ProjectModelIdentityTests</code>, <code>ModelLockTests</code>.</p>
+  </div>
+</section>
+
+<section id="model-values">
+  <h2>Когда запускается делегат и куда попадают объекты</h2>
+  <div class="prose">
+  <p>Чтобы понять библиотечную модель, задайте два независимых вопроса: <strong>кто исполняет пользовательский код</strong> и <strong>какие объекты он получает</strong>. Правильная fate с потерянными входными объектами всё равно может пропустить гонку. Правильный alias при неверном времени исполнения — тоже.</p>
+  <h3>Delegate fate: место исполнения</h3>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Fate в JSON</th><th>Смысл</th><th>Что это меняет для гонок</th></tr></thead>
+    <tbody>
+      <tr><td><code>invoke-now</code></td><td>Делегат выполняется во время вызова, в исполнении caller, и не сохраняется для последующего вызова.</td><td>Эффекты относятся к месту вызова с его условиями и удерживаемой защитой. Пример — предикат <code>Any</code>.</td></tr>
+      <tr><td><code>iterator</code></td><td>Делегат выполняет тот, кто перечисляет возвращённую library sequence.</td><td>Защита при создании запроса не защищает перечисление. <code>ToList</code> перечисляет в месте своего вызова.</td></tr>
+      <tr><td><code>holder</code> + <code>result</code> / <code>this</code></td><td>Делегат хранит возвращённый объект либо receiver. Для конструктора <code>result</code> означает создаваемый объект.</td><td>Делегат может выполняться при вызове любого члена holder. Если holder уходит туда, где движок не может проследить его использование, добавляется unknown execution.</td></tr>
+      <tr><td><code>startup</code></td><td>Делегат относится к startup.</td><td>Использует модель исполнения startup. Формат принимает этот вариант; генератор его не выводит.</td></tr>
+      <tr><td><code>unknown-execution</code></td><td>Модель прямо указывает неизвестное исполнение.</td><td>Это консервативная известная семантика; сам modeled call не становится gap.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p><code>di-factory</code> упоминается в архитектуре, но текущий <code>LibraryVocabulary</code> такую fate отклоняет. Это не отменяет уже имеющуюся поддержку обычных DI-фабрик через <code>DiIndex</code>: это другой путь в движке.</p>
+  <h3>LINQ: создание запроса и его выполнение</h3>
+  </div>
+  <div class="case">
+    <div class="case-head"><span class="case-name">linq-where-runs-on-enumeration</span><span class="chips"><span class="chip bad">DCA1002 · Hits</span></span></div>
+<pre><code class="language-csharp">// Упрощённая форма demo-кейса. Filter зарегистрирован как singleton.
+public sealed class Filter
+{
+    public int Hits;
+    public IEnumerable&lt;int&gt; Matching;
+
+    public Filter()
+    {
+        Matching = new List&lt;int&gt; { 1, 2 }.Where(x =&gt; { Hits++; return true; });
+    }
+}
+
+// Action и worker перечисляют одну сохранённую последовательность:
+foreach (var value in _filter.Matching) { }</code></pre>
+    <div class="case-body"><p>Конструктор сохраняет последовательность и предикат, но не делает <code>Hits++</code>. Запись выполняется в action и worker при перечислении. Место доступа в исходнике остаётся внутри конструктора; execution определяется перечисляющим. Это тот же принцип, что у пользовательского <code>yield</code>, применённый к библиотечному результату.</p></div>
+  </div>
+  <div class="prose">
+  <p>Built-in LINQ-модели описывают <code>Enumerable</code>-операторы с делегатами без comparer. Перегрузки с comparer остаются opaque. <code>Where</code>/<code>Select</code> и другие ленивые результаты сохраняют источники; терминальный оператор вроде <code>Any</code> вызывает делегат сейчас. <code>Queryable</code> с expression tree рассматривает выражение как данные, а не как немедленно исполняемый C#-делегат. Это не анализ исполнения запроса в БД.</p>
+  <h3>Язык значений: связи объектов, а не вычисление всех данных</h3>
+  <p>Записи ниже описывают множества возможных объектов. Они не обещают точно восстановить длину списка, отфильтровать его по предикату или вычислить каждый ключ.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Выражение</th><th>Как читать</th></tr></thead>
+    <tbody>
+      <tr><td><code>arg:source</code>, <code>this</code></td><td>Объекты аргумента с именем <code>source</code> либо receiver.</td></tr>
+      <tr><td><code>elements(arg:source)</code></td><td>Объекты, которые отдаёт перечисление источника.</td></tr>
+      <tr><td><code>returns:selector</code></td><td>Объекты, возвращённые пользовательским делегатом <code>selector</code>.</td></tr>
+      <tr><td><code>holder-arg:0</code></td><td>Первый аргумент вызова члена holder. Например, значение для сохранённого callback сравнения.</td></tr>
+      <tr><td><code>sequence(…)</code></td><td>Новая ленивая последовательность с указанными элементами.</td></tr>
+      <tr><td><code>collection(elements(arg:source))</code></td><td>Новый контейнер с прежними объектами-элементами: например, <code>ToList</code>. Новый список не делает элементы новыми.</td></tr>
+      <tr><td><code>dictionary(returns:keySelector,returns:elementSelector)</code></td><td>Новый словарь; ссылки на ключи и значения берутся из разных делегатов.</td></tr>
+      <tr><td><code>grouping(returns:keySelector,elements(arg:source))</code></td><td>Объект группы с отдельной ссылкой <code>Key</code> и перечисляемыми элементами.</td></tr>
+      <tr><td><code>[arg:value,kept:cache]</code></td><td>Результат может быть любым из перечисленных объектов; это объединение возможных alias.</td></tr>
+      <tr><td><code>new</code></td><td>Новый граф объектов типа результата, разворачиваемый до лимита глубины summaries. Например, результат десериализации.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <div class="note warn">
+    <div class="note-title">Неописанное значение не получает автоматический alias</div>
+    <p>Если известная модель не описала result или output, движок не связывает его с объектами программы автоматически. Тело callback может быть достигнуто, но доступ к полю его неизвестного аргумента потеряет нужный объект. Проверяйте <code>inputs</code>, <code>result</code> и <code>outputs</code> вместе. Отдельная форма <code>holder: result</code> сама создаёт holder; её нельзя сочетать с обычным полем <code>result</code>.</p>
+  </div>
+  <h3>Записи в массив, ref/out и сохраняемые библиотекой объекты</h3>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Поле модели</th><th>Смысл</th><th>Пример</th></tr></thead>
+    <tbody>
+      <tr><td><code>effects</code></td><td><code>reads-deep</code> читает достижимый граф, <code>writes-arg</code> пишет собственные поля аргумента, <code>writes-cells</code> — ячейки массива.</td><td><code>Array.Sort</code> пишет ячейки, переданный comparison выполняется сейчас.</td></tr>
+      <tr><td><code>stores</code></td><td>Какие объекты записываются в ячейки. Требует <code>writes-cells</code> на той же цели.</td><td><code>Array.Fill</code> записывает <code>arg:value</code>; <code>Array.Copy</code> — элементы источника.</td></tr>
+      <tr><td><code>outputs</code></td><td>Что получает <code>out</code> или <code>ref</code> параметр; это присваивание самой ссылки.</td><td><code>Array.Resize</code> передаёт в <code>ref array</code> новый массив с прежними элементами.</td></tr>
+      <tr><td><code>keeps</code>, <code>kept:cache</code></td><td>Библиотечный объект сохраняет переданный объект и возвращает его другим вызовам.</td><td><code>Set</code> кладёт объект в cache, <code>TryGetValue</code> отдаёт его через <code>out</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p><code>writes-cells</code> на <code>this</code> допустим только для instance-члена <code>System.Array</code>; параметр-цель должен быть массивом или <code>System.Array</code>. Писать <code>stores</code> без соответствующего эффекта нельзя. <code>outputs</code> проверяется против реальных <code>ref/out</code> параметров и типов. Эти ограничения не дают синтаксически правильному JSON молча создавать бессмысленные связи.</p>
+  <p>Следующий фрагмент взят из проектных моделей demo: библиотека вызывает factory, оставляет результат у cache и возвращает либо его, либо ранее сохранённый объект. Это часть записи модели, без её identity и диапазона версии:</p>
+  </div>
+<pre><code class="language-json">{
+  "effects": {},
+  "fates": { "factory": { "fate": "invoke-now" } },
+  "keeps": { "cache": ["returns:factory"] },
+  "result": "[returns:factory,kept:cache]"
+}</code></pre>
+  <div class="prose">
+  <p>Если cache общий, объект factory тоже становится доступным другим исполнениям. Поэтому локальный <code>new Settings()</code> внутри фабрики не доказывает изоляцию: следующий запрос может получить тот же <code>Settings</code>. Если heap не знает конкретного keeper, используется общее для process scope хранилище по типу. Удаление из такого хранилища не моделируется, а ключи cache не разделяют его значения; это может объединять объекты, которые реальная библиотека хранит раздельно.</p>
+  <p>Не путайте <strong>holder</strong>, который хранит callback и определяет его исполнение, с <strong>kept object</strong>, который передаётся через библиотеку как обычные данные.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Примеры и регрессионные тесты</div>
+    <p>Demo: <code>linq-predicate-runs-now</code>, <code>linq-where-tolist-runs-in-caller</code>, <code>linq-groupby-key-and-elements</code>, <code>project-model-holder-fate</code>, <code>array-sort-writes-cells</code>, <code>project-model-kept-object</code>, <code>project-model-try-get-value</code>. Тесты: <code>DelegateFateTests</code>, <code>HolderFateTests</code>, <code>LibrarySequenceTests</code>, <code>LinqBuiltInResultTests</code>, <code>ModelCellWriteTests</code>, <code>ModelOutputTests</code>, <code>KeptObjectTests</code>, <code>NewResultTests</code>.</p>
+  </div>
+</section>
+
+<section id="generator">
+  <h2>Как работает команда generate</h2>
+  <div class="prose">
+  <p><code>generate</code> статически исследует один член библиотеки и классифицирует, где могут исполняться переданные ему делегаты. Это детерминированная часть продукта: она не вызывает AI, не скачивает пакеты и не исполняет исследуемую библиотеку. Написанный ею <em>driver</em> — вход для анализа, а не запускаемый тест.</p>
+  <div class="note rule">
+    <div class="note-title">Точная граница текущей реализации</div>
+    <p>Команда выдаёт <code>classified</code> с fate по параметрам либо <code>reason</code> отказа. Она ещё не создаёт полноценную запись <code>models</code> с effects, inputs, result, outputs и keeps. Hunt и metrics не вызывают генератор автоматически и не подхватывают его выход. Название <code>ModelGenerator</code> описывает компонент архитектуры; фактический выход задают <code>GeneratedAnswer</code> и <code>GeneratedDocument</code>.</p>
+  </div>
+  <h3>Команда и входные данные</h3>
+  <p>Пример запроса к установленному Google.Protobuf 3.21.9. Каталог <code>scratch</code> должен существовать, а пакет — уже находиться в локальном NuGet cache. У <code>--member</code> важны точные backticks и скобки, поэтому в PowerShell используйте одинарные кавычки:</p>
+  </div>
+<pre><code class="language-powershell">&amp; ./bin/win-x64/concurrency-hunter.exe generate --assembly Google.Protobuf --version 3.21.9 --package Google.Protobuf --framework net8.0 --member 'M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})' --out ./scratch/parser-fate.json *&gt; scratch/generate.log
+Get-Content scratch/generate.log -Tail 50
+Get-Content scratch/parser-fate.json</code></pre>
+  <div class="prose">
+  <p>Без <code>--package</code> <code>--version</code> задаёт major версии framework-сборки; resolver выбирает установленный shared framework <code>Microsoft.NETCore.App</code> этого major. С <code>--package</code> это точная версия NuGet-пакета, а <code>--framework</code> задаёт платформу для выбора совместимого <code>lib/</code>. По умолчанию используется major runtime самого процесса. Resolver читает <code>NUGET_PACKAGES</code>, иначе <code>%USERPROFILE%/.nuget/packages</code>. Reference assembly из <code>ref/</code> не годится: её сигнатуры есть, а реализации методов нет.</p>
+  <p>Код завершения <code>0</code> означает, что ответ записан; в нём может быть <code>classified: null</code> и причина отказа. Ошибка аргументов не пишет файл, исключение записи или выполнения даёт failure. <code>GenerateCommand</code> записывает только указанный <code>--out</code> и сам не создаёт его родительский каталог.</p>
+  <h3>Путь одного запроса</h3>
+  </div>
+  <ol class="steps">
+    <li><strong>Найти implementation DLL.</strong> <code>ImplementationAssemblies</code> выбирает локальную сборку и зависимости, проверяет, что это не reference assembly, записывает assembly version, file version и MVID. <code>System.Private.CoreLib</code> намеренно отклоняется.</li>
+    <li><strong>Декомпилировать и получить Roslyn Compilation.</strong> <code>LibraryCompilation</code> использует встроенный ICSharpCode.Decompiler и создаёт деревья C# в памяти. Тела с ошибками компиляции превращаются в <code>extern</code>, затем выполняется повторная проверка, максимум три переписывания. Так они становятся обычными opaque calls движка. Ошибка декларации или оставшаяся ошибка делает библиотеку непригодной.</li>
+    <li><strong>Проверить область применения.</strong> Найти member по declaration id. <code>EngineClaims</code> отклоняет сборку, если её член уже принадлежит специальному recognizer движка: иначе такой вызов мог бы анализироваться по встроенной семантике вместо исследуемого тела.</li>
+    <li><strong>Синтезировать driver.</strong> <code>DriverSynthesizer</code> подбирает типы и аргументы, создаёт пробные делегаты и объекты. Каждый probe делает запись в своё отслеживаемое статическое поле. Driver содержит подготовку, вызов члена и перечисление результата; для потенциального holder также создаёт вызовы его членов — triggers.</li>
+    <li><strong>Прогнать общий движок.</strong> <code>ScopePipeline.Run</code> получает две компиляции — библиотеку и driver — и <code>DriverRootProvider</code>. Главный проход использует setup/call/enumeration roots. Он строит IR, summaries, heap, executions и accesses. Pairing, Z3 и пользовательский отчёт генератору не нужны. Built-in модели исследуемой сборки исключены, чтобы её <code>extern</code>-тела не получали готовые ответы.</li>
+    <li><strong>Классифицировать.</strong> <code>FateClassifier</code> сопоставляет записи probe с исполнениями и проверяет по heap, кто сохраняет делегат. Если получен holder и существуют triggers, выполняется отдельный подтверждающий проход с ними. Запуск probe в <code>Task.Run</code>, таймере или unknown execution, ошибка либо превышение лимита этого прохода расширяют ответ до unknown.</li>
+    <li><strong>Записать ответ.</strong> <code>GeneratedDocument</code> сериализует schema 1, identity запроса, classification/reason и диагностические сведения. CLI пишет UTF-8 без BOM с завершающим переводом строки.</li>
+  </ol>
+  <div class="prose">
+  <p>Driver строится из сигнатуры, поэтому его сложность — отдельная часть продукта: receiver может требовать конструктора или фабрики, generic-параметр — удовлетворения constraints, интерфейс — пробной реализации. <code>TypeShape</code> различает immutable, delegate, коллекции, task и другие формы; <code>ParameterKinds</code> определяет, как переданный аргумент способен нести probe. Классификация может относиться и к callback, переданному внутри объекта, а не только к параметру типа <code>Func&lt;&gt;</code>.</p>
+  <h3>Почему одного наблюдения недостаточно</h3>
+  <p>Допустим, driver видит вызов <code>callback()</code> внутри библиотечного метода. Этого мало для <code>invoke-now</code>: библиотека могла ещё сохранить callback в поле и вызвать после завершения метода. И наоборот, отсутствие видимого вызова не означает, что callback никогда не запустится: его может вызвать фреймворк за пределами достижимых roots. Это <em>open-world rule</em>.</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Что доказал анализ probe</th><th>Ответ</th></tr></thead>
+    <tbody>
+      <tr><td>Запись происходит только в собственном исполнении вызова; делегат нигде не сохранён для дальнейшего использования.</td><td><code>invoke-now</code></td></tr>
+      <tr><td>Через результат доступен сохранённый делегат; соответствующий probe выполняется при перечислении, в исполнении перечисляющего.</td><td><code>iterator</code>, если сигнатура допускает такую fate.</td></tr>
+      <tr><td>Доступ к делегату доказан только через один возвращённый объект или receiver; подтверждающий проход не обнаружил другого способа исполнения.</td><td><code>holder result</code> или <code>holder this</code></td></tr>
+      <tr><td>Probe не найден, есть несколько несовместимых способов запуска, callback вызван и сохранён, потерян результат либо нарушены условия точной fate.</td><td><code>unknown-execution</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Набор наблюдавшихся triggers не считается полным списком методов, вызывающих callback. Основание holder — достижимость делегата только через этот объект. Подтверждающий проход дополнительно проверяет, не отправляет ли доступный trigger callback в отдельное исполнение. Ошибка в сторону неизвестности снижает точность; ошибка в сторону более узкой fate может скрыть настоящую гонку.</p>
+  <h3>Как читать JSON-ответ</h3>
+  <p><code>classified</code> — отображение имени параметра в <code>{ fate, holder }</code>. <code>holder</code> равен <code>result</code>, <code>this</code> или <code>null</code>. При отказе <code>classified</code> равен <code>null</code>, а <code>reason</code> называет причину. <code>generation</code> сохраняет сведения, нужные для воспроизведения:</p>
+  <ul>
+    <li><code>implementation</code> и <code>framework</code> — какую DLL и платформу действительно использовали.</li>
+    <li><code>missingDependencies</code>, <code>externBodies</code> — что недоступно или потеряло тело при компиляции.</li>
+    <li><code>defaultedValues</code> — какие аргументы driver заполнил значением по умолчанию; <code>setupWidened</code> — где подготовка probe сама исполнялась или уходила в неизвестный вызов.</li>
+    <li><code>refusals</code> — почему для параметра отклонена более точная fate; <code>reachedBodies</code> и <code>seconds</code> — размер достигнутого множества и время.</li>
+  </ul>
+  <p>Основные причины отказа: <code>corelib</code>, <code>no-implementation</code>, <code>reference-assembly</code>, <code>library-does-not-compile</code>, <code>member-not-found</code>, <code>engine-recognized</code>, <code>driver-not-synthesized</code>, <code>not-a-candidate</code>, <code>body-does-not-compile</code>, <code>closure-bound</code>, <code>analysis-failed</code>. Это ответ о границе анализа, а не доказательство отсутствия эффектов у библиотеки.</p>
+  <p>Компиляции декомпилированных библиотек повторно используются внутри процесса по пути implementation и набору зависимостей. Это локальная экономия работы генератора; кэша пользовательских findings между runs она не создаёт.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде и чем проверять</div>
+    <p><a href="../src/ConcurrencyHunter.Cli/GenerateCommand.cs">GenerateCommand.cs</a> — CLI и запись файла; <a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation/">Generation/</a> — компоненты из описания. Начните с <code>ModelGenerator</code> и <code>FateClassifier</code>. Тесты компонентов лежат в <code>Core.Tests/Providers/</code>, матрицы и сравнение с gold — в <code>Core.Tests/Generation/</code>. Доступ к реальным пакетам включается отдельно; подробности — в <a href="#testing">разделе проверок</a>.</p>
   </div>
 </section>
 
@@ -1664,7 +1884,7 @@ CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне вс�
 [HttpPost("create")] public void Create() =&gt; _log.Record("create");
 [HttpPost("update")] public void Update() =&gt; _log.Record("update");
 [HttpPost("delete")] public void Delete() =&gt; _log.Record("delete");</code></pre>
-    <div class="case-body"><p>Место записи одно, пара — запись с самой собой. Occurrences — пары roots: 3 самопересечения и 3 пары разных actions, всего 6. Fingerprint находки считается по правилу, содержащим символам обоих мест, форме ресурса, видам операций и результату защиты, но <strong>без roots</strong>: четвёртый вызывающий не меняет fingerprint, и suppression по нему продолжает работать. Меняется fingerprint только при смене причины.</p></div>
+    <div class="case-body"><p>Место записи одно, пара — запись с самой собой. Occurrences — пары roots: 3 самопересечения и 3 пары разных actions, всего 6. Fingerprint находки считается по правилу, содержащим символам обоих мест, форме ресурса, видам операций и результату защиты, но <strong>без roots</strong>: четвёртый вызывающий не меняет fingerprint, что позволяет использовать его как устойчивый ключ для будущего механизма suppressions. Чтение пользовательских suppressions пока не реализовано. Меняется fingerprint только при смене причины.</p></div>
   </div>
 
   <div class="prose">
@@ -1677,42 +1897,38 @@ CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне вс�
   <div class="part-label">Часть IV <span>Сопровождение и развитие</span></div>
 
 <section id="code-map">
-  <h2>Карта кода</h2>
+  <h2>Карта кода и порядок чтения</h2>
   <div class="prose">
-  <p>Плагин лежит в <code>plugins/concurrency-hunter/</code>. Код — около 26 тысяч строк C# в трёх проектах и ещё около 32 тысяч строк тестов. Разделение проектов — архитектурное правило, а не удобство: ядро анализа не должно знать ни Roslyn, ни хост, ни AI.</p>
+  <p>Solution <a href="../src/ConcurrencyHunter.slnx"><code>src/ConcurrencyHunter.slnx</code></a> содержит три продуктовых проекта и два тестовых. Пространства имён могут совпадать между проектами: например, <code>ConcurrencyHunter.Analysis</code> есть и у оркестратора в Core. Для архитектурной границы смотрите на <code>.csproj</code>, а не только на namespace.</p>
   </div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Проект / каталог</th><th>Что внутри</th><th>Крупнейшие файлы (строк)</th></tr></thead>
+    <thead><tr><th>Проект / каталог</th><th>Ответственность</th><th>С чего начать чтение</th></tr></thead>
     <tbody>
-      <tr><td><code>ConcurrencyHunter.Analysis</code></td><td colspan="2"><strong>Ядро без внешних ссылок.</strong> Проверяется <code>AnalysisBoundaryTests</code>.</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Ir/</code></td><td>Модель IR, валидатор, принтер</td><td class="num"><code>IrOperations.cs</code> 508</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>CallGraph/</code></td><td>Индекс программы, reachable set</td><td class="num"><code>ReachableSet.cs</code> 794</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Heap/</code></td><td>Summaries, points-to, DI-семантика, лимиты</td><td class="num"><code>WholeProgram.cs</code> 2143, <code>MethodSummaryBuilder.cs</code> 1615</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Execution/</code></td><td>Исполнения, ownership, конструирование, happens-before, таймеры</td><td class="num"><code>ExecutionModel.cs</code> 1449, <code>HappensBefore.cs</code> 1366</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Accesses/</code></td><td>Сбор доступов, замки, пары, неизвестные вызовы, gaps</td><td class="num"><code>InterproceduralAccesses.cs</code> 2895, <code>MustHeldLocks.cs</code> 894</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Analysis/</code>, <code>Solving/</code></td><td>Находки и оценка, селекторы, guard-ы, модель решателя</td><td class="num"><code>ConflictFindings.cs</code> 553</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Di/</code>, <code>Roots/</code>, <code>Scopes/</code></td><td>Модели DI, root descriptor, process scope</td><td class="num">—</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Reporting/</code>, <code>Narrative/</code></td><td>Рендер отчёта, правила статуса, валидатор narrative</td><td class="num"><code>ReportRenderer.cs</code> 733</td></tr>
-      <tr><td><code>ConcurrencyHunter.Core</code></td><td colspan="2"><strong>Всё, что знает Roslyn и Z3.</strong></td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Frontend/</code></td><td>Опускание в IR, SSA, эффективный CFG, индекс программы</td><td class="num"><code>IrLowering.cs</code> 3588</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Providers/</code></td><td>Root providers, DI-индекс, process scopes, таблица библиотек (<code>LibrarySemantics/</code>)</td><td class="num"><code>AspNetCoreRootProvider.cs</code> 584</td></tr>
-      <tr><td>&nbsp;&nbsp;<code>Analysis/</code></td><td><code>PhaseOneAnalyzer</code> — оркестрация конвейера; <code>Z3ConstraintSolver</code></td><td class="num">317</td></tr>
-      <tr><td><code>ConcurrencyHunter.Cli</code></td><td>Исполняемый файл: MCP-сервер (<code>Mcp/RunTools.cs</code>), <code>Runs/RunRegistry.cs</code>, <code>TargetResolver</code>, подкоманда <code>metrics</code></td><td class="num"><code>RunRegistry.cs</code> 553</td></tr>
-      <tr><td><code>ConcurrencyHunter.Core.Tests</code></td><td><code>Engine/</code> (движок на <code>EngineFixture</code>), <code>Providers/</code>, <code>Ir*Tests</code>, отчёт, <code>DemoExpectationTests</code>, <code>Expectations/</code>, <code>Fixtures/</code></td><td class="num">~30 тыс.</td></tr>
-      <tr><td><code>ConcurrencyHunter.Cli.Tests</code></td><td>Жизненный цикл run, инструменты MCP, <code>metrics</code>, снапшоты demo и eShop</td><td class="num">~2,3 тыс.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Analysis/Ir</code></td><td>Независимый от Roslyn язык операций.</td><td><a href="../src/ConcurrencyHunter.Analysis/Ir/IrOperations.cs">IrOperations.cs</a>, <code>IrSchema</code>, <code>IrPrinter</code>, <code>IrValidator</code>.</td></tr>
+      <tr><td><code>Analysis/CallGraph</code>, <code>Heap</code></td><td>Достижимость тел, summaries, регионы, points-to, DI, значения библиотечных моделей.</td><td><a href="../src/ConcurrencyHunter.Analysis/Heap/MethodSummary.cs">MethodSummary.cs</a>, <code>MethodSummaryBuilder</code>, <a href="../src/ConcurrencyHunter.Analysis/Heap/WholeProgram.cs">WholeProgram.cs</a>.</td></tr>
+      <tr><td><code>Analysis/Execution</code></td><td>Исполнения и ownership: кто делает доступ и может ли пересечься с другим.</td><td><code>ExecutionModel</code>, <code>HappensBefore</code>.</td></tr>
+      <tr><td><code>Analysis/Accesses</code></td><td>Доступы, замки, неизвестные эффекты, gaps, пары.</td><td><code>InterproceduralAccesses</code>, <code>MustHeldLocks</code>, <code>UnknownCalls</code>, <code>CandidateIndex</code>.</td></tr>
+      <tr><td><code>Analysis/Analysis</code>, <code>Solving</code></td><td>Ресурсы, guard-ы, запросы решателю, правила и confidence.</td><td><code>ConflictFindings</code>, <code>SolverRefinement</code>.</td></tr>
+      <tr><td><code>Analysis/Reporting</code>, <code>Narrative</code></td><td>Статус run, серверный отчёт и проверка текста AI.</td><td><code>RunStatusRules</code>, <code>ReportRenderer</code>, <code>NarrativeValidator</code>.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Core/Frontend</code></td><td>Roslyn → IR: CFG, SSA, операции, индекс программы.</td><td><a href="../src/ConcurrencyHunter.Core/Frontend/IrLowering.cs">IrLowering.cs</a>, <code>SsaPlan</code>.</td></tr>
+      <tr><td><code>Core/Providers</code></td><td>Process scopes, roots фреймворков, DI-регистрации и bindings.</td><td><code>ProcessScopes</code>, <code>ProviderRegistry</code>, <code>AspNetCoreRootProvider</code>, <code>HostingRootProvider</code>.</td></tr>
+      <tr><td><code>Core/Providers/LibraryModels</code></td><td>JSON, грамматика значений, проверка против символов, приоритеты и model lock.</td><td><a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/LibraryModels.cs">LibraryModels.cs</a>, <code>LibraryVocabulary</code>, <code>ProjectModelReader</code>, <code>ProjectModelResolver</code>, <code>BuiltIn/</code>.</td></tr>
+      <tr><td><code>LibraryModels/Generation</code></td><td>Поиск DLL, декомпиляция, driver, статическая классификация делегатов.</td><td><a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation/ModelGenerator.cs">ModelGenerator.cs</a> → <code>DriverSynthesizer</code> → <code>FateClassifier</code>.</td></tr>
+      <tr><td><code>Core/Analysis</code></td><td>Оркестрация run, общий конвейер scope, адаптер Z3.</td><td><a href="../src/ConcurrencyHunter.Core/Analysis/PhaseOneAnalyzer.cs">PhaseOneAnalyzer.cs</a>, <a href="../src/ConcurrencyHunter.Core/Analysis/ScopePipeline.cs">ScopePipeline.cs</a>.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Cli</code></td><td>Команды <code>mcp</code>, <code>metrics</code>, <code>generate</code>; жизненный цикл run.</td><td><a href="../src/ConcurrencyHunter.Cli/Program.cs">Program.cs</a>, <code>Mcp/RunTools</code>, <code>Runs/RunRegistry</code>, <code>GenerateCommand</code>.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Core.Tests</code></td><td>IR, движок, providers, модели, генератор, отчёт, demo.</td><td><code>Engine/EngineFixture</code>, <code>Providers/ProviderFixture</code>, <code>Generation/</code>, <code>DemoExpectationTests</code>.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Cli.Tests</code></td><td>MCP, жизненный цикл, CLI, снапшоты, опубликованный exe.</td><td><code>ProgramTests</code>, <code>RunToolsTests</code>, <code>GenerateCommandTests</code>, <code>PublishedExecutableEndToEndTests</code>.</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
-  <p>Рядом с кодом: <code>skills/hunt/</code> (skill, правила composer-а, evals хостов и metrics), <code>demo/</code> (корпус кейсов), <code>docs/</code> (PRD, SPEC, ADR), <code>build/</code> (гейты и упаковка), <code>bin/</code> (launcher), три манифеста хостов. Общий код с cache-detective — <code>plugins/Common</code> (<code>Common.Roslyn</code> загружает solution, <code>Common.Mcp</code> даёт paged-ответы).</p>
-  <h3>В каком порядке читать</h3>
+  <p>Направление зависимостей: <code>Cli → Core → Analysis</code>. <code>Analysis</code> не имеет ссылок на внешние пакеты или проекты; это проверяет <code>AnalysisBoundaryTests</code>. Core знает Roslyn, Z3 и декомпилятор. Общие загрузчик и MCP-утилиты находятся рядом, в <code>plugins/Common</code>. <code>skills/hunt/</code> содержит инструкцию хоста и evals, <code>demo/</code> — корпус примеров, <code>build/</code> — проверки и упаковку.</p>
+  <h3>Первый проход по коду</h3>
   <ol>
-    <li><a href="../CONTEXT.md"><code>CONTEXT.md</code></a> — словарь и связи между терминами.</li>
-    <li><a href="SPEC.md">SPEC</a>: §3 (внутренние термины и модель неизвестного вызова), §6 (flow одного run), §7 (решающая процедура).</li>
-    <li>ADR 0006–0011 — решения, которые чаще всего всплывают в коде.</li>
-    <li><a href="../demo/SCENARIOS.md"><code>demo/SCENARIOS.md</code></a> и несколько кейсов из <code>demo/Demo.Web/Cases</code> рядом с их записями в <code>expected-findings.json</code>.</li>
-    <li><code>PhaseOneAnalyzer.AnalyzeAsync</code> — весь конвейер на одной странице.</li>
-    <li><code>IrSchema.cs</code> и <code>IrOperations.cs</code>, затем <code>MethodSummary.cs</code>: с этими типами работает всё остальное.</li>
-    <li>Любой тест из <code>Engine/</code> под отладчиком: <code>EngineFixture</code> позволяет прогнать фрагмент C# через весь движок.</li>
+    <li>Откройте <code>Program.RunAsync</code>: выберите интересующий путь — пользовательский run, измерение или генерация.</li>
+    <li>Проследите <code>PhaseOneAnalyzer</code> и <code>ScopePipeline</code>. На этом уровне важно понять вход и результат каждого шага.</li>
+    <li>Прочитайте типы <code>IrBody</code>, <code>MethodSummary</code>, <code>HeapSolution</code>, <code>ExecutionAnalysis</code> и <code>Access</code>. Они связывают стадии.</li>
+    <li>Запустите небольшой тест из <code>Engine/</code> под отладчиком, например из <code>CompoundAssignmentLoweringTests</code> или <code>LibrarySequenceTests</code>. <code>EngineFixture</code> строит тестовую программу из строки C#.</li>
+    <li>Сопоставьте результат с demo-кейсом и ручным ожиданием в <code>expected-findings.json</code>. Затем читайте соответствующий ADR: 0006 — конструирование, 0008 — порядок, 0010 — коллекции, 0011 — итераторы, 0012 — библиотечные модели.</li>
   </ol>
   </div>
 </section>
@@ -1720,27 +1936,45 @@ CollectionsMarshal.SetCount(_inbox.Items, 0);   // worker: член вне вс�
 <section id="testing">
   <h2>Сборка, тесты и гейты</h2>
   <div class="prose">
-  <p>Нужны Windows x64, .NET SDK 10.0.302 (<code>global.json</code>, roll-forward до последней feature-версии) и PowerShell 7. Долгие команды, по правилу репозитория, запускайте с выводом в файл, а не в консоль или через pipe.</p>
+  <p>Рабочая платформа упаковки — Windows x64. <a href="../global.json"><code>global.json</code></a> задаёт .NET SDK 10.0.302 с <code>rollForward: latestFeature</code>; это допускает более новую feature-версию SDK 10. Используйте PowerShell 7. Команды ниже выполняются из каталога плагина. Логи и временные результаты складывайте в игнорируемый <code>scratch/</code>.</p>
+  <p>Начните с теста слоя, который меняете. Перед передачей изменения выполните необходимые общие проверки. При restore под перенаправленным выводом отключайте build servers и node reuse: иначе завершившийся MSBuild может оставить открытый канал вывода.</p>
   </div>
-<pre><code class="language-powershell"># из plugins/concurrency-hunter
-dotnet test src/ConcurrencyHunter.slnx *&gt; test.log; Get-Content test.log -Tail 50
+<pre><code class="language-powershell">New-Item -ItemType Directory -Force scratch | Out-Null
 
-pwsh build/check-test-baseline.ps1            # все случаи из baseline должны пройти
-pwsh build/check-test-baseline.ps1 -Record    # перезаписать baseline (только с зелёного прогона)
-pwsh build/check-demo-expectations.ps1        # статическая проверка expected-findings.json
-pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dotnet test с E2E</code></pre>
+dotnet restore src/ConcurrencyHunter.slnx --disable-build-servers -nodeReuse:false *&gt; scratch/restore.log
+Get-Content scratch/restore.log -Tail 50
+
+# Пример узкой проверки; --no-restore требует успешного restore выше.
+dotnet test src/ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj --no-restore --disable-build-servers -nodeReuse:false --filter FullyQualifiedName~LibrarySequenceTests *&gt; scratch/focused.log
+Get-Content scratch/focused.log -Tail 50
+
+dotnet test src/ConcurrencyHunter.slnx --no-restore --disable-build-servers -nodeReuse:false *&gt; scratch/tests.log
+Get-Content scratch/tests.log -Tail 50
+
+pwsh build/check-test-baseline.ps1 *&gt; scratch/baseline.log
+Get-Content scratch/baseline.log -Tail 50
+
+pwsh build/check-demo-expectations.ps1 *&gt; scratch/expectations.log
+Get-Content scratch/expectations.log -Tail 50
+
+pwsh build/package.ps1 *&gt; scratch/package.log
+Get-Content scratch/package.log -Tail 50</code></pre>
+  <div class="prose"><p>После каждой команды проверьте её код завершения; чтение лога не превращает неудачный запуск в успешный. <code>package.ps1</code> публикует exe в <code>bin/win-x64</code> и выполняет тесты с обязательным E2E. Для локального исследования <code>metrics</code> не требует AI:</p></div>
+<pre><code class="language-powershell">&amp; ./bin/win-x64/concurrency-hunter.exe metrics --target ./demo/Demo.slnx --out ./scratch/demo-metrics.json *&gt; scratch/metrics.log
+Get-Content scratch/metrics.log -Tail 50</code></pre>
   <div class="table-wrap"><table>
-    <thead><tr><th>Гейт</th><th>Что проверяет</th></tr></thead>
+    <thead><tr><th>Проверка</th><th>Зачем нужна и что учитывать</th></tr></thead>
     <tbody>
-      <tr><td><strong>Test baseline</strong><br><code>build/test-baseline.txt</code></td><td>Список из 2 401 тестовых случаев, каждый <code>Passed</code>. Гейт падает, если случай из списка пропал, пропущен или упал. Перезапись охраняет <code>check-baseline-rerecord.ps1</code>: потерянный случай должен сопоставиться с переименованным в том же классе. Baseline — это список тестов, а не снапшот находок.</td></tr>
-      <tr><td><strong>Demo-гейт</strong><br><code>DemoExpectationTests</code></td><td>xunit-тест <code>Demo_matches_every_phase_5b_expectation_on_three_runs</code>: трижды анализирует <code>demo/Demo.slnx</code>, требует побайтно одинаковый результат и точное совпадение с <code>expected-findings.json</code> для записей фаз ≤ текущей. Любая находка, не совпавшая ни с одной записью, — false positive.</td></tr>
-      <tr><td><strong>Статика ожиданий</strong><br><code>check-demo-expectations.ps1</code></td><td>У каждой записи текущей фазы есть файл кейса с правильным namespace; записи завершённых фаз не изменены относительно <code>HEAD</code>; с <code>-Complete</code> — у каждого кейса таблицы фазы в <code>SCENARIOS.md</code> есть файл и запись.</td></tr>
-      <tr><td><strong>Снапшоты</strong><br><code>Cli.Tests/Snapshots</code></td><td><code>demo.json</code> и <code>eshop.json</code> — счётчики и coverage прогона <code>metrics</code>. eShop читается из checkout-а по переменной <code>CH_ESHOP_ROOT</code>.</td></tr>
-      <tr><td><strong>CI</strong><br><code>build-concurrency-hunter.yml</code></td><td>На <code>windows-latest</code> выполняет только <code>package.ps1</code>. Baseline и demo-гейт запускаются локально перед коммитом.</td></tr>
+      <tr><td><code>build/test-baseline.txt</code></td><td>Список тестовых случаев, которые обязаны пройти. Пропавший, skipped или failed случай ломает baseline. Это не эталон находок; <code>-Record</code> не средство исправить падение.</td></tr>
+      <tr><td><code>DemoExpectationTests</code></td><td><code>Demo_matches_every_phase_5d_expectation_on_three_runs</code> трижды анализирует demo, сравнивает сериализованные findings и ручные ожидания. <code>check-demo-expectations.ps1</code> отдельно проверяет файлы кейсов и неизменность ожиданий завершённых фаз; <code>-Complete</code> требует наличия всех кейсов текущего каталога.</td></tr>
+      <tr><td><code>Cli.Tests/Snapshots</code></td><td><a href="../src/ConcurrencyHunter.Cli.Tests/Snapshots/demo.json">demo.json</a> и <code>eshop.json</code> фиксируют счётчики и coverage. Для eShop нужен checkout по <code>CH_ESHOP_ROOT</code>; без него соответствующие тесты skipped, что может не удовлетворять baseline.</td></tr>
+      <tr><td>Модели и генератор</td><td><code>ModelVocabularyTests</code>, <code>ProjectModelTests</code>, <code>ModelLockTests</code> проверяют формат и разрешение. <code>GeneratedFateTests</code>, <code>FateMatrixTests</code>, <code>UnsafeNarrowingTests</code> — классификацию и консервативность; <code>GeneratorBoundaryTests</code> — отсутствие сетевого доступа и лишних записей.</td></tr>
+      <tr><td><code>Generation/ModelEvalTests</code></td><td>Включаются через <code>CH_MODEL_EVALS=1</code>. Читают установленные .NET 8, Polly 7.2.3 и Google.Protobuf 3.21.9; под флагом отсутствие входа — ошибка. Проверяют нулевое unsafe narrowing, точность и <code>generator-snapshot.json</code>. Обычный прогон без флага их не проверяет.</td></tr>
+      <tr><td>Упаковка и CI</td><td>Workflow <code>build-concurrency-hunter.yml</code> вызывает <code>package.ps1</code> на Windows. Тесты demo входят в тестовый проект; отдельные скрипты baseline и статики ожиданий запускаются отдельно. Валидатор всего монорепозитория — <code>npm run validate:plugins</code>.</td></tr>
     </tbody>
   </table></div>
-
   <div class="prose">
+  <p>Для model evals <code>gold.json</code> задаёт независимые правильные ответы, а <code>generator-snapshot.json</code> — зафиксированные ответы реализации. Изменение снапшота допустимо только после проверки причины; <code>CH_MODEL_EVALS_RECORD=1</code> перезаписывает его. Отказ генератора или <code>unknown-execution</code> может быть безопасным, но неточным ответом. Метрика unsafe narrowing отдельно ловит опасное сужение, например <code>invoke-now</code> для callback, который сохраняется и вызывается позже.</p>
   <h3>Формат <code>expected-findings.json</code></h3>
   <p>Ожидания пишутся <strong>руками и до реализации</strong> и никогда не генерируются из результата анализатора — иначе demo проверял бы сам себя. Запись находки — правило, метка уверенности, ресурс в символьной форме и неупорядоченная пара доступов; roots в identity не входят:</p>
   </div>
@@ -1761,8 +1995,8 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <div class="prose">
   <p>Две одинаковые стороны — это self-pair action-а. Запись в <code>notDefects</code> без <code>accesses</code> запрещает любую находку на ресурсе, с <code>accesses</code> — только на этой паре. Ячейка коллекции пишется отдельным сегментом пути: <code>["_cells", "[0]"]</code>, <code>["Items", "[?]"]</code>. Поле <code>phase</code> говорит, с гейта какой фазы запись проверяется; её содержимое — окончательный ответ первой версии и при смене фаз не переписывается.</p>
   <div class="note warn">
-    <div class="note-title">Что учесть на Linux и при смене фазы</div>
-    <p>CLI-проект собирается под <code>win-x64</code>, <code>LauncherTests</code> требуют <code>cmd.exe</code>, а <code>EShopSnapshotTests</code> без <code>CH_ESHOP_ROOT</code> пропускается — но в baseline записан как <code>Passed</code>, поэтому гейт baseline проходит только на Windows с checkout-ом eShop. При переходе на следующую фазу нужно поднять три жёстко заданных маркера: <code>$PHASE = '5b'</code> в <code>check-demo-expectations.ps1</code>, <code>"5b"</code> в <code>DemoExpectationTests</code> и <code>phase_5b_expectation</code> в <code>check-baseline-rerecord.ps1</code>.</p>
+    <div class="note-title">Границы проверок</div>
+    <p>Прошедший тест на <code>EngineFixture</code> проверяет движок с тестовыми описаниями фреймворков; он не заменяет контракт-тест против реальной сборки. Обычный <code>dotnet test</code> не гарантирует выполненные model evals, eShop и published E2E: читайте skipped и условия включения. Временный скрипт конкретной итерации в <code>build/</code> не заменяет постоянные проверки выше.</p>
   </div>
   </div>
 </section>
@@ -1776,7 +2010,9 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
     <li><strong>Защита — самый опасный вердикт.</strong> <code>sufficient</code> только при общем объекте, совместимых режимах и удержании на всех путях. Никакого распознавания по имени или форме пользовательского типа.</li>
     <li><strong>Happens-before только удаляет пары.</strong> Ребро без доказанной identity handle или без join на всех путях не добавляется.</li>
     <li><strong>Неизвестный вызов не меняет ownership.</strong> Объект одного исполнения он только читает, общий — читает и пишет.</li>
-    <li><strong>AI не доказывает безопасность.</strong> Принятый AI-факт может добавить ребро, эффект или находку, но не может удалить детерминированный эффект или доказать синхронизацию или порядок.</li>
+    <li><strong>Текст AI не меняет анализ.</strong> MCP принимает narrative, проверяет ссылки на evidence и рекомендации. Протокола принятия AI-фактов сейчас нет. Его будущие гарантии нельзя выдавать за поведение работающего кода.</li>
+    <li><strong>Модель — часть семантики, а не косметика отчёта.</strong> Ошибочное <code>effects: {}</code>, потерянный результат или слишком узкая fate способны скрыть гонку. Проверяйте и JSON-контракт, и путь объектов через весь движок.</li>
+    <li><strong>Open-world rule.</strong> Генератор не вправе считать делегат безопасным только потому, что не нашёл его вызов. Для точной fate нужны и место исполнения, и доказательство того, кто сохраняет делегат.</li>
     <li><strong>Одна пара мест доступа — одна находка.</strong> Roots — occurrences; fingerprint не зависит от roots.</li>
     <li><strong>Никакого декартова перебора.</strong> Новые виды ресурсов встраиваются в buckets <code>CandidateIndex</code>.</li>
     <li><strong><code>Analysis</code> не ссылается ни на что.</strong> Roslyn-специфичное остаётся во frontend, граница — IR.</li>
@@ -1792,7 +2028,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
   <div class="prose">
   <h3>Новый demo-кейс</h3>
   <ol>
-    <li>Один файл <code>demo/Demo.Web/Cases/&lt;PascalName&gt;.cs</code>, один namespace <code>Demo.Web.Cases.&lt;PascalName&gt;</code>, регистрация через метод-расширение <code>Add&lt;Case&gt;()</code> или <code>Map&lt;Case&gt;()</code>, вызванный из <code>Program.cs</code>. Общих строк между кейсами нет.</li>
+    <li>Один файл <code>demo/Demo.Web/Cases/&lt;PascalName&gt;.cs</code>, один namespace <code>Demo.Web.Cases.&lt;PascalName&gt;</code>. Если нужны регистрации сервисов или endpoints, добавьте метод <code>Add&lt;Case&gt;()</code> или <code>Map&lt;Case&gt;()</code> и вызовите из <code>Program.cs</code>; controller actions обнаруживаются через MVC. Не связывайте кейсы общими сервисами.</li>
     <li>Кейс фазы не содержит конструкций поздних фаз, если они не его предмет: иначе метка уверенности сдвинется в поздней фазе, а запись ожиданий переписывать нельзя.</li>
     <li>Если нужна пара, которая не пересекается сама с собой, пишите в двух <code>BackgroundService</code>, а action пусть только читает.</li>
     <li>Запись в <code>expected-findings.json</code> (kebab-имя файла как <code>id</code>) и строка в таблице своей фазы в <code>SCENARIOS.md</code> — до изменения движка.</li>
@@ -1805,17 +2041,19 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
     <li>Случаи в <code>ProviderFixture</code> с именами <code>Provider_Scenario_ExpectedOutcome</code> и сквозной тест root → находка → отчёт. Шаблон — <code>SyntheticProviderEndToEndTests</code>. Ядро не меняется.</li>
   </ol>
 
-  <h3>Новый член в таблице библиотек</h3>
+  <h3>Новая библиотечная модель</h3>
   <ol>
-    <li>Одна строка в файле семейства <code>Core/Providers/LibrarySemantics/*Family.cs</code>. Пример из <code>SystemTextJsonFamily.cs</code>:</li>
+    <li>Зафиксируйте точный член и версию сборки. Разберите поведение библиотеки: аргументы, result, <code>ref/out</code>, сохранённые объекты и каждый delegate-параметр. Если формат не выражает поведение, оставьте вызов opaque.</li>
+    <li>Для shipped-модели измените соответствующий <code>Core/Providers/LibraryModels/BuiltIn/*.json</code>; для конкретного приложения добавьте JSON в его <code>.concurrency-hunter/models/</code>. Сверьте запись с <code>LibraryVocabulary</code> и примером из demo.</li>
+    <li>Добавьте contract-тест против реального символа и тест движка: он должен проверить не только исчезновение gap, но и сохранение ожидаемого конфликта. Для LINQ особенно важны момент перечисления и alias элементов.</li>
+    <li>Проверьте конфликт с проектной моделью, другую перегрузку и версию вне диапазона. Для built-in набора проверьте эталонный список <code>Providers/BuiltInTable.txt</code> через <code>LibrarySemanticsTableTests</code>.</li>
   </ol>
-  </div>
-<pre><code class="language-csharp">Known("M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions)~System.String",
-      DeepReadOf("value")),</code></pre>
-  <div class="prose">
-  <ol start="2">
-    <li>Обновить эталонный список в <code>LibrarySemanticsTableTests</code> (тест сравнивает таблицу с ним точно). Contract-тесты сами проверят, что id разрешается в реальной сборке, эффект называет существующий параметр, член не принимает делегат и не является setter-ом.</li>
-    <li>Добавлять только члены, которые реально встретились в demo или корпусах, и никогда — члены, меняющие собственное состояние библиотечного объекта.</li>
+  <h3>Изменение генератора</h3>
+  <ol>
+    <li>Сначала локализуйте стадию: DLL и зависимости → компиляция → driver → общий pipeline → fate. <code>ModelGenerator.Trace</code> предоставляет driver и результаты проходов тестам; обычный <code>generate</code> выдаёт только JSON-ответ.</li>
+    <li>Добавьте минимальную библиотеку в тестовой fixture и проверьте опасный вариант: callback вызывается сразу и сохраняется, уходит в <code>Task.Run</code> или доступен в обход holder.</li>
+    <li>Запустите тесты соответствующего компонента, <code>FateMatrixTests</code> и проверки unsafe narrowing. Затем model evals на установленных пакетах, если правка затрагивает их ответы.</li>
+    <li>Если причина лежит в <code>IrLowering</code> или <code>WholeProgram</code>, исправление влияет и на пользовательский код. Добавьте тест обычного анализа; не дублируйте логику движка внутри генератора.</li>
   </ol>
 
   <h3>Новая конструкция C#</h3>
@@ -1834,50 +2072,52 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
 </section>
 
 <section id="status">
-  <h2>Состояние разработки</h2>
+  <h2>Что реализовано и где продолжается разработка</h2>
   <div class="prose">
-  <p>Разработка идёт фазами из SPEC §14.3. Каждая фаза заканчивается работающим плагином, зелёными гейтами и, начиная с 2b, записанным прогоном <code>metrics</code>. Текущая ветка — фаза 5b, оба рана.</p>
+  <p>Это карта возможностей текущей рабочей копии. Номер фазы в тесте или SPEC — средство организации разработки, а не гарантия подключения всех описанных там функций.</p>
   </div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Фаза</th><th>Содержание</th><th>Статус</th></tr></thead>
+    <thead><tr><th>Область</th><th>Доступное поведение</th><th>Что ещё не подключено или ограничено</th></tr></thead>
     <tbody>
-      <tr><td>0–1b</td><td>Документы, demo, каркас плагина, пять MCP-инструментов, провайдеры AspNetCore и Hosting, DI, must-hold <code>lock</code></td><td><span class="status done">готово</span></td></tr>
-      <tr><td>2a–2b</td><td>Frontend в полной форме, summaries, points-to, ownership, конструирование, DCA1002; buckets, fingerprints, <code>metrics</code>, eShop, service locator</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>3</td><td>Все spawn sites, happens-before, таймеры, gRPC</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>4 и 4b</td><td>Все примитивы, коллекции, DCA1003/1004, селекторы, guard-ы, Z3; guard-ы по путям, доступы через ссылки, итераторы</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>5a</td><td>Known calls: таблица семантики библиотек</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>5b</td><td>Неизвестные вызовы без AI: <code>UnknownEffect</code>, gaps, materiality, делегаты в unknown execution, <code>HashSet</code>/<code>Queue</code>/<code>Stack</code>/<code>LinkedList</code>. Второй ран: RMW через ссылку по ресурсу, хранилища коллекций в куче с ключами словаря отдельно, фабрики <code>GetOrAdd</code>/<code>AddOrUpdate</code> в месте вызова, свежие объекты; вопросы 25 и 30 закрыты</td><td><span class="status done">готово</span></td></tr>
-      <tr><td>5c</td><td>Проверка AI-фактов без MCP: gap packets, валидация inferred facts, повторный fixpoint, <code>AI-Assisted</code>, потолок Medium</td><td><span class="status todo">впереди</span></td></tr>
-      <tr><td>5d</td><td>Протокол resolver: <code>get_gaps</code>, <code>submit_inferences</code>, <code>run_continue</code>, <code>run_cancel</code>, статус <code>Cancelled</code>, два раунда</td><td><span class="status todo">впереди</span></td></tr>
-      <tr><td>5e</td><td>LINQ с делегатами, MediatR, AutoMapper, FluentValidation, Polly, entity tracking EF Core, <code>[ThreadStatic]</code>/<code>ThreadLocal</code>/<code>AsyncLocal</code>, keyed services</td><td><span class="status todo">впереди</span></td></tr>
-      <tr><td>6</td><td>Triage: suppressions, redaction, generated code, выбор TFM, категории исправлений, README и guides</td><td><span class="status todo">впереди</span></td></tr>
-      <tr><td>7</td><td>Масштаб: nopCommerce, OrchardCore, eShopOnAbp, цели производительности, ручной triage</td><td><span class="status todo">впереди</span></td></tr>
-      <tr><td>8</td><td>Инкрементальный кэш, вторая волна провайдеров, <code>Channel</code> и event-ожидания, server-driven AI, Linux</td><td><span class="status todo">впереди</span></td></tr>
+      <tr><td>Анализ приложения</td><td>Process scopes, roots ASP.NET Core и Hosting, IR, summaries, points-to, ownership, executions, happens-before, синхронизация, коллекции, Z3, DCA1001–1004.</td><td>Модель ограничена поддержанными конструкциями и roots. Неизвестное отражается в coverage; отсутствие находки само по себе не доказывает безопасность.</td></tr>
+      <tr><td>Библиотеки</td><td>Built-in и project JSON-модели, точная идентичность, диапазоны версий, приоритет project, model lock. Delegate fates, LINQ без comparer, результаты, ячейки, <code>ref/out</code>, kept objects.</td><td>Операторы LINQ с comparer остаются opaque. Изменяемое внутреннее состояние произвольной библиотеки не описывается автоматически. Нет entity tracking EF Core.</td></tr>
+      <tr><td>Генерация</td><td>Отдельная команда <code>generate</code>: implementation DLL → декомпиляция → driver → общий анализ → классификация параметров.</td><td>Нет автоматического вызова из hunt/metrics, загрузки generated-слоя, полной генерации effects/results и сохранения готовой модели в репозиторий. <code>startup</code> и <code>di-factory</code> генератор не выводит.</td></tr>
+      <tr><td>AI и MCP</td><td>Пять инструментов run и narrative; серверный отчёт с проверкой evidence.</td><td>AI-модели, resolver gaps, <code>get_gaps</code>/<code>submit_inferences</code>/<code>run_continue</code>/<code>run_cancel</code> отсутствуют; <code>Cancelled</code> не входит в enum статусов.</td></tr>
+      <tr><td>DI и платформенные границы</td><td>Поддержанные generic-регистрации, фабрики, lifetime и service locator.</td><td>Keyed, открытые generics и <code>Type</code>-формы регистраций не поддержаны полностью. Нет специальной модели <code>[ThreadStatic]</code>, <code>ThreadLocal</code>, <code>AsyncLocal</code>; их изоляцию нельзя считать доказанной.</td></tr>
+      <tr><td>Эксплуатация</td><td>Windows x64, отчёт и metrics, локальные модели и model lock.</td><td>Нет пользовательских suppressions, инкрементального кэша результатов анализа между runs, Linux-пакета и второй волны root providers. <code>Channel</code> и event-ожидания не доказывают передачу ownership или порядок.</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
-  <h3>Открытые вопросы</h3>
-  <p>Нумерация — из <code>demo/SCENARIOS.md</code>; каждый решается в плане указанной фазы до написания кейса.</p>
+  <h3>Границы, важные для следующего разработчика</h3>
   <ul>
-    <li><strong>21 (5c)</strong> — снимает ли принятый AI-факт консервативную модель того же opaque-вызова.</li>
-    <li><strong>20, 29 (5e)</strong> — имя региона для keyed-регистраций; эффект <code>returns-arg</code> у LINQ-операторов, сохраняющих элементы.</li>
-    <li><strong>9, 13 (6)</strong> — корень репозитория для <code>suppressions.json</code>; что именно redaction убирает из сниппетов.</li>
+    <li><strong>Связать генератор с моделью — отдельная задача.</strong> Ответ <code>classified</code> содержит место исполнения; полноценной модели нужны ещё аргументы делегата, эффекты, result, <code>outputs</code> и <code>keeps</code>. Простого копирования JSON недостаточно.</li>
+    <li><strong>Task-результаты требуют согласования контрактов.</strong> Генератор рассматривает ожидаемый <code>T</code> из <code>Task&lt;T&gt;</code>/<code>ValueTask&lt;T&gt;</code>. Проверка JSON-моделей работает с объявленным return type. Кроме того, передача объектного результата через await имеет ограничения в куче; генератор расширяет такие ответы до unknown, когда не может доказать нужные связи.</li>
+    <li><strong>Точность и скорость связаны.</strong> Декомпилированная библиотека может дать большой reachable set. Генератор проверяет предел 1500 тел после построения этого множества, до summaries и кучи. Это не таймаут и не ограничение затрат самой декомпиляции или reachability.</li>
+    <li><strong>План и эксперимент не равны реализации.</strong> <a href="research/library-models.md">Исследование библиотечных моделей</a> и <a href="research/engine-performance.md">исследование производительности</a> полезны для продолжения работы; поведение продукта подтверждают соответствующие исходники и тесты. Детали открытых вопросов находятся в <a href="../demo/SCENARIOS.md">SCENARIOS.md</a>.</li>
   </ul>
-  <h3>Временные границы</h3>
-  <p>Что сейчас намеренно не моделируется и какая фаза это снимет: resolver не вызывается, gaps только видны в отчёте (5d); EF Core — opaque persistence без entity tracking, и общий между исполнениями <code>DbContext</code> не виден (5e); лямбды LINQ-операторов, Polly и MediatR исполняются в unknown execution (5e); <code>[ThreadStatic]</code>, <code>ThreadLocal</code>, <code>AsyncLocal</code>, keyed и <code>Type</code>-регистрации не анализируются (5e); suppressions не реализованы (6); только Windows x64 (8).</p>
   </div>
 </section>
 
-<section id="discrepancies">
-  <h2>Где код и документы расходятся</h2>
+<section id="debugging">
+  <h2>Как найти причину пропущенной или лишней находки</h2>
   <div class="prose">
-  <p>При разборе кода для этого руководства нашлись места, где реализация отличается от SPEC или содержит устаревшие строки. Каждое проверено по исходникам; ни одно не проверялось запуском. Прежде чем править, решите, что верно — код или документ.</p>
+  <p>Начните с минимального C#-примера и ожидаемого результата, сформулированного независимо от анализатора. Затем ищите первый слой, где исчезает нужный факт или появляется неверное доказательство. Изменять confidence или renderer ради исправления пропуска слишком поздно: они получают уже готовые пары.</p>
   </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Вопрос</th><th>Что смотреть</th><th>Типичная причина</th></tr></thead>
+    <tbody>
+      <tr><td>Программа попала в анализ?</td><td>Проекты и diagnostics в coverage, <code>ProcessScopes</code>, roots и DI.</td><td>Проект не загрузился, нет root provider, регистрация не поддержана.</td></tr>
+      <tr><td>Нужное тело достижимо?</td><td><code>ReachableSet</code>, <code>lowered-not-reached</code>, <code>outside-lowered-set</code>, сообщения <code>lowering:</code>.</td><td>Пропущен неявный вызов; неверный dispatch; тело не удалось опустить.</td></tr>
+      <tr><td>Операции сохранились?</td><td><code>IrPrinter</code>, load/store/call и provenance.</td><td>Потеря receiver, индекса или RHS; getter/setter не вызван; ссылка потеряла адрес.</td></tr>
+      <tr><td>Два пути ведут к одному объекту?</td><td><code>MethodSummary</code>, <code>HeapSolution</code>: регионы, поля, контексты, возвраты, storage коллекций.</td><td>Фабрика не вернула alias; модель не описала result/keeps; разные объекты ошибочно слились.</td></tr>
+      <tr><td>Кто исполняет доступ?</td><td><code>ExecutionAnalysis</code>, ownership, spawn/join, fate и момент перечисления.</td><td>Делегат отнесён к созданию вместо перечисления; чужой замок перенесён через spawn.</td></tr>
+      <tr><td>На каком фильтре исчезла пара?</td><td><code>Access</code>, <code>CandidateIndex</code>, protection, counters, запрос Z3.</td><td>Ошибочно доказана изоляция, одинаковый lock, порядок или несовместимость guard-ов.</td></tr>
+      <tr><td>Пара есть, а отчёт другой?</td><td><code>ConflictFindings</code>, occurrences, fingerprint, group, <code>findings.json</code>.</td><td>Слияние identity или неверная классификация операции; это уже слой findings.</td></tr>
+      <tr><td><code>generate</code> ответил unknown?</td><td><code>reason</code>, <code>externBodies</code>, <code>refusals</code>, <code>setupWidened</code>, <code>reachedBodies</code>; затем driver и <code>ModelGenerator.Trace</code> в тесте.</td><td>Нет implementation DLL, потеряно тело/объект, callback сохранён или ушёл в другое исполнение.</td></tr>
+    </tbody>
+  </table></div>
   <div class="prose">
-  <h3>Похоже на дефекты — стоит проверить тестом</h3>
-  <ul>
-    <li><strong>Составное присваивание элементу.</strong> <code>LowerCompoundAssignment</code> и <code>LowerIncrement</code> обрабатывают поля, auto-properties, ссылки и локальные переменные. Для элемента массива (<code>a[i]++</code>, <code>a[i] += x</code>), обычного индексатора (<code>dict[k] += 1</code>) и свойства с телом (<code>P++</code>) они возвращают <code>Unknown(compound, "unsupported")</code> <em>без операндов</em>: ни чтение, ни запись, ни вызовы внутри индекса не попадают в IR, хотя <code>LowerUnsupported</code> для остальных конструкций детей опускает. Ни в тестах, ни в demo такой формы нет. Если подтвердится, это пропуск DCA1002.</li>
-  </ul>
+  <p>Для лишней находки ищите конкретное доказательство, которое должно убрать пару. Для пропуска проверьте наличие каждого доступа до pairing. После исправления оставьте минимальный регрессионный тест и demo-кейс, если это подтверждённая ошибка анализа. Снижение числа находок без объяснения изменения coverage не является доказательством улучшения.</p>
   </div>
 </section>
 
@@ -1890,7 +2130,7 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
     <dt>Run</dt><dd>Один запуск команды от <code>run_start</code> до terminal status. <span class="en">(не scan, session, job)</span></dd>
     <dt>Skill / Server</dt><dd>Skill — инструкция для агента хоста, единственный оркестратор run. Server — анализатор за MCP: хранит состояние и дедлайн, сам AI не запускает.</dd>
     <dt>Deadline, late response</dt><dd>30 минут от старта run. Ответ AI, пришедший позже, записывается как late и не применяется.</dd>
-    <dt>Terminal status</dt><dd><code>CompleteWithFindings</code>, <code>CompleteClean</code>, <code>Incomplete</code>, <code>Failed</code>; <code>Cancelled</code> появится в фазе 5d.</dd>
+    <dt>Terminal status</dt><dd><code>CompleteWithFindings</code>, <code>CompleteClean</code>, <code>Incomplete</code>, <code>Failed</code>. Это статусы готового отчёта, а не внутренние состояния <code>RunRegistry</code>.</dd>
     <dt>Execution root</dt><dd>Точка, откуда фреймворк или рантайм начинает независимое исполнение. <span class="en">(не entry point, handler, thread)</span></dd>
     <dt>Spawn site</dt><dd>Вызов в пользовательском коде, начинающий новое исполнение из текущего. <span class="en">(не fork, background call)</span></dd>
     <dt>Execution instance</dt><dd>Одно логическое исполнение root-а или spawn-а; не поток ОС. <span class="en">(не thread, request, task)</span></dd>
@@ -1913,18 +2153,25 @@ pwsh build/package.ps1                        # win-x64 exe в bin/win-x64 + dot
     <dt>Protection, protection result</dt><dd>Синхронизатор и режим, удерживаемые на всех путях к доступу. Результат пары: <code>sufficient</code>, <code>partial</code>, <code>different-identity</code>, <code>incompatible-mode</code>, <code>unprotected</code>.</dd>
     <dt>Atomic operation</dt><dd>Операция, которую платформа выполняет неделимо над одним местом: <code>Interlocked</code>, <code>Volatile</code>, <code>volatile</code>. Свойство операции, а не защита.</dd>
     <dt>Guard</dt><dd>Условие пути, при котором выполняется доступ. Два доступа с несовместимыми guard-ами не встречаются. <span class="en">(не protection, lock)</span></dd>
-    <dt>Known call, deep read</dt><dd>Вызов без тела, описанный таблицей семантики для точного члена и версии. Deep read — чтение всего, что достижимо из аргумента.</dd>
-    <dt>Opaque call, unknown effect</dt><dd>Вызов без тела, который таблица не описывает. Его эффект — «может прочитать и записать всё, до чего достаёт», конфликтует как запись.</dd>
-    <dt>Semantic gap, gap packet, materiality</dt><dd>Неразобранный вызов, который трогает общее изменяемое состояние или получает делегат. Packet — ограниченный вопрос к AI о нём (фаза 5c). Materiality — порядок gaps по числу roots, регионов и мест вызова.</dd>
-    <dt>Inferred fact</dt><dd>Гипотеза AI, прошедшая проверку сервером и помеченная как AI-derived (фаза 5c).</dd>
+    <dt>Known call, deep read</dt><dd>Вызов без тела, описанный библиотечной моделью для точного члена и версии. Deep read — чтение всего, что достижимо из аргумента.</dd>
+    <dt>Opaque call, unknown effect</dt><dd>Вызов без тела, для которого нет подходящей модели или который проектная модель явно оставила opaque. Его эффект — «может прочитать и записать всё, до чего достаёт», конфликтует как запись.</dd>
+    <dt>Semantic gap, gap packet, materiality</dt><dd>Неразобранный вызов, который трогает общее изменяемое состояние или получает делегат. Gap packet — термин SPEC для будущего вопроса к AI; текущие MCP-инструменты таких пакетов не выдают. Materiality — порядок gaps по числу roots, регионов и мест вызова.</dd>
+    <dt>Inferred fact</dt><dd>Термин SPEC для проверенной гипотезы AI. Приём таких фактов и их применение к анализу пока не реализованы.</dd>
+    <dt>Library model / model layer</dt><dd>Описание поведения члена библиотеки. Реализованные слои — built-in и project; проектный имеет приоритет. Происхождение сохраняется в данных анализа.</dd>
+    <dt>Model lock</dt><dd><code>models.lock.json</code>: фиксирует, в какие точные declaration id развёрнут шаблон перегрузок для данной версии сборки.</dd>
+    <dt>Delegate fate</dt><dd>Где исполняется переданный делегат: сейчас, при перечислении, через holder, в startup или в unknown execution. JSON-модель и выход генератора поддерживают разные подмножества этих вариантов.</dd>
+    <dt>Library sequence</dt><dd>Ленивый результат библиотечного вызова. Хранит источники и делегаты, а исполняет их тот, кто перечисляет результат.</dd>
+    <dt>Holder / kept object</dt><dd>Holder хранит делегат; kept object — обычный объект, который библиотека сохраняет и отдаёт другим вызовам. Их нельзя смешивать: это разные связи и правила исполнения.</dd>
+    <dt>Driver / probe</dt><dd>Синтезированная программа для статического исследования одного члена; probe — делегат или объект с отслеживаемой записью. Генератор анализирует эту программу, не исполняя её.</dd>
+    <dt>Open-world rule / unsafe narrowing</dt><dd>Отсутствие наблюдаемого вызова не доказывает, что callback не запустят извне. Ответ, который допускает меньше эффектов или исполнений, чем реальное поведение, — опасное сужение.</dd>
     <dt>Confidence label</dt><dd>High (80+), Medium (55–79), Low. Не severity: severity — отдельная оценка последствий.</dd>
     <dt>Skeleton, narrative, report bundle</dt><dd>Skeleton — часть отчёта, которую сервер пишет сам. Narrative — текст AI к группе находок. Bundle — <code>report.md</code>, <code>findings.json</code>, <code>run-metadata.json</code>.</dd>
-    <dt>Suppression</dt><dd>Решение пользователя скрыть находку с обязательной причиной; меняет только представление (фаза 6).</dd>
+    <dt>Suppression</dt><dd>Планируемое решение пользователя скрыть находку с обязательной причиной. Сейчас пользовательские suppressions не применяются; не путать со счётчиком защищённых пар <code>suppressed</code>.</dd>
   </dl>
 </section>
 </div>
     <footer class="end">
-      <p>Составлено по <code>docs/PRD.md</code>, <code>docs/SPEC.md</code>, <code>CONTEXT.md</code>, ADR 0001–0011, кейсам <code>demo/</code> и исходному коду плагина.</p>
+      <p>Руководство по текущей рабочей копии на 2 октября 2026 года: исходники и тесты <code>src/</code>, кейсы <code>demo/</code>, <code>CONTEXT.md</code>, SPEC и ADR 0001–0012. Планируемые возможности отмечены отдельно от реализованных.</p>
     </footer>
   </main>
 </div>
