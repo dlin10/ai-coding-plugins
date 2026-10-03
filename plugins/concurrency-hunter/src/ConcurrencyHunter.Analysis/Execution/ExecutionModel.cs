@@ -336,6 +336,8 @@ public static class ExecutionModel
         private readonly Dictionary<(string Execution, string Instance, BodySegment Segment, string? Tail), WalkNode> _walkNodes = [];
         private int _walkPostorder;
         private readonly List<(string Execution, string Instance, ConstructionSets Intervals, BodySegment Segment)> _visitList = [];
+        private readonly Dictionary<string, int> _objectIds = new(StringComparer.Ordinal);
+        private readonly List<string> _objects = [];
         private Dictionary<string, IReadOnlyList<ExecutionVisit>> _visitsByExecution = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<ExecutionEntry>> _entries = new(StringComparer.Ordinal);
         private readonly Queue<(string Execution, ExecutionEntry Entry, string? Tail)> _pendingEntries = new();
@@ -364,6 +366,9 @@ public static class ExecutionModel
         private readonly Dictionary<string, IReadOnlyList<SpawnSiteLocation>> _spawnSites = new(StringComparer.Ordinal);
         private readonly Dictionary<(string BodyId, int Operation), bool> _inCycle = [];
         private readonly Dictionary<string, HashSet<string>> _sharedReach = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, (HashSet<string> Stored, HashSet<string> Targets)[]> _stores = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<HashSet<string>>> _returns = new(StringComparer.Ordinal);
+        private Dictionary<string, string[]>? _callersOf;
         private readonly Dictionary<string, string> _constructed = heap.Constructions.SelectMany(construction => construction.ConstructorInstances
                                                                                          .Select(instance => (Instance: instance, construction.RegionId)))
                                                                        .GroupBy(item => item.Instance, StringComparer.Ordinal)
@@ -477,6 +482,7 @@ public static class ExecutionModel
             }
             while (_pendingEntries.Count != 0);
 
+            CollectChains();
             if (_entries.ContainsKey(STARTUP))
                 Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
             CanonicalizeWalk();
@@ -576,10 +582,11 @@ public static class ExecutionModel
 
         private void CanonicalizeWalk()
         {
+            // Visits of one execution, instance and segment differ only by tail, which no reader tells apart: the visits of an
+            // execution keep one of them, and Collect sorts what it collects by the key it deduplicates on.
             OrderList(_visitList, _visitList.OrderBy(visit => visit.Execution, StringComparer.Ordinal)
                                            .ThenBy(visit => visit.Instance, StringComparer.Ordinal)
-                                           .ThenBy(visit => visit.Segment)
-                                           .ThenBy(visit => string.Join(",", visit.Intervals.MayIn.Order(StringComparer.Ordinal)), StringComparer.Ordinal));
+                                           .ThenBy(visit => visit.Segment));
             foreach (var entries in _entries.Values)
                 OrderList(entries, entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.IntervalObject, StringComparer.Ordinal)
                                           .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal).ThenBy(entry => entry.Segment));
@@ -1295,20 +1302,99 @@ public static class ExecutionModel
             }
         }
 
-        private sealed class ConstructionSets(HashSet<string> mayIn, HashSet<string> mustIn)
+        /// <summary>The dense id of an object under construction, given the first time the walk meets it.</summary>
+        /// <param name="object">The object's region id.</param>
+        private int ObjectId(string @object)
         {
-            internal HashSet<string> MayIn { get; private set; } = mayIn;
-            internal HashSet<string> MustIn { get; private set; } = mustIn;
+            if (!_objectIds.TryGetValue(@object, out var id))
+            {
+                id = _objects.Count;
+                _objectIds.Add(@object, id);
+                _objects.Add(@object);
+            }
+
+            return id;
+        }
+
+        /// <summary>Whether a construction set holds a region; one the walk never met is in no set.</summary>
+        /// <param name="set">The construction set.</param>
+        /// <param name="object">The region id.</param>
+        private bool Holds(ulong[] set, string @object) => _objectIds.TryGetValue(@object, out var id) && ObjectSet.Contains(set, id);
+
+        /// <summary>A set of object ids as bits, a word past its end reading as zero. A set is never changed in place: an operation
+        /// that leaves its first operand as it is returns that operand, so a node shares its predecessor's set until they differ.</summary>
+        private static class ObjectSet
+        {
+            internal static readonly ulong[] EMPTY = [];
+
+            internal static ulong[] Of(IEnumerable<int> ids)
+            {
+                var set = EMPTY;
+                foreach (var id in ids)
+                {
+                    if (id >> 6 >= set.Length)
+                        Array.Resize(ref set, (id >> 6) + 1);
+                    set[id >> 6] |= 1UL << (id & 63);
+                }
+
+                return set;
+            }
+
+            internal static bool Contains(ulong[] set, int id) => id >> 6 < set.Length && (set[id >> 6] & (1UL << (id & 63))) != 0;
+
+            internal static IEnumerable<int> Ids(ulong[] set)
+            {
+                for (var index = 0; index < set.Length; index++)
+                {
+                    for (var word = set[index]; word != 0; word &= word - 1)
+                        yield return (index << 6) + System.Numerics.BitOperations.TrailingZeroCount(word);
+                }
+            }
+
+            internal static bool IsSubset(ulong[] subset, ulong[] superset)
+            {
+                for (var index = 0; index < subset.Length; index++)
+                {
+                    if ((subset[index] & ~(index < superset.Length ? superset[index] : 0)) != 0)
+                        return false;
+                }
+
+                return true;
+            }
+
+            internal static ulong[] Union(ulong[] first, ulong[] second)
+            {
+                if (IsSubset(second, first))
+                    return first;
+                var union = new ulong[Math.Max(first.Length, second.Length)];
+                for (var index = 0; index < union.Length; index++)
+                    union[index] = (index < first.Length ? first[index] : 0) | (index < second.Length ? second[index] : 0);
+                return union;
+            }
+
+            internal static ulong[] Intersect(ulong[] first, ulong[] second)
+            {
+                if (IsSubset(first, second))
+                    return first;
+                var intersection = new ulong[Math.Min(first.Length, second.Length)];
+                for (var index = 0; index < intersection.Length; index++)
+                    intersection[index] = first[index] & second[index];
+                return intersection;
+            }
+        }
+
+        private sealed class ConstructionSets(ulong[] mayIn, ulong[] mustIn)
+        {
+            internal ulong[] MayIn { get; private set; } = mayIn;
+            internal ulong[] MustIn { get; private set; } = mustIn;
 
             internal bool Merge(ConstructionSets incoming)
             {
-                if (incoming.MayIn.IsSubsetOf(MayIn) && MustIn.IsSubsetOf(incoming.MustIn))
+                if (ObjectSet.IsSubset(incoming.MayIn, MayIn) && ObjectSet.IsSubset(MustIn, incoming.MustIn))
                     return false;
-                var may = new HashSet<string>(MayIn, StringComparer.Ordinal);
-                may.UnionWith(incoming.MayIn);
-                var must = new HashSet<string>(MustIn, StringComparer.Ordinal);
-                must.IntersectWith(incoming.MustIn);
-                if (may.Count == MayIn.Count && must.Count == MustIn.Count)
+                var may = ObjectSet.Union(MayIn, incoming.MayIn);
+                var must = ObjectSet.Intersect(MustIn, incoming.MustIn);
+                if (ReferenceEquals(may, MayIn) && ReferenceEquals(must, MustIn))
                     return false;
                 MayIn = may;
                 MustIn = must;
@@ -1321,7 +1407,7 @@ public static class ExecutionModel
             internal string Instance { get; } = instance;
             internal BodySegment Segment { get; } = segment;
             internal string? Tail { get; } = tail;
-            internal List<(WalkNode Node, string[] Added)> Successors { get; } = [];
+            internal List<(WalkNode Node, ulong[] Added)> Successors { get; } = [];
             internal ConstructionSets? Intervals { get; set; }
             internal bool Discovered { get; set; }
             internal bool Pending { get; set; }
@@ -1418,7 +1504,7 @@ public static class ExecutionModel
                                          .Where(region => heap.Regions[region].Kind == HeapRegionKind.Allocation).ToArray()
                             : Array.Empty<string>();
                     if (Node(edge.CalleeInstance, calleeSegment, calleeTail) is { } callee)
-                        item.Successors.Add((callee, added));
+                        item.Successors.Add((callee, added.Length == 0 ? ObjectSet.EMPTY : ObjectSet.Of(added.Select(ObjectId))));
                 }
 
                 discovery.Push((item, true));
@@ -1428,7 +1514,7 @@ public static class ExecutionModel
 
             // Merge on arrival and keep one pending walk per node, in reverse postorder.
             var pending = new PriorityQueue<WalkNode, int>();
-            HashSet<string> intervals = entry.IntervalObject is { } interval ? [interval] : [];
+            var intervals = entry.IntervalObject is { } interval ? ObjectSet.Of([ObjectId(interval)]) : ObjectSet.EMPTY;
             Merge(first, new ConstructionSets(intervals, intervals));
             while (pending.TryDequeue(out var item, out _))
             {
@@ -1439,20 +1525,12 @@ public static class ExecutionModel
                 var current = item.Intervals!;
                 var mayIn = current.MayIn;
                 var mustIn = current.MustIn;
-                foreach (var @object in mayIn)
-                {
-                    CheckCancellation();
-                    if (!_chains.TryGetValue(@object, out var chain))
-                        _chains.Add(@object, chain = new HashSet<string>(StringComparer.Ordinal));
-                    chain.Add(item.Instance);
-                }
-
                 foreach (var (callee, added) in item.Successors)
                 {
                     CheckCancellation();
                     var incoming = added.Length == 0
                         ? new ConstructionSets(mayIn, mustIn)
-                        : new ConstructionSets([.. mayIn, .. added], [.. mustIn, .. added]);
+                        : new ConstructionSets(ObjectSet.Union(mayIn, added), ObjectSet.Union(mustIn, added));
                     Merge(callee, incoming);
                 }
             }
@@ -1487,6 +1565,30 @@ public static class ExecutionModel
             }
         }
 
+        /// <summary>Each object's constructor chain: the instances of the walk nodes whose MayIn holds it. A node's MayIn only grows and
+        /// every change is walked, so its final MayIn holds every object it was walked with.</summary>
+        private void CollectChains()
+        {
+            var objects = new Dictionary<string, ulong[]>(StringComparer.Ordinal);
+            foreach (var node in _walkNodes.Values)
+            {
+                CheckCancellation();
+                if (node.Intervals is { } intervals)
+                    objects[node.Instance] = objects.TryGetValue(node.Instance, out var known) ? ObjectSet.Union(known, intervals.MayIn) : intervals.MayIn;
+            }
+
+            foreach (var (instance, ids) in objects)
+            {
+                CheckCancellation();
+                foreach (var id in ObjectSet.Ids(ids))
+                {
+                    if (!_chains.TryGetValue(_objects[id], out var chain))
+                        _chains.Add(_objects[id], chain = new HashSet<string>(StringComparer.Ordinal));
+                    chain.Add(instance);
+                }
+            }
+        }
+
         /// <summary>The objects whose construction publishes them: an instance of the chain stores the object, or a delegate capturing
         /// it, into a region that is neither the object nor reachable from it, returns it to a caller outside the chain, or hands a
         /// shared object to an unresolved call.</summary>
@@ -1505,17 +1607,9 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     var instance = heap.Instances[instanceId];
-                    var summary = instance.Summary;
-                    var stores = summary.Stores.Select(store => (Values: store.Values,
-                                                                  Targets: store.Field.IsStatic
-                                                                      ? new HashSet<string> { heap.StaticRegionOf(instanceId, store.Field) }
-                                                                      : Resolve(instance, store.Bases)))
-                                        .Concat(summary.Elements.Where(element => element.Kind == ElementOperationKind.Store)
-                                                       .Select(element => (Values: element.Values, Targets: Resolve(instance, element.Arrays))));
-                    foreach (var (values, targets) in stores)
+                    foreach (var (stored, targets) in Stores(instance))
                     {
                         CheckCancellation();
-                        var stored = Resolve(instance, values);
                         var exposes = stored.Contains(@object) ||
                                       stored.Any(value => heap.Regions[value].Kind == HeapRegionKind.Delegate && heap.DelegateCaptures(value).Contains(@object));
                         if (exposes && targets.Any(target => target != @object && !IsInternal(@object, inside, target)))
@@ -1524,8 +1618,7 @@ public static class ExecutionModel
                         }
                     }
 
-                    if (summary.Returns.Any(@return => Resolve(instance, @return.Values).Contains(@object)) &&
-                        heap.Edges.Any(edge => edge.CalleeInstance == instanceId && !chain.Contains(edge.CallerInstance)))
+                    if (Returns(instance, @object) && (CallersOf.GetValueOrDefault(instanceId) ?? []).Any(caller => !chain.Contains(caller)))
                     {
                         published.Add(@object);
                     }
@@ -1540,6 +1633,52 @@ public static class ExecutionModel
 
             return published;
         }
+
+        /// <summary>What each store and element store of an instance stores and where, resolved once for every object whose chain
+        /// holds the instance, in the order a single object resolved them.</summary>
+        /// <param name="instance">The instance of a constructor chain.</param>
+        private (HashSet<string> Stored, HashSet<string> Targets)[] Stores(MethodInstance instance)
+        {
+            if (_stores.TryGetValue(instance.Id, out var stores))
+                return stores;
+            var summary = instance.Summary;
+            stores = summary.Stores.Select(store => (Values: store.Values,
+                                                     Targets: store.Field.IsStatic
+                                                         ? new HashSet<string> { heap.StaticRegionOf(instance.Id, store.Field) }
+                                                         : Resolve(instance, store.Bases)))
+                            .Concat(summary.Elements.Where(element => element.Kind == ElementOperationKind.Store)
+                                           .Select(element => (Values: element.Values, Targets: Resolve(instance, element.Arrays))))
+                            .Select(store => (Stored: Resolve(instance, store.Values), store.Targets))
+                            .ToArray();
+            _stores.Add(instance.Id, stores);
+            return stores;
+        }
+
+        /// <summary>Whether an instance returns an object. Its returns are resolved in order and only as far as some object asks, so
+        /// the heap resolves exactly the values it would resolve if every object asked on its own.</summary>
+        /// <param name="instance">The instance of a constructor chain.</param>
+        /// <param name="object">The object under construction.</param>
+        private bool Returns(MethodInstance instance, string @object)
+        {
+            if (!_returns.TryGetValue(instance.Id, out var resolved))
+                _returns.Add(instance.Id, resolved = []);
+            var returns = instance.Summary.Returns;
+            for (var index = 0; index < returns.Count; index++)
+            {
+                CheckCancellation();
+                if (index == resolved.Count)
+                    resolved.Add(Resolve(instance, returns[index].Values));
+                if (resolved[index].Contains(@object))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>The callers of each instance over the heap's call edges.</summary>
+        private Dictionary<string, string[]> CallersOf =>
+            _callersOf ??= heap.Edges.GroupBy(edge => edge.CalleeInstance, StringComparer.Ordinal)
+                               .ToDictionary(group => group.Key, group => group.Select(edge => edge.CallerInstance).ToArray(), StringComparer.Ordinal);
 
         /// <summary>A target reachable only through the object under construction: an object or delegate reachable from it that
         /// shared storage does not also reach, or a container object the container resolved for it, whose context names it as the
@@ -1627,10 +1766,10 @@ public static class ExecutionModel
                     foreach (var region in regions)
                     {
                         CheckCancellation();
-                        if (intervals.MayIn.Contains(region) && !published.Contains(region) &&
+                        if (Holds(intervals.MayIn, region) && !published.Contains(region) &&
                             seen.Add((execution, instanceId, access.OperationId, region, true)))
                             accesses.Add(new CollectedAccess(execution, instanceId, access, region, true));
-                        if ((!intervals.MustIn.Contains(region) || published.Contains(region)) &&
+                        if ((!Holds(intervals.MustIn, region) || published.Contains(region)) &&
                             seen.Add((execution, instanceId, access.OperationId, region, false)))
                             accesses.Add(new CollectedAccess(execution, instanceId, access, region, false));
                     }
