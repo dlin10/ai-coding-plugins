@@ -827,20 +827,26 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   </div>
 <pre><code class="language-none">Run():
     Seed()                      // startup-члены + по экземпляру на каждый Execution Root; receiver-ы и параметры связаны
-    do Propagate() while DefaultEmptyRegistrations()
+    do Propagate()
+    while DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks()
 
 Propagate():
     loop:
         before = _changes
         for instance in порядок создания:
+            if instance уже обработан и с его начала не записан ни один ключ, который он читал:
+                continue        // чистый экземпляр пропускается; его вклад берётся из прошлой обработки
             Process(instance)   // ячейки, записи, возвраты, модели, делегаты, type init,
-                                // Call / Locate / Spawn / TimerCallback / Handoff / WhenAll / Unwrap
+                                // Call / Locate / Spawn / TimerCallback / Handoff / WhenAll / Unwrap;
+                                // попутно записываются прочитанные ключи состояния и вклад экземпляра
             if instance что-то изменил: CountRound(instance)
+        AssembleContributions() // перестраиваемые выходы собираются из вкладов всех экземпляров
         EscapeCapturedHolders() // Holder, ушедший в неизвестный код, расширяет набор Execution Instances делегата
         ConstructFactory(каждая регистрация)
         ApplySinks()            // здесь псевдокод: связи со стоками общих объектов
         if _changes == before: break      // множества только растут → конечность</code></pre>
   <div class="prose">
+  <p>Пропуск чистых экземпляров — worklist внутри прохода: каждая запись состояния получает номер версии, и экземпляр снова обрабатывается, только если после начала его прошлой обработки записан хотя бы один прочитанный им ключ (или запись затронула всё состояние сразу). Порядок проходов и условие остановки от этого не меняются. Проверочные режимы <code>SolverWorklistOptions</code>: <code>Audit</code> повторно обрабатывает каждый пропущенный экземпляр и падает, если тот прочитал незаписанный ключ или что-то изменил; <code>VerifyConvergence</code> после сходимости делает один полный проход без пропусков и падает, если он добавил факт.</p>
   <p>Два ограничения роста анализа. Когда у тела набирается 16 контекстов, все дальнейшие вызовы этого тела связываются с одним экземпляром <code>@merged</code>. Когда экземпляр меняет что-то в 16 проходах подряд, вычисляется его сильно связная компонента в графе экземпляров, и если она циклическая, все её тела сливаются (счётчик <code>scc-budget-exceeded</code>). Слияние консервативно: эффекты объединяются, <strong>Heap Region</strong> помечается как merged.</p>
 
   <p>Точные типы объектов также помогают отбросить невозможный dispatch: если receiver доказанно <code>List&lt;T&gt;</code>, вызов члена несовместимого типа не исполняется. Это не полное доказательство всех веток программы. При неизвестном receiver анализ сохраняет неопределённость. Примеры — <code>TypeSafetyTests</code>, <code>LateReceiverTests</code> и demo <code>type-test-fast-path</code>.</p>
@@ -859,7 +865,7 @@ Propagate():
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p><code>Analysis/Heap/WholeProgram.cs</code> — <strong>Heap Regions</strong> (<code>HeapRegionKind</code>), решатель, DI-семантика, locator; <code>MethodSummary.cs</code> — лимиты и словарь абстрактных значений; <code>MethodSummaryBuilder.cs</code> — summaries. <strong>Ownership</strong>, <strong>Construction</strong> и публикация — <code>Analysis/Execution/ExecutionModel.cs</code> (<code>Ownership()</code>, <code>AssignRegionExecutions</code>, <code>Published</code>). Тесты: <code>Engine/PointsToTests</code>, <code>MethodSummaryTests</code>, <code>OwnershipAndConstructionTests</code>, <code>DiSemanticsTests</code>.</p>
+    <p><code>Analysis/Heap/WholeProgram.cs</code> — <strong>Heap Regions</strong> (<code>HeapRegionKind</code>), решатель, DI-семантика, locator; <code>SolverWorklist.cs</code> — пропуск чистых экземпляров; <code>MethodSummary.cs</code> — лимиты и словарь абстрактных значений; <code>MethodSummaryBuilder.cs</code> — summaries. <strong>Ownership</strong>, <strong>Construction</strong> и публикация — <code>Analysis/Execution/ExecutionModel.cs</code> (<code>Ownership()</code>, <code>AssignRegionExecutions</code>, <code>Published</code>). Тесты: <code>Engine/PointsToTests</code>, <code>WorklistTests</code>, <code>MethodSummaryTests</code>, <code>OwnershipAndConstructionTests</code>, <code>DiSemanticsTests</code>.</p>
   </div>
   <div class="note warn">
     <div class="note-title">Осторожно: строки identity</div>
@@ -2092,7 +2098,7 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
     <li><strong>Связать генератор с Library Model — отдельная задача.</strong> Ответ <code>classified</code> содержит место выполнения делегата; полноценной <strong>Library Model</strong> нужны ещё аргументы делегата, эффекты, result, <code>outputs</code> и <code>keeps</code>. Простого копирования JSON недостаточно.</li>
     <li><strong>Task-результаты требуют согласования контрактов.</strong> Генератор рассматривает ожидаемый <code>T</code> из <code>Task&lt;T&gt;</code>/<code>ValueTask&lt;T&gt;</code>. Проверка <strong>Library Models</strong> в JSON работает с объявленным return type. Кроме того, передача объектного результата через await имеет ограничения в куче; генератор расширяет такие ответы до unknown, когда не может доказать нужные связи.</li>
     <li><strong>Точность и скорость связаны.</strong> Декомпилированная библиотека может дать большой <strong>Reachable Set</strong>. Генератор проверяет предел 1500 тел после построения этого множества, до summaries и кучи. Это не таймаут и не ограничение затрат самой декомпиляции или reachability.</li>
-    <li><strong>План и эксперимент не равны реализации.</strong> <a href="research/library-models.md">Исследование <strong>Library Models</strong></a> и <a href="research/engine-performance.md">исследование производительности</a> полезны для продолжения работы; поведение продукта подтверждают соответствующие исходники и тесты. Детали открытых вопросов находятся в <a href="../demo/SCENARIOS.md">SCENARIOS.md</a>.</li>
+    <li><strong>План и эксперимент не равны реализации.</strong> <a href="research/library-models.md">Исследование <strong>Library Models</strong></a> полезно для продолжения работы; поведение продукта подтверждают соответствующие исходники и тесты. Детали открытых вопросов находятся в <a href="../demo/SCENARIOS.md">SCENARIOS.md</a>.</li>
   </ul>
   </div>
 </section>
