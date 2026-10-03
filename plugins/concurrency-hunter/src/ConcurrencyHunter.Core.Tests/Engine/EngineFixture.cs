@@ -118,12 +118,14 @@ public static class EngineFixture
         Analyze(Execute(Solve(ReachScope(solution, scopeId, libraryModels))));
 
     /// <summary>Runs the engine over one source file as far as its interprocedural accesses, coverage and gaps, without pairing them.</summary>
-    public static InterproceduralCollection Collect(string source)
-    {
-        var execution = Execute(source);
-        return InterproceduralAccesses.Collect(new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap,
-                                                                        execution.Analysis), CancellationToken.None);
-    }
+    /// <param name="source">The source file of the case.</param>
+    public static InterproceduralCollection Collect(string source) => Collect(Execute(source));
+
+    /// <summary>Collects the interprocedural accesses, coverage and gaps of an execution model over the heap it was built on.</summary>
+    /// <param name="execution">The execution model and its solved heap.</param>
+    public static InterproceduralCollection Collect(ExecutionRun execution) =>
+        InterproceduralAccesses.Collect(new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap,
+                                                                 execution.Analysis), CancellationToken.None);
 
     private static EngineRun Analyze(ExecutionRun execution)
     {

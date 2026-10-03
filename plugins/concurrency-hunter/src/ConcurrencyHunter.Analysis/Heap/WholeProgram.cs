@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
@@ -208,6 +209,9 @@ public sealed class HeapSolution
         _load = load;
     }
 
+    /// <summary>The regions of the solved heap, in the order the solve made them. A lookup by id also finds a region a query named after
+    /// the solve, an object the solve never evaluated: it holds nothing, no region points to it, and no enumeration lists it, so every
+    /// stage after the solve sees the same heap (open question 110).</summary>
     public IReadOnlyDictionary<string, HeapRegion> Regions { get; }
     public IReadOnlyDictionary<string, MethodInstance> Instances { get; }
     public IReadOnlyList<CallEdge> Edges { get; }
@@ -327,6 +331,24 @@ public sealed class HeapSolution
 
     /// <summary>The regions the capture cell of a symbol key in a member-body instance points to.</summary>
     public IReadOnlySet<string> Cell(string ownerInstanceId, string symbolKey) => _cell(ownerInstanceId, symbolKey);
+}
+
+/// <summary>The regions of a solved heap: those the solve made, in its order, for every enumeration and count, and also those queries
+/// named after the solve, for a lookup by id (open question 110).</summary>
+/// <param name="solved">The regions the solve made.</param>
+/// <param name="named">The regions queries named after the solve.</param>
+internal sealed class SolvedRegions(IReadOnlyDictionary<string, HeapRegion> solved, IReadOnlyDictionary<string, HeapRegion> named)
+    : IReadOnlyDictionary<string, HeapRegion>
+{
+    public HeapRegion this[string key] => solved.TryGetValue(key, out var region) ? region : named[key];
+    public IEnumerable<string> Keys => solved.Keys;
+    public IEnumerable<HeapRegion> Values => solved.Values;
+    public int Count => solved.Count;
+    public bool ContainsKey(string key) => solved.ContainsKey(key) || named.ContainsKey(key);
+    public bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out HeapRegion value) =>
+        solved.TryGetValue(key, out value) || named.TryGetValue(key, out value);
+    public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator() => solved.GetEnumerator();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 /// <summary>
@@ -584,6 +606,43 @@ public static partial class WholeProgram
         private readonly CancellationToken _cancellationToken;
         private readonly TrackedValue<bool> _solvingState = new(true);
         private bool _solving { get => _solvingState.Value; set => _solvingState.Value = value; }
+        // Regions that queries of the solved heap named and the solve did not make: no map of the solve holds one.
+        private readonly ConcurrentDictionary<string, HeapRegion> _named = new(StringComparer.Ordinal);
+        private int _queries;
+
+        /// <summary>Whether a query of the solved heap is running: it names what the solve did not make and writes nothing (open
+        /// question 110).</summary>
+        private bool Querying => Volatile.Read(ref _queries) != 0;
+
+        /// <summary>The query, run as a query of the solved heap: <see cref="Querying"/> holds while it runs.</summary>
+        /// <param name="query">The query.</param>
+        private Func<TArgument, TResult> Query<TArgument, TResult>(Func<TArgument, TResult> query) => argument =>
+        {
+            Interlocked.Increment(ref _queries);
+            try
+            {
+                return query(argument);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _queries);
+            }
+        };
+
+        /// <summary>The query with two arguments, run as a query of the solved heap: <see cref="Querying"/> holds while it runs.</summary>
+        /// <param name="query">The query.</param>
+        private Func<TFirst, TSecond, TResult> Query<TFirst, TSecond, TResult>(Func<TFirst, TSecond, TResult> query) => (first, second) =>
+        {
+            Interlocked.Increment(ref _queries);
+            try
+            {
+                return query(first, second);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _queries);
+            }
+        };
 
         private void CheckCancellation()
         {
@@ -965,7 +1024,7 @@ public static partial class WholeProgram
             }
 
             return new HeapSolution(
-                _regions,
+                new SolvedRegions(_regions, _named),
                 instances,
                 _edges.OrderBy(edge => edge.Caller, StringComparer.Ordinal).ThenBy(edge => edge.Operation)
                       .ThenBy(edge => edge.Callee, StringComparer.Ordinal)
@@ -981,14 +1040,14 @@ public static partial class WholeProgram
                 reachable,
                 loweredNotReached,
                 _noReceiver.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
-                (instanceId, value) => Eval(_instances[instanceId], value),
-                LoadAny,
-                (owner, key) => _cells.GetValueOrDefault((owner, key)) ?? new TrackedSet<string>(StringComparer.Ordinal),
+                Query((string instanceId, AbstractValue value) => Eval(_instances[instanceId], value)),
+                Query<string, string, TrackedSet<string>>(LoadAny),
+                Query((string owner, string key) => _cells.GetValueOrDefault((owner, key)) ?? new TrackedSet<string>(StringComparer.Ordinal)),
                 _rootInstances,
-                (instanceId, field) => StaticRegion(_instances[instanceId], field),
-                regionId => (_fieldsByRegion.GetValueOrDefault(regionId) ?? []).Where(field => _fields[(regionId, field)].Count != 0)
-                                                                            .Order(StringComparer.Ordinal).ToArray(),
-                regionId => _delegates.ContainsKey(regionId) ? Captures(regionId) : new TrackedSet<string>(StringComparer.Ordinal))
+                Query((string instanceId, IrFieldRef field) => StaticRegion(_instances[instanceId], field)),
+                Query((string regionId) => (_fieldsByRegion.GetValueOrDefault(regionId) ?? []).Where(field => _fields[(regionId, field)].Count != 0)
+                                                                                              .Order(StringComparer.Ordinal).ToArray()),
+                Query((string regionId) => _delegates.ContainsKey(regionId) ? Captures(regionId) : new TrackedSet<string>(StringComparer.Ordinal)))
             {
                 ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
@@ -3233,7 +3292,9 @@ public static partial class WholeProgram
         private IEnumerable<(string Region, string Slot)> ReferenceLocations(InstanceState instance, ReferenceTarget target)
         {
             CheckCancellation();
-            _counters[HeapCounters.REFERENCE_LOOKUPS]++;
+            // The counter counts the solve's lookups; a query of the solved heap is not one.
+            if (!Querying)
+                _counters[HeapCounters.REFERENCE_LOOKUPS]++;
             switch (target)
             {
                 case ReferenceCell cell:
@@ -4000,6 +4061,9 @@ public static partial class WholeProgram
             if (_registeredAllocations.TryGetValue((site.BodyId, site.OperationId, ContextKey(instance)), out var registered) ||
                 _factoryInstances.TryGetValue(instance.Id, out registered))
             {
+                // The types of a registered region decide the solve's dispatch alone.
+                if (Querying)
+                    return registered;
                 if (!_regionTypes.TryGetValue(registered, out var types))
                     _regionTypes.Add(registered, types = new TrackedSet<string>(StringComparer.Ordinal));
                 Add(types, [typeKey]);
@@ -4030,6 +4094,9 @@ public static partial class WholeProgram
             Region(identity, HeapRegionKind.Delegate, $"delegate:{owner}#{method?.DisplaySymbol ?? created.Target}{ordinal}",
                    SubstituteDisplay(site.TypeKey, instance.Substitution),
                    instance.Context, $"delegate|{site.BodyId}#{site.OperationId}", merged: instance.IsMerged, site: site);
+            // A delegate a query names keeps no state: the solve recorded nothing it captures.
+            if (Querying)
+                return identity;
             _delegates[identity] = new DelegateState(
                 created.Target, method is null,
                 transfer?.TargetContainingTypeKey is { } containing ? ProgramIndex.Substitute(containing, instance.Substitution) : null,
@@ -4070,9 +4137,15 @@ public static partial class WholeProgram
             if (_regions.ContainsKey(identity))
                 return identity;
             group ??= identity;
-            _regions.Add(identity, new HeapRegion(identity, kind, display, typeKey, context, group,
-                                                  typeKey is not null && _program.IsOpen(typeKey), merged, mayOverlapItself,
-                                                  site?.BodyId, site?.OperationId) { HasExactType = exactType, ModelCreationKey = modelCreationKey });
+            var region = new HeapRegion(identity, kind, display, typeKey, context, group, typeKey is not null && _program.IsOpen(typeKey), merged,
+                                        mayOverlapItself, site?.BodyId, site?.OperationId) { HasExactType = exactType, ModelCreationKey = modelCreationKey };
+            if (Querying)
+            {
+                // A query names a region the solve did not make and adds it nowhere, so every stage sees the heap the solve made.
+                _named.TryAdd(identity, region);
+                return identity;
+            }
+            _regions.Add(identity, region);
             if (!_groups.TryGetValue(group, out var members))
                 _groups.Add(group, members = []);
             members.Add(identity);
@@ -4180,9 +4253,9 @@ public static partial class WholeProgram
 
         private TrackedSet<string> Cell(string owner, string key) => Get(_cells, (owner, key));
 
-        private static TrackedSet<string> Parameter(InstanceState instance, int ordinal) => Get(instance.Parameters, ordinal);
+        private TrackedSet<string> Parameter(InstanceState instance, int ordinal) => Get(instance.Parameters, ordinal);
 
-        private static TrackedSet<string> CallResult(InstanceState instance, int operation) => Get(instance.CallResults, operation);
+        private TrackedSet<string> CallResult(InstanceState instance, int operation) => Get(instance.CallResults, operation);
 
         /// <summary>Whether a value may come from an origin points-to does not follow: a parameter, a captured variable, an opaque call or
         /// an operation the summary does not model. A null or a field read before its first write is no object, and a source call is
@@ -4191,21 +4264,30 @@ public static partial class WholeProgram
             sources.Any(source => source is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
             calls.Any(instance.UnfollowedCallResults.Contains);
 
-        private static TrackedSet<string> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
+        private TrackedSet<string> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
 
-        private static TrackedSet<string> RefParameter(InstanceState instance, int ordinal) => Get(instance.RefParameters, ordinal);
+        private TrackedSet<string> RefParameter(InstanceState instance, int ordinal) => Get(instance.RefParameters, ordinal);
 
-        private static TrackedSet<string> Get<TKey>(TrackedMap<TKey, TrackedSet<string>> map, TKey key) where TKey : notnull
+        private TrackedSet<string> Get<TKey>(TrackedMap<TKey, TrackedSet<string>> map, TKey key) where TKey : notnull
         {
             if (!map.TryGetValue(key, out var set))
-                map.Add(key, set = new TrackedSet<string>(StringComparer.Ordinal));
+            {
+                set = new TrackedSet<string>(StringComparer.Ordinal);
+                // A query reads an empty set where the solve left none, and leaves the map as it was.
+                if (!Querying)
+                    map.Add(key, set);
+            }
             return set;
         }
 
-        private static TrackedSet<(string Region, string Slot)> ParameterLocations(InstanceState instance, int ordinal)
+        private TrackedSet<(string Region, string Slot)> ParameterLocations(InstanceState instance, int ordinal)
         {
             if (!instance.ParameterLocations.TryGetValue(ordinal, out var locations))
-                instance.ParameterLocations.Add(ordinal, locations = []);
+            {
+                locations = [];
+                if (!Querying)
+                    instance.ParameterLocations.Add(ordinal, locations);
+            }
             return locations;
         }
 

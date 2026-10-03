@@ -32,6 +32,8 @@ public static partial class WholeProgram
         {
             if (_auditing is not null)
                 throw new InvalidOperationException($"Worklist audit: {_auditing} wrote {key} during a clean processing.");
+            if (Querying)
+                throw new InvalidOperationException($"A query of the solved heap wrote {key}: the heap is frozen after its solve.");
             var version = ++_writeClock;
             _writes[key] = version;
             for (var parent = key; parent is not null; parent = parent.Parent)

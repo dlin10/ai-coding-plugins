@@ -261,7 +261,8 @@ public sealed class WorklistTests
         {
             "_scope", "_program", "_limits", "_typeSafety", "_cancellationToken",
             "_counters", "_changes", "_changedRounds", "_sccHandled", "_reachIndex",
-            "_worklistOptions", "_writes", "_history", "_reads", "_writeClock", "_suspendReads", "_auditing", "_rebuilding"
+            "_worklistOptions", "_writes", "_history", "_reads", "_writeClock", "_suspendReads", "_auditing", "_rebuilding",
+            "_named", "_queries"
         };
         var checkedTypes = new HashSet<Type>();
         void Check(Type type)
@@ -291,6 +292,18 @@ public sealed class WorklistTests
                                   type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>) ||
                                   type.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)) ||
             type.GetMethod("<Clone>$") is not null;
+    }
+
+    [Fact]
+    public void Write_during_a_heap_query_throws()
+    {
+        var solver = NewSolver(SIMPLE + Startup());
+        Invoke(solver, "Run");
+        Field(solver, "_queries").SetValue(solver, 1);
+
+        var error = Assert.Throws<TargetInvocationException>(() => Invoke(solver, "WroteState", StateKey.Wildcard));
+
+        Assert.IsType<InvalidOperationException>(error.InnerException);
     }
 
     private static string Holders() => """
