@@ -26,7 +26,7 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
             return summary;
         if (!bodies.TryGetValue(bodyId, out var body))
             return null;
-        summary = MethodSummaryBuilder.Build(body, program, limits, id => bodies.GetValueOrDefault(id));
+        summary = MethodSummaryBuilder.Build(body, program, limits, bodies.GetValueOrDefault);
         _summaries.Add(bodyId, summary);
         return summary;
     }
@@ -375,7 +375,7 @@ public static partial class WholeProgram
     public const string CONSTRUCTION_REASON = "construction";
 
     private const string SERVICE_PROVIDER_TYPE = ":System.IServiceProvider";
-    private const string STARTUP_CONTEXT = "startup";
+
     private const string SERVICE_COLLECTION_TYPE = ":Microsoft.Extensions.DependencyInjection.IServiceCollection";
 
     /// <summary>Where a DI resolution happens: inside one HTTP invocation, in the root scope, or in the scope object a
@@ -398,7 +398,7 @@ public static partial class WholeProgram
         internal DiRegistration Registration { get; } = registration;
         internal ResolutionScope Scope { get; } = scope;
         internal TrackedSet<string> Instances { get; } = new(StringComparer.Ordinal);
-        private readonly TrackedValue<bool> _defaulted = new(false);
+        private readonly TrackedValue<bool> _defaulted = new();
         internal bool Defaulted { get => _defaulted.Value; set => _defaulted.Value = value; }
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
@@ -428,7 +428,7 @@ public static partial class WholeProgram
 
         /// <summary>The calls whose receiver may come from such an origin, so their edges are not all the targets they may run.</summary>
         internal TrackedSet<int> UnresolvedCallTargets { get; } = [];
-        private readonly TrackedValue<bool> _returnsUnfollowed = new(false);
+        private readonly TrackedValue<bool> _returnsUnfollowed = new();
         internal bool ReturnsUnfollowed { get => _returnsUnfollowed.Value; set => _returnsUnfollowed.Value = value; }
         internal TrackedMap<(int Operation, int Ordinal), TrackedSet<string>> RefResults { get; } = [];
         internal TrackedSet<string> Returns { get; } = new(StringComparer.Ordinal);
@@ -495,7 +495,7 @@ public static partial class WholeProgram
         internal int CallOperationId { get; } = callOperationId;
         internal IrTimerAction? Action { get; } = action;
         internal TrackedSet<string> Handles { get; } = new(StringComparer.Ordinal);
-        private readonly TrackedValue<string?> _tail = new(null);
+        private readonly TrackedValue<string?> _tail = new();
         internal string? Tail { get => _tail.Value; set => _tail.Value = value; }
         internal TrackedSet<(string Instance, SpawnRole Role)> Callees { get; } = [];
 
@@ -542,13 +542,6 @@ public static partial class WholeProgram
         private readonly TrackedMap<string, (string InstanceId, TrackedSet<string> Instances, TrackedSet<string> Regions)> _typeInitializers =
             new(StringComparer.Ordinal);
         private readonly TrackedMap<string, TrackedList<string>> _constructions = new(StringComparer.Ordinal);
-        private TrackedSet<(string BodyId, int OperationId)> _noReceiver => _rebuilding.NoReceiver;
-        private TrackedSet<(string Instance, int Operation)> _unresolvedDispatches => _rebuilding.UnresolvedDispatches;
-        private TrackedMap<(string Instance, int Operation), TrackedSet<(string Region, string? DeclaringTypeKey)>> _unresolvedReceivers => _rebuilding.UnresolvedReceivers;
-        private TrackedMap<(string Instance, int Operation), TrackedSet<IrFactoryInput>> _unresolvedFactoryInputs => _rebuilding.UnresolvedFactoryInputs;
-        private TrackedMap<string, (TrackedSet<(string Caller, int Operation)> Sites, TrackedSet<string> Callees)> _handoffs => _rebuilding.Handoffs;
-        private TrackedSet<(string Caller, int Operation, string Region, string Callee)> _startupDelegates => _rebuilding.StartupDelegates;
-        private TrackedMap<(string Instance, int Operation), TrackedSet<string>> _unresolvedFateInputs => _rebuilding.UnresolvedFateInputs;
 
         /// <summary>The holders the heap knows and what each keeps, by delegate region, <see cref="UNRESOLVED_DELEGATE"/> standing for a
         /// delegate no delegate object is known for (R4).</summary>
@@ -565,11 +558,8 @@ public static partial class WholeProgram
         /// holds (R5).</summary>
         private readonly TrackedSet<string> _groupings = new(StringComparer.Ordinal);
 
-        /// <summary>The user iterators a consumer other than a <c>foreach</c> enumerates where it stands: a known call reading it deep or
-        /// naming its elements, a copy of ADR 0010, or the enumeration of a library sequence built from it (R5).</summary>
-        private TrackedSet<(string Instance, int Operation, string Region)> _iteratorEnumerations => _rebuilding.IteratorEnumerations;
         private readonly TrackedValue<UnknownCalls.Modelled?> _modelledState = new();
-        private UnknownCalls.Modelled? _modelled { get => _modelledState.Value; set => _modelledState.Value = value; }
+        private UnknownCalls.Modelled? Modelled { get => _modelledState.Value; set => _modelledState.Value = value; }
         private readonly Dictionary<string, int> _counters = new(StringComparer.Ordinal)
         {
             [HeapCounters.PROPAGATE_PASSES] = 0,
@@ -605,7 +595,7 @@ public static partial class WholeProgram
         private int _changes;
         private readonly CancellationToken _cancellationToken;
         private readonly TrackedValue<bool> _solvingState = new(true);
-        private bool _solving { get => _solvingState.Value; set => _solvingState.Value = value; }
+        private bool Solving { get => _solvingState.Value; set => _solvingState.Value = value; }
         // Regions that queries of the solved heap named and the solve did not make: no map of the solve holds one.
         private readonly ConcurrentDictionary<string, HeapRegion> _named = new(StringComparer.Ordinal);
         private int _queries;
@@ -646,12 +636,9 @@ public static partial class WholeProgram
 
         private void CheckCancellation()
         {
-            if (_solving)
+            if (Solving)
                 _cancellationToken.ThrowIfCancellationRequested();
         }
-
-        internal Solver(ScopeProgram scope, AnalysisLimits limits, CancellationToken cancellationToken)
-            : this(scope, limits, cancellationToken, new()) { }
 
         internal Solver(ScopeProgram scope, AnalysisLimits limits, CancellationToken cancellationToken, SolverWorklistOptions options)
         {
@@ -762,7 +749,7 @@ public static partial class WholeProgram
             finally
             {
                 // Queries retained by HeapSolution belong to their later stage, not to this solve.
-                _solving = false;
+                Solving = false;
             }
         }
 
@@ -802,6 +789,7 @@ public static partial class WholeProgram
                     CheckCancellation();
                     ProcessOrSkip(_instances[_instanceOrder[index]]);
                 }
+
                 AssembleContributions();
 
                 EscapeCapturedHolders();
@@ -876,7 +864,7 @@ public static partial class WholeProgram
             // Every lowered body, nested ones included: a lambda the heap never reaches is inventory too.
             var loweredNotReached = _scope.Reachable.Bodies.Keys.Where(body => !reachable.Contains(body))
                                           .Order(StringComparer.Ordinal).ToArray();
-            _counters[HeapCounters.NO_RECEIVER_OBJECT] = _noReceiver.Count;
+            _counters[HeapCounters.NO_RECEIVER_OBJECT] = _rebuilding.NoReceiver.Count;
             _counters[HeapCounters.REACHABLE_BODIES] = reachable.Count;
             _counters[HeapCounters.LOWERED_NOT_REACHED] = loweredNotReached.Length;
             _counters.TryAdd(HeapCounters.MERGED_CONTEXT, 0);
@@ -949,7 +937,7 @@ public static partial class WholeProgram
 
             // What a consumer other than a `foreach` enumerates, directly or as a source of a library sequence it enumerates (R5).
             var enumerations = executionEdges.ToTrackedSet();
-            foreach (var (consumer, operation, region) in _iteratorEnumerations)
+            foreach (var (consumer, operation, region) in _rebuilding.IteratorEnumerations)
             {
                 CheckCancellation();
                 var edge = new CallEdge(consumer, operation, _iteratorObjects[region].CalleeInstance, "iterator-enumeration");
@@ -1039,7 +1027,7 @@ public static partial class WholeProgram
                 _counters,
                 reachable,
                 loweredNotReached,
-                _noReceiver.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
+                _rebuilding.NoReceiver.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
                 Query((string instanceId, AbstractValue value) => Eval(_instances[instanceId], value)),
                 Query<string, string, TrackedSet<string>>(LoadAny),
                 Query((string owner, string key) => _cells.GetValueOrDefault((owner, key)) ?? new TrackedSet<string>(StringComparer.Ordinal)),
@@ -1056,24 +1044,24 @@ public static partial class WholeProgram
                 IteratorMemberReceivers = _iteratorMemberReceivers.ToTrackedMap(pair => pair.Key,
                                                                                  pair => (IReadOnlySet<string>)pair.Value),
                 UnresolvedLocators = unresolved.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
-                UnresolvedDispatches = _unresolvedDispatches.ToTrackedSet(),
-                UnresolvedDispatchReceivers = _unresolvedReceivers.ToTrackedMap(pair => pair.Key,
-                                                                                pair => (IReadOnlySet<(string, string?)>)pair.Value.ToTrackedSet()),
-                UnresolvedFactoryInputs = _unresolvedFactoryInputs.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToTrackedSet()),
-                UnresolvedFateInputs = _unresolvedFateInputs.ToTrackedMap(pair => pair.Key,
-                                                                          pair => (IReadOnlySet<string>)pair.Value.ToTrackedSet(StringComparer.Ordinal)),
+                UnresolvedDispatches = _rebuilding.UnresolvedDispatches.ToTrackedSet(),
+                UnresolvedDispatchReceivers = _rebuilding.UnresolvedReceivers.ToTrackedMap(pair => pair.Key,
+                                                                                           pair => (IReadOnlySet<(string, string?)>)pair.Value.ToTrackedSet()),
+                UnresolvedFactoryInputs = _rebuilding.UnresolvedFactoryInputs.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToTrackedSet()),
+                UnresolvedFateInputs = _rebuilding.UnresolvedFateInputs.ToTrackedMap(pair => pair.Key,
+                                                                                     pair => (IReadOnlySet<string>)pair.Value.ToTrackedSet(StringComparer.Ordinal)),
                 Holders = _held.Keys.ToTrackedSet(StringComparer.Ordinal),
                 LibrarySequences = librarySequences,
-                StartupDelegates = _startupDelegates.OrderBy(item => item.Caller, StringComparer.Ordinal).ThenBy(item => item.Operation)
-                                                    .ThenBy(item => item.Region, StringComparer.Ordinal).ThenBy(item => item.Callee, StringComparer.Ordinal)
-                                                    .Select(item => new StartupDelegate(item.Caller, item.Operation, item.Region, item.Callee))
-                                                    .ToArray(),
-                DelegateHandoffs = _handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                                            .Select(pair => new DelegateHandoff(pair.Key,
-                                                                               pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
-                                                                                   .ThenBy(site => site.Operation).ToArray(),
-                                                                               pair.Value.Callees.Order(StringComparer.Ordinal).ToArray()))
-                                            .ToArray(),
+                StartupDelegates = _rebuilding.StartupDelegates.OrderBy(item => item.Caller, StringComparer.Ordinal).ThenBy(item => item.Operation)
+                                              .ThenBy(item => item.Region, StringComparer.Ordinal).ThenBy(item => item.Callee, StringComparer.Ordinal)
+                                              .Select(item => new StartupDelegate(item.Caller, item.Operation, item.Region, item.Callee))
+                                              .ToArray(),
+                DelegateHandoffs = _rebuilding.Handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                              .Select(pair => new DelegateHandoff(pair.Key,
+                                                                                  pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
+                                                                                      .ThenBy(site => site.Operation).ToArray(),
+                                                                                  pair.Value.Callees.Order(StringComparer.Ordinal).ToArray()))
+                                              .ToArray(),
                 RegionUncertainties = _uncertainties.ToTrackedMap(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
                 Collections = _collections.ToTrackedMap(pair => pair.Key,
                                                         pair => (IReadOnlyList<string>)pair.Value.SelectMany(Object).Distinct(StringComparer.Ordinal).ToArray(),
@@ -1813,9 +1801,12 @@ public static partial class WholeProgram
                 CheckCancellation();
                 RunFates(instance, call);
             }
-            foreach (var call in summary.OpaqueCalls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region)))
-                .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region, call.Target))))
-                .Where(call => call.IsKnown))
+
+            foreach (var call in summary.OpaqueCalls
+                                        .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region)))
+                                        .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value),
+                                                                          region => ObjectKind(region, call.Target))))
+                                        .Where(call => call.IsKnown))
             {
                 CheckCancellation();
                 RunFates(instance, call);
@@ -1824,11 +1815,12 @@ public static partial class WholeProgram
                     CheckCancellation();
                     foreach (var target in Eval(instance, ArgumentOf(call, store.Key)))
                     {
-                    CheckCancellation();
+                        CheckCancellation();
                         Add(Field(target, PathValue.ELEMENT), _libraryStored.GetValueOrDefault((instance.Id, call.OperationId, store.Key)) ?? []);
-                }
+                    }
                 }
             }
+
             // A member of a holder called on it, with no body of its own, runs what the holder keeps; a holder reachable from what a call
             // without a body is handed is one the heap cannot follow any more (R4).
             if (_held.Count != 0)
@@ -1894,7 +1886,7 @@ public static partial class WholeProgram
                 TimerCallback(instance, timer);
             }
             // What an unresolved call is handed it may run whenever it likes (R3); a call a recognizer or the table models is no such call.
-            var modelled = _modelled ??= new UnknownCalls.Modelled(_scope);
+            var modelled = Modelled ??= new UnknownCalls.Modelled(_scope);
             foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown && !modelled.Contains(instance.BodyId, call) && !DecidesEvery(instance, call)))
             {
                 CheckCancellation();
@@ -1954,7 +1946,7 @@ public static partial class WholeProgram
                                                                .ToTrackedList())
                                .ToArray();
             if (handle is not null && site.Tail is null &&
-                (spawn.Kind is IrSpawnKind.StartNew or IrSpawnKind.ContinueWith || spawn.Kind == IrSpawnKind.TaskRun && !spawn.AwaitsWorkTask) &&
+                (spawn.Kind is IrSpawnKind.StartNew or IrSpawnKind.ContinueWith || spawn is { Kind: IrSpawnKind.TaskRun, AwaitsWorkTask: false }) &&
                 callees.SelectMany(list => list).Any(callee => IsAsyncBody(callee.BodyId)))
             {
                 site.Tail = TailRegion(handle);
@@ -2146,8 +2138,7 @@ public static partial class WholeProgram
                 IReadOnlyList<string> regions = service.Kind == IrServiceCallKind.Locator
                     ? Resolve(resolution, scope, resolver, scope.Context, "")
                     : Supported(resolution).Select(registration => Registration(key, registration, scope, resolver, scope.Context, "")).ToArray();
-                foreach (var region in regions.Where(region => _regions[region] is { Kind: HeapRegionKind.Di } di &&
-                                                               di.Context is not ("singleton" or "root-scope") &&
+                foreach (var region in regions.Where(region => _regions[region] is { Kind: HeapRegionKind.Di, Context: not ("singleton" or "root-scope") } di &&
                                                                !di.Context.StartsWith("invocation:", StringComparison.Ordinal)))
                 {
                     CheckCancellation();
@@ -2247,7 +2238,7 @@ public static partial class WholeProgram
                     if (regions.Length == 0)
                     {
                         NoReceiver(caller, call);
-                        _unresolvedDispatches.Add((caller.Id, call.OperationId));
+                        _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
                         Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
                     }
                     UnresolvedTargets(caller, call);
@@ -2270,7 +2261,7 @@ public static partial class WholeProgram
                         if (iteratorReceivers.Count == 0)
                         {
                             NoReceiver(caller, call);
-                            _unresolvedDispatches.Add((caller.Id, call.OperationId));
+                            _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
                             Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
                         }
                     }
@@ -2427,8 +2418,8 @@ public static partial class WholeProgram
             foreach (var region in handed.Where(_delegates.ContainsKey))
             {
                 CheckCancellation();
-                if (!_handoffs.TryGetValue(region, out var handoff))
-                    _handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
+                if (!_rebuilding.Handoffs.TryGetValue(region, out var handoff))
+                    _rebuilding.Handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
                 handoff.Sites.Add((caller.Id, operationId));
                 foreach (var callee in DelegateCallees(caller, operationId, _delegates[region], () => { }))
                 {
@@ -2579,8 +2570,8 @@ public static partial class WholeProgram
             // The unresolved dispatch sees what the factories left unresolved are handed and nothing another factory of the call is.
             void Seen(IEnumerable<IrFactoryInput> inputs)
             {
-                if (!_unresolvedFactoryInputs.TryGetValue((caller.Id, call.OperationId), out var seen))
-                    _unresolvedFactoryInputs.Add((caller.Id, call.OperationId), seen = []);
+                if (!_rebuilding.UnresolvedFactoryInputs.TryGetValue((caller.Id, call.OperationId), out var seen))
+                    _rebuilding.UnresolvedFactoryInputs.Add((caller.Id, call.OperationId), seen = []);
                 seen.UnionWith(inputs);
             }
         }
@@ -2709,11 +2700,11 @@ public static partial class WholeProgram
                                     _changes++;
                                 break;
                             case IrFateKind.Startup:
-                                _startupDelegates.Add((caller.Id, call.OperationId, region, callee.Id));
+                                _rebuilding.StartupDelegates.Add((caller.Id, call.OperationId, region, callee.Id));
                                 break;
                             case IrFateKind.UnknownExecution:
-                                if (!_handoffs.TryGetValue(region, out var handoff))
-                                    _handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
+                                if (!_rebuilding.Handoffs.TryGetValue(region, out var handoff))
+                                    _rebuilding.Handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
                                 handoff.Sites.Add((caller.Id, call.OperationId));
                                 handoff.Callees.Add(callee.Id);
                                 break;
@@ -2734,16 +2725,17 @@ public static partial class WholeProgram
                 {
                     CheckCancellation();
                     foreach (var target in argument.References)
-                {
-                    CheckCancellation();
-                    foreach (var location in ReferenceLocations(caller, target))
                     {
-                    CheckCancellation();
-                        Add(Field(location.Region, location.Slot), RefResult(caller, call.OperationId, output.Key));
-                }
-                }
+                        CheckCancellation();
+                        foreach (var location in ReferenceLocations(caller, target))
+                        {
+                            CheckCancellation();
+                            Add(Field(location.Region, location.Slot), RefResult(caller, call.OperationId, output.Key));
+                        }
+                    }
                 }
             }
+
             foreach (var keep in library.Keeps)
             {
                 CheckCancellation();
@@ -2871,7 +2863,7 @@ public static partial class WholeProgram
                     Consume(consumer, operationId, sequence.Sources, visited);
                 }
                 else if (_iteratorObjects.ContainsKey(region))
-                    _iteratorEnumerations.Add((consumer.Id, operationId, region));
+                    _rebuilding.IteratorEnumerations.Add((consumer.Id, operationId, region));
             }
         }
 
@@ -2918,8 +2910,8 @@ public static partial class WholeProgram
         private void UnresolvedFate(InstanceState caller, CallTransfer invocation, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
         {
             Unresolved(caller, invocation, receivers);
-            if (!_unresolvedFateInputs.TryGetValue((caller.Id, invocation.OperationId), out var seen))
-                _unresolvedFateInputs.Add((caller.Id, invocation.OperationId), seen = new TrackedSet<string>(StringComparer.Ordinal));
+            if (!_rebuilding.UnresolvedFateInputs.TryGetValue((caller.Id, invocation.OperationId), out var seen))
+                _rebuilding.UnresolvedFateInputs.Add((caller.Id, invocation.OperationId), seen = new TrackedSet<string>(StringComparer.Ordinal));
             seen.UnionWith(Eval(caller, invocation.Arguments.SelectMany(argument => argument.Values)));
         }
 
@@ -3160,7 +3152,7 @@ public static partial class WholeProgram
                 if (!before && !same)
                     continue;
                 var model = operation.Library!;
-                if (model.Result is { } result && model.ResultTypeKey is { } resultType)
+                if (model is { Result: { } result, ResultTypeKey: { } resultType })
                     Count(result, new ResultDestination(null, resultType));
                 foreach (var output in model.Outputs.OrderBy(output => output.Key))
                 {
@@ -3362,7 +3354,7 @@ public static partial class WholeProgram
         {
             /// <summary>The call that made the delegate held, which names its unresolved dispatch where it escapes.</summary>
             private readonly TrackedValue<string> _callee = new("");
-            public string Callee { get => _callee.Value; set => _callee.Value = value; }
+            public string Callee { get => _callee.Value; init => _callee.Value = value; }
             public TrackedList<TrackedSet<string>> Regions { get; } = [];
             public TrackedList<TrackedSet<int>> HolderArguments { get; } = [];
 
@@ -3513,8 +3505,8 @@ public static partial class WholeProgram
         /// <param name="regions">The regions.</param>
         private void HandOver(InstanceState caller, int operationId, string callee, string region, IReadOnlyList<TrackedSet<string>> regions)
         {
-            if (!_handoffs.TryGetValue(region, out var handoff))
-                _handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
+            if (!_rebuilding.Handoffs.TryGetValue(region, out var handoff))
+                _rebuilding.Handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
             handoff.Sites.Add((caller.Id, operationId));
             var state = _delegates[region];
             var callees = DelegateCallees(caller, operationId, state, () => { });
@@ -3579,13 +3571,13 @@ public static partial class WholeProgram
             if (_held.Count == 0)
                 return;
             var done = new TrackedSet<string>(StringComparer.Ordinal);
-            while (_handoffs.Keys.Where(done.Add).ToArray() is { Length: > 0 } handed)
+            while (_rebuilding.Handoffs.Keys.Where(done.Add).ToArray() is { Length: > 0 } handed)
             {
                 CheckCancellation();
                 foreach (var region in handed)
                 {
                     CheckCancellation();
-                    var sites = _handoffs[region].Sites.ToArray();
+                    var sites = _rebuilding.Handoffs[region].Sites.ToArray();
                     foreach (var holder in Reached(Captures(region)).Where(_held.ContainsKey).ToArray())
                     {
                         CheckCancellation();
@@ -3637,9 +3629,9 @@ public static partial class WholeProgram
         /// <summary>Records an unresolved dispatch with the receiver objects it sees and hands off the delegates it is given (R1, R3).</summary>
         private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
         {
-            _unresolvedDispatches.Add((caller.Id, call.OperationId));
-            if (!_unresolvedReceivers.TryGetValue((caller.Id, call.OperationId), out var known))
-                _unresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
+            _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
+            if (!_rebuilding.UnresolvedReceivers.TryGetValue((caller.Id, call.OperationId), out var known))
+                _rebuilding.UnresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
             known.UnionWith(receivers);
             Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
             EscapeHolders(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
@@ -3841,7 +3833,7 @@ public static partial class WholeProgram
                 _changes++;
         }
 
-        private void NoReceiver(InstanceState caller, CallTransfer call) => _noReceiver.Add((caller.BodyId, call.OperationId));
+        private void NoReceiver(InstanceState caller, CallTransfer call) => _rebuilding.NoReceiver.Add((caller.BodyId, call.OperationId));
 
         /// <summary>Marks a dispatch whose receiver may come from an origin points-to does not follow: the bodies it resolves to are not
         /// every body it may run, so nothing that holds for all of them holds for the call.</summary>
@@ -3969,10 +3961,7 @@ public static partial class WholeProgram
                 foreach (var region in current)
                 {
                     CheckCancellation();
-                    if (segment == PathValue.WILDCARD)
-                        next.UnionWith(Closure(region));
-                    else
-                        next.UnionWith(Load(region, segment));
+                    next.UnionWith(segment == PathValue.WILDCARD ? Closure(region) : Load(region, segment));
                 }
 
                 current = next;
