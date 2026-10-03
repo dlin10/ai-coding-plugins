@@ -5,6 +5,9 @@ namespace ConcurrencyHunter.Heap;
 /// <summary>Checks a member's declaring type against only objects whose runtime type is known exactly.</summary>
 public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string, IReadOnlySet<string>> metadataSupertypes)
 {
+    /// <summary>The definitions of the supertypes of each type the program index holds, which the index alone decides.</summary>
+    private readonly Dictionary<string, IReadOnlySet<string>> _supertypes = new(StringComparer.Ordinal);
+
     public static string DefinitionOf(string typeKey)
     {
         var arrayStart = typeKey.LastIndexOf('[');
@@ -60,7 +63,10 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
         var definition = DefinitionOf(region.TypeKey);
         IReadOnlySet<string>? supertypes = null;
         if (program.Type(region.TypeKey) is not null)
-            supertypes = program.Supertypes(region.TypeKey).Select(DefinitionOf).ToHashSet(StringComparer.Ordinal);
+        {
+            if (!_supertypes.TryGetValue(region.TypeKey, out supertypes))
+                _supertypes.Add(region.TypeKey, supertypes = program.Supertypes(region.TypeKey).Select(DefinitionOf).ToHashSet(StringComparer.Ordinal));
+        }
         else
             metadataSupertypes.TryGetValue(definition, out supertypes);
 

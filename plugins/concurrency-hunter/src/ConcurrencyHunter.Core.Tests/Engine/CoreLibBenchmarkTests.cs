@@ -61,19 +61,13 @@ public sealed class CoreLibBenchmarkTests
             var models = new LibraryModels(
                 LibraryModels.BuiltIn.Members.Where(model => model.Assemblies.All(range => range.AssemblyName != assembly.AssemblyName)),
                 LibraryModels.BuiltIn.ImmutableTypes.Where(type => type.Assemblies.All(range => range.AssemblyName != assembly.AssemblyName)));
-            using var stop = CancellationTokenSource.CreateLinkedTokenSource(watchdog.Token);
-            ScopeCancelledException stopped;
+            ScopeRun? run = null;
+            ScopeCancelledException? stopped = null;
             try
             {
-                ScopePipeline.Run("scope:corelib-benchmark", [compilation, driver], [], Path.GetTempPath(),
-                                  new ProviderRegistry([new DriverRootProvider()]), models, AnalysisLimits.Default, new(), null, stop.Token,
-                                  step =>
-                                  {
-                                      watchdog.Start(step);
-                                      if (step == ScopeStep.Accesses)
-                                          stop.Cancel();
-                                  });
-                throw new InvalidOperationException("The benchmark ran beyond executions.");
+                run = ScopePipeline.Run("scope:corelib-benchmark", [compilation, driver], [], Path.GetTempPath(),
+                                        new ProviderRegistry([new DriverRootProvider()]), models, AnalysisLimits.Default, new(), null, watchdog.Token,
+                                        watchdog.Start);
             }
             catch (ScopeCancelledException error)
             {
@@ -87,9 +81,9 @@ public sealed class CoreLibBenchmarkTests
                 ["bodies"] = library.Bodies,
                 ["externBodies"] = library.ExternBodies,
                 ["selectedMembers"] = selected.Count,
-                ["reachableBodies"] = stopped.ReachableBodies,
+                ["reachableBodies"] = run is not null ? run.Reachable.ReachedBodies.Count : stopped!.ReachableBodies,
                 ["peakWorkingSetMb"] = watchdog.PeakWorkingSetMb,
-                ["stages"] = Stages(stopped, watchdog.Reason)
+                ["stages"] = run is not null ? Stages(run) : Stages(stopped!, watchdog.Reason)
             };
         }
 
@@ -121,7 +115,7 @@ public sealed class CoreLibBenchmarkTests
                 stage["status"] = "finished";
                 stage["seconds"] = elapsed.TotalSeconds;
             }
-            else if (step != ScopeStep.Accesses && (stopped.Started || reason is not null) &&
+            else if ((stopped.Started || reason is not null) &&
                      (step == stopped.Step || step == ScopeStep.Lowering && stopped.Step == ScopeStep.ReachableSet && stopped.Started))
             {
                 Assert.True(reason is "timeout" or "memory", "An unplanned cancellation has no watchdog reason.");
@@ -132,23 +126,52 @@ public sealed class CoreLibBenchmarkTests
 
             if (stopped.Counters.TryGetValue(step, out var counters))
                 stage["counters"] = JsonSerializer.SerializeToNode(counters);
-            else if (stage["status"]!.GetValue<string>() == "cut" && step is ScopeStep.SummariesAndFixpoint or ScopeStep.Executions)
+            else if (stage["status"]!.GetValue<string>() == "cut" && step is ScopeStep.SummariesAndFixpoint or ScopeStep.Executions or ScopeStep.Accesses)
             {
                 // The watchdog can cancel between two stages; the named stage stopped before doing any work.
-                stage["counters"] = step == ScopeStep.Executions
-                    ? new JsonObject { ["walkVisits"] = 0 }
-                    : new JsonObject
+                stage["counters"] = step switch
+                {
+                    ScopeStep.Executions => new JsonObject { ["walkVisits"] = 0 },
+                    ScopeStep.Accesses => new JsonObject { ["executions"] = 0, ["accesses"] = 0 },
+                    _ => new JsonObject
                     {
                         [HeapCounters.PROPAGATE_PASSES] = 0,
                         [HeapCounters.INSTANCE_PROCESSINGS] = 0,
                         [HeapCounters.REFERENCE_LOOKUPS] = 0
-                    };
+                    }
+                };
             }
             stages[StepName(step)] = stage;
         }
 
         return stages;
     }
+
+    internal static JsonObject Stages(ScopeRun run)
+    {
+        var stages = new JsonObject();
+        foreach (var step in Enum.GetValues<ScopeStep>())
+        {
+            var stage = new JsonObject { ["status"] = "finished", ["seconds"] = Elapsed(run.Times, step).TotalSeconds };
+            if (run.Counters.TryGetValue(step, out var counters))
+                stage["counters"] = JsonSerializer.SerializeToNode(counters);
+            stages[StepName(step)] = stage;
+        }
+
+        return stages;
+    }
+
+    private static TimeSpan Elapsed(ScopeStepTimes times, ScopeStep step) => step switch
+    {
+        ScopeStep.RootDiscovery => times.RootDiscovery,
+        ScopeStep.ProgramIndex => times.ProgramIndex,
+        ScopeStep.Lowering => times.Lowering,
+        ScopeStep.ReachableSet => times.ReachableSet,
+        ScopeStep.SummariesAndFixpoint => times.SummariesAndFixpoint,
+        ScopeStep.Executions => times.Executions,
+        ScopeStep.Accesses => times.Accesses,
+        _ => throw new ArgumentOutOfRangeException(nameof(step))
+    };
 
     private static string StepName(ScopeStep step) => step switch
     {

@@ -14,7 +14,7 @@ internal sealed record ExecutionObservation(string Properties, string Queries, s
     internal static ExecutionObservation Capture(ScopeProgram scope, HeapSolution heap, ExecutionAnalysis analysis)
     {
         var input = new InterproceduralInput(scope, heap, analysis);
-        var collection = InterproceduralAccesses.Collect(input);
+        var collection = InterproceduralAccesses.Collect(input, CancellationToken.None);
         var queries = new StringBuilder();
         var executions = analysis.Executions.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
         foreach (var first in executions)

@@ -122,13 +122,13 @@ public static class EngineFixture
     {
         var execution = Execute(source);
         return InterproceduralAccesses.Collect(new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap,
-                                                                        execution.Analysis));
+                                                                        execution.Analysis), CancellationToken.None);
     }
 
     private static EngineRun Analyze(ExecutionRun execution)
     {
         var input = new InterproceduralInput(Scope(execution.Heap.Program, execution.Heap.Summaries), execution.Heap.Heap, execution.Analysis);
-        var collection = InterproceduralAccesses.Collect(input);
+        var collection = InterproceduralAccesses.Collect(input, CancellationToken.None);
         return new EngineRun(execution, collection, InterproceduralPairing.Pair(collection.Accesses, execution.Analysis, execution.Heap.Heap));
     }
 

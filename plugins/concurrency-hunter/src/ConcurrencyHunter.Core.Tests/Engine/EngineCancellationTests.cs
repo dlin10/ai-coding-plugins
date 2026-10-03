@@ -1,4 +1,5 @@
 using System.Collections;
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
@@ -94,6 +95,20 @@ public sealed class EngineCancellationTests
     }
 
     [Fact]
+    public void Cancelled_access_collection_reports_its_counters()
+    {
+        var solved = EngineFixture.Solve("public class SampleController : ControllerBase { public int Count; public void Post() { Count++; } }" +
+                                         EngineFixture.Startup());
+        var scope = Scope(solved.Program, solved.Summaries);
+        var input = new InterproceduralInput(scope, solved.Heap, ExecutionModel.Build(scope, solved.Heap, CancellationToken.None));
+        var error = Assert.Throws<EngineStageCancelledException>(() => InterproceduralAccesses.Collect(input, new CancellationToken(true)));
+        Assert.Equal("accesses", error.Stage);
+        Assert.Equal(0, error.Counters["executions"]);
+        Assert.Equal(0, error.Counters["accesses"]);
+        Assert.NotEmpty(InterproceduralAccesses.Collect(input, CancellationToken.None).Accesses);
+    }
+
+    [Fact]
     public void Cancelled_pipeline_reports_its_completed_stages()
     {
         using var cancellation = new CancellationTokenSource();
@@ -109,7 +124,22 @@ public sealed class EngineCancellationTests
         Assert.True(error.Counters[ScopeStep.SummariesAndFixpoint][HeapCounters.INSTANCE_PROCESSINGS] > 0);
         Assert.True(error.Counters[ScopeStep.Executions]["walkVisits"] > 0);
         Assert.DoesNotContain(ScopeStep.Accesses, error.CompletedSteps.Keys);
-        Assert.Equal("notRun", CoreLibBenchmarkTests.Stages(error, "memory")["accesses"]!["status"]!.GetValue<string>());
+        Assert.Equal("notRun", CoreLibBenchmarkTests.Stages(error, null)["accesses"]!["status"]!.GetValue<string>());
+        var memory = CoreLibBenchmarkTests.Stages(error, "memory")["accesses"]!;
+        Assert.Equal("cut", memory["status"]!.GetValue<string>());
+        Assert.Equal(0, memory["counters"]!["executions"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Completed_pipeline_reports_every_stage_finished()
+    {
+        var run = Pipeline(CancellationToken.None, _ => { });
+        var stages = CoreLibBenchmarkTests.Stages(run);
+        Assert.Equal(Enum.GetValues<ScopeStep>().Length, stages.Count);
+        Assert.All(stages, stage => Assert.Equal("finished", stage.Value!["status"]!.GetValue<string>()));
+        Assert.True(stages["executions"]!["counters"]!["walkVisits"]!.GetValue<int>() > 0);
+        Assert.Equal(run.Executions!.Executions.Count, stages["accesses"]!["counters"]!["executions"]!.GetValue<int>());
+        Assert.Equal(run.Collection!.Accesses.Count, stages["accesses"]!["counters"]!["accesses"]!.GetValue<int>());
     }
 
     [Fact]

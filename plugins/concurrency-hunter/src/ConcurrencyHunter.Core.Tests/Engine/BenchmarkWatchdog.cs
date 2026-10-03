@@ -33,7 +33,8 @@ internal sealed class BenchmarkWatchdog : IDisposable
     internal void Start(ConcurrencyHunter.Analysis.ScopeStep step)
     {
         lock (_sync)
-            _deadline = step is ConcurrencyHunter.Analysis.ScopeStep.SummariesAndFixpoint or ConcurrencyHunter.Analysis.ScopeStep.Executions
+            _deadline = step is ConcurrencyHunter.Analysis.ScopeStep.SummariesAndFixpoint or ConcurrencyHunter.Analysis.ScopeStep.Executions or
+                                ConcurrencyHunter.Analysis.ScopeStep.Accesses
                 ? _clock() + Budget : null;
     }
 

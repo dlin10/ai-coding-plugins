@@ -27,6 +27,22 @@ public sealed class BenchmarkWatchdogTests
     }
 
     [Fact]
+    public void Accesses_get_their_own_ten_minutes()
+    {
+        using var watchdog = Watchdog();
+        watchdog.Start(ScopeStep.Executions);
+        _now += TimeSpan.FromMinutes(9);
+        watchdog.Tick();
+        watchdog.Start(ScopeStep.Accesses);
+        _now += TimeSpan.FromMinutes(9);
+        watchdog.Tick();
+        Assert.False(watchdog.Token.IsCancellationRequested);
+        _now += TimeSpan.FromMinutes(1);
+        watchdog.Tick();
+        Assert.Equal("timeout", watchdog.Reason);
+    }
+
+    [Fact]
     public void Deadline_cuts_with_reason_timeout()
     {
         using var watchdog = Watchdog();

@@ -56,6 +56,11 @@ public sealed record ScopeRun(DiIndex Index, IReadOnlyList<ExecutionRootDescript
     [MemberNotNullWhen(false, nameof(Summaries), nameof(ScopeProgram), nameof(Heap), nameof(Executions), nameof(Interprocedural),
                        nameof(Collection))]
     public bool Stopped => StoppedAtReachableBodies is not null;
+
+    /// <summary>The counters of each step that keeps them, as a cancellation reports them: the heap's, the walk visits of the
+    /// executions, and how many executions the accesses went through and how many accesses they collected.</summary>
+    public IReadOnlyDictionary<ScopeStep, IReadOnlyDictionary<string, int>> Counters { get; init; } =
+        new Dictionary<ScopeStep, IReadOnlyDictionary<string, int>>();
 }
 
 /// <summary>The stages one scope runs through, the same for every caller: the DI index, root providers in registry order with
@@ -201,13 +206,21 @@ public static class ScopePipeline
 
             Begin(ScopeStep.Accesses);
             var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
-            var collection = InterproceduralAccesses.Collect(interprocedural);
+            var collection = InterproceduralAccesses.Collect(interprocedural, cancellationToken);
+            counters[ScopeStep.Accesses] = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["executions"] = executions.Executions.Count,
+                ["accesses"] = collection.Accesses.Count
+            };
             var accesses = Complete();
             return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, summaries, scopeProgram, heap, executions,
                                 interprocedural, collection, discoveryDiagnostics, loweringDiagnostics,
                                 new ScopeStepTimes(rootDiscovery, programIndex, lowering.Elapsed, reachableSet, summariesAndFixpoint, executionTime,
                                                    accesses),
-                                null);
+                                null)
+            {
+                Counters = counters
+            };
         }
         catch (OperationCanceledException error)
         {

@@ -91,7 +91,11 @@ public static partial class InterproceduralAccesses
     /// <summary>The reason of the edge an enumeration runs an iterator's body by (ADR 0011).</summary>
     private const string ITERATOR_ENUMERATION = "iterator-enumeration";
 
-    public static InterproceduralCollection Collect(InterproceduralInput input)
+    /// <summary>Collects the accesses every execution of a scope runs, and what the scope's analysis covered.</summary>
+    /// <param name="input">The scope, its solved heap and its executions.</param>
+    /// <param name="cancellationToken">Cancels the collection at its next check, between executions or within one; the cancellation
+    /// reports how many executions the collection got through and how many accesses it had.</param>
+    public static InterproceduralCollection Collect(InterproceduralInput input, CancellationToken cancellationToken)
     {
         var accesses = new List<Access>();
         var unproven = new HashSet<(string Body, int Operation)>();
@@ -107,19 +111,33 @@ public static partial class InterproceduralAccesses
                                        .GroupBy(call => call.Instance.Id, StringComparer.Ordinal)
                                        .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
         var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
-        foreach (var execution in input.Executions.Executions)
+        var collected = 0;
+        try
         {
-            // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5).
-            if (!input.Executions.Entries.TryGetValue(execution.Id, out var entries) &&
-                !(execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject)))
+            foreach (var execution in input.Executions.Executions)
             {
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5).
+                if (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
+                    execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject))
+                {
+                    var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, origins, unknownCalls, reach,
+                                                           cancellationToken);
+                    accesses.AddRange(collector.Collect());
+                    unproven.UnionWith(collector.UnprovenReferences);
+                    folded.UnionWith(collector.FoldedReferences);
+                }
+
+                collected++;
             }
-            entries ??= [];
-            var collector = new ExecutionCollector(input, execution, entries, graph, discoveries, holders, origins, unknownCalls, reach);
-            accesses.AddRange(collector.Collect());
-            unproven.UnionWith(collector.UnprovenReferences);
-            folded.UnionWith(collector.FoldedReferences);
+        }
+        catch (OperationCanceledException error)
+        {
+            throw new EngineStageCancelledException("accesses", new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["executions"] = collected,
+                ["accesses"] = accesses.Count
+            }, cancellationToken, error);
         }
 
         // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
@@ -315,7 +333,17 @@ public static partial class InterproceduralAccesses
 
     private sealed record State(string Instance, string? Interval, BodySegment Segment);
 
-    private sealed record PathNode(State State, PathNode? Parent, CallEdge? Edge);
+    private sealed record PathNode(State State, PathNode? Parent, CallEdge? Edge)
+    {
+        /// <summary>The hash of the whole path, worked out once: a visit is looked up by its path, which would otherwise be hashed
+        /// from the root every time.</summary>
+        private int _hash;
+
+        public bool Equals(PathNode? other) =>
+            ReferenceEquals(this, other) || other is not null && State == other.State && Edge == other.Edge && Equals(Parent, other.Parent);
+
+        public override int GetHashCode() => _hash != 0 ? _hash : _hash = HashCode.Combine(State, Parent, Edge) | 1;
+    }
 
     /// <summary><see cref="Capacity"/> is the count the lock object was constructed with, when it is a constant.</summary>
     private sealed record LockInfo(string Display, string? SingleObjectId, SourceSpan Acquisition, int? Capacity)
@@ -636,7 +664,8 @@ public static partial class InterproceduralAccesses
     private sealed partial class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
                                             Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>> holders, GapOrigins origins,
-                                            IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach)
+                                            IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
+                                            CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -648,15 +677,20 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _bodyPaths = new(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<(IReadOnlyList<string> Symbols, AccessRoot Root)>> _callPaths = new(StringComparer.Ordinal);
         private readonly HashSet<CallEdge> _executionEdges = [];
+
+        /// <summary>The same edges by caller and call operation, each list in the order the walk first followed its edges.</summary>
+        private readonly Dictionary<(string Caller, int Operation), List<CallEdge>> _executionCalls = [];
+
+        /// <summary>The steps of <see cref="WalkGraph"/> the walk took at least once.</summary>
+        private readonly HashSet<Step> _takenSteps = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
         private readonly Dictionary<PathNode, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>?> _enumerationPathLocks = [];
+
+        /// <summary>The guards of the visit <see cref="Conditions"/> was last asked about.</summary>
+        private VisitGuards? _visitGuards;
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, LiftedLocks> _lifted = new(StringComparer.Ordinal);
-        private readonly Dictionary<(string Instance, int Enumeration), (IReadOnlySet<string> Keys,
-            IReadOnlyDictionary<string, HeldLock> Yield, IReadOnlyDictionary<string, HeldLock> Exit,
-            IReadOnlyList<LockObject> Releases, IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
-            IReadOnlyList<LockObject> ExitMay)?>
-            _enumerationStates = [];
+        private readonly Dictionary<(string Instance, int Enumeration), EnumerationLocks?> _enumerationStates = [];
         private readonly HashSet<(string Instance, int Enumeration)> _enumerationInProgress = [];
 
         /// <summary>The reference operations, by body, with a place nothing proves among those they may reach (R3).</summary>
@@ -671,6 +705,23 @@ public static partial class InterproceduralAccesses
         private HashSet<string>? _writtenOutsideConstruction;
         private readonly HashSet<(string Region, string Field)> _constructingFields = [];
         private Dictionary<string, int>? _iterationParameters;
+        private Dictionary<string, CallEdge[]>? _heapCalls;
+        private Dictionary<string, CallEdge[]>? _constructorCalls;
+        private readonly Dictionary<HeapRegion, string> _regionKeys = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<MethodSummary, Dictionary<int, CallTransfer>> _callsAt = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<MethodInstance, string[]> _allocations = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>What the visits of each unresolved call made of it (<see cref="UnknownEffectAccesses"/>).</summary>
+        private readonly Dictionary<UnknownCall, UnknownEffects> _unknownEffects = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The resources of each access an instance makes, by the access object (<see cref="Resources"/>), and the identity of
+        /// each of them (<see cref="IdentityOf"/>).</summary>
+        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources =
+            new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<AccessResource, string> _identities = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
+        private readonly Dictionary<MethodInstance, Dictionary<IrCallOperation, string[]>> _liftedCallees = new(ReferenceEqualityComparer.Instance);
         private readonly HashSet<string> _liftingInProgress = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Dictionary<int, IrProvenance>> _provenance = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<(string Instance, int Operation)>> _returnLoads = new(StringComparer.Ordinal);
@@ -682,6 +733,8 @@ public static partial class InterproceduralAccesses
         /// the creator of the sequence or of one it enumerates, true for the escaped sequence's own, whose visit makes the enumeration's
         /// effects (R5); every one makes the unresolved dispatches of its delegates there (R3). A host runs nothing of its body.</summary>
         private readonly Dictionary<PathNode, bool> _hosts = [];
+
+        private void CheckCancellation() => cancellationToken.ThrowIfCancellationRequested();
 
         internal IReadOnlyList<Access> Collect()
         {
@@ -715,6 +768,7 @@ public static partial class InterproceduralAccesses
         /// once per entry. A construction edge into a construction this execution runs opens the constructed object's interval, one into
         /// a construction of another execution is not followed, and a constructor call on an allocation opens that allocation's
         /// interval in place of the current one. The first visit of an instance, and of a body, keeps its discovery path.</summary>
+        /// <param name="entry">The entry the walk starts from.</param>
         private void Visit(ExecutionEntry entry)
         {
             var start = new State(entry.InstanceId, entry.IntervalObject, entry.Segment);
@@ -722,6 +776,7 @@ public static partial class InterproceduralAccesses
             var pending = new Queue<PathNode>([new PathNode(start, null, null)]);
             while (pending.TryDequeue(out var node))
             {
+                CheckCancellation();
                 if (!_heap.Instances.TryGetValue(node.State.Instance, out var instance))
                     continue;
                 _visits.Add((entry, node));
@@ -744,16 +799,23 @@ public static partial class InterproceduralAccesses
 
                         interval = step.Constructed;
                     }
-                    else if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } &&
+                    else if (CallAt(instance, edge.OperationId) is { Kind: IrCallKind.Constructor } &&
                              _heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
                     {
-                        var created = callee.Receivers.Where(region => _heap.Regions[region].Kind == HeapRegionKind.Allocation)
-                                            .Order(StringComparer.Ordinal).ToArray();
+                        var created = Allocations(callee);
                         if (created.Length != 0 && (interval is null || !created.Contains(interval)))
                             interval = created[0];
                     }
 
-                    _executionEdges.Add(edge);
+                    // A step the walk took before has its edge recorded already: an instance's steps are one object each, with
+                    // edges of their own.
+                    if (_takenSteps.Add(step) && _executionEdges.Add(edge))
+                    {
+                        if (!_executionCalls.TryGetValue((edge.CallerInstance, edge.OperationId), out var calls))
+                            _executionCalls.Add((edge.CallerInstance, edge.OperationId), calls = []);
+                        calls.Add(edge);
+                    }
+
                     var next = new State(edge.CalleeInstance, interval, segment);
                     if (OnPath(node, next))
                         continue;
@@ -773,6 +835,32 @@ public static partial class InterproceduralAccesses
         }
 
         private const int MAX_ACCESS_PATHS = 16;
+
+        /// <summary>The first call of an instance's body at an operation, as a scan of its calls in order finds it.</summary>
+        /// <param name="instance">The instance whose summary holds the calls.</param>
+        /// <param name="operationId">The call operation.</param>
+        private CallTransfer? CallAt(MethodInstance instance, int operationId)
+        {
+            if (!_callsAt.TryGetValue(instance.Summary, out var calls))
+            {
+                calls = new Dictionary<int, CallTransfer>();
+                foreach (var call in instance.Summary.Calls)
+                    calls.TryAdd(call.OperationId, call);
+                _callsAt.Add(instance.Summary, calls);
+            }
+
+            return calls.GetValueOrDefault(operationId);
+        }
+
+        /// <summary>The allocations among an instance's receivers in id order: what a constructor call on it may build.</summary>
+        /// <param name="callee">The constructor's instance.</param>
+        private string[] Allocations(MethodInstance callee)
+        {
+            if (!_allocations.TryGetValue(callee, out var created))
+                _allocations.Add(callee, created = callee.Receivers.Where(region => _heap.Regions[region].Kind == HeapRegionKind.Allocation)
+                                                                  .Order(StringComparer.Ordinal).ToArray());
+            return created;
+        }
 
         private static bool OnPath(PathNode node, State state)
         {
@@ -844,6 +932,12 @@ public static partial class InterproceduralAccesses
 
         private IEnumerable<string> VisitedInstances() => _firstPaths.Keys;
 
+        /// <summary>The edges the walk followed from one call of one instance, in the order it first followed them.</summary>
+        /// <param name="callerInstance">The calling instance.</param>
+        /// <param name="operationId">The call operation.</param>
+        private IReadOnlyList<CallEdge> ExecutionCalls(string callerInstance, int operationId) =>
+            _executionCalls.TryGetValue((callerInstance, operationId), out var calls) ? calls : [];
+
         /// <summary>The locks each instance must hold on entry: none for an execution's entries, and otherwise the join of the
         /// states at every incoming call site, iterated from the top until nothing changes.</summary>
         private void SolveLocks()
@@ -861,6 +955,7 @@ public static partial class InterproceduralAccesses
                 changed = false;
                 foreach (var instanceId in VisitedInstances())
                 {
+                    CheckCancellation();
                     if (entryLocks.TryGetValue(instanceId, out var entry) && input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[instanceId].BodyId, out var body))
                         _lockStates[instanceId] = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), entry).Operations;
                 }
@@ -978,10 +1073,21 @@ public static partial class InterproceduralAccesses
             };
         }
 
-        private (IReadOnlySet<string> Keys, IReadOnlyDictionary<string, HeldLock> Yield, IReadOnlyDictionary<string, HeldLock> Exit,
-                 IReadOnlyList<LockObject> Releases, IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
-                 IReadOnlyList<LockObject> ExitMay)?
-            EnumerationState(MethodInstance instance, int enumeration)
+        /// <summary>What enumerating an iterator does to locks (<see cref="EnumerationState"/>), over every iterator object the enumerated
+        /// value may be (ADR 0011).</summary>
+        /// <param name="Keys">The keys of every lock the iterator may hold at a step or at its end.</param>
+        /// <param name="Yield">What it holds at every <c>yield return</c>.</param>
+        /// <param name="Exit">What it holds when its enumeration ends.</param>
+        /// <param name="Releases">The locks a step lets go on every path.</param>
+        /// <param name="ExitReleases">The locks the end of the enumeration lets go on every path.</param>
+        /// <param name="StepMay">The locks a step may let go.</param>
+        /// <param name="ExitMay">The locks the end of the enumeration may let go.</param>
+        private sealed record EnumerationLocks(IReadOnlySet<string> Keys, IReadOnlyDictionary<string, HeldLock> Yield,
+                                               IReadOnlyDictionary<string, HeldLock> Exit, IReadOnlyList<LockObject> Releases,
+                                               IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
+                                               IReadOnlyList<LockObject> ExitMay);
+
+        private EnumerationLocks? EnumerationState(MethodInstance instance, int enumeration)
         {
             var key = (instance.Id, enumeration);
             if (_enumerationStates.TryGetValue(key, out var cached))
@@ -1081,10 +1187,10 @@ public static partial class InterproceduralAccesses
                     atYield = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
                     atExit = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
                 }
-                return _enumerationStates[key] = (keys, atYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
-                                                  atExit ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
-                                                  releases.Values.ToArray(), exitReleases.Values.ToArray(), stepMay.Values.ToArray(),
-                                                  exitMay.Values.ToArray());
+                return _enumerationStates[key] = new EnumerationLocks(keys, atYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
+                                                                      atExit ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal),
+                                                                      releases.Values.ToArray(), exitReleases.Values.ToArray(),
+                                                                      stepMay.Values.ToArray(), exitMay.Values.ToArray());
             }
             finally
             {
@@ -1132,14 +1238,23 @@ public static partial class InterproceduralAccesses
         /// <summary>What a call does to a primitive its callee does not enter and leave itself: entering one it leaves open is an
         /// entry here, and leaving one it never entered — the disposal of a scope its caller opened — is a release here. Only one
         /// such primitive is carried, and only when every callee the call may reach agrees on it (ADR 0009).</summary>
+        /// <param name="instance">The calling instance.</param>
+        /// <param name="call">The call whose callees carry the effect.</param>
         private LockEffect Lifted(MethodInstance instance, IrCallOperation call)
         {
-            var callees = _executionEdges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.Id)
-                                         .Where(edge => !_heap.IteratorMemberReceivers.ContainsKey((instance.Id, call.Id)) ||
-                                                        edge.Reason is not (ITERATOR_ENUMERATION or "delegate"))
-                                         .Select(edge => edge.CalleeInstance)
-                                         .Distinct(StringComparer.Ordinal)
-                                         .ToArray();
+            // The walk is over before any lock is solved, so what a call may run is read off its edges once.
+            if (!_liftedCallees.TryGetValue(instance, out var calls))
+                _liftedCallees.Add(instance, calls = new Dictionary<IrCallOperation, string[]>(ReferenceEqualityComparer.Instance));
+            if (!calls.TryGetValue(call, out var callees))
+            {
+                var iteratorMember = _heap.IteratorMemberReceivers.ContainsKey((instance.Id, call.Id));
+                callees = ExecutionCalls(instance.Id, call.Id).Where(edge => !iteratorMember || edge.Reason is not (ITERATOR_ENUMERATION or "delegate"))
+                                                              .Select(edge => edge.CalleeInstance)
+                                                              .Distinct(StringComparer.Ordinal)
+                                                              .ToArray();
+                calls.Add(call, callees);
+            }
+
             if (callees.Length == 0)
                 return LockEffect.None;
 
@@ -1283,6 +1398,7 @@ public static partial class InterproceduralAccesses
                 changed = false;
                 foreach (var instanceId in VisitedInstances())
                 {
+                    CheckCancellation();
                     var instance = _heap.Instances[instanceId];
                     var summary = instance.Summary;
                     foreach (var @return in summary.Returns)
@@ -1303,7 +1419,7 @@ public static partial class InterproceduralAccesses
 
                     foreach (var call in summary.Calls)
                     {
-                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instanceId && edge.OperationId == call.OperationId))
+                        foreach (var edge in ExecutionCalls(instanceId, call.OperationId))
                         {
                             foreach (var argument in call.Arguments)
                                 changed |= Grow(Get(_parameterLoads, (edge.CalleeInstance, argument.ParameterOrdinal)), Loads(instance, argument.Dependencies));
@@ -1331,11 +1447,11 @@ public static partial class InterproceduralAccesses
                             loads.UnionWith(_cellLoads.GetValueOrDefault((owner, captured.SymbolKey)) ?? []);
                         break;
                     case CallDependency call:
-                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.OperationId))
+                        foreach (var edge in ExecutionCalls(instance.Id, call.OperationId))
                             loads.UnionWith(_returnLoads.GetValueOrDefault(edge.CalleeInstance) ?? []);
                         break;
                     case RefResultDependency result:
-                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == result.OperationId))
+                        foreach (var edge in ExecutionCalls(instance.Id, result.OperationId))
                             loads.UnionWith(_refParameterLoads.GetValueOrDefault((edge.CalleeInstance, result.Ordinal)) ?? []);
                         break;
                 }
@@ -1412,8 +1528,7 @@ public static partial class InterproceduralAccesses
                     // A cell of a collection a call returned is in the storage the callee's returns name; which cell is unknown,
                     // since nothing but those returns says how that storage is cut (R3, R4).
                     case ReferenceCallCollection returned:
-                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id &&
-                                                                            edge.OperationId == returned.OperationId))
+                        foreach (var edge in ExecutionCalls(instance.Id, returned.OperationId))
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
@@ -1426,8 +1541,7 @@ public static partial class InterproceduralAccesses
                     case ReferenceCall reference:
                         var receiverFromCall = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == reference.OperationId)?
                             .Receivers.Any(value => value is CallResultValue) == true;
-                        foreach (var edge in _executionEdges.Where(edge => edge.CallerInstance == instance.Id &&
-                                                                            edge.OperationId == reference.OperationId))
+                        foreach (var edge in ExecutionCalls(instance.Id, reference.OperationId))
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
@@ -1490,6 +1604,17 @@ public static partial class InterproceduralAccesses
             (MethodInstance Instance, PathNode Node, CallTransfer Call)? Caller() => BindingCall(node);
         }
 
+        /// <summary>An access a visit makes, with the frame that names it: the visit's own, or a caller's for a reference resolved
+        /// there.</summary>
+        /// <param name="Access">The access.</param>
+        /// <param name="Source">The instance whose frame names the access.</param>
+        /// <param name="SourceNode">The path of that frame.</param>
+        /// <param name="IsReference">Whether the access is made through a reference.</param>
+        /// <param name="IsStable">Whether the access is the same object on every visit, the summary's own or one this collector keeps,
+        /// so that its resources are worked out once; one made anew for the visit is worked out again.</param>
+        private readonly record struct VisitAccess(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference,
+                                                   bool IsStable);
+
         private IReadOnlyList<Access> Emit()
         {
             var feeding = new Dictionary<(string Instance, int Operation, string Resource), List<(string Instance, int Operation)>>();
@@ -1506,6 +1631,7 @@ public static partial class InterproceduralAccesses
             var standing = new Dictionary<string, IReadOnlyList<SummaryAccess>>(StringComparer.Ordinal);
             foreach (var instanceId in VisitedInstances())
             {
+                CheckCancellation();
                 var instance = _heap.Instances[instanceId];
                 // A write through a reference is fed by its reads as a field write is, at every place the reference resolves to. One
                 // that reads its place itself already is a read-modify-write, and is still fed by any other read of that place: an
@@ -1531,8 +1657,10 @@ public static partial class InterproceduralAccesses
                                                      string.Equals(load.Instance, instanceId, StringComparison.Ordinal));
                     foreach (var resource in store.Resources)
                     {
+                        var identity = resource.Identity;
+                        var structuralIdentity = store.IsCompound ? resource.StructuralIdentity : null;
                         if (observed)
-                            verified.Add((instanceId, store.OperationId, resource.Identity));
+                            verified.Add((instanceId, store.OperationId, identity));
 
                         foreach (var (loadInstanceId, loadOperation) in loads.OrderBy(load => load.Instance, StringComparer.Ordinal).ThenBy(load => load.Operation))
                         {
@@ -1548,22 +1676,22 @@ public static partial class InterproceduralAccesses
                                                     .Where(access => access.OperationId == loadOperation && access.Kind == SummaryAccessKind.Load)
                                                     .SelectMany(load => Resources(loadInstance, load))
                                                     .Concat(loadReferences.SelectMany(load => ReferenceResources(loadInstance, load)))
-                                                    .Where(candidate => candidate.Identity == resource.Identity ||
-                                                                        store.IsCompound && candidate.StructuralIdentity == resource.StructuralIdentity)
+                                                    .Where(candidate => candidate.Identity == identity ||
+                                                                        store.IsCompound && candidate.StructuralIdentity == structuralIdentity)
                                                     .ToArray();
                             if (reads.Length == 0)
                                 continue;
 
-                            var key = (instanceId, store.OperationId, resource.Identity);
+                            var key = (instanceId, store.OperationId, identity);
                             if (!feeding.TryGetValue(key, out var list))
                                 feeding.Add(key, list = []);
                             if (!list.Contains((loadInstanceId, loadOperation)))
                                 list.Add((loadInstanceId, loadOperation));
                             // Only a read of the very resource the change is on is folded into it; a check of another resource
                             // stays an access of its own.
-                            if (reads.Any(candidate => candidate.Identity == resource.Identity))
+                            if (reads.Any(candidate => candidate.Identity == identity))
                             {
-                                dropped.Add((loadInstance.Id, loadOperation, resource.Identity));
+                                dropped.Add((loadInstance.Id, loadOperation, identity));
                                 if (loadReferences.Length != 0)
                                 {
                                     foldedReferences.Add((loadInstance.Id, loadOperation));
@@ -1579,12 +1707,13 @@ public static partial class InterproceduralAccesses
             var seen = new Dictionary<(string, int, string, AccessOperation, bool, string, string, string), List<(HashSet<string> Conditions, Access Access)>>();
             foreach (var (entry, node) in _visits)
             {
+                CheckCancellation();
                 var instance = _heap.Instances[node.State.Instance];
                 var hosted = _hosts.TryGetValue(node, out var enumerates);
                 var direct = instance.Summary.Accesses
                     .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
-                    .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false));
-                var references = new List<(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference)>();
+                    .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true));
+                var references = new List<VisitAccess>();
                 foreach (var access in instance.Summary.ReferenceAccesses
                              .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId) &&
                                               !instance.Summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == access.OperationId)))
@@ -1597,7 +1726,7 @@ public static partial class InterproceduralAccesses
                         continue;
                     }
 
-                    references.Add((ReferenceAccess(access, target), target.Instance, target.Node, true));
+                    references.Add(new VisitAccess(ReferenceAccess(access, target), target.Instance, target.Node, IsReference: true, IsStable: false));
                 }
                 // A known call's effects are reads and writes of the fields they reach, made where the call stands (R3); the unknown
                 // enumeration of an escaped library sequence makes what enumerating it makes, where the call that created it stands (R5).
@@ -1624,7 +1753,7 @@ public static partial class InterproceduralAccesses
                                                     _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
                                                 })
                                                 .ToArray()))
-                                        .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false))
+                                        .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: false))
                                         .ToArray();
                 // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
                 var unknownEffects = (unknownCalls.GetValueOrDefault(instance.Id) ?? [])
@@ -1632,26 +1761,31 @@ public static partial class InterproceduralAccesses
                                                         ? call.EnumeratedSequence == execution.Subject
                                                         : call.EnumeratedSequence is null && input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
                                      .SelectMany(call => UnknownEffectAccesses(call, instance, node))
-                                     .Select(access => (Access: access, Source: instance, SourceNode: node, IsReference: false))
+                                     .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true))
                                      .ToArray();
-                foreach (var (access, source, sourceNode, isReference) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
+                // What the enumerations along the path hold is the same for every access the visit makes.
+                (bool Known, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? Locks) pathLocks = default;
+                foreach (var (access, source, sourceNode, isReference, isStable) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
                 {
                     var term = access.SelectorTerm is { } selectorTerm ? isReference ? selectorTerm : Bind(selectorTerm, source, sourceNode) : null;
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
-                    foreach (var original in Resources(source, access))
+                    // The guards an access runs under are the same on every resource it touches.
+                    Guards? guards = null;
+                    foreach (var original in isStable ? Resources(source, access) : ResourcesOf(source, access))
                     {
-                        if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, original.Identity)))
+                        var identity = isStable ? IdentityOf(original) : original.Identity;
+                        if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, identity)))
                             continue;
                         if (access.InterfaceReceiver is { } receiver && FoldsIntoInterfaceCall(receiver, original.RegionId!, access.Field))
                             continue;
 
                         var resource = selector == access.Selector ? original
                             : Resource(original.RegionId!, access.Field, original.IsWildcard, selector, original.CollectionId);
-                        var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, original.Identity));
+                        var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, identity));
                         var operation = isReference && access.ReadModifyWriteOf is not null
                             ? AccessOperation.ReadModifyWrite
                             : Operation(access, sources is { Count: > 0 },
-                                        verified.Contains((instance.Id, access.OperationId, original.Identity)));
+                                        verified.Contains((instance.Id, access.OperationId, identity)));
                         // An unresolved call neither changes nor keeps an object of one execution: there its unknown effect only reads,
                         // and the decision is the region's own, so a shared object it reaches still gets the whole effect (R1, R2). Nor
                         // can it assign a readonly field of the object, unless it is reflection; what the field points to still gets the
@@ -1661,13 +1795,11 @@ public static partial class InterproceduralAccesses
                                                                                                                                    or OwnershipKind.ThreadConfined ||
                              IsOwnReadonlyField(instance, access, resource)))
                             operation = operation == AccessOperation.AtomicUnknownEffect ? AccessOperation.AtomicRead : AccessOperation.Read;
-                        var conditions = Conditions(instance, access, node);
                         // Two paths of one body under different guards are two accesses, whatever they touch: keeping one path's
                         // guards for both would let them decide a pair the other path is part of (R1, R8). A path under every guard
                         // of another and more adds nothing, since each pair it may be part of the other may be part of too.
-                        var conditionSet = conditions.Select(condition =>
-                                $"{condition.Subject}/{condition.SubjectTerm}/{condition.Relation}/{condition.Value}/{condition.Width}/{condition.Signed}")
-                            .ToHashSet(StringComparer.Ordinal);
+                        guards ??= Conditions(instance, access, node);
+                        var (conditions, conditionSet) = guards;
                         var termKey = term?.ToString() ?? "";
                         var regionId = isReference ? resource.CollectionId ?? resource.RegionId! : resource.RegionId!;
                         var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
@@ -1675,7 +1807,9 @@ public static partial class InterproceduralAccesses
                         // an occurrence keeps can be the least protected one (R5).
                         // A write through a reference that reads it first spans that read, which stands in this very body, and every
                         // other read that feeds it; only a section held over all of them protects it (R2).
-                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, EnumerationPathLocks(node),
+                        if (!pathLocks.Known)
+                            pathLocks = (true, EnumerationPathLocks(node));
+                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, pathLocks.Locks,
                                                 isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
@@ -1683,10 +1817,11 @@ public static partial class InterproceduralAccesses
                                                            .Order(StringComparer.Ordinal));
                         var region = _heap.Regions[regionId];
                         var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
+                        var resourceIdentity = ReferenceEquals(resource, original) ? identity : resource.Identity;
                         // A construction triggered by several roots gives one access per root, so each root pair is an occurrence (R5).
                         foreach (var (callPath, pathRoot) in CallPaths(instance.BodyId))
                         {
-                            var key = (instance.BodyId, access.OperationId, resource.Identity, operation, local, heldKey, pathRoot.RootId, termKey);
+                            var key = (instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
                             if (kept.Any(other => other.Conditions.IsSubsetOf(conditionSet)))
@@ -1785,7 +1920,7 @@ public static partial class InterproceduralAccesses
                 {
                     if (target.Cell is null)
                         continue;
-                    foreach (var resource in Resources(target.Instance, ReferenceAccess(access, target)))
+                    foreach (var resource in ResourcesOf(target.Instance, ReferenceAccess(access, target)))
                     {
                         if (!resources.Any(candidate => candidate.Identity == resource.Identity))
                             resources.Add(resource);
@@ -1831,10 +1966,16 @@ public static partial class InterproceduralAccesses
         /// deep read walks them and made where the call stands, under its locks and guards. A library object's own state is no
         /// resource, and a delegate it is handed runs its own body rather than lending the call what it captures.
         /// </summary>
+        /// <param name="call">The unresolved call.</param>
+        /// <param name="instance">The instance the call stands in.</param>
+        /// <param name="node">The visit, whose path names the storage of a collection handed over ready.</param>
         private IEnumerable<SummaryAccess> UnknownEffectAccesses(UnknownCall call, MethodInstance instance, PathNode node)
         {
-            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
-            var accesses = new List<SummaryAccess>();
+            // The path reaches the effect only through the holdings HeldCollections names for what the call is handed ready: the reads
+            // of each start are worked out once for each list of them a visit names, and the accesses once for each choice of those.
+            if (!_unknownEffects.TryGetValue(call, out var known))
+                _unknownEffects.Add(call, known = new UnknownEffects());
+            var starts = new List<(HashSet<string> Fresh, StartReads Reads)>();
             foreach (var start in reach.Starts(call))
             {
                 var effect = new SummaryArgumentEffect(IrLibraryEffectKind.DeepRead, call.OperationId, start.Values, start.Collection, false,
@@ -1847,7 +1988,26 @@ public static partial class InterproceduralAccesses
                 var fresh = start.IsFresh
                     ? start.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal)
                     : [];
-                foreach (var found in DeepReadAccesses(effect, instance, node, unknownEffect: true, start.DeclaringTypeKey))
+                var objects = effect.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+                var held = HeldCollections(effect, instance, node, objects).ToArray();
+                if (known.Starts.Count == starts.Count)
+                    known.Starts.Add([]);
+                var reads = known.Starts[starts.Count].FirstOrDefault(candidate => candidate.Held.SequenceEqual(held));
+                if (reads is null)
+                    known.Starts[starts.Count].Add(reads = new StartReads(held, DeepReadAccesses(effect, instance, objects, held, unknownEffect: true,
+                                                                                                start.DeclaringTypeKey)));
+                starts.Add((fresh, reads));
+            }
+
+            if (known.Effects.FirstOrDefault(candidate => candidate.Reads.SequenceEqual(starts.Select(item => item.Reads),
+                                                                                        ReferenceEqualityComparer.Instance)) is { } made)
+                return made.Accesses;
+
+            var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+            var accesses = new List<SummaryAccess>();
+            foreach (var (fresh, reads) in starts)
+            {
+                foreach (var found in reads.Reads)
                 {
                     var access = found is { IsOnCollection: false, Selector: null, Bases.Count: 1 } &&
                                  found.Bases.Single() is RegionValue region && fresh.Contains(region.RegionId)
@@ -1866,8 +2026,29 @@ public static partial class InterproceduralAccesses
                 }
             }
 
+            known.Effects.Add(new UnknownEffect([.. starts.Select(item => item.Reads)], accesses));
             return accesses;
         }
+
+        /// <summary>What the visits of one unresolved call made of it (<see cref="UnknownEffectAccesses"/>).</summary>
+        private sealed class UnknownEffects
+        {
+            /// <summary>For each start of the call, in order, the reads made for each list of holdings a visit named there.</summary>
+            internal List<List<StartReads>> Starts { get; } = [];
+
+            /// <summary>The accesses made for each choice of those reads over all the starts.</summary>
+            internal List<UnknownEffect> Effects { get; } = [];
+        }
+
+        /// <summary>The reads one start of an unresolved call makes with the holdings a visit named for what it is handed ready.</summary>
+        /// <param name="Held">The holdings the visit named.</param>
+        /// <param name="Reads">The reads the start makes with them.</param>
+        private sealed record StartReads(Holding[] Held, IReadOnlyList<SummaryAccess> Reads);
+
+        /// <summary>The accesses of an unresolved call made from one <see cref="StartReads"/> of each of its starts.</summary>
+        /// <param name="Reads">The reads of each start, in order.</param>
+        /// <param name="Accesses">The accesses made from them.</param>
+        private sealed record UnknownEffect(StartReads[] Reads, List<SummaryAccess> Accesses);
 
         /// <summary>
         /// The reads a deep read makes (R3), each as an ordinary load based on the region it touches. An object of a source type is
@@ -1888,6 +2069,23 @@ public static partial class InterproceduralAccesses
         private IReadOnlyList<SummaryAccess> DeepReadAccesses(SummaryArgumentEffect read, MethodInstance instance, PathNode node,
                                                               bool unknownEffect = false, string? declaringTypeKey = null)
         {
+            var objects = read.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+            return DeepReadAccesses(read, instance, objects, HeldCollections(read, instance, node, objects).ToArray(), unknownEffect,
+                                    declaringTypeKey);
+        }
+
+        /// <summary>The reads of a deep read (<see cref="DeepReadAccesses(SummaryArgumentEffect, MethodInstance, PathNode, bool, string?)"/>)
+        /// from the objects its values are and the storages a visit named for what it is handed ready, which is all it takes of the
+        /// path.</summary>
+        /// <param name="read">The effect to expand.</param>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="objects">The regions the effect's values point to.</param>
+        /// <param name="holdings">The storages of the collections the effect is handed ready (<see cref="HeldCollections"/>).</param>
+        /// <param name="unknownEffect">Whether the effect is an unresolved call.</param>
+        /// <param name="declaringTypeKey">The state visible through a restricted receiver.</param>
+        private IReadOnlyList<SummaryAccess> DeepReadAccesses(SummaryArgumentEffect read, MethodInstance instance, HashSet<string> objects,
+                                                              Holding[] holdings, bool unknownEffect, string? declaringTypeKey)
+        {
             var kind = unknownEffect ? SummaryAccessKind.UnknownEffect : SummaryAccessKind.Load;
             var limit = input.Scope.Summaries.Limits.MaxAccessPathDepth;
             var accesses = new List<SummaryAccess>();
@@ -1895,12 +2093,11 @@ public static partial class InterproceduralAccesses
             // A region waiting to be read, with the field that holds it where it is a collection: a collection in the cells of another
             // is named by the field the outer one was reached by, its identity being the collection itself (ADR 0010).
             var pending = new Queue<(string Region, int Depth, (string Parent, IrFieldRef Field)? Holder)>();
-            var objects = read.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
             var held = new HashSet<string>(StringComparer.Ordinal);
             // The collections whose structure and cells are already read, under the cells a slice cuts.
             var structureRead = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (var (parent, field, collections, cells) in HeldCollections(read, instance, node, objects))
+            foreach (var (parent, field, collections, cells) in holdings)
             {
                 held.UnionWith(collections);
                 structureRead.UnionWith(collections);
@@ -2128,8 +2325,11 @@ public static partial class InterproceduralAccesses
         /// <summary>The collections a value names by where it came from, each with the field that holds it, the object holding that
         /// field and the cells of it the value covers. A slice is every storage it may be cut from; any other value, the collections
         /// and arrays among what that field holds.</summary>
-        private IEnumerable<(string Parent, IrFieldRef Field, string[] Collections, ElementSelector Cells)> HeldCollections(
-            SummaryArgumentEffect read, MethodInstance instance, PathNode node, IReadOnlySet<string> objects)
+        /// <param name="read">The effect whose value is handed over.</param>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="node">The visit, whose path the storage of a collection handed over ready is resolved along.</param>
+        /// <param name="objects">The regions the effect's values point to.</param>
+        private IEnumerable<Holding> HeldCollections(SummaryArgumentEffect read, MethodInstance instance, PathNode node, IReadOnlySet<string> objects)
         {
             if (read.Collection is not { } argument || !read.IsSlice && !objects.Any(region => CollectionKind(region).IsCollection))
                 yield break;
@@ -2157,9 +2357,24 @@ public static partial class InterproceduralAccesses
                                            .Distinct(StringComparer.Ordinal)
                                            .ToArray();
                     if (collections.Length != 0)
-                        yield return (parent, storage.Field, collections, cells);
+                        yield return new Holding(parent, storage.Field, collections, cells);
                 }
             }
+        }
+
+        /// <summary>A field that holds collections a value is handed in (<see cref="HeldCollections"/>). Two are alike when all four parts
+        /// are, the collections one by one.</summary>
+        /// <param name="Parent">The object holding the field, or the static storage of its type.</param>
+        /// <param name="Field">The field.</param>
+        /// <param name="Collections">The collections the field holds, in order.</param>
+        /// <param name="Cells">The cells of them the value covers.</param>
+        private sealed record Holding(string Parent, IrFieldRef Field, string[] Collections, ElementSelector Cells)
+        {
+            public bool Equals(Holding? other) =>
+                other is not null && Parent == other.Parent && Field == other.Field && Collections.SequenceEqual(other.Collections) &&
+                Cells == other.Cells;
+
+            public override int GetHashCode() => HashCode.Combine(Parent, Field, Cells);
         }
 
         /// <summary>Whether a slice is of storage nothing proves. One whose storage the value does not name is cut from the arrays
@@ -2529,10 +2744,67 @@ public static partial class InterproceduralAccesses
         /// field read gets one canonical identity across executions only when everything is proven at once: its region is one
         /// object per process, the field cannot change after construction, nothing writes it outside the construction of that
         /// region, and the read happens once that construction is over. Anything less is this execution's own value, which no
-        /// other execution shares, so it can never take a pair away.</summary>
-        private IReadOnlyList<PathPredicate> Conditions(MethodInstance instance, SummaryAccess access, PathNode node)
+        /// other execution shares, so it can never take a pair away. Each comes with its <see cref="ConditionKey"/>, by which the
+        /// emission tells two paths of one body apart.</summary>
+        /// <param name="instance">The instance that makes the access.</param>
+        /// <param name="access">The access whose own guards come first.</param>
+        /// <param name="node">The visit whose path carries the guards of the calls it came through.</param>
+        private Guards Conditions(MethodInstance instance, SummaryAccess access, PathNode node)
         {
-            var conditions = new List<PathPredicate>(Predicates(instance, access.Conditions, node));
+            // Accesses of one visit with the same guards of their own, as every access of one unresolved call has, share all of them.
+            if (_visitGuards is { } current && ReferenceEquals(current.Node, node) && current.ByOwn.TryGetValue(access.Conditions, out var known))
+                return known;
+
+            var own = Predicates(instance, access.Conditions, node);
+            // The guards of the path are the same for every access the visit makes, so they are bound once for its node; an access
+            // with no guards of its own runs under exactly those.
+            if (_visitGuards is not { } visit || !ReferenceEquals(visit.Node, node))
+            {
+                var path = PathGuards(node);
+                _visitGuards = visit = new VisitGuards(node, new Guards(path, path.Select(ConditionKey).ToHashSet(StringComparer.Ordinal)));
+            }
+
+            var guards = visit.Path;
+            if (own.Count != 0)
+            {
+                var conditions = new List<PathPredicate>(own.Count + visit.Path.Conditions.Count);
+                conditions.AddRange(own);
+                conditions.AddRange(visit.Path.Conditions);
+                var keys = new HashSet<string>(visit.Path.Keys, StringComparer.Ordinal);
+                keys.UnionWith(own.Select(ConditionKey));
+                guards = new Guards(conditions, keys);
+            }
+
+            visit.ByOwn.Add(access.Conditions, guards);
+            return guards;
+        }
+
+        /// <summary>The guards that hold where an access runs, each with its <see cref="ConditionKey"/>.</summary>
+        /// <param name="Conditions">The guards, the access's own first.</param>
+        /// <param name="Keys">The keys of the guards, by which the emission tells two paths of one body apart.</param>
+        private sealed record Guards(IReadOnlyList<PathPredicate> Conditions, HashSet<string> Keys);
+
+        /// <summary>The guards of one visit (<see cref="Conditions"/>): those of the calls its path came through, and all the guards of each
+        /// list of an access's own guards met there.</summary>
+        /// <param name="node">The visit.</param>
+        /// <param name="path">The guards of the calls its path came through.</param>
+        private sealed class VisitGuards(PathNode node, Guards path)
+        {
+            internal PathNode Node { get; } = node;
+            internal Guards Path { get; } = path;
+            internal Dictionary<IReadOnlyList<SummaryPredicate>, Guards> ByOwn { get; } = new(ReferenceEqualityComparer.Instance);
+        }
+
+        /// <summary>What tells one guard from another when two paths are compared.</summary>
+        /// <param name="condition">The guard.</param>
+        private static string ConditionKey(PathPredicate condition) =>
+            $"{condition.Subject}/{condition.SubjectTerm}/{condition.Relation}/{condition.Value}/{condition.Width}/{condition.Signed}";
+
+        /// <summary>The guards of the calls a path came through, each bound where its caller stands, from the visit up.</summary>
+        /// <param name="node">The visit whose path is read.</param>
+        private List<PathPredicate> PathGuards(PathNode node)
+        {
+            var conditions = new List<PathPredicate>();
             // Each visit carries one path to this access. Once the path budget is spent, the visit starts at the merge and
             // carries no guards from above it.
             for (var step = node; step is { Edge: { } edge, Parent: { } caller }; step = caller)
@@ -2797,13 +3069,11 @@ public static partial class InterproceduralAccesses
                 : null;
             if (producer is { Length: > 0 } && node.Parent is { } parent)
             {
-                foreach (var sliceEdge in _heap.Edges.Where(edge => edge.CallerInstance == parent.State.Instance &&
-                                                                      producer.Contains(edge.OperationId)))
+                foreach (var sliceEdge in HeapCalls(parent.State.Instance).Where(edge => producer.Contains(edge.OperationId)))
                 {
                     var sliceNode = new PathNode(new State(sliceEdge.CalleeInstance, node.State.Interval, node.State.Segment), parent, sliceEdge);
-                    foreach (var constructorEdge in _heap.Edges.Where(edge => edge.CallerInstance == sliceEdge.CalleeInstance &&
-                                                                               _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
-                                                                               IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
+                    foreach (var constructorEdge in HeapCalls(sliceEdge.CalleeInstance).Where(edge => _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
+                                                                                                       IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
                         yield return (_heap.Instances[constructorEdge.CalleeInstance],
                                       new PathNode(new State(constructorEdge.CalleeInstance, node.State.Interval, node.State.Segment),
                                                    sliceNode, constructorEdge));
@@ -2811,14 +3081,29 @@ public static partial class InterproceduralAccesses
                 yield break;
             }
 
-            foreach (var edge in _heap.Edges.Where(edge => _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
-                                                          IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
+            foreach (var edge in ConstructorCalls(region))
             {
                 var callerNode = new PathNode(new State(edge.CallerInstance, node.State.Interval, node.State.Segment), null, null);
                 yield return (_heap.Instances[edge.CalleeInstance],
                               new PathNode(new State(edge.CalleeInstance, node.State.Interval, node.State.Segment), callerNode, edge));
             }
         }
+
+        /// <summary>The heap's call edges out of an instance, in the heap's edge order.</summary>
+        /// <param name="callerInstance">The calling instance.</param>
+        private IReadOnlyList<CallEdge> HeapCalls(string callerInstance) =>
+            (_heapCalls ??= _heap.Edges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
+                                 .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal))
+            .TryGetValue(callerInstance, out var calls) ? calls : [];
+
+        /// <summary>The heap's call edges into a constructor whose receivers hold a region, in the heap's edge order.</summary>
+        /// <param name="region">The region the constructor may build.</param>
+        private IReadOnlyList<CallEdge> ConstructorCalls(string region) =>
+            (_constructorCalls ??= _heap.Edges.Where(edge => IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId))
+                                        .SelectMany(edge => _heap.Instances[edge.CalleeInstance].Receivers.Select(receiver => (Receiver: receiver, Edge: edge)))
+                                        .GroupBy(item => item.Receiver, StringComparer.Ordinal)
+                                        .ToDictionary(group => group.Key, group => group.Select(item => item.Edge).ToArray(), StringComparer.Ordinal))
+            .TryGetValue(region, out var calls) ? calls : [];
 
         /// <summary>What one execution's own value is called, wherever the query names it.</summary>
         private static string Local(MethodInstance instance, string value) => Local(instance.Id, value);
@@ -3057,18 +3342,44 @@ public static partial class InterproceduralAccesses
             return members.Concat(registrations).Distinct().ToArray();
         }
 
-        /// <summary>The resources an access touches: a static field's storage, or the field of each region its base points to, or the
-        /// wildcard resource of each region a wildcard path starts from.</summary>
+        /// <summary>The resources an access touches (<see cref="ResourcesOf"/>), which depend on the heap and the access alone: worked out
+        /// once for each access object of each instance. An access made anew on every visit goes to <see cref="ResourcesOf"/> instead,
+        /// which keeps nothing.</summary>
+        /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
+        /// <param name="access">The access whose resources are named.</param>
         private IReadOnlyList<AccessResource> Resources(MethodInstance instance, SummaryAccess access)
         {
+            if (!_resources.TryGetValue(instance, out var byAccess))
+                _resources.Add(instance, byAccess = new Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>(ReferenceEqualityComparer.Instance));
+            if (!byAccess.TryGetValue(access, out var resources))
+                byAccess.Add(access, resources = ResourcesOf(instance, access));
+            return resources;
+        }
+
+        /// <summary>The identity of a resource <see cref="Resources"/> keeps, which every visit of its access asks for again.</summary>
+        /// <param name="resource">A resource <see cref="Resources"/> returned.</param>
+        private string IdentityOf(AccessResource resource)
+        {
+            if (!_identities.TryGetValue(resource, out var identity))
+                _identities.Add(resource, identity = resource.Identity);
+            return identity;
+        }
+
+        /// <summary>The resources an access touches: a static field's storage, or the field of each region its base points to, or the
+        /// wildcard resource of each region a wildcard path starts from.</summary>
+        /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
+        /// <param name="access">The access whose resources are named.</param>
+        private IReadOnlyList<AccessResource> ResourcesOf(MethodInstance instance, SummaryAccess access)
+        {
             var resources = new List<AccessResource>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
 
             void Add(string regionId, bool wildcard)
             {
                 foreach (var collection in CollectionsOf(regionId, access))
                 {
                     var resource = Resource(regionId, access.Field, wildcard, access.Selector, collection);
-                    if (!resources.Any(candidate => candidate.Identity == resource.Identity))
+                    if (identities.Add(resource.Identity))
                         resources.Add(resource);
                 }
             }
@@ -3153,10 +3464,19 @@ public static partial class InterproceduralAccesses
             };
         }
 
+        /// <summary>A region's context-free identity (R6), which depends on the region alone: worked out once for each.</summary>
+        /// <param name="region">The region whose reporting identity is needed.</param>
+        private string RegionKey(HeapRegion region)
+        {
+            if (!_regionKeys.TryGetValue(region, out var key))
+                _regionKeys.Add(region, key = ContextFreeKey(region));
+            return key;
+        }
+
         /// <summary>A region's context-free identity (R6): a registration's keys, lifetime and number; an allocation's or delegate
         /// creation's body and site ordinal; a static's declaring type; a receiver's type. Other kinds have context-free identities.</summary>
         /// <param name="region">The region whose reporting identity is needed.</param>
-        private string RegionKey(HeapRegion region)
+        private string ContextFreeKey(HeapRegion region)
         {
             if (region.ModelCreationKey is { } key)
                 return key;
