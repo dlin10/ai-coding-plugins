@@ -361,14 +361,12 @@ Write gate commands as follows:
   `if ((dotnet test src/X.slnx --list-tests --filter "FullyQualifiedName~FooTests" | Select-String "FooTests\.").Count -lt 14) { exit 1 }; dotnet test src/X.slnx --filter "FullyQualifiedName~FooTests"`
   — with the count the task demands. Then say what to name them, so the count is checkable.
 - A gate that needs something outside the workspace — a sibling checkout, a database — needs the
-  path or the connection string in `gateEnvironment`, and if the builder must *write* there, the
-  path in `builderRoots` too.
-- A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace —
-  `.agents/plugins/marketplace.json` among them — and `builderRoots` does not change that; the same
-  names deeper in the tree are writable. When a task on a codex builder needs such an edit, say in
-  the task that you make it, make it on the host **before** that task's `forge.build.next`, so the
-  gate runs against it, and record it with `forge.log.append`. Left to the builder, the refusal
-  shows up only in its report, after a gate that depends on the edit has already failed.
+  path or the connection string in `gateEnvironment`.
+- Codex Builders run without Codex's sandbox or approval prompts, including resumed retries.
+  Plan their required edits directly, including top-level `.git`, `.codex`, and `.agents` when
+  those edits belong to the approved scope. Access depends on the launching process's permissions.
+  `builderRoots` is accepted for compatibility and does not control access. Codex Critic and Scout
+  retain their read-only sandbox.
 
 ```markdown
 Builder: cursor / gpt-5.3-codex / high
@@ -540,11 +538,12 @@ job, in five steps:
    changed — a plan amended after the last verdict has not been reviewed — then show the revised
    plan again before asking a second time.
 4. With a yes, ask once for what the gates need on this host: the value of every `$env:NAME` the
-   plan's gates reference, and any path outside the workspace the builder has to write to. Collect
-   them in the chat — never write a value into the plan, and never guess one.
-5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment`, the
-   paths as `builderRoots`, and any final plan decisions under one `decisionBatchId`. Use
-   `addressedByRevision` for IDs the final revision fixed and `duplicateOf` for redundant IDs. The
+   plan's gates reference. Collect them in the chat — never write a value into the plan, and never
+   guess one.
+5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and
+   any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
+   compatibility and does not control access. Use `addressedByRevision` for IDs the final revision
+   fixed and `duplicateOf` for redundant IDs. The
    call refuses approval and lists every still-unresolved active plan ID. With a no answer, pass
    `approved: false` and no decisions; leave them for a later review or approved confirmation.
 
@@ -571,8 +570,8 @@ never a claim that the gate passed. A genuine inability to check still reports i
 Read `gate.outcome` first:
 
 - **`passed`** — the task counts, whatever the builder said about its own verification, and whatever
-  it said about its own `status`. A builder that reported `unavailable` because its sandbox could not
-  run the gate has been checked for you; a builder that reported `blocked` for the same reason has
+  it said about its own `status`. A builder that reported `unavailable` because its environment
+  could not run the gate has been checked for you; a builder that reported `blocked` for the same reason has
   had `status` rewritten to `done`, because the gate is the proof it was missing. Its `verification`
   still says what it could not check, so read that before you narrate the task as a clean success.
 - **`failed`** or **`timeout`** — the `status` is `gate_failed`, `tasksCompleted` did not move, and

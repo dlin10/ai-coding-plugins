@@ -60,6 +60,7 @@ public sealed class ScoutVendorTests
                                                         "schema.json", "result.json");
 
         Assert.Contains("sandbox_mode=\"read-only\"", arguments);
+        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
         Assert.DoesNotContain("--ephemeral", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
         AssertNoNetworkDisable(arguments);
@@ -75,6 +76,7 @@ public sealed class ScoutVendorTests
 
         Assert.Equal(["exec", "resume", "scout-thread", "-"], arguments.Take(4));
         Assert.Contains("sandbox_mode=\"read-only\"", arguments);
+        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
         Assert.Contains("mcp_servers.roslyn-mcp.default_tools_approval_mode=\"approve\"", arguments);
         Assert.DoesNotContain("--ephemeral", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));

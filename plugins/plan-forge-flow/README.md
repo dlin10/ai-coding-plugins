@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.39.2
+# Plan Forge Flow 0.39.3
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -9,6 +9,11 @@ The host agent is the orchestrator. It runs the interview and revises the plan b
 rounds, because it is the only participant holding the interview context. The Critic, Builder, and
 Scout are separate model processes. Critic reviews and Builder implements against the plan; Scout is
 a read-only bounded-reconnaissance process, and none of the three revises the plan.
+
+Codex Builders run without Codex's sandbox or approval prompts for implementation and review fixes,
+including resumed retries. Codex Critic and Scout retain their read-only sandbox. Builder access
+uses the launching process's permissions; `builderRoots` is accepted for compatibility and does
+not restrict access.
 
 ## Workflow
 

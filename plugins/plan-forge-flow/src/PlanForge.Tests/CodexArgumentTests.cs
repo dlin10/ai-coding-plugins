@@ -72,7 +72,8 @@ public sealed class CodexArgumentTests
         Assert.DoesNotContain("--ephemeral", arguments);
         Assert.Contains("model_reasoning_effort=" + TomlValue.String("high"), arguments);
         Assert.Contains("plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false", arguments);
-        Assert.Contains("sandbox_mode=" + TomlValue.String("workspace-write"), arguments);
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -102,23 +103,27 @@ public sealed class CodexArgumentTests
         var arguments = CodexCliSession.BuildArguments(role, selection, null, "schema.json", "result.json");
 
         Assert.DoesNotContain("resume", arguments);
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
     }
 
     /// <summary>
-    /// The roots `forge.begin` was given widen the builder's sandbox as a TOML array of TOML strings,
-    /// so a Windows path's backslashes are escaped rather than eaten by the TOML parser.
+    /// Builder roots remain in the role for compatibility, but cannot limit an unsandboxed launch.
     /// </summary>
-    [Fact]
-    public void A_builder_with_writable_roots_passes_them_as_the_sandbox_array_after_the_sandbox_mode()
+    /// <param name="sessionId">The existing Builder session, or null for a fresh launch.</param>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("thread-1")]
+    public void A_builder_with_writable_roots_bypasses_the_sandbox_on_every_turn(string? sessionId)
     {
         var role = new RoleSpec(VendorRole.Builder, "implement the task", [@"C:\Dev\eShopOnContainers", @"D:\other"]);
         var selection = new Selection("gpt-5.6-sol", null);
 
-        var arguments = CodexCliSession.BuildArguments(role, selection, null, "schema.json", "result.json");
+        var arguments = CodexCliSession.BuildArguments(role, selection, sessionId, "schema.json", "result.json");
 
-        var sandbox = arguments.IndexOf("sandbox_mode=" + TomlValue.String("workspace-write"));
-        Assert.Equal("-c", arguments[sandbox + 1]);
-        Assert.Equal("sandbox_workspace_write.writable_roots=[\"C:\\\\Dev\\\\eShopOnContainers\", \"D:\\\\other\"]", arguments[sandbox + 2]);
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -128,6 +133,8 @@ public sealed class CodexArgumentTests
 
         var arguments = CodexCliSession.BuildArguments(role, new Selection("gpt-5.6-sol", null), null, "schema.json", "result.json");
 
+        Assert.Contains("sandbox_mode=" + TomlValue.String("read-only"), arguments);
+        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
     }
 

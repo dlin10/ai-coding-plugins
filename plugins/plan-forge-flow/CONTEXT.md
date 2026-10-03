@@ -68,7 +68,7 @@ these terms replace it.
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label — the server then runs it on the host after the builder's turn (the task gate after `forge.build.next`, the run-wide gates after `forge.review.fix`) and its exit code decides; otherwise a **condition**, left to the builder's word and, for `## Gates`, to the orchestrator after the last task. See `docs/adr/0015`. |
 | **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, when its turn ended with a Killed background task, or when no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
 | **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
-| **Builder roots** | Absolute paths outside the workspace a builder may write to, given to `forge.plan.confirm` as `builderRoots`. Reach a codex builder as `sandbox_workspace_write.writable_roots`; the other vendors have no sandbox to tell. Builder roots do not reopen `.git`, `.codex` or `.agents` at the top of the workspace, which a codex builder cannot write. |
+| **Builder roots** | Absolute paths outside the workspace, accepted by `forge.plan.confirm` as `builderRoots` and retained in the Run for compatibility. They do not control Builder access: Codex Builders run without a sandbox, and the other Vendors ignore them. |
 | **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for every Worker role. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server; cursor's `--approve-mcps` already grants every server. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
 | **Run instructions** | The user's own free text for a Run's Workers, one for the Critic and one for the Builder, recorded by `forge.instructions.set` and kept in the run state. They travel in the **act prompt** — the user turn — never in the **role instructions**, which are the role contract loaded from `prompts/<vendor>/<role>.md` and reach a vendor by its own channel (`developer_instructions` for codex, the head of the prompt for cursor). A Critic is fresh every round and is handed its text every round; a Builder is handed its text only by a call that starts a session, so a change made mid-session reaches the next session and not the running one. Every new plan task and code-review round starts such a session, and so do vendor switches, reopened plans, and re-approval after the Builder Brief changes. A code-review Critic is additionally shown the Builder's text as data, framed as context for judging the diff. Nothing but the secret guard checks them, and nothing checks that the text is the user's own rather than the orchestrator's — see `docs/adr/0019`. |
 | **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. The server also writes `background_killed` when the turn ended with a Killed background task, and then runs no gate. Only `done` is progress. A `blocked`, `gate_failed` or `background_killed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
@@ -241,27 +241,17 @@ report is printed in full before the exit, so the probe reads its `checks` inste
 `auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, and any other
 failed check is named in the readiness detail rather than withholding codex.
 
-## A codex builder cannot write `.git`, `.codex` or `.agents` at the top of the workspace
+## Codex Builders run with the launching process's permissions
 
-Measured against `codex` 0.153.2 with `windows.sandbox = "elevated"` on 2026-09-14, through
-`codex sandbox -c sandbox_mode="workspace-write"` in a scratch workspace. It surfaced in a run over
-`C:\Dev\CodexPlugins`, where the builder updated `.claude-plugin/marketplace.json` and
-`.cursor-plugin/marketplace.json` and could not touch `.agents/plugins/marketplace.json`, so the
-orchestrator wrote that one itself.
+Every Codex Builder launch passes `--dangerously-bypass-approvals-and-sandbox`, for both `exec`
+and `exec resume`. The installed Codex CLI 0.159.2 advertises that flag for both commands. This
+is the fixed policy for implementation, review fixes, and resumed retries; see `docs/adr/0028`.
 
-- A write into `.git`, `.codex` or `.agents` directly under the workspace — at any depth below them —
-  is refused with access denied. Codex holds them read-only so that a worker cannot rewrite its own
-  configuration, skills and plugin catalogues, or the repository's history.
-- **`builderRoots` does not lift it.** Naming `<workspace>\.agents` itself in
-  `sandbox_workspace_write.writable_roots` leaves it refused.
-- The protection is for those names at the top of the workspace only. `plugins\p\.agents`,
-  `plugins\p\.codex`, and a `.agents` the sandboxed command created deeper in the tree were all
-  writable, and so is `.codex-plugin` at any depth.
-- Like every sandbox refusal, it does not reach the exit code (see above); the builder's report is
-  the only place it shows.
-
-So an edit there is the orchestrator's on a codex builder, and it has to be planned as one: made on
-the host before the task's `forge.build.next`, or the task's gate runs against a tree without it.
+Codex's workspace-write restrictions on top-level `.git`, `.codex`, and `.agents` do not apply to
+these launches. Builder access depends on the launching process's permissions. `builderRoots`
+is still accepted and stored in the Run, but produces no writable-roots override and does not
+restrict access. The Builder implements the approved plan's edits directly, while the server
+continues to own executable gates.
 
 ## Each vendor keeps the Critic and Scout read-only by a different mechanism
 
@@ -271,13 +261,12 @@ Nothing in this codebase enforces that; all three guarantees are the vendor's, a
 same guarantee:
 
 - **Codex** — `-c sandbox_mode="read-only"`. A real sandbox. The key rather than the `-s` flag
-  because `codex exec resume` has no `-s`, and one spelling across a builder's first turn and its
-  later ones is worth more than the flag's pre-launch validation.
+  because `codex exec resume` has no `-s`, so fresh and resumed Scout turns use the same spelling.
 - **Claude** — `--permission-mode acceptEdits` and `--allowedTools Bash PowerShell` are passed only
   for a Builder, so the Critic's and Scout's edit and shell tools are simply never pre-approved.
   Every role gets the run's Worker tools, which is safe only while the granted servers are read-only; see
-  `docs/adr/0017`. The builder's shell grant has no sandbox behind it, unlike codex's
-  `workspace-write`: it is the price of a builder that can run the task's checks on a machine whose
+  `docs/adr/0017`. The builder's shell grant has no sandbox behind it: it is the price of a
+  builder that can run the task's checks on a machine whose
   own settings approve nothing (issue #90).
 - **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the
   help text: the same prompt asking for a file writes it without the flag and writes nothing with
