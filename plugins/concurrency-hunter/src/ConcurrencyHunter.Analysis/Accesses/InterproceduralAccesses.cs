@@ -83,7 +83,7 @@ public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap,
 /// interval each instance runs in, the locks it must hold (a must-dataflow over its incoming edges), and the loads its stores
 /// depend on across calls and capture cells, so a lost update is one read-modify-write access (R10).
 /// </summary>
-public static class InterproceduralAccesses
+public static partial class InterproceduralAccesses
 {
     private const int TOP_CALLEES = 20;
     private const string CONSTRUCTION_PROVIDER = "construction";
@@ -633,7 +633,7 @@ public static class InterproceduralAccesses
         return (false, false);
     }
 
-    private sealed class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
+    private sealed partial class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
                                             Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>> holders, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach)
@@ -665,6 +665,8 @@ public static class InterproceduralAccesses
         /// <summary>The reference loads, by body, folded into a write that depends on them: that write's, with no access of their
         /// own (R1).</summary>
         internal HashSet<(string Body, int Operation)> FoldedReferences { get; } = [];
+
+        private ReturnSummaries? _returnSummaries;
 
         private HashSet<string>? _writtenOutsideConstruction;
         private readonly HashSet<(string Region, string Field)> _constructingFields = [];
@@ -1346,15 +1348,16 @@ public static class InterproceduralAccesses
         /// no access stands for (R3).</summary>
         private sealed record ResolvedReference(ReferenceCell? Cell, MethodInstance Instance, PathNode Node);
 
+        /// <summary>Resolves references in their own frames, following the finite caller path and summarizing a cyclic descent.</summary>
+        /// <param name="targets">The targets to resolve.</param>
+        /// <param name="instance">The instance that names the targets.</param>
+        /// <param name="node">Its bound caller path.</param>
+        /// <param name="descent">The calls already on the current descent.</param>
         private IEnumerable<ResolvedReference> ResolveReferences(IEnumerable<ReferenceTarget> targets, MethodInstance instance,
-                                                                  PathNode node, int depth = 0)
+                                                                  PathNode node, HashSet<(string Instance, int Operation)>? descent = null)
         {
+            descent ??= [];
             var unproven = new ResolvedReference(null, instance, node);
-            if (depth >= 8)
-            {
-                yield return unproven;
-                yield break;
-            }
             foreach (var target in targets)
             {
                 // Every way down names at least one place, or says that it names none: a reference is never lost silently.
@@ -1377,7 +1380,7 @@ public static class InterproceduralAccesses
                         break;
                     case ReferenceParameter parameter when Caller() is { } bound:
                         foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
-                        foreach (var resolved in ResolveReferences(argument.References, bound.Instance, bound.Node, depth + 1))
+                        foreach (var resolved in ResolveReferences(argument.References, bound.Instance, bound.Node, descent))
                             yield return resolved;
                         break;
                     // A cell of a collection the body got by value is that cell of the collection the caller handed over, moved by
@@ -1395,12 +1398,14 @@ public static class InterproceduralAccesses
                                 : BindSum(term, new ConstantTerm(shift, term.Width, term.Signed));
                             var outer = collection?.Collection switch
                             {
-                                ReferenceCell cell => (ReferenceTarget)(cell with { Selector = selector, SelectorTerm = shifted, IsTermBound = true }),
-                                ReferenceParameterElement parameter => parameter with { Selector = selector, Term = shifted, IsTermBound = true },
+                                ReferenceCell cell => selector == ElementSelector.Unknown && shifted is null ? UnknownCell(cell)
+                                    : (ReferenceTarget)(cell with { Selector = selector, SelectorTerm = shifted, IsTermBound = true }),
+                                ReferenceParameterElement parameter => selector == ElementSelector.Unknown && shifted is null ? UnknownCell(parameter)
+                                    : parameter with { Selector = selector, Term = shifted, IsTermBound = true },
                                 ReferenceCallCollection call => call,
                                 _ => ReferenceUnproven.Instance
                             };
-                            foreach (var resolved in ResolveReferences([outer], bound.Instance, bound.Node, depth + 1))
+                            foreach (var resolved in ResolveReferences([outer], bound.Instance, bound.Node, descent))
                                 yield return resolved;
                         }
                         break;
@@ -1412,9 +1417,9 @@ public static class InterproceduralAccesses
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
-                            foreach (var resolved in ResolveReferences(callee.Summary.CollectionReturns, callee, calleeNode, depth + 1))
+                            foreach (var resolved in Descend(returned.OperationId, callee, calleeNode, ReturnKind.Collection))
                                 yield return resolved.Cell is { } cell
-                                    ? resolved with { Cell = cell with { Selector = ElementSelector.Unknown, SelectorTerm = null, IsOnCollection = true } }
+                                    ? resolved with { Cell = UnknownCell(cell) with { IsOnCollection = true } }
                                     : resolved;
                         }
                         break;
@@ -1426,12 +1431,59 @@ public static class InterproceduralAccesses
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
-                            foreach (var resolved in ResolveReferences(callee.Summary.ReferenceReturns, callee, calleeNode, depth + 1))
+                            foreach (var resolved in Descend(reference.OperationId, callee, calleeNode, ReturnKind.Reference))
                                 yield return receiverFromCall && resolved.Cell is { IsOnCollection: true } cell
-                                    ? resolved with { Cell = cell with { Selector = ElementSelector.Unknown } }
+                                    ? resolved with { Cell = UnknownCell(cell, keepTerm: true) }
                                     : resolved;
                         }
                         break;
+                }
+            }
+
+            IEnumerable<ResolvedReference> Descend(int operation, MethodInstance callee, PathNode calleeNode, ReturnKind kind)
+            {
+                var summaries = _returnSummaries ??= new ReturnSummaries(_heap, _executionEdges);
+                var key = (instance.Id, operation);
+                if (!descent.Add(key))
+                {
+                    foreach (var item in summaries.Of(callee.Id, kind))
+                    {
+                        switch (item)
+                        {
+                            case ReturnParam parameter:
+                                foreach (var resolved in ResolveReferences([new ReferenceParameter(parameter.Ordinal)], callee, calleeNode, descent))
+                                    yield return resolved;
+                                break;
+                            case ReturnParamCollection parameter:
+                                foreach (var resolved in ResolveReferences([parameter.Element], callee, calleeNode, descent))
+                                    yield return resolved;
+                                break;
+                            case ReturnCell cell:
+                                var owner = _heap.Instances[cell.Instance];
+                                // The cell stays in the frame that wrote it, not the frame where the cycle closes.
+                                var ownerNode = calleeNode;
+                                while (ownerNode.Parent is { } parent && ownerNode.State.Instance != owner.Id)
+                                    ownerNode = parent;
+                                if (ownerNode.State.Instance != owner.Id)
+                                    ownerNode = new PathNode(new State(owner.Id, node.State.Interval, node.State.Segment), calleeNode, null);
+                                yield return new ResolvedReference(cell.Cell, owner, ownerNode);
+                                break;
+                            case ReturnUnproven:
+                                yield return unproven;
+                                break;
+                        }
+                    }
+                    yield break;
+                }
+                try
+                {
+                    var returned = kind == ReturnKind.Reference ? callee.Summary.ReferenceReturns : callee.Summary.CollectionReturns;
+                    foreach (var resolved in ResolveReferences(returned, callee, calleeNode, descent))
+                        yield return resolved;
+                }
+                finally
+                {
+                    descent.Remove(key);
                 }
             }
 
@@ -1747,6 +1799,8 @@ public static class InterproceduralAccesses
 
         /// <summary>A reference access at one place it resolves to, as an access of that cell. A reference's term is bound where the
         /// cell was named, and never again below.</summary>
+        /// <param name="access">The reference operation whose location was resolved.</param>
+        /// <param name="target">The cell and frame that operation reaches.</param>
         private SummaryAccess ReferenceAccess(SummaryReferenceAccess access, ResolvedReference target)
         {
             var cell = target.Cell!;

@@ -41,6 +41,8 @@ public abstract record ElementSelector
     /// <summary>How the path prints the selector: <c>[0]</c>, <c>["a"]</c>, <c>[0..8]</c> and <c>[?]</c> for everything else.</summary>
     public abstract string Text { get; }
 
+    internal bool IsExact => this is ExactSelector;
+
     /// <summary>Whether the selector says which cells it names. A pair of two cells is reported on the proven one, since it is
     /// what a reader can act on.</summary>
     public bool IsProven => this is ExactSelector or RangeSelector or KeySelector;

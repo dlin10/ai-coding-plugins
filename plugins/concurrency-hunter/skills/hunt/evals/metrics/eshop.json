@@ -4,7 +4,7 @@
   "revision": "7e5ae7b54ec9f331a1c60b65bd45519f5aecc327",
   "workingTreeClean": true,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-10-01T05:53:08.4210033\u002B00:00",
+  "recordedAt": "2026-10-03T12:49:51.1414397\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,39 +18,39 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 11.192
+        "seconds": 10.577
       },
       {
         "step": "scope-discovery",
-        "seconds": 4.685
+        "seconds": 4.835
       },
       {
         "step": "program-index",
-        "seconds": 7.57
+        "seconds": 7.585
       },
       {
         "step": "lowering",
-        "seconds": 3.451
+        "seconds": 3.708
       },
       {
         "step": "reachable-set",
-        "seconds": 0.162
+        "seconds": 0.133
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 1.675
+        "seconds": 1.525
       },
       {
         "step": "executions",
-        "seconds": 0.261
+        "seconds": 0.292
       },
       {
         "step": "accesses",
-        "seconds": 1.853
+        "seconds": 1.84
       },
       {
         "step": "pairing",
-        "seconds": 0.082
+        "seconds": 0.056
       },
       {
         "step": "solver",
@@ -58,16 +58,16 @@
       },
       {
         "step": "findings",
-        "seconds": 0.035
+        "seconds": 0.034
       },
       {
         "step": "render",
-        "seconds": 0.12
+        "seconds": 0.074
       }
     ],
-    "totalSeconds": 34.222
+    "totalSeconds": 33.731
   },
-  "peakWorkingSetMb": 473.2,
+  "peakWorkingSetMb": 498.8,
   "counts": {
     "projectsExpected": 30,
     "projectsLoaded": 30,
@@ -786,12 +786,12 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 34.222,
+      "actual": 33.731,
       "met": true
     },
     "peakRssGb": {
       "limit": 4,
-      "actual": 0.462,
+      "actual": 0.487,
       "met": true
     }
   }

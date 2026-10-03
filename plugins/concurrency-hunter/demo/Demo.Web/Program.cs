@@ -140,6 +140,8 @@ using Demo.Web.Cases.RefLocalSplitReadModifyWrite;
 using Demo.Web.Cases.RefLocalWrite;
 using Demo.Web.Cases.ReflectionPrimitiveArgsNoGap;
 using Demo.Web.Cases.RefReturnWrite;
+using Demo.Web.Cases.RefParameterChainBeyondDepth;
+using Demo.Web.Cases.RefReturnChainBeyondDepth;
 using Demo.Web.Cases.RmwForms;
 using Demo.Web.Cases.RmwSingletonCounter;
 using Demo.Web.Cases.RmwThreeLayers;
@@ -319,6 +321,8 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddConstantArgumentCells()
                 .AddRefLocalWrite()
                 .AddRefReturnWrite()
+                .AddRefParameterChainBeyondDepth()
+                .AddRefReturnChainBeyondDepth()
                 .AddOutAndRefArguments()
                 .AddCustomSliceOffsets()
                 .AddIteratorCreatedUnderLock()

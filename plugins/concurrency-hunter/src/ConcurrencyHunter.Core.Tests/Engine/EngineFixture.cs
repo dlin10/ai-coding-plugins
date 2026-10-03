@@ -138,14 +138,14 @@ public static class EngineFixture
     public static HeapRun Solve(WholeProgramRun run, AnalysisLimits? limits = null)
     {
         var summaries = new SummaryCache(run.Result.Bodies, run.Input.Program, limits ?? AnalysisLimits.Default);
-        return new HeapRun(run, WholeProgram.Solve(Scope(run, summaries), limits ?? AnalysisLimits.Default), summaries);
+        return new HeapRun(run, WholeProgram.Solve(Scope(run, summaries), limits ?? AnalysisLimits.Default, CancellationToken.None), summaries);
     }
 
     /// <summary>Builds the executions, ownership and construction facts of one source file over its solved heap.</summary>
     public static ExecutionRun Execute(string source, AnalysisLimits? limits = null) => Execute(Solve(source, limits));
 
     public static ExecutionRun Execute(HeapRun heap) =>
-        new(heap, ExecutionModel.Build(Scope(heap.Program, heap.Summaries), heap.Heap));
+        new(heap, ExecutionModel.Build(Scope(heap.Program, heap.Summaries), heap.Heap, CancellationToken.None));
 
     private static ScopeProgram Scope(WholeProgramRun run, SummaryCache summaries) =>
         new(run.ScopeId, run.Input.Roots, run.Result, summaries, run.Input.Program, run.Input.DiIndex, run.Input.InjectionBindings)

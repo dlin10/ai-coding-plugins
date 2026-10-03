@@ -1542,6 +1542,50 @@
       ]
     },
     {
+      "id": "ref-parameter-chain-beyond-depth/1",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefParameterChainBeyondDepth.Counter@Singleton", "accessPath": ["Value"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefParameterChainBeyondDepth.Chain.Step9(int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.RefParameterChainBeyondDepth.Chain.Step9(int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "ref-return-chain-beyond-depth/1",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefReturnChainBeyondDepth.Slots@Singleton", "accessPath": ["_cells", "[0]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "ref-return-chain-beyond-depth/2",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefReturnChainBeyondDepth.Slots@Singleton", "accessPath": ["_cells", "[0]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Put()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "ref-return-chain-beyond-depth/3",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.RefReturnChainBeyondDepth.Slots@Singleton", "accessPath": ["_cells", "[0]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Put()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.RefReturnChainBeyondDepth.SlotsController.Put()", "operation": "write" }
+      ]
+    },
+    {
       "id": "out-and-ref-arguments/out",
       "phase": "4b",
       "rule": "DCA1001",

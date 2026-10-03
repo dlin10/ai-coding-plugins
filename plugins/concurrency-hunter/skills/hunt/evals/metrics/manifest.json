@@ -1,6 +1,6 @@
 {
   "phase": "5d",
-  "recordedAt": "2026-10-01T05:54:00Z",
+  "recordedAt": "2026-10-03T12:49:00Z",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -12,7 +12,7 @@
     },
     "demo": {
       "solution": "demo/Demo.slnx",
-      "revision": "c4aeab39c7f4e6b1f3656eba641b372870966c3a"
+      "revision": "85344be5cbf245bfc312ea8a1e2a12fc2600fe14"
     }
   }
 }

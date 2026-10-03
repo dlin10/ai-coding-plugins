@@ -76,104 +76,149 @@ public static class ScopePipeline
     /// <param name="reachableBodyLimit">The most bodies the reachable set may reach before the run stops after reachability;
     /// <c>null</c> for no limit.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
+    /// <param name="stepStarted">Notified before a step starts, so a caller can set its deadline or cancel before it runs.</param>
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
                                IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> projectFiles, string rootDirectory,
                                ProviderRegistry registry, LibraryModels models, AnalysisLimits limits,
                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
-                               int? reachableBodyLimit, CancellationToken cancellationToken)
+                               int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null)
     {
-        var step = Stopwatch.StartNew();
-        var discoveryDiagnostics = new List<string>();
-        var index = DiIndexBuilder.Build(scopeId, projectFiles, rootDirectory, cancellationToken);
-        discoveryDiagnostics.AddRange(index.Diagnostics.Select(diagnostic => $"di: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
+        var step = new Stopwatch();
+        var lowering = new Stopwatch();
+        var current = ScopeStep.RootDiscovery;
+        var started = false;
+        int? reachableBodies = null;
+        var completed = new Dictionary<ScopeStep, TimeSpan>();
+        var counters = new Dictionary<ScopeStep, IReadOnlyDictionary<string, int>>();
 
-        var context = new RootDiscoveryContext(scopeId, compilations, rootDirectory, index, cancellationToken);
-        var roots = new List<ExecutionRootDescriptor>();
-        var rootsPerProvider = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        var rootIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var provider in registry.Providers)
+        void Begin(ScopeStep next)
         {
-            var result = provider.Discover(context);
-            var providerDiagnostics = result.Diagnostics.ToList();
-            foreach (var root in result.Roots)
+            current = next;
+            started = false;
+            cancellationToken.ThrowIfCancellationRequested();
+            stepStarted?.Invoke(next);
+            cancellationToken.ThrowIfCancellationRequested();
+            step.Restart();
+            started = true;
+        }
+
+        TimeSpan Complete()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            step.Stop();
+            completed[current] = step.Elapsed;
+            return step.Elapsed;
+        }
+
+        try
+        {
+            Begin(ScopeStep.RootDiscovery);
+            var discoveryDiagnostics = new List<string>();
+            var index = DiIndexBuilder.Build(scopeId, projectFiles, rootDirectory, cancellationToken);
+            discoveryDiagnostics.AddRange(index.Diagnostics.Select(diagnostic => $"di: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
+
+            var context = new RootDiscoveryContext(scopeId, compilations, rootDirectory, index, cancellationToken);
+            var roots = new List<ExecutionRootDescriptor>();
+            var rootsPerProvider = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            var rootIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var provider in registry.Providers)
             {
-                if (rootIds.Add(root.StableRootId))
+                var result = provider.Discover(context);
+                var providerDiagnostics = result.Diagnostics.ToList();
+                foreach (var root in result.Roots)
                 {
-                    roots.Add(root);
-                    continue;
+                    if (rootIds.Add(root.StableRootId))
+                    {
+                        roots.Add(root);
+                        continue;
+                    }
+
+                    providerDiagnostics.Add(new RootDiscoveryDiagnostic(
+                        provider.ProviderId, RootDiscoveryDiagnosticCode.DiscoveryFailed, root.StableRootId,
+                        $"stable root id {root.StableRootId} was already produced by an earlier provider", []));
                 }
 
-                providerDiagnostics.Add(new RootDiscoveryDiagnostic(
-                    provider.ProviderId, RootDiscoveryDiagnosticCode.DiscoveryFailed, root.StableRootId,
-                    $"stable root id {root.StableRootId} was already produced by an earlier provider", []));
+                rootsPerProvider[provider.ProviderId] = roots.Count(root => root.ProviderId == provider.ProviderId);
+                discoveryDiagnostics.AddRange(providerDiagnostics.Select(diagnostic =>
+                    $"{diagnostic.ProviderId}: {diagnostic.Code} {diagnostic.AffectedScope}: {diagnostic.Reason}"));
             }
 
-            rootsPerProvider[provider.ProviderId] = roots.Count(root => root.ProviderId == provider.ProviderId);
-            discoveryDiagnostics.AddRange(providerDiagnostics.Select(diagnostic =>
-                $"{diagnostic.ProviderId}: {diagnostic.Code} {diagnostic.AffectedScope}: {diagnostic.Reason}"));
-        }
+            var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, cancellationToken);
+            discoveryDiagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
+                                                  .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
+            var rootDiscovery = Complete();
 
-        var bindings = InjectionBindings.Discover(compilations, index, rootDirectory, cancellationToken);
-        discoveryDiagnostics.AddRange(bindings.SelectMany(type => type.Diagnostics)
-                                              .Select(diagnostic => $"bindings: {diagnostic.Code} {diagnostic.Subject}: {diagnostic.Message}"));
-        var rootDiscovery = Lap(step);
+            Begin(ScopeStep.ProgramIndex);
 
-        var program = ProgramIndexBuilder.Build(scopeId, compilations, rootDirectory, cancellationToken);
-        var programIndex = Lap(step);
-        var lowering = new Stopwatch();
-        var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-        var loweringDiagnostics = new List<string>();
-        var lower = Members(compilations, rootDirectory, models, loweringCache, metadataSupertypes, loweringDiagnostics, cancellationToken);
-        IReadOnlyList<IrBody> TimedMembers(string bodyId)
-        {
-            lowering.Start();
-            try
+            var program = ProgramIndexBuilder.Build(scopeId, compilations, rootDirectory, cancellationToken);
+            var programIndex = Complete();
+
+            Begin(ScopeStep.ReachableSet);
+            var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+            var loweringDiagnostics = new List<string>();
+            var lower = Members(compilations, rootDirectory, models, loweringCache, metadataSupertypes, loweringDiagnostics, cancellationToken);
+            IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
-                return lower(bodyId);
+                lowering.Start();
+                try
+                {
+                    return lower(bodyId);
+                }
+                finally
+                {
+                    lowering.Stop();
+                }
             }
-            finally
+
+            var reachable = ReachableSet.Build(new ReachabilityInput(program, roots, index, bindings, TimedMembers));
+            var reachableSet = Complete() - lowering.Elapsed;
+            completed[ScopeStep.ReachableSet] = reachableSet;
+            completed[ScopeStep.Lowering] = lowering.Elapsed;
+            reachableBodies = reachable.ReachedBodies.Count;
+            if (reachable.ReachedBodies.Count > reachableBodyLimit)
             {
-                lowering.Stop();
+                return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, null, null, null, null, null, null,
+                                    discoveryDiagnostics, loweringDiagnostics,
+                                    new ScopeStepTimes(rootDiscovery, programIndex, lowering.Elapsed, reachableSet, TimeSpan.Zero, TimeSpan.Zero,
+                                                       TimeSpan.Zero),
+                                    reachable.ReachedBodies.Count);
             }
+
+            Begin(ScopeStep.SummariesAndFixpoint);
+            var summaries = new SummaryCache(reachable.Bodies, program, limits);
+            var scopeProgram = new ScopeProgram(scopeId, roots, reachable, summaries, program, index, bindings)
+            {
+                MetadataSupertypes = metadataSupertypes
+            };
+            var heap = WholeProgram.Solve(scopeProgram, limits, cancellationToken);
+            counters[ScopeStep.SummariesAndFixpoint] = new Dictionary<string, int>(heap.Counters, StringComparer.Ordinal);
+            var summariesAndFixpoint = Complete();
+
+            Begin(ScopeStep.Executions);
+            var executions = ExecutionModel.Build(scopeProgram, heap, cancellationToken);
+            counters[ScopeStep.Executions] = new Dictionary<string, int>(StringComparer.Ordinal) { ["walkVisits"] = executions.WalkVisits };
+            var executionTime = Complete();
+
+            Begin(ScopeStep.Accesses);
+            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
+            var collection = InterproceduralAccesses.Collect(interprocedural);
+            var accesses = Complete();
+            return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, summaries, scopeProgram, heap, executions,
+                                interprocedural, collection, discoveryDiagnostics, loweringDiagnostics,
+                                new ScopeStepTimes(rootDiscovery, programIndex, lowering.Elapsed, reachableSet, summariesAndFixpoint, executionTime,
+                                                   accesses),
+                                null);
         }
-
-        var reachable = ReachableSet.Build(new ReachabilityInput(program, roots, index, bindings, TimedMembers));
-        var reachableSet = Lap(step) - lowering.Elapsed;
-        if (reachable.ReachedBodies.Count > reachableBodyLimit)
+        catch (OperationCanceledException error)
         {
-            return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, null, null, null, null, null, null,
-                                discoveryDiagnostics, loweringDiagnostics,
-                                new ScopeStepTimes(rootDiscovery, programIndex, lowering.Elapsed, reachableSet, TimeSpan.Zero, TimeSpan.Zero,
-                                                   TimeSpan.Zero),
-                                reachable.ReachedBodies.Count);
+            if (error is EngineStageCancelledException engine)
+                counters[current] = engine.Counters;
+            var nested = current == ScopeStep.ReachableSet && started ? lowering.Elapsed : TimeSpan.Zero;
+            var elapsed = started ? step.Elapsed - nested : TimeSpan.Zero;
+            throw new ScopeCancelledException(current, started, elapsed, nested,
+                                              new Dictionary<ScopeStep, TimeSpan>(completed), reachableBodies,
+                                              new Dictionary<ScopeStep, IReadOnlyDictionary<string, int>>(counters), error, cancellationToken);
         }
-
-        var summaries = new SummaryCache(reachable.Bodies, program, limits);
-        var scopeProgram = new ScopeProgram(scopeId, roots, reachable, summaries, program, index, bindings)
-        {
-            MetadataSupertypes = metadataSupertypes
-        };
-        var heap = WholeProgram.Solve(scopeProgram, limits);
-        var summariesAndFixpoint = Lap(step);
-        var executions = ExecutionModel.Build(scopeProgram, heap);
-        var executionTime = Lap(step);
-        var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
-        var collection = InterproceduralAccesses.Collect(interprocedural);
-        var accesses = Lap(step);
-        return new ScopeRun(index, roots, rootsPerProvider, bindings, program, reachable, summaries, scopeProgram, heap, executions,
-                            interprocedural, collection, discoveryDiagnostics, loweringDiagnostics,
-                            new ScopeStepTimes(rootDiscovery, programIndex, lowering.Elapsed, reachableSet, summariesAndFixpoint, executionTime,
-                                               accesses),
-                            null);
-    }
-
-    /// <summary>The step's elapsed time; restarts the stopwatch for the next step.</summary>
-    /// <param name="step">The stopwatch of the step that ends.</param>
-    private static TimeSpan Lap(Stopwatch step)
-    {
-        var elapsed = step.Elapsed;
-        step.Restart();
-        return elapsed;
     }
 
     /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,

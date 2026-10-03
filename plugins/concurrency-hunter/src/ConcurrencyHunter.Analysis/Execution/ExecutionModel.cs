@@ -130,6 +130,15 @@ public sealed class ExecutionAnalysis
     public IReadOnlyDictionary<string, RegionOwnership> Ownership { get; }
     public IReadOnlyDictionary<string, int> Counters { get; }
 
+    /// <summary>The visits accepted by the execution walk across all entries of this scope.</summary>
+    public int WalkVisits { get; init; }
+
+    internal IReadOnlyDictionary<(string Execution, string Instance, BodySegment Segment, string? Tail), int> WalkNodeVisits { get; init; } =
+        new Dictionary<(string, string, BodySegment, string?), int>();
+
+    internal IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> Visits { get; init; } =
+        new Dictionary<string, IReadOnlyList<ExecutionVisit>>(StringComparer.Ordinal);
+
     /// <summary>The objects under construction that their construction publishes.</summary>
     public IReadOnlySet<string> PublishedObjects { get; }
 
@@ -269,6 +278,8 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
     }
 }
 
+internal sealed record ExecutionWalkOrder(bool Reverse = false, int? Seed = null, bool PathWalk = false);
+
 /// <summary>
 /// Executions, construction intervals, ownership and single-object facts over a solved heap. Roots are executions; a
 /// construction runs in the execution its trigger runs in, a lazily resolved singleton and a non-startup type initializer are
@@ -280,19 +291,41 @@ public static class ExecutionModel
 {
     public const string STARTUP = "startup";
 
-    public static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap) => new Builder(scope, heap).Build();
+    public static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken) =>
+        Build(scope, heap, cancellationToken, null);
+
+    internal static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
+    {
+        var builder = new Builder(scope, heap, cancellationToken, walkOrder);
+        try
+        {
+            return builder.Build();
+        }
+        catch (OperationCanceledException error)
+        {
+            throw new EngineStageCancelledException("executions", new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["walkVisits"] = builder.WalkVisits
+            }, cancellationToken, error);
+        }
+    }
 
     /// <summary>The id of the unknown execution running a delegate region an unresolved call was handed (R3).</summary>
     public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
 
-    private sealed class Builder(ScopeProgram scope, HeapSolution heap)
+    private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
+        internal int WalkVisits { get; private set; }
+
+        private void CheckCancellation() => cancellationToken.ThrowIfCancellationRequested();
+
         private readonly Dictionary<string, ExecutionInstance> _executions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _regionExecutions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<CallEdge>> _edges = heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
                                                                         .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _instanceExecutions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, DelegateHandoff> _handoffs = heap.DelegateHandoffs.ToDictionary(handoff => handoff.RegionId, StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _delegateDisplays = new(StringComparer.Ordinal);
         private readonly Dictionary<string, StartupDelegate[]> _startupDelegates = heap.StartupDelegates.GroupBy(fated => fated.CallerInstance, StringComparer.Ordinal)
                                                                                         .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
 
@@ -300,10 +333,16 @@ public static class ExecutionModel
         /// with its site: each hands the delegate to its unknown call as an unresolved call would.</summary>
         private readonly Dictionary<string, HashSet<(string Execution, string BodyId, int OperationId)>> _fateHandings = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _chains = new(StringComparer.Ordinal);
-        private readonly HashSet<(string Execution, string Instance, string Intervals, BodySegment Segment, string? Tail)> _visits = [];
-        private readonly List<(string Execution, string Instance, HashSet<string> Intervals, BodySegment Segment)> _visitList = [];
+        private readonly HashSet<(string Execution, string Instance, string Intervals, BodySegment Segment, string? Tail)>? _pathVisits =
+            walkOrder?.PathWalk == true ? [] : null;
+        private readonly Dictionary<(string Execution, string Instance, BodySegment Segment, string? Tail), WalkNode> _walkNodes = [];
+        private int _walkPostorder;
+        private readonly List<(string Execution, string Instance, ConstructionSets Intervals, BodySegment Segment)> _visitList = [];
+        private Dictionary<string, IReadOnlyList<ExecutionVisit>> _visitsByExecution = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<ExecutionEntry>> _entries = new(StringComparer.Ordinal);
         private readonly Queue<(string Execution, ExecutionEntry Entry, string? Tail)> _pendingEntries = new();
+        private readonly HashSet<(string Execution, ExecutionEntry Entry, string? Tail)> _entryWalks = [];
+        private readonly Random? _walkRandom = walkOrder?.Seed is { } seed ? new Random(seed) : null;
         private readonly AsyncSegments _segments = new(scope, heap);
         private readonly Dictionary<string, SpawnSite[]> _spawns = heap.Spawns.GroupBy(site => site.CallerInstance, StringComparer.Ordinal)
                                                                        .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
@@ -334,18 +373,33 @@ public static class ExecutionModel
 
         internal ExecutionAnalysis Build()
         {
+            CheckCancellation();
             foreach (var root in scope.Roots.OrderBy(root => root.StableRootId, StringComparer.Ordinal))
+            {
+                CheckCancellation();
                 Add(new ExecutionInstance(RootExecution(root.StableRootId), ExecutionKind.Root, root.Entry.Display, root.InvocationPolicy, root.StableRootId, null));
+            }
 
+            foreach (var group in heap.StartupDelegates.Select(fated => (fated.RegionId, Callee: fated.CalleeInstance))
+                                      .Concat(heap.DelegateHandoffs.SelectMany(handoff => handoff.Callees.Select(callee => (handoff.RegionId, Callee: callee))))
+                                      .GroupBy(item => item.RegionId, StringComparer.Ordinal))
+            {
+                CheckCancellation();
+                _delegateDisplays.Add(group.Key, group.Select(item => DelegateName(item.Callee)).Order(StringComparer.Ordinal).First());
+            }
             AssignRegionExecutions();
             var startupTypeInitializers = StartupTypeInitializers();
 
             foreach (var (rootId, instanceId) in heap.RootInstances.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                CheckCancellation();
                 Entry(RootExecution(rootId), new ExecutionEntry(instanceId, ExecutionEntryKind.Root, null));
+            }
 
             foreach (var iterator in heap.IteratorObjects.Where(iterator => heap.UnknownIterators.Contains(iterator.RegionId))
                                           .OrderBy(iterator => iterator.RegionId, StringComparer.Ordinal))
             {
+                CheckCancellation();
                 var body = heap.Instances[iterator.Creation.CalleeInstance].BodyId;
                 var display = $"unknown enumeration of {scope.Reachable.Bodies[body].MethodSymbol}";
                 var id = Add(new ExecutionInstance($"unknown-enumeration:{iterator.RegionId}", ExecutionKind.UnknownEnumeration,
@@ -358,34 +412,48 @@ public static class ExecutionModel
             foreach (var sequence in heap.LibrarySequences.Values.Where(sequence => !sequence.IsGrouping && heap.UnknownIterators.Contains(sequence.RegionId))
                                          .OrderBy(sequence => sequence.RegionId, StringComparer.Ordinal))
             {
+                CheckCancellation();
                 var id = Add(new ExecutionInstance($"unknown-enumeration:{sequence.RegionId}", ExecutionKind.UnknownEnumeration,
                                                    $"unknown enumeration of {heap.Regions[sequence.RegionId].Display}", REPEATED, null, sequence.RegionId));
                 foreach (var instance in sequence.EnumerationInstances)
+                {
+                    CheckCancellation();
                     Entry(id, new ExecutionEntry(instance, ExecutionEntryKind.UnknownEnumeration, null));
+                }
             }
 
             // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders
             // but the end of startup when only executions after startup hand it over, and which holds no lock on entry (R3, ADR 0011).
             foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0))
             {
+                CheckCancellation();
                 var id = Add(new ExecutionInstance(UnknownDelegateCallId(handoff.RegionId), ExecutionKind.UnknownDelegateCall,
-                                                   $"unknown call of the delegate {DelegateName(handoff.Callees[0])}", REPEATED, null, handoff.RegionId));
+                                                   $"unknown call of the delegate {DelegateDisplay(handoff.RegionId)}", REPEATED, null, handoff.RegionId));
                 foreach (var callee in handoff.Callees)
+                {
+                    CheckCancellation();
                     Entry(id, new ExecutionEntry(callee, ExecutionEntryKind.UnknownDelegateCall, null));
+                }
             }
 
             foreach (var construction in heap.Constructions.OrderBy(construction => heap.Regions[construction.RegionId].Kind != HeapRegionKind.Receiver)
                                                            .ThenBy(construction => construction.RegionId, StringComparer.Ordinal))
             {
+                CheckCancellation();
                 foreach (var execution in _regionExecutions.GetValueOrDefault(construction.RegionId) ?? [])
                 {
+                    CheckCancellation();
                     foreach (var instance in construction.ConstructorInstances)
+                    {
+                        CheckCancellation();
                         Entry(execution, new ExecutionEntry(instance, ExecutionEntryKind.Construction, construction.RegionId));
+                    }
                 }
             }
 
             foreach (var initializer in heap.TypeInitializers.Where(initializer => heap.Instances.ContainsKey(initializer.InstanceId)))
             {
+                CheckCancellation();
                 var execution = startupTypeInitializers.Contains(initializer.TypeKey)
                     ? STARTUP
                     : Add(new ExecutionInstance($"type-initializer:{initializer.TypeKey}", ExecutionKind.TypeInitializer,
@@ -396,15 +464,31 @@ public static class ExecutionModel
 
             do
             {
-                while (_pendingEntries.TryDequeue(out var pending))
+                CheckCancellation();
+                while (_pendingEntries.Count != 0)
+                {
+                    CheckCancellation();
+                    var pending = NextEntry();
                     Walk(pending.Execution, pending.Entry, pending.Tail);
+                }
                 foreach (var site in _subscriptions.ToArray())
+                {
+                    CheckCancellation();
                     Subscribed(site);
+                }
             }
             while (_pendingEntries.Count != 0);
 
             if (_entries.ContainsKey(STARTUP))
                 Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
+            CanonicalizeWalk();
+
+            _visitsByExecution = _visitList.GroupBy(visit => visit.Execution, StringComparer.Ordinal)
+                                          .ToDictionary(group => group.Key,
+                                                        group => (IReadOnlyList<ExecutionVisit>)group.Select(visit => new ExecutionVisit(visit.Instance, visit.Segment))
+                                                                                                     .Distinct().ToArray(),
+                                                        StringComparer.Ordinal);
+
             FinishSpawnedExecutions();
             FinishUnknownDelegateCalls();
 
@@ -415,14 +499,9 @@ public static class ExecutionModel
             var accesses = Collect(published);
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
             var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
-            var visits = _visitList.GroupBy(visit => visit.Execution, StringComparer.Ordinal)
-                                   .ToDictionary(group => group.Key,
-                                                 group => (IReadOnlyList<ExecutionVisit>)group.Select(visit => new ExecutionVisit(visit.Instance, visit.Segment))
-                                                                                              .Distinct().ToArray(),
-                                                 StringComparer.Ordinal);
             var steps = _steps.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionStep>)pair.Value.ToArray(), StringComparer.Ordinal);
             var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
-                                          visits, steps, _anchors.ToArray(), _tails, DuringStartup());
+                                          _visitsByExecution, steps, _anchors.ToArray(), _tails, DuringStartup(), cancellationToken);
             var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
                                         .OrderBy(site => site.Site.BodyId, StringComparer.Ordinal)
                                         .ThenBy(site => site.Site.OperationId)
@@ -443,6 +522,9 @@ public static class ExecutionModel
                 _prefixes,
                 order)
             {
+                WalkVisits = WalkVisits,
+                WalkNodeVisits = _walkNodes.ToDictionary(pair => pair.Key, pair => pair.Value.Visits),
+                Visits = _visitsByExecution,
                 SpawnSiteLocations = _spawnSites,
                 TimerSites = timerSites,
                 TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal)
@@ -457,15 +539,105 @@ public static class ExecutionModel
             _ => OrderingCounters.TIMERS_PERIODIC
         };
 
-        /// <summary>Adds an entry once and queues its walk; a prefix entry names the execution its awaited callees' tails join.</summary>
+        /// <summary>Adds an entry once and walks each distinct tail; a prefix entry names the execution its awaited callees' tails join.</summary>
+        /// <param name="execution">The execution entering the body.</param>
+        /// <param name="entry">The body segment and construction interval on entry.</param>
+        /// <param name="tail">The execution its awaited callees' tails join.</param>
         private void Entry(string execution, ExecutionEntry entry, string? tail = null)
         {
             if (!_entries.TryGetValue(execution, out var entries))
                 _entries.Add(execution, entries = []);
-            if (entries.Contains(entry))
-                return;
-            entries.Add(entry);
-            _pendingEntries.Enqueue((execution, entry, tail));
+            if (!entries.Contains(entry))
+                entries.Add(entry);
+            if (_entryWalks.Add((execution, entry, tail)))
+                _pendingEntries.Enqueue((execution, entry, tail));
+        }
+
+        private (string Execution, ExecutionEntry Entry, string? Tail) NextEntry()
+        {
+            if (walkOrder is null)
+                return _pendingEntries.Dequeue();
+            var entries = Permute(_pendingEntries).ToArray();
+            _pendingEntries.Clear();
+            foreach (var entry in entries.Skip(1))
+                _pendingEntries.Enqueue(entry);
+            return entries[0];
+        }
+
+        private IEnumerable<T> Permute<T>(IEnumerable<T> items)
+        {
+            if (walkOrder is null)
+                return items;
+            var result = items.ToArray();
+            if (_walkRandom is not null)
+                _walkRandom.Shuffle(result);
+            else if (walkOrder.Reverse)
+                Array.Reverse(result);
+            return result;
+        }
+
+        private void CanonicalizeWalk()
+        {
+            OrderList(_visitList, _visitList.OrderBy(visit => visit.Execution, StringComparer.Ordinal)
+                                           .ThenBy(visit => visit.Instance, StringComparer.Ordinal)
+                                           .ThenBy(visit => visit.Segment)
+                                           .ThenBy(visit => string.Join(",", visit.Intervals.MayIn.Order(StringComparer.Ordinal)), StringComparer.Ordinal));
+            foreach (var entries in _entries.Values)
+                OrderList(entries, entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.IntervalObject, StringComparer.Ordinal)
+                                          .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal).ThenBy(entry => entry.Segment));
+            foreach (var steps in _steps.Values)
+                OrderSet(steps, steps.OrderBy(step => step.Caller, StringComparer.Ordinal).ThenBy(step => step.CallerSegment)
+                                     .ThenBy(step => step.OperationId).ThenBy(step => step.Callee, StringComparer.Ordinal)
+                                     .ThenBy(step => step.CalleeSegment));
+            foreach (var sets in new[] { _instanceExecutions, _chains, _regionExecutions })
+            {
+                foreach (var set in sets.Values)
+                    OrderSet(set, set.Order(StringComparer.Ordinal));
+                OrderDictionary(sets);
+            }
+            foreach (var handings in _fateHandings.Values)
+                OrderSet(handings, handings.OrderBy(handing => handing.Execution, StringComparer.Ordinal)
+                                          .ThenBy(handing => handing.BodyId, StringComparer.Ordinal).ThenBy(handing => handing.OperationId));
+            OrderSet(_anchors, _anchors.OrderBy(anchor => anchor.ExecutionId, StringComparer.Ordinal)
+                                      .ThenBy(anchor => anchor.CallerInstance, StringComparer.Ordinal).ThenBy(anchor => anchor.OperationId)
+                                      .ThenBy(anchor => anchor.ChildId, StringComparer.Ordinal).ThenBy(anchor => anchor.Kind));
+            foreach (var sites in _timerSites.Values)
+                OrderList(sites, sites.OrderBy(site => site.CallerInstance, StringComparer.Ordinal).ThenBy(site => site.OperationId));
+            OrderDictionary(_entries);
+            OrderDictionary(_steps);
+            OrderDictionary(_fateHandings);
+            OrderDictionary(_timerSites);
+            OrderDictionary(_executions);
+            var depths = new Dictionary<string, int>(StringComparer.Ordinal);
+            int Depth(string id)
+            {
+                if (depths.TryGetValue(id, out var depth))
+                    return depth;
+                return depths[id] = _executions[id].ParentId is { } parent && parent != STARTUP ? Depth(parent) + 1 : 0;
+            }
+            OrderList(_childOrder, _childOrder.OrderBy(Depth).ThenBy(id => id, StringComparer.Ordinal));
+        }
+
+        private static void OrderList<T>(List<T> list, IEnumerable<T> ordered)
+        {
+            var items = ordered.ToArray();
+            list.Clear();
+            list.AddRange(items);
+        }
+
+        private static void OrderSet<T>(HashSet<T> set, IEnumerable<T> ordered)
+        {
+            var items = ordered.ToArray();
+            set.Clear();
+            set.UnionWith(items);
+        }
+
+        private static void OrderDictionary<T>(Dictionary<string, T> dictionary)
+        {
+            var items = dictionary.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
+            dictionary.Clear();
+            foreach (var (key, value) in items)
+                dictionary.Add(key, value);
         }
 
         private static readonly InvocationPolicy AT_MOST_ONCE = new(Multiplicity.AtMostOnce, SelfOverlap.Serialized, "");
@@ -492,10 +664,15 @@ public static class ExecutionModel
 
         /// <summary>The execution a spawn site of <paramref name="parent"/> starts, created once per parent and site; a site reached again
         /// inside the chain of executions it started reuses that execution, which then overlaps itself.</summary>
+        /// <param name="key">The key.</param>
+        /// <param name="create">The create.</param>
+        /// <param name="alwaysRepeated">The alwaysRepeated.</param>
+        /// <param name="parent">The parent.</param>
         private string Child(string parent, string key, Func<string, ExecutionInstance> create, bool alwaysRepeated)
         {
             for (var current = parent; current is not null && current != STARTUP; current = _executions[current].ParentId)
             {
+                CheckCancellation();
                 if (_childKeys.GetValueOrDefault(current) == key)
                 {
                     _recursive.Add(current);
@@ -528,35 +705,51 @@ public static class ExecutionModel
             _anchors.Add(new SpawnAnchor(parent, instance.Id, site.OperationId, child, SpawnAnchorKind.Spawn));
             var awaitsTask = instance.Summary.Spawns.Any(spawn => spawn.OperationId == site.OperationId && spawn.AwaitsWorkTask);
             foreach (var callee in site.Callees)
+            {
+                CheckCancellation();
                 EnterWork(child, callee.InstanceId, awaitsTask);
+            }
         }
 
         /// <summary>Starts the callbacks an <c>Elapsed</c> subscription runs in each execution that created its timer, at the creation site;
         /// a timer whose creation the heap does not locate, or one that may also be a timer of unknown origin, keeps the subscription as a
         /// site of its own, since that timer may have been created in another execution.</summary>
+        /// <param name="site">The site.</param>
         private void Subscribed(TimerCallbackSite site)
         {
             var subscriber = heap.Instances[site.CallerInstance];
             foreach (var region in site.TimersKnown ? site.Timers.DefaultIfEmpty("") : site.Timers.Append(""))
             {
+                CheckCancellation();
                 if (heap.Regions.GetValueOrDefault(region) is { Kind: HeapRegionKind.Allocation, SiteBodyId: { } bodyId, SiteOperationId: { } operationId } timer)
                 {
                     foreach (var creator in heap.Instances.Values.Where(instance => instance.BodyId == bodyId && instance.Context == timer.Context))
                     {
+                        CheckCancellation();
                         foreach (var execution in (_instanceExecutions.GetValueOrDefault(creator.Id) ?? []).ToArray())
+                        {
+                            CheckCancellation();
                             Timer(execution, creator, site, operationId);
+                        }
                     }
                 }
                 else
                 {
                     foreach (var execution in (_instanceExecutions.GetValueOrDefault(subscriber.Id) ?? []).ToArray())
+                    {
+                        CheckCancellation();
                         Timer(execution, subscriber, site, site.OperationId);
+                    }
                 }
             }
         }
 
         /// <summary>Starts the callback execution of a timer site at the operation that creates its timer (or subscribes to it), unless every
         /// timer the site names is disabled, which is only counted; a site that may run a timer of unknown origin runs its callback.</summary>
+        /// <param name="parent">The parent.</param>
+        /// <param name="instance">The instance.</param>
+        /// <param name="site">The site.</param>
+        /// <param name="operationId">The operationId.</param>
         private void Timer(string parent, MethodInstance instance, TimerCallbackSite site, int operationId)
         {
             if (site.TimersKnown && site.Timers.Count != 0 && site.Timers.All(region => site.Action == IrTimerAction.Create
@@ -564,7 +757,10 @@ public static class ExecutionModel
                                                               : _timerSteps.Activations(region).Count == 0 && !_timerSteps.MayBeActivatedElsewhere))
             {
                 foreach (var region in site.Timers)
+                {
+                    CheckCancellation();
                     CountTimer(site, region, TimerKind.Disabled);
+                }
                 return;
             }
 
@@ -578,7 +774,10 @@ public static class ExecutionModel
             if (!sites.Contains(site))
                 sites.Add(site);
             foreach (var callee in site.Callees)
+            {
+                CheckCancellation();
                 EnterWork(child, callee, awaitsTask: false);
+            }
         }
 
         /// <summary>Enters spawned work: whole, or, for async work its spawn does not wait for, its prefix here and its tail in a child
@@ -621,6 +820,7 @@ public static class ExecutionModel
         {
             foreach (var id in _childOrder)
             {
+                CheckCancellation();
                 var child = _executions[id];
                 var parentId = child.ParentId!;
                 var parent = parentId == STARTUP ? null : _executions[parentId];
@@ -654,6 +854,7 @@ public static class ExecutionModel
         {
             foreach (var region in HandedRegions())
             {
+                CheckCancellation();
                 if (!_executions.TryGetValue(UnknownDelegateCallId(region), out var execution))
                     continue;
                 var handings = Handings(region).Distinct().ToArray();
@@ -676,6 +877,7 @@ public static class ExecutionModel
 
         /// <summary>How an unknown call of a delegate names what it runs: a lambda, which has no name of its own, by the member it is
         /// written in and its place, anything else by its method.</summary>
+        /// <param name="calleeInstance">The delegate's callee in the heap.</param>
         private string DelegateName(string calleeInstance)
         {
             var body = scope.Reachable.Bodies[heap.Instances[calleeInstance].BodyId];
@@ -684,9 +886,14 @@ public static class ExecutionModel
                 : body.MethodSymbol;
         }
 
+        private string DelegateDisplay(string region) => _delegateDisplays[region];
+
         /// <summary>A delegate a known call runs by a <c>startup</c> fate runs in startup when startup makes the call. Any other
         /// execution making it does so once startup has ended for it, so the delegate runs, for that call, in an unknown execution, as an
         /// <c>unknown-execution</c> fate's does (R3).</summary>
+        /// <param name="execution">The execution making the call.</param>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="fated">The delegate and call site the heap resolved.</param>
         private void StartupDelegate(string execution, MethodInstance caller, StartupDelegate fated)
         {
             if (execution == STARTUP)
@@ -696,7 +903,7 @@ public static class ExecutionModel
             }
 
             var id = Add(new ExecutionInstance(UnknownDelegateCallId(fated.RegionId), ExecutionKind.UnknownDelegateCall,
-                                               $"unknown call of the delegate {DelegateName(fated.CalleeInstance)}", REPEATED, null, fated.RegionId));
+                                               $"unknown call of the delegate {DelegateDisplay(fated.RegionId)}", REPEATED, null, fated.RegionId));
             if (!_fateHandings.TryGetValue(fated.RegionId, out var handings))
                 _fateHandings.Add(fated.RegionId, handings = []);
             handings.Add((execution, caller.BodyId, fated.OperationId));
@@ -727,9 +934,11 @@ public static class ExecutionModel
             var changed = true;
             while (changed)
             {
+                CheckCancellation();
                 changed = false;
                 foreach (var execution in _executions.Values.Where(execution => !during.Contains(execution.Id)))
                 {
+                    CheckCancellation();
                     if (starters.TryGetValue(execution.TreeRootId, out var by) && (by.Count == 0 || by.Overlaps(during)))
                         changed |= during.Add(execution.Id);
                 }
@@ -744,14 +953,17 @@ public static class ExecutionModel
 
         /// <summary>The broadest kind among the timers a callback execution's sites subscribe to, each counted at its creation site; a site
         /// that may also run a timer of unknown origin counts as periodic, the broadest kind that timer may have.</summary>
+        /// <param name="callback">The callback.</param>
         private TimerKind CallbackKind(string callback)
         {
             var kind = TimerKind.Disabled;
             var any = false;
             foreach (var site in _timerSites[callback])
             {
+                CheckCancellation();
                 foreach (var region in site.Timers)
                 {
+                    CheckCancellation();
                     var regionKind = !site.TimersKnown ? TimerKind.Periodic
                         : site.Action == IrTimerAction.Create ? _timerSteps.ThreadingKind(region)
                         : SubscribedOnce(site) ? TimersKind(region)
@@ -806,10 +1018,13 @@ public static class ExecutionModel
             execution == STARTUP || _executions[execution].Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized };
 
         /// <summary>Whether an execution is a callback of the timer, or runs inside one.</summary>
+        /// <param name="execution">The execution.</param>
+        /// <param name="region">The region.</param>
         private bool IsCallbackOf(string execution, string region)
         {
             for (string? current = execution; current is not null && current != STARTUP; current = _executions[current].ParentId)
             {
+                CheckCancellation();
                 if (_timerSites.TryGetValue(current, out var sites) && sites.Any(site => site.Timers.Contains(region)))
                     return true;
             }
@@ -821,12 +1036,9 @@ public static class ExecutionModel
         {
             if (_flows.TryGetValue(execution, out var flow))
                 return flow;
-            var visits = _visitList.Where(visit => visit.Execution == execution)
-                                   .Select(visit => new ExecutionVisit(visit.Instance, visit.Segment))
-                                   .Distinct()
-                                   .ToArray();
+            var visits = _visitsByExecution.GetValueOrDefault(execution) ?? [];
             flow = new HappensBefore.Flow(scope, heap, _segments, _entries.GetValueOrDefault(execution) ?? [], visits,
-                                          _steps.GetValueOrDefault(execution)?.ToArray() ?? [], new HashSet<(string, int)>());
+                                          _steps.GetValueOrDefault(execution)?.ToArray() ?? [], new HashSet<(string, int)>(), CheckCancellation);
             _flows.Add(execution, flow);
             return flow;
         }
@@ -847,6 +1059,9 @@ public static class ExecutionModel
 
         /// <summary>Whether a site runs at most once per run of an execution: no loop holds it, and the execution's call graph has at most one
         /// path to its body, none through a recursion or a call inside a loop.</summary>
+        /// <param name="execution">The execution.</param>
+        /// <param name="bodyId">The bodyId.</param>
+        /// <param name="operationId">The operationId.</param>
         private bool SiteOnce(string execution, string bodyId, int operationId)
         {
             if (InCycle(bodyId, operationId))
@@ -862,12 +1077,17 @@ public static class ExecutionModel
             var changed = true;
             while (changed)
             {
+                CheckCancellation();
                 changed = false;
                 foreach (var node in nodes)
                 {
+                    CheckCancellation();
                     var total = entries.Contains(node) ? 1 : 0;
                     foreach (var (caller, operation) in incoming.GetValueOrDefault(node) ?? [])
+                    {
+                        CheckCancellation();
                         total += counts.GetValueOrDefault(caller) * (InCycle(heap.Instances[caller].BodyId, operation) ? 2 : 1);
+                    }
                     total = Math.Min(total, 2);
                     if (total != counts.GetValueOrDefault(node))
                     {
@@ -882,6 +1102,8 @@ public static class ExecutionModel
 
         /// <summary>The member symbols of the shortest walk of an execution from its entries to an instance of a body, consecutive
         /// duplicates folded; just the body's symbol when the walk does not reach it.</summary>
+        /// <param name="execution">The execution.</param>
+        /// <param name="bodyId">The bodyId.</param>
         private IReadOnlyList<string> PathSymbols(string execution, string bodyId)
         {
             var steps = (_steps.GetValueOrDefault(execution) ?? []).GroupBy(step => step.Caller, StringComparer.Ordinal)
@@ -894,23 +1116,29 @@ public static class ExecutionModel
             var pending = new Queue<string>();
             foreach (var entry in _entries.GetValueOrDefault(execution) ?? [])
             {
+                CheckCancellation();
                 if (parents.TryAdd(entry.InstanceId, null))
                     pending.Enqueue(entry.InstanceId);
             }
 
             while (pending.TryDequeue(out var instance))
             {
+                CheckCancellation();
                 if (heap.Instances[instance].BodyId == bodyId)
                 {
                     var path = new List<string>();
                     for (string? current = instance; current is not null; current = parents[current])
+                    {
+                        CheckCancellation();
                         path.Add(Symbol(heap.Instances[current].BodyId));
+                    }
                     path.Reverse();
                     return path.Where((symbol, index) => index == 0 || path[index - 1] != symbol).ToArray();
                 }
 
                 foreach (var callee in steps.GetValueOrDefault(instance) ?? [])
                 {
+                    CheckCancellation();
                     if (parents.TryAdd(callee, instance))
                         pending.Enqueue(callee);
                 }
@@ -940,6 +1168,7 @@ public static class ExecutionModel
             var children = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             foreach (var construction in heap.Constructions)
             {
+                CheckCancellation();
                 children[construction.RegionId] = construction.ConstructorInstances
                     .SelectMany(instance => heap.Instances[instance].Parameters.Values.SelectMany(values => values))
                     .Where(region => heap.Regions[region].Kind == HeapRegionKind.Di)
@@ -950,14 +1179,19 @@ public static class ExecutionModel
             var pending = new Stack<string>(heap.Regions.Values.Where(IsHosted).Select(region => region.Identity).Concat(heap.StartupRegions));
             while (pending.TryPop(out var region))
             {
+                CheckCancellation();
                 if (!startup.Add(region))
                     continue;
                 foreach (var child in children.GetValueOrDefault(region) ?? [])
+                {
+                    CheckCancellation();
                     pending.Push(child);
+                }
             }
 
             foreach (var region in heap.Regions.Values.Where(region => region.Kind is HeapRegionKind.Di or HeapRegionKind.Receiver or HeapRegionKind.Container))
             {
+                CheckCancellation();
                 var executions = Executions(region.Identity);
                 if (startup.Contains(region.Identity))
                     executions.Add(STARTUP);
@@ -972,9 +1206,11 @@ public static class ExecutionModel
 
             foreach (var (rootId, instanceId) in heap.RootInstances)
             {
+                CheckCancellation();
                 var instance = heap.Instances[instanceId];
                 foreach (var region in instance.Parameters.Values.SelectMany(values => values).Concat(instance.Receivers))
                 {
+                    CheckCancellation();
                     if (heap.Regions[region] is { Kind: HeapRegionKind.Di } di && !IsContainerWide(di) && !startup.Contains(region))
                         Executions(region).Add(RootExecution(rootId));
                 }
@@ -983,13 +1219,19 @@ public static class ExecutionModel
             var changed = true;
             while (changed)
             {
+                CheckCancellation();
                 changed = false;
                 foreach (var (parent, childRegions) in children)
                 {
+                    CheckCancellation();
                     foreach (var child in childRegions.Where(child => !IsContainerWide(heap.Regions[child]) && !startup.Contains(child)))
                     {
+                        CheckCancellation();
                         foreach (var execution in Executions(parent).ToArray())
+                        {
+                            CheckCancellation();
                             changed |= Executions(child).Add(execution);
+                        }
                     }
                 }
             }
@@ -1009,15 +1251,20 @@ public static class ExecutionModel
             var startupRegions = _regionExecutions.Where(pair => pair.Value.Contains(STARTUP)).Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
             var instances = new HashSet<string>(StringComparer.Ordinal);
             foreach (var construction in heap.Constructions.Where(construction => startupRegions.Contains(construction.RegionId)))
+            {
+                CheckCancellation();
                 Reach(construction.ConstructorInstances, instances);
+            }
 
             var startupTypeInitializers = new HashSet<string>(StringComparer.Ordinal);
             var changed = true;
             while (changed)
             {
+                CheckCancellation();
                 changed = false;
                 foreach (var initializer in heap.TypeInitializers)
                 {
+                    CheckCancellation();
                     if (startupTypeInitializers.Contains(initializer.TypeKey) ||
                         !initializer.TriggeringInstances.Any(instances.Contains) && !initializer.TriggeringRegions.Any(startupRegions.Contains))
                     {
@@ -1035,13 +1282,18 @@ public static class ExecutionModel
 
         private void Reach(IEnumerable<string> starts, HashSet<string> reached)
         {
+            CheckCancellation();
             var pending = new Stack<string>(starts);
             while (pending.TryPop(out var instance))
             {
+                CheckCancellation();
                 if (!reached.Add(instance))
                     continue;
                 foreach (var edge in _edges.GetValueOrDefault(instance) ?? [])
+                {
+                    CheckCancellation();
                     pending.Push(edge.CalleeInstance);
+                }
             }
         }
 
@@ -1049,29 +1301,38 @@ public static class ExecutionModel
         /// constructor call on a new allocation starts that object's interval for everything the call reaches. A visit runs one segment of
         /// its body: a spawn site or timer it runs starts a child execution, and an async spawn edge runs its callee's prefix here and
         /// its tail in a child; a prefix's awaited async callees leave their tails to <paramref name="tail"/>.</summary>
-        private void Walk(string execution, ExecutionEntry entry, string? tail)
+        /// <param name="execution">The execution.</param>
+        /// <param name="entry">The entry.</param>
+        /// <param name="tail">The tail.</param>
+        // The original path-enumerating walk is retained only as the tests' reference.
+        private void PathWalk(string execution, ExecutionEntry entry, string? tail)
         {
+            CheckCancellation();
             HashSet<string> intervals = entry.IntervalObject is { } interval ? [interval] : [];
             var pending = new Stack<(string Instance, HashSet<string> Intervals, BodySegment Segment, string? Tail)>(
                 [(entry.InstanceId, intervals, entry.Segment, tail)]);
             while (pending.TryPop(out var item))
             {
+                CheckCancellation();
                 var key = string.Join(",", item.Intervals.Order(StringComparer.Ordinal));
                 if (!heap.Instances.TryGetValue(item.Instance, out var instance) ||
-                    !_visits.Add((execution, item.Instance, key, item.Segment, item.Tail)))
+                    !_pathVisits!.Add((execution, item.Instance, key, item.Segment, item.Tail)))
                 {
                     continue;
                 }
 
-                _visitList.Add((execution, item.Instance, item.Intervals, item.Segment));
+                WalkVisits++;
+                _visitList.Add((execution, item.Instance, new ConstructionSets(item.Intervals, item.Intervals), item.Segment));
                 foreach (var site in _spawns.GetValueOrDefault(item.Instance) ?? [])
                 {
+                    CheckCancellation();
                     if (_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
                         Spawn(execution, instance, site);
                 }
 
                 foreach (var site in _timers.GetValueOrDefault(item.Instance) ?? [])
                 {
+                    CheckCancellation();
                     if (!_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
                         continue;
                     if (site.Action == IrTimerAction.ElapsedSubscribe)
@@ -1082,6 +1343,7 @@ public static class ExecutionModel
 
                 foreach (var fated in _startupDelegates.GetValueOrDefault(item.Instance) ?? [])
                 {
+                    CheckCancellation();
                     if (_segments.Runs(instance.BodyId, item.Segment, fated.OperationId))
                         StartupDelegate(execution, instance, fated);
                 }
@@ -1091,13 +1353,15 @@ public static class ExecutionModel
                 executions.Add(execution);
                 foreach (var @object in item.Intervals)
                 {
+                    CheckCancellation();
                     if (!_chains.TryGetValue(@object, out var chain))
                         _chains.Add(@object, chain = new HashSet<string>(StringComparer.Ordinal));
                     chain.Add(item.Instance);
                 }
 
-                foreach (var edge in _edges.GetValueOrDefault(item.Instance) ?? [])
+                foreach (var edge in Permute(_edges.GetValueOrDefault(item.Instance) ?? []))
                 {
+                    CheckCancellation();
                     if (_segments.Follow(instance, item.Segment, edge) is not { } calleeSegment)
                         continue;
 
@@ -1139,20 +1403,220 @@ public static class ExecutionModel
             }
         }
 
+        private sealed class ConstructionSets(HashSet<string> mayIn, HashSet<string> mustIn)
+        {
+            internal HashSet<string> MayIn { get; private set; } = mayIn;
+            internal HashSet<string> MustIn { get; private set; } = mustIn;
+
+            internal bool Merge(ConstructionSets incoming)
+            {
+                if (incoming.MayIn.IsSubsetOf(MayIn) && MustIn.IsSubsetOf(incoming.MustIn))
+                    return false;
+                var may = new HashSet<string>(MayIn, StringComparer.Ordinal);
+                may.UnionWith(incoming.MayIn);
+                var must = new HashSet<string>(MustIn, StringComparer.Ordinal);
+                must.IntersectWith(incoming.MustIn);
+                if (may.Count == MayIn.Count && must.Count == MustIn.Count)
+                    return false;
+                MayIn = may;
+                MustIn = must;
+                return true;
+            }
+        }
+
+        private sealed class WalkNode(string instance, BodySegment segment, string? tail)
+        {
+            internal string Instance { get; } = instance;
+            internal BodySegment Segment { get; } = segment;
+            internal string? Tail { get; } = tail;
+            internal List<(WalkNode Node, string[] Added)> Successors { get; } = [];
+            internal ConstructionSets? Intervals { get; set; }
+            internal bool Discovered { get; set; }
+            internal bool Pending { get; set; }
+            internal int Postorder { get; set; }
+            internal int Visits { get; set; }
+        }
+
+        /// <summary>Propagates construction sets per (execution, instance, segment, tail). An unset MustIn means every object;
+        /// the first incoming set initializes it. Readers ask only whether R is inside on some path and outside on some path.
+        /// A reader asking about two objects on the same path would break equivalence with the path walk.</summary>
+        /// <param name="execution">The execution being walked.</param>
+        /// <param name="entry">The entry and its initial construction interval.</param>
+        /// <param name="tail">The async tail associated with a prefix, if any.</param>
+        private void Walk(string execution, ExecutionEntry entry, string? tail)
+        {
+            if (_pathVisits is not null)
+            {
+                PathWalk(execution, entry, tail);
+                return;
+            }
+            CheckCancellation();
+            var first = Node(entry.InstanceId, entry.Segment, tail);
+            if (first is null)
+                return;
+
+            // Discover each node once, caching its set-independent effects and edge transfers.
+            var discovery = new Stack<(WalkNode Node, bool Finish)>([(first, false)]);
+            while (discovery.TryPop(out var frame))
+            {
+                CheckCancellation();
+                var item = frame.Node;
+                if (frame.Finish)
+                {
+                    item.Postorder = _walkPostorder++;
+                    continue;
+                }
+                if (item.Discovered)
+                    continue;
+                item.Discovered = true;
+                var instance = heap.Instances[item.Instance];
+                foreach (var site in _spawns.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    CheckCancellation();
+                    if (_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
+                        Spawn(execution, instance, site);
+                }
+
+                foreach (var site in _timers.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    CheckCancellation();
+                    if (!_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
+                        continue;
+                    if (site.Action == IrTimerAction.ElapsedSubscribe)
+                        _subscriptions.Add(site);
+                    else
+                        Timer(execution, instance, site, site.OperationId);
+                }
+
+                foreach (var fated in _startupDelegates.GetValueOrDefault(item.Instance) ?? [])
+                {
+                    CheckCancellation();
+                    if (_segments.Runs(instance.BodyId, item.Segment, fated.OperationId))
+                        StartupDelegate(execution, instance, fated);
+                }
+
+                if (!_instanceExecutions.TryGetValue(item.Instance, out var executions))
+                    _instanceExecutions.Add(item.Instance, executions = new HashSet<string>(StringComparer.Ordinal));
+                executions.Add(execution);
+
+                foreach (var edge in Permute(_edges.GetValueOrDefault(item.Instance) ?? []))
+                {
+                    CheckCancellation();
+                    if (_segments.Follow(instance, item.Segment, edge) is not { } calleeSegment)
+                        continue;
+
+                    var calleeTail = calleeSegment == BodySegment.Prefix ? item.Tail : null;
+                    if (_segments.IsAsyncSpawn(item.Instance, edge.OperationId, edge.CalleeInstance))
+                    {
+                        calleeTail = AsyncChild(execution, instance, edge.OperationId);
+                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+                    }
+                    else if (calleeSegment == BodySegment.Prefix && calleeTail is not null)
+                    {
+                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
+                    }
+                    else if (calleeSegment == BodySegment.Prefix)
+                    {
+                        calleeSegment = BodySegment.Whole;
+                    }
+
+                    if (!_steps.TryGetValue(execution, out var steps))
+                        _steps.Add(execution, steps = []);
+                    steps.Add(new ExecutionStep(item.Instance, item.Segment, edge.OperationId, edge.CalleeInstance, calleeSegment));
+                    // The transfer adds only this edge's objects, independently of its incoming sets.
+                    var added = edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructed.TryGetValue(edge.CalleeInstance, out var constructed)
+                        ? [constructed]
+                        : instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } constructor
+                            ? constructor.Receivers.SelectMany(value => heap.Resolve(instance.Id, value))
+                                         .Where(region => heap.Regions[region].Kind == HeapRegionKind.Allocation).ToArray()
+                            : Array.Empty<string>();
+                    if (Node(edge.CalleeInstance, calleeSegment, calleeTail) is { } callee)
+                        item.Successors.Add((callee, added));
+                }
+
+                discovery.Push((item, true));
+                foreach (var successor in item.Successors)
+                    discovery.Push((successor.Node, false));
+            }
+
+            // Merge on arrival and keep one pending walk per node, in reverse postorder.
+            var pending = new PriorityQueue<WalkNode, int>();
+            HashSet<string> intervals = entry.IntervalObject is { } interval ? [interval] : [];
+            Merge(first, new ConstructionSets(intervals, intervals));
+            while (pending.TryDequeue(out var item, out _))
+            {
+                CheckCancellation();
+                item.Pending = false;
+                WalkVisits++;
+                item.Visits++;
+                var current = item.Intervals!;
+                var mayIn = current.MayIn;
+                var mustIn = current.MustIn;
+                foreach (var @object in mayIn)
+                {
+                    CheckCancellation();
+                    if (!_chains.TryGetValue(@object, out var chain))
+                        _chains.Add(@object, chain = new HashSet<string>(StringComparer.Ordinal));
+                    chain.Add(item.Instance);
+                }
+
+                foreach (var (callee, added) in item.Successors)
+                {
+                    CheckCancellation();
+                    var incoming = added.Length == 0
+                        ? new ConstructionSets(mayIn, mustIn)
+                        : new ConstructionSets([.. mayIn, .. added], [.. mustIn, .. added]);
+                    Merge(callee, incoming);
+                }
+            }
+
+            WalkNode? Node(string instance, BodySegment segment, string? nodeTail)
+            {
+                if (!heap.Instances.ContainsKey(instance))
+                    return null;
+                var key = (execution, instance, segment, nodeTail);
+                if (!_walkNodes.TryGetValue(key, out var node))
+                    _walkNodes.Add(key, node = new WalkNode(instance, segment, nodeTail));
+                return node;
+            }
+
+            void Merge(WalkNode node, ConstructionSets incoming)
+            {
+                if (node.Intervals is { } known)
+                {
+                    if (!known.Merge(incoming))
+                        return;
+                }
+                else
+                {
+                    node.Intervals = incoming;
+                    _visitList.Add((execution, node.Instance, incoming, node.Segment));
+                }
+                if (!node.Pending)
+                {
+                    node.Pending = true;
+                    pending.Enqueue(node, -node.Postorder);
+                }
+            }
+        }
+
         /// <summary>The objects whose construction publishes them: an instance of the chain stores the object, or a delegate capturing
         /// it, into a region that is neither the object nor reachable from it, returns it to a caller outside the chain, or hands a
         /// shared object to an unresolved call.</summary>
+        /// <param name="ownership">The ownership.</param>
         private HashSet<string> Published(IReadOnlyDictionary<string, RegionOwnership> ownership)
         {
             var published = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (@object, chain) in _chains)
             {
+                CheckCancellation();
                 if (!heap.Regions.TryGetValue(@object, out var region) || region.Kind == HeapRegionKind.Static)
                     continue;
 
                 var inside = Closure([@object]);
                 foreach (var instanceId in chain)
                 {
+                    CheckCancellation();
                     var instance = heap.Instances[instanceId];
                     var summary = instance.Summary;
                     var stores = summary.Stores.Select(store => (Values: store.Values,
@@ -1163,6 +1627,7 @@ public static class ExecutionModel
                                                        .Select(element => (Values: element.Values, Targets: Resolve(instance, element.Arrays))));
                     foreach (var (values, targets) in stores)
                     {
+                        CheckCancellation();
                         var stored = Resolve(instance, values);
                         var exposes = stored.Contains(@object) ||
                                       stored.Any(value => heap.Regions[value].Kind == HeapRegionKind.Delegate && heap.DelegateCaptures(value).Contains(@object));
@@ -1230,14 +1695,18 @@ public static class ExecutionModel
             values.SelectMany(value => heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
 
         /// <summary>Every region reachable from the starts through fields, array elements and delegate captures.</summary>
+        /// <param name="starts">The starts.</param>
         private HashSet<string> Closure(IEnumerable<string> starts)
         {
+            CheckCancellation();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var pending = new Stack<string>(starts);
             while (pending.TryPop(out var region))
             {
+                CheckCancellation();
                 foreach (var next in Successors(region))
                 {
+                    CheckCancellation();
                     if (seen.Add(next))
                         pending.Push(next);
                 }
@@ -1260,22 +1729,30 @@ public static class ExecutionModel
             var seen = new HashSet<(string, string, int, string, bool)>();
             foreach (var (execution, instanceId, intervals, segment) in _visitList)
             {
+                CheckCancellation();
                 var instance = heap.Instances[instanceId];
                 foreach (var access in instance.Summary.Accesses.Where(access => _segments.Runs(instance.BodyId, segment, access.OperationId)))
                 {
+                    CheckCancellation();
                     var regions = access.Field.IsStatic
                         ? new HashSet<string> { heap.StaticRegionOf(instanceId, access.Field) }
                         : Resolve(instance, access.Bases);
                     foreach (var region in regions)
                     {
-                        var local = intervals.Contains(region) && !published.Contains(region);
-                        if (seen.Add((execution, instanceId, access.OperationId, region, local)))
-                            accesses.Add(new CollectedAccess(execution, instanceId, access, region, local));
+                        CheckCancellation();
+                        if (intervals.MayIn.Contains(region) && !published.Contains(region) &&
+                            seen.Add((execution, instanceId, access.OperationId, region, true)))
+                            accesses.Add(new CollectedAccess(execution, instanceId, access, region, true));
+                        if ((!intervals.MustIn.Contains(region) || published.Contains(region)) &&
+                            seen.Add((execution, instanceId, access.OperationId, region, false)))
+                            accesses.Add(new CollectedAccess(execution, instanceId, access, region, false));
                     }
                 }
             }
 
-            return accesses;
+            return accesses.OrderBy(access => access.ExecutionId, StringComparer.Ordinal).ThenBy(access => access.InstanceId, StringComparer.Ordinal)
+                           .ThenBy(access => access.Access.OperationId).ThenBy(access => access.RegionId, StringComparer.Ordinal)
+                           .ThenBy(access => access.IsConstructionLocal).ToArray();
         }
 
         private Dictionary<string, RegionOwnership> Ownership(IReadOnlyList<CollectedAccess> accesses)
@@ -1295,12 +1772,16 @@ public static class ExecutionModel
                 var pending = new Stack<string>(given);
                 while (pending.TryPop(out var execution))
                 {
+                    CheckCancellation();
                     if (!visited.Add(execution))
                         continue;
                     if (handedBy.TryGetValue(execution, out var by) && by.Count != 0)
                     {
                         foreach (var handing in by)
+                        {
+                            CheckCancellation();
                             pending.Push(handing);
+                        }
                     }
                     else
                     {
@@ -1323,8 +1804,10 @@ public static class ExecutionModel
             var visited = new HashSet<string>(sharedRoots, StringComparer.Ordinal);
             while (pending.TryDequeue(out var region))
             {
+                CheckCancellation();
                 foreach (var (field, target) in Edges(region))
                 {
+                    CheckCancellation();
                     if (!visited.Add(target))
                         continue;
                     escapes[target] = [.. escapes.GetValueOrDefault(region) ?? [], EscapeEvidence(accesses, region, field, target)];
@@ -1335,6 +1818,7 @@ public static class ExecutionModel
             var ownership = new Dictionary<string, RegionOwnership>(StringComparer.Ordinal);
             foreach (var region in heap.Regions.Values)
             {
+                CheckCancellation();
                 var reached = accessExecutions.GetValueOrDefault(region.Identity);
                 ownership[region.Identity] = region switch
                 {
@@ -1343,7 +1827,7 @@ public static class ExecutionModel
                     _ when IsContainerWide(region) =>
                         new RegionOwnership(OwnershipKind.Shared, [$"{region.Display} is one container object for the whole scope ({region.Context})."]),
                     _ when escapes.TryGetValue(region.Identity, out var chain) => new RegionOwnership(OwnershipKind.Escaped, chain),
-                    _ when reached is not null && reached.Except(Attributed(CreationExecutions(region))).FirstOrDefault() is { } other =>
+                    _ when reached is not null && reached.Except(Attributed(CreationExecutions(region))).Order(StringComparer.Ordinal).FirstOrDefault() is { } other =>
                         new RegionOwnership(OwnershipKind.Escaped,
                                             [$"{region.Display} is created in {Describe(Attributed(CreationExecutions(region)))} and reached from {Describe([other])}."]),
                     _ when reached is not null => new RegionOwnership(OwnershipKind.ThreadConfined, [$"{region.Display} is reached only in {Describe(reached)}."]),
@@ -1374,16 +1858,23 @@ public static class ExecutionModel
 
         /// <summary>The store that put a target into a field of a region: the collected access where there is one, else any instance's
         /// store or element transfer of that slot.</summary>
+        /// <param name="accesses">The accesses.</param>
+        /// <param name="source">The source.</param>
+        /// <param name="field">The field.</param>
+        /// <param name="target">The target.</param>
         private Analysis.SourceSpan? StoreSpan(IReadOnlyList<CollectedAccess> accesses, string source, string field, string target)
         {
-            var collected = accesses.FirstOrDefault(access => access.Access.Kind == SummaryAccessKind.Store && access.RegionId == source &&
+            var collected = FirstSpan(accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store && access.RegionId == source &&
                                                               FieldSlot.Key(access.Access.Field) == field &&
-                                                              Resolve(heap.Instances[access.InstanceId], access.Access.Values).Contains(target));
+                                                              Resolve(heap.Instances[access.InstanceId], access.Access.Values).Contains(target))
+                                              .Select(access => access.Access.Provenance.Span));
             if (collected is not null)
-                return collected.Access.Provenance.Span;
+                return collected;
 
+            var spans = new List<Analysis.SourceSpan>();
             foreach (var instance in heap.Instances.Values)
             {
+                CheckCancellation();
                 var stores = instance.Summary.Stores
                                      .Where(store => FieldSlot.Key(store.Field) == field && Resolve(instance, store.Values).Contains(target) &&
                                                      Targets(instance, store).Contains(source))
@@ -1393,12 +1884,15 @@ public static class ExecutionModel
                                                                        Resolve(instance, element.Values).Contains(target) &&
                                                                        Resolve(instance, element.Arrays).Contains(source))
                                                      .Select(element => element.OperationId));
-                if (stores.Select(operation => Span(instance.BodyId, operation)).OfType<Analysis.SourceSpan>().FirstOrDefault() is { } span)
-                    return span;
+                spans.AddRange(stores.Select(operation => Span(instance.BodyId, operation)).OfType<Analysis.SourceSpan>());
             }
 
-            return null;
+            return FirstSpan(spans);
         }
+
+        private static Analysis.SourceSpan? FirstSpan(IEnumerable<Analysis.SourceSpan?> spans) =>
+            spans.OfType<Analysis.SourceSpan>().OrderBy(span => span.Path, StringComparer.Ordinal)
+                 .ThenBy(span => span.StartLine).ThenBy(span => span.StartColumn).FirstOrDefault();
 
         private HashSet<string> Targets(MethodInstance instance, StoreTransfer store) =>
             store.Field.IsStatic
@@ -1434,9 +1928,11 @@ public static class ExecutionModel
             var single = new HashSet<string>(StringComparer.Ordinal);
             foreach (var region in heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static))
             {
+                CheckCancellation();
                 var definition = scope.Program.Decompose(region.TypeKey!).DefinitionKey;
                 foreach (var field in heap.FieldsOf(region.Identity))
                 {
+                    CheckCancellation();
                     // The slot key carries the declaring type; the program index names the field by itself.
                     if (scope.Program.Fields.Any(candidate => candidate is { IsStatic: true, IsReadOnly: true } &&
                                                               candidate.ContainingTypeKey == definition &&
@@ -1451,6 +1947,7 @@ public static class ExecutionModel
             var resolved = scope.DiIndex.UnresolvedRegistrations.Count == 0;
             foreach (var region in heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Di && IsContainerWide(region) && !region.IsMerged))
             {
+                CheckCancellation();
                 if (resolved && !region.MayOverlapItself)
                     single.Add(region.Identity);
             }
@@ -1458,6 +1955,7 @@ public static class ExecutionModel
             var once = OnceInstances();
             foreach (var region in heap.Regions.Values.Where(region => region is { Kind: HeapRegionKind.Allocation, IsMerged: false, SiteBodyId: not null }))
             {
+                CheckCancellation();
                 var creators = heap.Instances.Values.Where(instance => instance.BodyId == region.SiteBodyId && instance.Context == region.Context).ToArray();
                 if (creators.Length != 0 && creators.All(instance => once.Contains(instance.Id)) &&
                     scope.Reachable.Bodies.ContainsKey(region.SiteBodyId!) && !InCycle(region.SiteBodyId!, region.SiteOperationId!.Value))
@@ -1476,6 +1974,7 @@ public static class ExecutionModel
             var once = new HashSet<string>(StringComparer.Ordinal);
             foreach (var construction in heap.Constructions)
             {
+                CheckCancellation();
                 var executions = _regionExecutions.GetValueOrDefault(construction.RegionId) ?? [];
                 if (!executions.Contains(STARTUP) && !executions.Any(id => id.StartsWith("construction:", StringComparison.Ordinal)))
                     continue;
@@ -1483,10 +1982,12 @@ public static class ExecutionModel
                 var pending = new Stack<string>(construction.ConstructorInstances);
                 while (pending.TryPop(out var instanceId))
                 {
+                    CheckCancellation();
                     if (!once.Add(instanceId))
                         continue;
                     foreach (var edge in _edges.GetValueOrDefault(instanceId) ?? [])
                     {
+                        CheckCancellation();
                         if (heap.Instances[edge.CalleeInstance] is { } callee &&
                             scope.Program.Method(callee.BodyId)?.Kind == ProgramMethodKind.Constructor && callee.Receivers.Contains(construction.RegionId))
                         {
@@ -1499,6 +2000,7 @@ public static class ExecutionModel
             once.UnionWith(heap.TypeInitializers.Select(initializer => initializer.InstanceId));
             foreach (var root in scope.Roots.Where(root => root.InvocationPolicy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized }))
             {
+                CheckCancellation();
                 if (heap.RootInstances.TryGetValue(root.StableRootId, out var instance))
                     once.Add(instance);
             }
@@ -1508,6 +2010,7 @@ public static class ExecutionModel
 
         private bool InCycle(string bodyId, int operationId)
         {
+            CheckCancellation();
             if (!_inCycle.TryGetValue((bodyId, operationId), out var inCycle))
             {
                 inCycle = scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && InCycle(body, operationId);
@@ -1517,8 +2020,9 @@ public static class ExecutionModel
             return inCycle;
         }
 
-        private static bool InCycle(IrBody body, int operationId)
+        private bool InCycle(IrBody body, int operationId)
         {
+            CheckCancellation();
             var block = body.Blocks.FirstOrDefault(candidate => candidate.Operations.Any(operation => operation.Id == operationId));
             if (block is null)
                 return false;
@@ -1530,12 +2034,16 @@ public static class ExecutionModel
             var pending = new Stack<int>(successors.GetValueOrDefault(block.Ordinal) ?? []);
             while (pending.TryPop(out var current))
             {
+                CheckCancellation();
                 if (current == block.Ordinal)
                     return true;
                 if (!seen.Add(current))
                     continue;
                 foreach (var next in successors.GetValueOrDefault(current) ?? [])
+                {
+                    CheckCancellation();
                     pending.Push(next);
+                }
             }
 
             return false;

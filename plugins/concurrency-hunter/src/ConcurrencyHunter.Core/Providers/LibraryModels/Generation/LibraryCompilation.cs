@@ -38,14 +38,14 @@ public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnly
 
 /// <summary>Decompiles an implementation assembly in memory as the whole-project decompiler does and compiles it against its
 /// references (SPEC TD-034b). A body that does not compile has no body: its member is rewritten as <c>extern</c>, which the engine
-/// already reads as a call without a body. One compilation per implementation path and reference set per process.</summary>
+/// already reads as a call without a body. One compilation per implementation path, reference set and additional extern selection per process.</summary>
 public static class LibraryCompilation
 {
     private const int REWRITE_ROUNDS = 3;
 
     /// <summary>Declaration-level codes measured as decompiler artefacts that bind nothing wrongly: a field-like event beside its
     /// backing field, <c>==</c> without the <c>!=</c> a trimmer removed, module attributes.</summary>
-    private static readonly HashSet<string> BenignDeclarationErrors = new(["CS0102", "CS0216", "CS8335"], StringComparer.Ordinal);
+    internal static readonly HashSet<string> BenignDeclarationErrors = new(["CS0102", "CS0216", "CS8335"], StringComparer.Ordinal);
 
     /// <summary>Flow-analysis errors the compiler reports on a member's declaration rather than in its body.</summary>
     private static readonly HashSet<string> FlowErrors = new(["CS0161", "CS0171", "CS0177", "CS0843"], StringComparer.Ordinal);
@@ -58,15 +58,26 @@ public static class LibraryCompilation
     /// dependency paths.</summary>
     /// <param name="assembly">The implementation assembly, not a reference assembly.</param>
     /// <param name="cancellationToken">Cancels the decompilation and the compilation.</param>
-    public static LibraryCompilationResult Compile(ImplementationAssembly assembly, CancellationToken cancellationToken)
+    public static LibraryCompilationResult Compile(ImplementationAssembly assembly, CancellationToken cancellationToken) =>
+        Compile(assembly, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
+
+    /// <summary>Compiles an implementation assembly with the selected members made extern as well as failing bodies.</summary>
+    /// <param name="assembly">The implementation assembly.</param>
+    /// <param name="selectedMembers">Documentation ids of whole members to make extern.</param>
+    /// <param name="cancellationToken">Cancels the decompilation and compilation.</param>
+    internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers,
+                                                     CancellationToken cancellationToken)
     {
         var dependencies = assembly.References.Where(reference => !string.Equals(Path.GetDirectoryName(reference),
                                                                                 Path.TrimEndingDirectorySeparator(assembly.SharedFrameworkDirectory),
                                                                                 StringComparison.OrdinalIgnoreCase));
-        var key = string.Join("\n", new[] { assembly.Path, assembly.SharedFrameworkDirectory }.Concat(dependencies));
+        var selection = selectedMembers.ToHashSet(StringComparer.Ordinal);
+        // Paths compare ignoring case; hex-encoded member ids retain their case in that cache.
+        var key = string.Join("\n", new[] { assembly.Path, assembly.SharedFrameworkDirectory }.Concat(dependencies)) +
+                  "\nextern:\n" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", selection.Order(StringComparer.Ordinal))));
         var compilation = Compilations.GetOrAdd(key, _ => new Lazy<LibraryCompilationResult>(() =>
             CompileModule(assembly.AssemblyName, Decompile(assembly, cancellationToken),
-                          assembly.References.Select(reference => MetadataReference.CreateFromFile(reference)).ToArray(), cancellationToken)));
+                          assembly.References.Select(reference => MetadataReference.CreateFromFile(reference)).ToArray(), cancellationToken, selection)));
         try
         {
             return compilation.Value;
@@ -129,8 +140,9 @@ public static class LibraryCompilation
     /// <param name="module">The decompiled module.</param>
     /// <param name="references">The references of the platform version.</param>
     /// <param name="cancellationToken">Cancels the compilation.</param>
+    /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
-                                                           CancellationToken cancellationToken)
+                                                           CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null)
     {
         if (module.Failures.Count > 0)
         {
@@ -138,7 +150,7 @@ public static class LibraryCompilation
                                                 module.Failures.Select(failure => $"decompiler: {failure}").ToArray());
         }
 
-        return CompileTrees(assemblyName, module.Trees, references, cancellationToken);
+        return CompileTrees(assemblyName, module.Trees, references, cancellationToken, selectedMembers);
     }
 
     /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, then rewrites
@@ -149,8 +161,9 @@ public static class LibraryCompilation
     /// <param name="trees">The decompiled trees.</param>
     /// <param name="references">The references of the platform version.</param>
     /// <param name="cancellationToken">Cancels the compilation.</param>
+    /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
-                                                          IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken)
+                                                          IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null)
     {
         var bodies = trees.Sum(tree => tree.GetRoot(cancellationToken).DescendantNodes().Count(IsBody));
         var compilation = CSharpCompilation.Create(assemblyName, trees, references,
@@ -158,6 +171,47 @@ public static class LibraryCompilation
                                                                                 nullableContextOptions: NullableContextOptions.Disable));
         var externMembers = new SortedSet<string>(StringComparer.Ordinal);
         var externBodies = 0;
+        if (selectedMembers is { Count: > 0 })
+        {
+            foreach (var tree in compilation.SyntaxTrees.ToArray())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var currentTree = tree;
+                var model = compilation.GetSemanticModel(currentTree);
+                var root = currentTree.GetRoot(cancellationToken);
+                // Each variable in a field-like event declaration is a separate member.
+                while (root.DescendantNodes().OfType<EventFieldDeclarationSyntax>()
+                           .FirstOrDefault(field => field.Declaration.Variables.Count > 1 && Selected(field, model, selectedMembers, cancellationToken)) is { } field)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    root = root.ReplaceNode(field, field.Declaration.Variables.Select(variable =>
+                        field.WithDeclaration(field.Declaration.WithVariables(SingletonSeparatedList(variable)))));
+                    var splitTree = CSharpSyntaxTree.ParseText(root.ToFullString(), (CSharpParseOptions)currentTree.Options,
+                                                               currentTree.FilePath, cancellationToken: cancellationToken);
+                    compilation = compilation.ReplaceSyntaxTree(currentTree, splitTree);
+                    currentTree = splitTree;
+                    root = currentTree.GetRoot(cancellationToken);
+                    model = compilation.GetSemanticModel(currentTree);
+                }
+
+                var members = root.DescendantNodes().OfType<MemberDeclarationSyntax>()
+                                  .Where(member => Selected(member, model, selectedMembers, cancellationToken)).ToHashSet();
+                if (members.Count == 0)
+                    continue;
+                foreach (var field in members.OfType<EventFieldDeclarationSyntax>())
+                {
+                    foreach (var variable in field.Declaration.Variables)
+                        externMembers.UnionWith(DeclaredSymbols(model.GetDeclaredSymbol(variable, cancellationToken)));
+                }
+
+                var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model,
+                                                   externMembers, cancellationToken);
+                externBodies += removed;
+                compilation = compilation.ReplaceSyntaxTree(currentTree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)currentTree.Options,
+                                                                                                      currentTree.FilePath, cancellationToken: cancellationToken));
+            }
+        }
+
         for (var round = 0; ; round++)
         {
             var targets = new Targets();
@@ -186,6 +240,16 @@ public static class LibraryCompilation
                                                                                                tree.FilePath, cancellationToken: cancellationToken));
             }
         }
+    }
+
+    private static bool Selected(MemberDeclarationSyntax member, SemanticModel model, IReadOnlySet<string> selection,
+                                 CancellationToken cancellationToken)
+    {
+        if (member is EventFieldDeclarationSyntax field)
+            return field.Declaration.Variables.Any(variable => model.GetDeclaredSymbol(variable, cancellationToken)?.GetDocumentationCommentId() is { } id &&
+                                                             selection.Contains(id));
+        return member is MethodDeclarationSyntax or PropertyDeclarationSyntax or IndexerDeclarationSyntax or EventDeclarationSyntax &&
+               model.GetDeclaredSymbol(member, cancellationToken)?.GetDocumentationCommentId() is { } memberId && selection.Contains(memberId);
     }
 
     private static SyntaxTree Parse(ICSharpCode.Decompiler.CSharp.Syntax.SyntaxTree tree, DecompilerSettings settings, string path,
@@ -283,6 +347,8 @@ public static class LibraryCompilation
             IndexerDeclarationSyntax indexer => indexer.WithExpressionBody(null).WithSemicolonToken(default)
                                                        .WithAccessorList(BodilessAccessors(indexer.AccessorList))
                                                        .WithModifiers(ExternModifiers(indexer.Modifiers)),
+            EventFieldDeclarationSyntax field => field.WithModifiers(ExternModifiers(field.Modifiers))
+                                                      .WithDeclaration(WithoutInitializers(field.Declaration)),
             EventDeclarationSyntax @event => EventFieldDeclaration(@event.AttributeLists, ExternModifiers(@event.Modifiers),
                                                                    VariableDeclaration(@event.Type, SingletonSeparatedList(VariableDeclarator(@event.Identifier)))),
             _ => member
