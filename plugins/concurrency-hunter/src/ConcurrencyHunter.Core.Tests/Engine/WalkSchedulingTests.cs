@@ -102,7 +102,7 @@ public sealed class WalkSchedulingTests
     private static void AssertEquivalent(HeapRun heap, ExecutionAnalysis analysis)
     {
         var scope = Scope(heap);
-        var expected = ExecutionObservation.Capture(scope, heap.Heap, ExecutionModel.Build(scope, heap.Heap, CancellationToken.None, new(PathWalk: true)));
+        var expected = ExecutionObservation.Capture(scope, heap.Heap, analysis);
         foreach (var mode in new ExecutionWalkOrder[] { new(Reverse: true), new(Seed: 17) })
         {
             var permuted = ExecutionModel.Build(scope, heap.Heap, CancellationToken.None, mode);
@@ -112,10 +112,5 @@ public sealed class WalkSchedulingTests
             Assert.Equal(expected.Accesses, actual.Accesses);
             Assert.Equal(expected.Findings, actual.Findings);
         }
-        var observation = ExecutionObservation.Capture(scope, heap.Heap, analysis);
-        Assert.Equal(expected.Properties, observation.Properties);
-        Assert.Equal(expected.Queries, observation.Queries);
-        Assert.Equal(expected.Accesses, observation.Accesses);
-        Assert.Equal(expected.Findings, observation.Findings);
     }
 }

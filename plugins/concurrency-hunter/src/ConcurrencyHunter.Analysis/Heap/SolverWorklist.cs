@@ -2,7 +2,7 @@ using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Heap;
 
-internal sealed record SolverWorklistOptions(bool FullPasses = false, bool Audit = false, bool VerifyConvergence = false);
+internal sealed record SolverWorklistOptions(bool Audit = false, bool VerifyConvergence = false);
 
 public static partial class WholeProgram
 {
@@ -51,7 +51,7 @@ public static partial class WholeProgram
                 BuildReachIndex();
                 clean = SameReach(previous.ReachSnapshot, _reachIndex);
             }
-            if (clean && !_worklistOptions.FullPasses)
+            if (clean)
             {
                 if (_worklistOptions.Audit)
                     AuditSkip(instance, previous!);

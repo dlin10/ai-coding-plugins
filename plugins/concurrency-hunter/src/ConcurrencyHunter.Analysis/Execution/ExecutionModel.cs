@@ -278,7 +278,7 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
     }
 }
 
-internal sealed record ExecutionWalkOrder(bool Reverse = false, int? Seed = null, bool PathWalk = false);
+internal sealed record ExecutionWalkOrder(bool Reverse = false, int? Seed = null);
 
 /// <summary>
 /// Executions, construction intervals, ownership and single-object facts over a solved heap. Roots are executions; a
@@ -333,8 +333,6 @@ public static class ExecutionModel
         /// with its site: each hands the delegate to its unknown call as an unresolved call would.</summary>
         private readonly Dictionary<string, HashSet<(string Execution, string BodyId, int OperationId)>> _fateHandings = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _chains = new(StringComparer.Ordinal);
-        private readonly HashSet<(string Execution, string Instance, string Intervals, BodySegment Segment, string? Tail)>? _pathVisits =
-            walkOrder?.PathWalk == true ? [] : null;
         private readonly Dictionary<(string Execution, string Instance, BodySegment Segment, string? Tail), WalkNode> _walkNodes = [];
         private int _walkPostorder;
         private readonly List<(string Execution, string Instance, ConstructionSets Intervals, BodySegment Segment)> _visitList = [];
@@ -1297,112 +1295,6 @@ public static class ExecutionModel
             }
         }
 
-        /// <summary>Visits every instance an execution reaches from one entry, with the objects whose constructor chain is running: a
-        /// constructor call on a new allocation starts that object's interval for everything the call reaches. A visit runs one segment of
-        /// its body: a spawn site or timer it runs starts a child execution, and an async spawn edge runs its callee's prefix here and
-        /// its tail in a child; a prefix's awaited async callees leave their tails to <paramref name="tail"/>.</summary>
-        /// <param name="execution">The execution.</param>
-        /// <param name="entry">The entry.</param>
-        /// <param name="tail">The tail.</param>
-        // The original path-enumerating walk is retained only as the tests' reference.
-        private void PathWalk(string execution, ExecutionEntry entry, string? tail)
-        {
-            CheckCancellation();
-            HashSet<string> intervals = entry.IntervalObject is { } interval ? [interval] : [];
-            var pending = new Stack<(string Instance, HashSet<string> Intervals, BodySegment Segment, string? Tail)>(
-                [(entry.InstanceId, intervals, entry.Segment, tail)]);
-            while (pending.TryPop(out var item))
-            {
-                CheckCancellation();
-                var key = string.Join(",", item.Intervals.Order(StringComparer.Ordinal));
-                if (!heap.Instances.TryGetValue(item.Instance, out var instance) ||
-                    !_pathVisits!.Add((execution, item.Instance, key, item.Segment, item.Tail)))
-                {
-                    continue;
-                }
-
-                WalkVisits++;
-                _visitList.Add((execution, item.Instance, new ConstructionSets(item.Intervals, item.Intervals), item.Segment));
-                foreach (var site in _spawns.GetValueOrDefault(item.Instance) ?? [])
-                {
-                    CheckCancellation();
-                    if (_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
-                        Spawn(execution, instance, site);
-                }
-
-                foreach (var site in _timers.GetValueOrDefault(item.Instance) ?? [])
-                {
-                    CheckCancellation();
-                    if (!_segments.Runs(instance.BodyId, item.Segment, site.OperationId))
-                        continue;
-                    if (site.Action == IrTimerAction.ElapsedSubscribe)
-                        _subscriptions.Add(site);
-                    else
-                        Timer(execution, instance, site, site.OperationId);
-                }
-
-                foreach (var fated in _startupDelegates.GetValueOrDefault(item.Instance) ?? [])
-                {
-                    CheckCancellation();
-                    if (_segments.Runs(instance.BodyId, item.Segment, fated.OperationId))
-                        StartupDelegate(execution, instance, fated);
-                }
-
-                if (!_instanceExecutions.TryGetValue(item.Instance, out var executions))
-                    _instanceExecutions.Add(item.Instance, executions = new HashSet<string>(StringComparer.Ordinal));
-                executions.Add(execution);
-                foreach (var @object in item.Intervals)
-                {
-                    CheckCancellation();
-                    if (!_chains.TryGetValue(@object, out var chain))
-                        _chains.Add(@object, chain = new HashSet<string>(StringComparer.Ordinal));
-                    chain.Add(item.Instance);
-                }
-
-                foreach (var edge in Permute(_edges.GetValueOrDefault(item.Instance) ?? []))
-                {
-                    CheckCancellation();
-                    if (_segments.Follow(instance, item.Segment, edge) is not { } calleeSegment)
-                        continue;
-
-                    var calleeTail = calleeSegment == BodySegment.Prefix ? item.Tail : null;
-                    if (_segments.IsAsyncSpawn(item.Instance, edge.OperationId, edge.CalleeInstance))
-                    {
-                        calleeTail = AsyncChild(execution, instance, edge.OperationId);
-                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
-                    }
-                    else if (calleeSegment == BodySegment.Prefix && calleeTail is not null)
-                    {
-                        Entry(calleeTail, new ExecutionEntry(edge.CalleeInstance, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
-                    }
-                    else if (calleeSegment == BodySegment.Prefix)
-                    {
-                        calleeSegment = BodySegment.Whole;
-                    }
-
-                    if (!_steps.TryGetValue(execution, out var steps))
-                        _steps.Add(execution, steps = []);
-                    steps.Add(new ExecutionStep(item.Instance, item.Segment, edge.OperationId, edge.CalleeInstance, calleeSegment));
-                    var calleeIntervals = item.Intervals;
-                    if (edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructed.TryGetValue(edge.CalleeInstance, out var constructed) &&
-                        !item.Intervals.Contains(constructed))
-                    {
-                        calleeIntervals = [.. item.Intervals, constructed];
-                    }
-                    else if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } constructor)
-                    {
-                        var created = constructor.Receivers.SelectMany(value => heap.Resolve(instance.Id, value))
-                                          .Where(region => heap.Regions[region].Kind == HeapRegionKind.Allocation && !item.Intervals.Contains(region))
-                                          .ToArray();
-                        if (created.Length != 0)
-                            calleeIntervals = [.. item.Intervals, .. created];
-                    }
-
-                    pending.Push((edge.CalleeInstance, calleeIntervals, calleeSegment, calleeTail));
-                }
-            }
-        }
-
         private sealed class ConstructionSets(HashSet<string> mayIn, HashSet<string> mustIn)
         {
             internal HashSet<string> MayIn { get; private set; } = mayIn;
@@ -1439,17 +1331,12 @@ public static class ExecutionModel
 
         /// <summary>Propagates construction sets per (execution, instance, segment, tail). An unset MustIn means every object;
         /// the first incoming set initializes it. Readers ask only whether R is inside on some path and outside on some path.
-        /// A reader asking about two objects on the same path would break equivalence with the path walk.</summary>
+        /// A reader asking about two objects on the same path would need the per-path sets these two sets replace.</summary>
         /// <param name="execution">The execution being walked.</param>
         /// <param name="entry">The entry and its initial construction interval.</param>
         /// <param name="tail">The async tail associated with a prefix, if any.</param>
         private void Walk(string execution, ExecutionEntry entry, string? tail)
         {
-            if (_pathVisits is not null)
-            {
-                PathWalk(execution, entry, tail);
-                return;
-            }
             CheckCancellation();
             var first = Node(entry.InstanceId, entry.Segment, tail);
             if (first is null)

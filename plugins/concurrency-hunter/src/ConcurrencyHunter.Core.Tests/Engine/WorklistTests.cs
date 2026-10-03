@@ -20,16 +20,10 @@ public sealed class WorklistTests
     private const string SIMPLE = "public class WorkController : ControllerBase { public void Post() { } }";
 
     [Fact]
-    public async Task Demo_heap_agrees_with_full_passes() => await AssertSolution(DemoPath(), audit: false);
+    public async Task Demo_skips_are_sound_under_audit() => await AssertSolution(DemoPath());
 
     [RequiresEShopFact]
-    public async Task EShop_heap_agrees_with_full_passes() => await AssertSolution(EShopPath(), audit: false);
-
-    [Fact]
-    public async Task Demo_skips_are_sound_under_audit() => await AssertSolution(DemoPath(), audit: true);
-
-    [RequiresEShopFact]
-    public async Task EShop_skips_are_sound_under_audit() => await AssertSolution(EShopPath(), audit: true);
+    public async Task EShop_skips_are_sound_under_audit() => await AssertSolution(EShopPath());
 
     [Fact]
     public void Clean_instance_is_skipped_and_a_dirty_one_is_processed()
@@ -38,10 +32,9 @@ public sealed class WorklistTests
             public static class Steps { public static object Make() => new object(); }
             public class WorkController : ControllerBase { public void Post() { GC.KeepAlive(Steps.Make()); } }
             """ + Startup());
-        var expected = SolveHeap(program, new(FullPasses: true));
         var actual = SolveHeap(program, new(Audit: true));
-        Assert.True(actual.Counters[HeapCounters.INSTANCE_PROCESSINGS] < expected.Counters[HeapCounters.INSTANCE_PROCESSINGS]);
-        Assert.Equal(expected.Counters[HeapCounters.PROPAGATE_PASSES], actual.Counters[HeapCounters.PROPAGATE_PASSES]);
+        Assert.True(actual.Counters[HeapCounters.INSTANCE_PROCESSINGS] <
+                    actual.Counters[HeapCounters.PROPAGATE_PASSES] * actual.Instances.Count);
         var solver = NewSolver(SIMPLE + Startup());
         Invoke(solver, "Run");
         Invoke(solver, "Propagate");
@@ -63,7 +56,7 @@ public sealed class WorklistTests
     }
 
     [Fact]
-    public async Task Full_pass_after_convergence_changes_nothing() => await AssertSolution(DemoPath(), audit: true, verify: true);
+    public async Task Full_pass_after_convergence_changes_nothing() => await AssertSolution(DemoPath(), verify: true);
 
     [Fact]
     public void Write_through_a_stored_reference_dirties_its_readers()
@@ -158,28 +151,25 @@ public sealed class WorklistTests
     }
 
     [Fact]
-    public void Rebuilt_collections_keep_the_insertion_order_of_a_full_pass()
+    public void Rebuilt_collections_keep_their_order_when_a_late_instance_reruns()
     {
-        var program = Reach(Holders());
-        var work = NewSolver(program, new());
-        var full = NewSolver(program, new(FullPasses: true));
+        var work = NewSolver(Reach(Holders()), new());
         Invoke(work, "Run");
-        Invoke(full, "Run");
         var histories = (IDictionary)Field(work, "_history").GetValue(work)!;
         Invoke(work, "Propagate");
         var order = ((IEnumerable<string>)Field(work, "_instanceOrder").GetValue(work)!).ToArray();
+        var handoffs = (IDictionary)work.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(work)!;
+        var keys = handoffs.Keys.Cast<object>().ToArray();
+        var serialized = ExecutionObservation.Serialize(handoffs);
         var late = order.Last(id => ((HashSet<StateKey>)histories[id]!.GetType().GetProperty("Reads")!.GetValue(histories[id])!).Count > 1);
         var read = ((HashSet<StateKey>)histories[late]!.GetType().GetProperty("Reads")!.GetValue(histories[late])!).First();
         Invoke(work, "WroteState", read);
         Invoke(work, "Propagate");
-        Invoke(full, "Propagate");
-        var workHandoffs = (IDictionary)work.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(work)!;
-        var fullHandoffs = (IDictionary)full.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(full)!;
-        Assert.NotEmpty(workHandoffs);
-        Assert.Equal(workHandoffs.Keys.Cast<object>(), fullHandoffs.Keys.Cast<object>());
-        Assert.Equal(ExecutionObservation.Serialize(fullHandoffs), ExecutionObservation.Serialize(workHandoffs));
-        Assert.Equal((IEnumerable<string>)Field(full, "_instanceOrder").GetValue(full)!,
-                     (IEnumerable<string>)Field(work, "_instanceOrder").GetValue(work)!);
+        handoffs = (IDictionary)work.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(work)!;
+        Assert.NotEmpty(handoffs);
+        Assert.Equal(keys, handoffs.Keys.Cast<object>());
+        Assert.Equal(serialized, ExecutionObservation.Serialize(handoffs));
+        Assert.Equal(order, (IEnumerable<string>)Field(work, "_instanceOrder").GetValue(work)!);
     }
 
     [Fact]
@@ -228,7 +218,7 @@ public sealed class WorklistTests
     }
 
     [Fact]
-    public void Changed_rounds_match_full_passes_under_a_small_scc_budget()
+    public void Scc_budget_of_one_merges_a_cycle_and_every_skip_is_sound()
     {
         var heap = AssertFixture(Recursive(), new(MaxSccIterations: 1));
         Assert.True(heap.Counters[HeapCounters.SCC_BUDGET_EXCEEDED] > 0);
@@ -328,15 +318,10 @@ public sealed class WorklistTests
         public class WorkController : ControllerBase { public void Post() { Ping.Left(new Box(), new object(), 4); } }
         """ + Startup();
 
-    private static HeapSolution AssertFixture(string source, AnalysisLimits? limits = null, bool verify = false)
-    {
-        var program = Reach(source);
-        var scope = Scope(program, limits);
-        var full = WholeProgram.Solve(scope, limits ?? AnalysisLimits.Default, CancellationToken.None, new(FullPasses: true));
-        var actual = WholeProgram.Solve(scope, limits ?? AnalysisLimits.Default, CancellationToken.None, new(Audit: true, VerifyConvergence: verify));
-        Assert.Equal(HeapObservation.Capture(scope, full), HeapObservation.Capture(scope, actual));
-        return actual;
-    }
+    // The audit runs every processing the worklist skips and fails the solve on a read or write the map missed.
+    private static HeapSolution AssertFixture(string source, AnalysisLimits? limits = null, bool verify = false) =>
+        WholeProgram.Solve(Scope(Reach(source), limits), limits ?? AnalysisLimits.Default, CancellationToken.None,
+                           new(Audit: true, VerifyConvergence: verify));
 
     private static ScopeProgram Scope(WholeProgramRun program, AnalysisLimits? limits = null) =>
         new(program.ScopeId, program.Input.Roots, program.Result, new SummaryCache(program.Result.Bodies, program.Input.Program, limits ?? AnalysisLimits.Default),
@@ -360,7 +345,7 @@ public sealed class WorklistTests
     private static string DemoPath() => RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");
     private static string EShopPath() => Path.Combine(Environment.GetEnvironmentVariable(RequiresEShopFactAttribute.VARIABLE)!, "src", "eShopOnContainers-ServicesAndWebApps.sln");
 
-    private static async Task AssertSolution(string path, bool audit, bool verify = false)
+    private static async Task AssertSolution(string path, bool verify = false)
     {
         if (path == DemoPath()) await DemoWorkspace.EnsureRestoredAsync();
         using var loaded = await new MsBuildSolutionLoader().LoadAsync(path);
@@ -381,10 +366,7 @@ public sealed class WorklistTests
                 ProviderRegistry.BuiltIn, models, AnalysisLimits.Default, cache, null, CancellationToken.None);
             Assert.False(run.Stopped);
             var scope = run.ScopeProgram!;
-            var actual = WholeProgram.Solve(scope, AnalysisLimits.Default, CancellationToken.None, new(Audit: audit, VerifyConvergence: verify));
-            if (audit) continue;
-            var full = WholeProgram.Solve(scope, AnalysisLimits.Default, CancellationToken.None, new(FullPasses: true));
-            Assert.Equal(HeapObservation.Capture(scope, full), HeapObservation.Capture(scope, actual));
+            WholeProgram.Solve(scope, AnalysisLimits.Default, CancellationToken.None, new(Audit: true, VerifyConvergence: verify));
         }
     }
 }

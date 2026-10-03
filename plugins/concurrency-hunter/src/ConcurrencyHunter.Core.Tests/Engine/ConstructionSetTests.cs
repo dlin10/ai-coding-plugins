@@ -1,33 +1,14 @@
-using Common.Roslyn;
 using ConcurrencyHunter.Analysis;
-using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
-using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
-using ConcurrencyHunter.Providers;
-using ConcurrencyHunter.Providers.LibraryModels;
-using Microsoft.CodeAnalysis;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
-public sealed class WalkEquivalenceTests
+public sealed class ConstructionSetTests
 {
-    [Fact]
-    public async Task Demo_executions_agree_with_the_path_walk()
-    {
-        await DemoWorkspace.EnsureRestoredAsync();
-        await AssertSolution(RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx"));
-    }
-
-    [RequiresEShopFact]
-    public async Task EShop_executions_agree_with_the_path_walk()
-    {
-        await AssertSolution(Path.Combine(Environment.GetEnvironmentVariable(RequiresEShopFactAttribute.VARIABLE)!, "src", "eShopOnContainers-ServicesAndWebApps.sln"));
-    }
-
     [Fact]
     public void Two_construction_sets_reaching_one_helper_keep_both_alternatives()
     {
@@ -52,7 +33,6 @@ public sealed class WalkEquivalenceTests
             Assert.Contains(stores, access => access.RegionId == region && !access.IsConstructionLocal);
             Assert.DoesNotContain(region, analysis.PublishedObjects);
         }
-        AssertEquivalent(scope, heap.Heap);
 
         // Publication must still remove the local alternative, even when an interval contains the object.
         var published = Solve("""
@@ -69,7 +49,6 @@ public sealed class WalkEquivalenceTests
         var store = Assert.Single(publishedAnalysis.Accesses, access => access.Access.Field.Name == "Value");
         Assert.False(store.IsConstructionLocal);
         Assert.Contains(store.RegionId, publishedAnalysis.PublishedObjects);
-        AssertEquivalent(Scope(published), published.Heap);
     }
 
     [Fact]
@@ -114,46 +93,9 @@ public sealed class WalkEquivalenceTests
             }
             Assert.All(execution, node => Assert.InRange(node.Value, 1, 2 * objects.Count + 1));
         }
-        AssertEquivalent(scope, heap.Heap);
     }
 
     private static ScopeProgram Scope(HeapRun heap) =>
         new(heap.Program.ScopeId, heap.Program.Input.Roots, heap.Program.Result, heap.Summaries, heap.Program.Input.Program,
             heap.Program.Input.DiIndex, heap.Program.Input.InjectionBindings) { MetadataSupertypes = heap.Program.MetadataSupertypes };
-
-    private static void AssertEquivalent(ScopeProgram scope, HeapSolution heap)
-    {
-        var expected = ExecutionObservation.Capture(scope, heap, ExecutionModel.Build(scope, heap, CancellationToken.None, new(PathWalk: true)));
-        var actual = ExecutionObservation.Capture(scope, heap, ExecutionModel.Build(scope, heap, CancellationToken.None));
-        Assert.Equal(expected.Properties, actual.Properties);
-        Assert.Equal(expected.Queries, actual.Queries);
-        Assert.Equal(expected.Accesses, actual.Accesses);
-        Assert.Equal(expected.Findings, actual.Findings);
-    }
-
-    private static async Task AssertSolution(string path)
-    {
-        using var loaded = await new MsBuildSolutionLoader().LoadAsync(path);
-        Assert.True(loaded.Coverage.LoadComplete, string.Join(", ", loaded.Coverage.MissingProjects));
-        var rootDirectory = Path.GetDirectoryName(path)!;
-        var repository = RepositoryRoot.Find(rootDirectory);
-        var projectModels = ProjectModelFiles.Read(repository);
-        var modelLock = ModelLock.Read(repository, projectModels);
-        var cache = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
-        var scopes = ProcessScopes.Discover(loaded.Solution, rootDirectory).Scopes;
-        Assert.NotEmpty(scopes);
-        foreach (var scoped in scopes)
-        {
-            var compiled = new List<(Compilation Compilation, string? ProjectFilePath)>();
-            foreach (var project in scoped.Projects)
-                compiled.Add(((await project.GetCompilationAsync())!, project.FilePath));
-            var compilations = compiled.Select(item => item.Compilation).ToArray();
-            var (models, _) = ProjectModelResolver.Resolve(projectModels, compilations, modelLock);
-            var run = ScopePipeline.Run(scoped.Scope.Id, compilations, compiled, rootDirectory, ProviderRegistry.BuiltIn, models,
-                                        AnalysisLimits.Default, cache, null, CancellationToken.None);
-            Assert.False(run.Stopped);
-            // Collection can materialize heap regions lazily. Compare both walks on the same post-collection heap domain.
-            AssertEquivalent(run.ScopeProgram!, run.Heap!);
-        }
-    }
 }

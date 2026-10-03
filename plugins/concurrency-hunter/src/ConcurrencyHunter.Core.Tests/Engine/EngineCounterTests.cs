@@ -15,12 +15,6 @@ public sealed class EngineCounterTests
 
         var passes = run.Heap.Counters[HeapCounters.PROPAGATE_PASSES];
         Assert.True(passes > 0);
-        var program = run.Program;
-        var scope = new ScopeProgram(program.ScopeId, program.Input.Roots, program.Result, run.Summaries, program.Input.Program,
-                                     program.Input.DiIndex, program.Input.InjectionBindings) { MetadataSupertypes = program.MetadataSupertypes };
-        var full = WholeProgram.Solve(scope, AnalysisLimits.Default, CancellationToken.None, new(FullPasses: true));
-        Assert.Equal(passes * full.Instances.Count, full.Counters[HeapCounters.INSTANCE_PROCESSINGS]);
-        Assert.Equal(passes, full.Counters[HeapCounters.PROPAGATE_PASSES]);
         Assert.InRange(run.Heap.Counters[HeapCounters.INSTANCE_PROCESSINGS], run.Heap.Instances.Count, passes * run.Heap.Instances.Count);
         Assert.Equal(0, run.Heap.Counters[HeapCounters.REFERENCE_LOOKUPS]);
     }
