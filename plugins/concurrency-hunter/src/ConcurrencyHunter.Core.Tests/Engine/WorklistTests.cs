@@ -98,6 +98,54 @@ public sealed class WorklistTests
     }
 
     [Fact]
+    public void Set_add_reads_nothing_and_a_membership_test_reads_only_its_item()
+    {
+        var reads = new List<StateKey>();
+        var writes = new List<StateKey>();
+        var key = new StateKey("_mergedBodies");
+        var set = new TrackedSet<string>(StringComparer.Ordinal);
+        set.Attach(key, reads.Add, writes.Add);
+        Assert.True(set.IsEmpty);
+        Assert.True(set.Add("first"));
+        set.UnionWith(["second"]);
+        Assert.Equal(new[] { key.Child(StateKey.Emptiness) }, reads);
+        Assert.Equal(new[] { key, key.Child(StateKey.Emptiness), key }, writes);
+        reads.Clear();
+        writes.Clear();
+        var found = set.Contains("third");
+        Assert.False(found);
+        Assert.True(set.Add("fourth"));
+        Assert.Equal(new[] { key.Child("third") }, reads);
+        Assert.Equal(new[] { key.Child("fourth"), key }, writes);
+        writes.Clear();
+        // An add that read nothing cannot be redone by its reader, so a removal makes every history dirty.
+        Assert.True(set.Remove("fourth"));
+        Assert.Equal(new[] { StateKey.Wildcard }, writes);
+    }
+
+    [Fact]
+    public void Map_entry_is_read_apart_from_the_contents_of_its_container()
+    {
+        var reads = new List<StateKey>();
+        var writes = new List<StateKey>();
+        var key = new StateKey("_fields");
+        var map = new TrackedMap<string, TrackedSet<string>>(StringComparer.Ordinal);
+        map.Attach(key, reads.Add, writes.Add);
+        Assert.True(map.IsEmpty);
+        map.Add("slot", new TrackedSet<string>(StringComparer.Ordinal));
+        Assert.Equal(new[] { key.Child(StateKey.Emptiness), key.Child("slot") }, reads);
+        Assert.Equal(new[] { key.Child("slot"), key.Child(StateKey.Emptiness) }, writes);
+        reads.Clear();
+        writes.Clear();
+        Assert.True(map.TryGetValue("slot", out var set));
+        set.Add("region");
+        _ = set.Count;
+        var contents = key.Child("slot").Child(StateKey.Contents);
+        Assert.Equal(new[] { key.Child("slot"), contents.All }, reads);
+        Assert.Equal(new[] { contents, contents.Child(StateKey.Emptiness) }, writes);
+    }
+
+    [Fact]
     public void Wildcard_write_makes_every_instance_dirty()
     {
         var solver = NewSolver(SIMPLE + Startup());
@@ -158,14 +206,14 @@ public sealed class WorklistTests
         var histories = (IDictionary)Field(work, "_history").GetValue(work)!;
         Invoke(work, "Propagate");
         var order = ((IEnumerable<string>)Field(work, "_instanceOrder").GetValue(work)!).ToArray();
-        var handoffs = (IDictionary)work.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(work)!;
+        var handoffs = Handoffs(work);
         var keys = handoffs.Keys.Cast<object>().ToArray();
         var serialized = ExecutionObservation.Serialize(handoffs);
         var late = order.Last(id => ((HashSet<StateKey>)histories[id]!.GetType().GetProperty("Reads")!.GetValue(histories[id])!).Count > 1);
         var read = ((HashSet<StateKey>)histories[late]!.GetType().GetProperty("Reads")!.GetValue(histories[late])!).First();
         Invoke(work, "WroteState", read);
         Invoke(work, "Propagate");
-        handoffs = (IDictionary)work.GetType().GetProperty("_handoffs", MEMBERS)!.GetValue(work)!;
+        handoffs = Handoffs(work);
         Assert.NotEmpty(handoffs);
         Assert.Equal(keys, handoffs.Keys.Cast<object>());
         Assert.Equal(serialized, ExecutionObservation.Serialize(handoffs));
@@ -233,11 +281,13 @@ public sealed class WorklistTests
         Assert.Contains(Writes(solver).Keys, key => key.State == "_mergedBodies");
         Invoke(solver, "Propagate");
         var histories = (IDictionary)Field(solver, "_history").GetValue(solver)!;
+        var cyclic = heap.Instances.Values.First(instance => instance.IsMerged && instance.BodyId.Contains("Ping.", StringComparison.Ordinal));
+        // A membership test reads the key of its item: the readers of a merge are those that tested the merged body.
         var reader = Entries(histories).First(entry => ((HashSet<StateKey>)entry.Value!.GetType().GetProperty("Reads")!.GetValue(entry.Value)!)
-                                                      .Any(key => key.State == "_mergedBodies") && !(bool)Invoke(solver, "Dirty", entry.Value!)!);
+                                                      .Any(key => key.State == "_mergedBodies" && Equals(key.Entry, cyclic.BodyId)) &&
+                                                  !(bool)Invoke(solver, "Dirty", entry.Value!)!);
         var before = (int)Field(solver, "_changes").GetValue(solver)!;
         var merged = (TrackedSet<string>)Field(solver, "_mergedBodies").GetValue(solver)!;
-        var cyclic = heap.Instances.Values.First(instance => instance.IsMerged && instance.BodyId.Contains("Ping.", StringComparison.Ordinal));
         merged.Remove(cyclic.BodyId);
         ((HashSet<string>)Field(solver, "_sccHandled").GetValue(solver)!).Clear();
         var oldHistory = reader.Value!;
@@ -350,6 +400,11 @@ public sealed class WorklistTests
     private static FieldInfo Field(object solver, string name) => solver.GetType().GetField(name, MEMBERS)!;
     private static object? Invoke(object solver, string name, params object[] arguments) => solver.GetType().GetMethod(name, MEMBERS)!.Invoke(solver, arguments);
     private static Dictionary<StateKey, long> Writes(object solver) => (Dictionary<StateKey, long>)Field(solver, "_writes").GetValue(solver)!;
+    private static IDictionary Handoffs(object solver)
+    {
+        var rebuilding = Field(solver, "_rebuilding").GetValue(solver)!;
+        return (IDictionary)rebuilding.GetType().GetProperty("Handoffs", MEMBERS)!.GetValue(rebuilding)!;
+    }
     private static IEnumerable<DictionaryEntry> Entries(IDictionary map)
     {
         var entries = map.GetEnumerator();

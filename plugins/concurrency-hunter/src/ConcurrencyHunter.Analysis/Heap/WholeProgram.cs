@@ -1823,7 +1823,7 @@ public static partial class WholeProgram
 
             // A member of a holder called on it, with no body of its own, runs what the holder keeps; a holder reachable from what a call
             // without a body is handed is one the heap cannot follow any more (R4).
-            if (_held.Count != 0)
+            if (!_held.IsEmpty)
             {
                 foreach (var call in summary.OpaqueCalls)
                 {
@@ -1846,7 +1846,7 @@ public static partial class WholeProgram
             }
 
             // A grouping answers `Key` with what its model says the key is (R5).
-            foreach (var call in summary.OpaqueCalls.Where(call => call.IsGroupingKey && _groupings.Count != 0))
+            foreach (var call in summary.OpaqueCalls.Where(call => call.IsGroupingKey && !_groupings.IsEmpty))
             {
                 CheckCancellation();
                 Add(CallResult(instance, call.OperationId),
@@ -1855,7 +1855,7 @@ public static partial class WholeProgram
 
             // What a consumer enumerates it enumerates where it stands: a `foreach`, a copy of ADR 0010, a known call reading it deep or
             // naming its elements (R5).
-            if (_sequences.Count != 0 || _iteratorObjects.Count != 0)
+            if (!_sequences.IsEmpty || !_iteratorObjects.IsEmpty)
             {
                 foreach (var effect in summary.ArgumentEffects.Where(effect => effect is { IsDeferred: false, Member: null, Kind: IrLibraryEffectKind.Enumerate or IrLibraryEffectKind.DeepRead }))
                 {
@@ -3555,7 +3555,7 @@ public static partial class WholeProgram
         /// <param name="values">The values.</param>
         private void EscapeHolders(InstanceState caller, int operationId, IEnumerable<AbstractValue> values)
         {
-            if (_held.Count == 0)
+            if (_held.IsEmpty)
                 return;
             foreach (var holder in Reached(Eval(caller, values)).Where(_held.ContainsKey).ToArray())
             {
@@ -3733,7 +3733,7 @@ public static partial class WholeProgram
         /// then no unresolved call, and runs nothing it is handed, as the member it is on each of them does not (ADR 0010, amendment of the
         /// phase 5b third run). A call the heap knows no receiver object for stays unresolved.</summary>
         private bool DecidesEvery(InstanceState instance, SummaryOpaqueCall call) =>
-            (call.Implementations.Count != 0 || _held.Count != 0 && !call.IsConstructor) && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
+            (call.Implementations.Count != 0 || !_held.IsEmpty && !call.IsConstructor) && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
             receivers.All(receiver => !call.IsConstructor && _held.ContainsKey(receiver) ||
                                       call.Implementations.Count != 0 && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver)) is not null);
 
