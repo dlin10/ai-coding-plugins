@@ -20,6 +20,43 @@ the plugin is installed but the server did not start, and nothing here will work
 Only on an explicit `$forge` or a direct request to run Plan Forge Flow. Installation, availability,
 an ordinary request to plan something, or an existing draft are not consent.
 
+## Asking the user
+
+Every question you put to the user follows this section unless the user asks otherwise: the
+interview, the Scout, critic and builder selections, the instruction questions, decisions on
+findings, the round cap, approval, and the values a gate needs. It belongs to forge and holds
+whichever skill is running the interview.
+
+Ask one question per call of the host's question tool — `AskUserQuestion` in Claude Code — or per
+message where the host has none, and wait for the answer before you ask the next. Work out the
+frontier of the decision tree — every decision that could be asked now — but ask it one question at
+a time: first the one the others depend on, and the next only once that one is answered, because an
+answer can change or remove the questions behind it. This overrides the `grilling` rule to ask the
+whole frontier in one round: a delegated interview skill supplies the questions, never their
+batching. You make two batches unasked, one per worker role, both described under "Choosing the
+vendor and model": the critic's vendor, model-and-effort, Fast and instruction questions share one
+call, and the builder's another. Their options come from the catalogue you fetch before the first
+of them, each naming what it depends on, and answers that do not fit together get one follow-up
+question. Explain each question of a batch before the call. If the user asks for questions in a
+batch, batch them as they asked.
+
+Before each question, explain it in the chat:
+
+1. **The problem it settles** — what the code or the plan does now, and what breaks or stays
+   unclear if nobody decides. In plain words: an internal ID — a finding's `F-0012`, a round
+   number, a class name — appears only beside what it stands for, and every term the user has not
+   met yet gets a one-sentence definition.
+2. **An example**, when the question is about how code behaves — a short fragment from the
+   repository with its `path:line`, the path taken from the repository root, or a minimal
+   illustrative one labelled as such — and what happens to it under each answer.
+3. **The options** — for each, what it means, what it changes in the plan or the code, its
+   advantages, its drawbacks and its cost; then the one you recommend, and why.
+
+The question offers the same options. Keep their descriptions short and in agreement with the
+explanation, put the recommended option first, and end its label with "(Recommended)". A mechanical
+question — a vendor, a model and effort, the Fast tier, a value a gate needs — needs one or two
+sentences of explanation and no code.
+
 ## The tools, in order
 
 | Tool | When |
@@ -166,6 +203,8 @@ Scout is lazy and independent of the separate Critic and Builder selections. On 
 make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
 Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
 the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
+Before the question, say in a sentence or two what Scout is for and what continuing without it
+costs: the Impact pass then falls to you.
 A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
 an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
 after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
@@ -204,10 +243,11 @@ by area into several questions.
 
 ### The Impact pass
 
-After you have drafted the plan's approach, and before the first `forge.plan.write`, ask the Scout
-one Impact pass. Every plan gets one. It is a Scout need, so it starts the Scout selection round
-when none has been made. Name every Change point the approach introduces — symbols, contracts, wire
-and persisted formats, counters, prompts and skill text — and ask, for each one:
+After you have drafted the plan's approach and made its matrix check, and before the first
+`forge.plan.write`, ask the Scout one Impact pass. Every plan gets one. It is a Scout need, so it
+starts the Scout selection round when none has been made. Name every Change point the approach
+introduces — symbols, contracts, wire and persisted formats, counters, prompts and skill text — and
+ask, for each one:
 
 - every consumer, and what its behaviour becomes;
 - every test that asserts today's behaviour, with file:line and test method name;
@@ -289,8 +329,9 @@ documentation lazily and follow the [`CONTEXT-FORMAT.md`](references/CONTEXT-FOR
 use the built-in rules here for documented mode and the interview paragraph below for the mode
 without documentation.
 
-Ask grilling questions **one at a time** and wait for each answer. You are looking for the decisions
-the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
+Ask grilling questions **one at a time**, each explained as "Asking the user" describes, and wait
+for each answer, whichever skill is running the interview. You are looking for the decisions the
+plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
 When the interview has settled the decisions, write the requirements first — the `## Requirements`
@@ -414,7 +455,61 @@ State the builder's selection at the top of the plan, above `## Requirements`, i
 model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
 builder named there.
 
-The draft is not ready for its first `forge.plan.write` until the Impact pass and the Evidence check described under "Scout reconnaissance" have run against it.
+The draft is not ready for its first `forge.plan.write` until the matrix check below, the Impact
+pass and the Evidence check described under "Scout reconnaissance" have run against it.
+
+### The matrix check
+
+While you draft the `## Approach` — before the Impact pass and before the first `forge.plan.write`
+— decide yourself whether the plan needs a matrix task: a task whose test walks every combination
+of a rule's axes and checks each against an expectation written from the requirements, not from
+the code. List every rule the plan introduces or changes — a predicate, a classification, a mapping,
+the choice of a name or a form, the order in which reasons are given — and, for each, the axes its
+answer depends on: the kind of value × the action × the execution it happens in, say. A rule needs
+a matrix when any one of these holds:
+
+- its answer depends on a combination of two or more axes, with about six or more values across
+  them;
+- the plan lists its cases one by one, and there are more than about ten;
+- a neighbouring rule of the same kind already has a matrix in the codebase;
+- a missed cell is a silent fault: an unsafe narrowing (an answer narrower than the truth where
+  only a wider one is safe), a wrong refusal, a security gap.
+
+A rule that needs one gets its matrix task in the first draft. Left to review, it comes back one
+combination at a time: in one measured plan review the rounds ran 28, 17, 15, 11, 12, 14 and 9
+findings, and from the third round on nearly every finding was an uncovered combination of one rule
+or an edge where it contradicted another. The matrix arrived after the fifth round, and the next
+critic found an error in its expectation table — caught in the plan, before any code. In an earlier
+pass, a matrix of 1,729 probes did the work of the review rounds. Make the same check for a rule a
+later revision introduces.
+
+In the turn of the first `forge.plan.write`, beside the plan's path, say in one line which rules
+you checked, what you decided for each and why: `Matrix check: Classify — value kind × action ×
+execution, 11 values: matrix, task 4. ReasonOrder — one axis, 4 values: none.` When the plan
+introduces or changes no rule, the line says so.
+
+### The matrix task
+
+The critic judges a matrix task with the rest of the plan, so the plan spells it out:
+
+- It is a task of its own, with its own test class in the ordinary suite — never behind an
+  environment flag.
+- It lists every axis and every value of each, and every excluded combination — what the test's
+  `Allowed` filter drops — with the reason it is left out.
+- It writes the expectation table into the plan from the requirements — by axis values where the
+  cells are too many to list — each answer citing its R-item. In the code, every branch of
+  `Expected(cell)` cites a requirement, never the code under test.
+- It lists the cells known to be wider: each by name, with the reason its expectation cannot be
+  reached without a change this plan does not make, such as one to the engine the rule runs on.
+  Such a cell must come out wider than its expectation, never exact, and a name on the list that
+  matches no cell fails the test. For a rule whose answers have no safe side, the list is empty and
+  every cell must be exact.
+- Its tests assert that no cell narrows unsafely, that every cell off the wider list gets its
+  expected answer, and that every value of every axis occurs in some cell.
+- Every reason on the wider list becomes an open question in the project's own catalogue or design
+  document, and the plan names the task that writes it.
+- It replaces the one-by-one cases of the same rule in other tasks rather than repeating them. Only
+  cases outside its axes stay listed by hand.
 
 ## Rounds, revision, and caps
 
@@ -425,6 +520,11 @@ receives only the current plan-phase ledger projection, so it converges on curre
 being anchored by the transcript.
 
 A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before it is written.
+
+From the second round on, sort each critique's new findings by the rule they are about. When more
+than half of them are combinations or edge cases of one rule and the plan has no matrix task for
+it, add one in this revision — do not wait for the cap — and say so in `revision`. Each of those
+findings is then addressed by its cell in the table, not by a case of its own.
 
 Every round after the first carries your answer to the one before it. The tool refuses the call
 without `revision`:
@@ -448,14 +548,17 @@ stated too vaguely to check — you revise and carry on without stopping. One it
 requirement covering a question nobody asked, or an answer that would move the scope — goes to the
 user before you revise, and its answer goes into `forge.log.append`. Ask the moment it comes up
 rather than saving it for approval: a scope question answered late invalidates every round that ran
-after it.
+after it. When one critique brings several, ask them one at a time, the one the others depend on
+first.
 
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
-what the last verdict said, so the question carries its numbers. On a yes, pass `userGrantedRound:
-true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the same argument on
-`forge.work.start` — which raises the cap by exactly one. The grant is spent by that round, so the
-round after it needs a fresh answer, and never pass the argument without having asked.
+what the last verdict said, so the question carries its numbers. Say in plain words what the open
+findings are, and what one more round would cost against stopping here. On a yes, pass
+`userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the
+same argument on `forge.work.start` — which raises the cap by exactly one. The grant is spent by
+that round, so the round after it needs a fresh answer, and never pass the argument without having
+asked.
 
 Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
 the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
@@ -537,9 +640,9 @@ job, in five steps:
    with `forge.plan.write`, and go back to `forge.plan.review` with `revision` saying what you
    changed — a plan amended after the last verdict has not been reviewed — then show the revised
    plan again before asking a second time.
-4. With a yes, ask once for what the gates need on this host: the value of every `$env:NAME` the
-   plan's gates reference. Collect them in the chat — never write a value into the plan, and never
-   guess one.
+4. With a yes, ask for what the gates need on this host: the value of every `$env:NAME` the plan's
+   gates reference, one variable per question, each saying which gate reads it and what for.
+   Collect them in the chat — never write a value into the plan, and never guess one.
 5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and
    any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
    compatibility and does not control access. Use `addressedByRevision` for IDs the final revision
@@ -698,31 +801,43 @@ This happens at the end of Act 1, after the last interview question and before t
 draft — the depth rule above reads the builder's selection.
 
 Critic/Builder selection remains at most six questions total: two Vendor questions, two
-model/effort questions, and one Fast question for each role whose choice offers it. Then ask the two
-instruction questions of step 4 as one round. A single
+model/effort questions, and one Fast question for each role whose choice offers it. Ask them in two
+calls, one per role, the critic's first: each call carries that role's vendor, model-and-effort,
+Fast and instruction questions, in the order of the steps below — four questions at most. A single
 just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
 return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
-CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once.
+CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once. Build
+both calls from that one answer: it holds every available vendor's models, efforts and Fast tiers,
+which is what lets one call carry questions that would otherwise wait on each other's answers.
 
-1. Ask for the critic vendor and the builder vendor, offering only vendors the catalogue reports
-   `available: true`. Never offer a vendor with `available: false`; its `detail` names the cause —
-   a missing CLI, a sign-in — so tell the user why it is out and what would bring it back.
+The questions in a call cannot see each other's answers, so every option says what it depends on:
+a model-and-effort pair names its vendor, and the Fast question names the pairs that offer it. When
+the answers do not fit together — a pair from a vendor the user did not choose, a free-text model
+the chosen vendor's catalogue does not list, Fast for a pair that has none — ask one follow-up
+question about the part that does not fit before that role's selection is used.
+
+1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
+   vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
+   tell the user why it is out and what would bring it back.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
-     both roles will use and continue directly to step 2.
+     both roles will use, and draw step 2's pairs from it alone.
    - If you are orchestrating from inside Cursor and `cursor` is available, do not ask either
      vendor question even when other vendors are too: Cursor fronts models from several vendors
      behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
      model choice. Trust either signal alone: the `client` field `forge.begin` returned names
      cursor, or the host you are running in is Cursor. Tell the user both workers will run through
-     `cursor-agent` and continue directly to step 2 with both roles on the `cursor` vendor.
-2. Ask one question for each role, requesting its model and effort together as a valid combination
-   for that role's chosen vendor, drawn from that vendor's catalogue in the tool's order — it is
-   already newest first. Offer three concrete model-plus-effort pairs, leading with the vendor's
-   own pick where it names one (`isDefault`, `defaultEffort`), and always leave free text open.
+     `cursor-agent`, put both roles on the `cursor` vendor, and draw step 2's pairs from its
+     catalogue alone.
+2. The model-and-effort question requests a valid combination, drawn from the catalogue in the
+   tool's order — it is already newest first. Offer three concrete model-plus-effort pairs, your
+   recommendation first, among them the vendor's own pick where it names one (`isDefault`,
+   `defaultEffort`), and say which that is; always leave free text open. While the call also asks
+   for the vendor, draw the pairs from the vendors it offers, your recommended vendor's first, and
+   name each pair's vendor in its label.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
    `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
    CLI into the model it currently stands for — so name that model beside the alias, because
@@ -740,24 +855,25 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    not list for that family, and never use the bracket-override syntax the CLI's own tip advertises
    (`model[effort=high]`): measured on 2026-08-19, cursor-agent rejects even the tip's own example.
 
-3. For each role whose chosen model lists the chosen effort under `fastEfforts` — `default` for a
-   cursor family chosen without an effort, any entry at all for claude or codex without one — with
-   `fastUnavailable` null, ask whether it should run at the vendor's Fast tier: quicker, at a higher
-   usage price. Ask both roles in one round, offer "standard speed" first, and name `fastHint`
-   beside Fast where the catalogue gives one — it is the vendor's own word on the price. Pass
-   `fast: true` to that role's tools only on a yes. A model whose `fastUnavailable` is set offers
-   Fast but this account will not serve it: do not ask, and say why when the user asks for Fast
-   anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has it
-   off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
+3. Ask the Fast question only when a pair the call offers lists its effort under `fastEfforts` —
+   `default` for a cursor family offered without an effort, any entry at all for claude or codex
+   without one — with `fastUnavailable` null: should the role run at the vendor's Fast tier,
+   quicker, at a higher usage price? Name the pairs that offer it. Offer "standard speed" first, as
+   the recommendation unless the user has asked for speed, and name `fastHint` beside Fast where
+   the catalogue gives one — it is the vendor's own word on the price. Pass `fast: true` to that
+   role's tools only on a yes for a pair that offers it. A model whose `fastUnavailable` is set
+   offers Fast but this account will not serve it: do not ask, and say why when the user asks for
+   Fast anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has
+   it off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
    again at the start of the worker's session; a turn claude served at standard speed for part of
    the way still counts, and its result carries `speedWarning` — tell the user.
 
-4. Ask, as one round of two questions, whether the user wants to tell either worker anything for
-   this run — one question for the critic, one for the builder, each offering "no instructions"
-   first. This is their only channel to a worker besides the plan: a language to answer in, a class
-   of finding this repository does not want raised, a skill the builder should use, a house style.
-   Pass what they answer to `forge.instructions.set` **verbatim**, and add nothing of your own. If
-   both answers are "no instructions", do not call the tool at all.
+4. The instruction question asks whether the user wants to tell that role's worker anything for
+   this run, offering "no instructions" first. This is their only channel to a worker besides the
+   plan: a language to answer in, a class of finding this repository does not want raised, a skill
+   the builder should use, a house style. Say that much before the call, and propose no wording of
+   your own. Pass what they answer to `forge.instructions.set` **verbatim**, and add nothing of your
+   own. If both roles' answers are "no instructions", do not call the tool at all.
 
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
    every round and is handed its text every round. A builder holds a session for one plan task or

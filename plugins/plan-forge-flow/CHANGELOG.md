@@ -1,5 +1,40 @@
 # Plan Forge Flow releases
 
+## 0.40.0
+
+A rule the plan introduces or changes is checked for a matrix while the plan is drafted, rather than
+after rounds of review have found its combinations one at a time, and the orchestrator asks the user
+one question at a time, each explained. In one measured plan review the rounds ran 28, 17, 15, 11,
+12, 14 and 9 findings, and from the third round on nearly every finding was a combination of one
+rule's axes; the matrix arrived after the fifth round, and the next critic found an error in its
+expectation table.
+
+- Before the Impact pass and the first `forge.plan.write`, the forge skill lists every rule the plan
+  introduces or changes with the axes its answer depends on, and puts a matrix task into the first
+  draft when the answer depends on two or more axes with about six values between them, the plan
+  lists more than about ten of its cases, a neighbouring rule already has a matrix, or a missed cell
+  would be a silent fault. The first time the plan is shown, one line says which rules were checked
+  and what was decided.
+- A matrix task is a task of its own with a test class in the ordinary suite. It names its axes,
+  its excluded combinations with their reasons, an expectation table written from the requirements,
+  and the cells known to be wider with their reasons, each of which becomes an open question in the
+  project's documents; its tests check unsafe narrowing, every expected answer and every axis value.
+  It replaces the one-by-one cases of the same rule elsewhere in the plan.
+- From the second round on, when more than half of a round's new findings are combinations or edge
+  cases of one rule that has no matrix, the orchestrator adds one in that revision and says so.
+- The plan-review critic reports the combinations of one rule's axes as one finding that lists them
+  all and recommends a matrix task, rather than a finding per combination.
+- Every question to the user is one question per call, in dependency order, overriding the
+  `grilling` rule to ask the whole frontier in one round. Each comes with an explanation in the
+  chat — the problem in plain words, an example from the repository for a question about code
+  behaviour, and every option's effect, advantages, drawbacks and cost — and the question lists the
+  recommended option first as "(Recommended)". Two batches are made unasked, one per worker role:
+  the critic's vendor, model-and-effort, Fast and instruction questions share one call, and the
+  builder's another, both built from the catalogue fetched before the first. Each model option names
+  its vendor and the Fast question the models that offer it; answers that do not fit together get
+  one follow-up question. Gate values are asked one variable at a time; a user who asks for a batch
+  gets one.
+
 ## 0.39.3
 
 - Codex Builders run without the Codex sandbox or approval prompts on fresh and resumed turns,

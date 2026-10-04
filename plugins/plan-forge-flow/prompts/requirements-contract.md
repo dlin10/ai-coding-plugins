@@ -31,6 +31,15 @@ Judge the complete brief:
   channels, call kinds, object kinds, one target or several. A task without them is a finding. So is
   "wherever X", "every Y" or "all Z" in a requirement or task when the plan neither lists what reads
   X nor narrows the claim explicitly.
+- When the gaps you find in one rule are combinations of its axes — two values nobody paired, an
+  edge where it contradicts another rule — they are one gap: one rule, one place, many inputs, never
+  checked across its axes. Report them as one finding that names the axes, lists every combination
+  you found and takes the severity of the worst. Put it against the rule's matrix task when the plan
+  has one; otherwise put it against the rule and recommend a matrix task — a task whose test walks
+  every combination of the axes and checks each against an expectation written from the
+  requirements.
+  Reported one combination at a time, they are fixed one at a time, and the combinations nobody
+  reported come back next round.
 - `where` says which half of the document you are in — `Requirements: R3`, `Gates: G2`, or
   `Approach: task 4` — because a finding against a requirement may be the orchestrator's to take
   back to the user rather than fix alone.
