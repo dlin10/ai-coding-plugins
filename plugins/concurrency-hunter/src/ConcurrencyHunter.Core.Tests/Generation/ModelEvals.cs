@@ -76,6 +76,10 @@ internal static class ModelEvals
     public const int GOLD_MEMBERS = 18;
     public const int GOLD_PARAMETERS = 24;
     public const int EXACT_FLOOR = 14;
+    // How many members are generated at once. Measured on 8 cores: four take the evals from 5.8 to 3.3 minutes and eight to 3.2, both at a
+    // peak testhost working set of 2.2-2.4 GB (2.0 one at a time), so memory does not bound it; past four the longest members set the time
+    // and more at once only slows them (ModelEvalTests about 60 s at four, 77 s at eight).
+    private const int GENERATIONS = 4;
 
     public static readonly ClassifiedFate Unknown = new(FateClassifier.UNKNOWN_EXECUTION, null);
     public static readonly ClassifiedFate HolderResult = new(FateClassifier.HOLDER, FateClassifier.RESULT);
@@ -195,13 +199,33 @@ internal static class ModelEvals
             resolutions[member] = resolution;
         }
 
-        var answers = gold.Select(member => Generate(member, resolver)).OrderBy(answer => answer.Gold.Id, StringComparer.Ordinal).ToArray();
+        var answers = GenerateAll(gold, member => Generate(member, resolver)).OrderBy(answer => answer.Gold.Id, StringComparer.Ordinal).ToArray();
         var packages = answers.GroupBy(answer => resolutions[answer.Gold].Assembly!.Path, StringComparer.OrdinalIgnoreCase)
                               .Select(group => Package(resolutions[group.First().Gold].Assembly!, resolutions[group.First().Gold].Reason, group.ToArray()))
                               .OrderBy(package => package.Assembly, StringComparer.Ordinal)
                               .ThenBy(package => package.ImplementationVersion, StringComparer.Ordinal)
                               .ToArray();
         return new EvalRun(answers, packages);
+    }
+
+    /// <summary>Generates every member, <see cref="GENERATIONS"/> at a time, each answer at its member's index. A generation that throws
+    /// fails the whole call with its own exception rather than an <see cref="AggregateException"/>, so a test reports what it did when
+    /// the members were generated one after another.</summary>
+    /// <param name="members">The members to generate.</param>
+    /// <param name="generate">Generates one member.</param>
+    internal static TAnswer[] GenerateAll<TMember, TAnswer>(IReadOnlyList<TMember> members, Func<TMember, TAnswer> generate)
+    {
+        var answers = new TAnswer[members.Count];
+        try
+        {
+            Parallel.For(0, members.Count, new ParallelOptions { MaxDegreeOfParallelism = GENERATIONS },
+                         index => answers[index] = generate(members[index]));
+        }
+        catch (AggregateException failure)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure.InnerExceptions[0]).Throw();
+        }
+        return answers;
     }
 
     private static EvalAnswer Generate(GoldMember member, ImplementationAssemblies resolver)

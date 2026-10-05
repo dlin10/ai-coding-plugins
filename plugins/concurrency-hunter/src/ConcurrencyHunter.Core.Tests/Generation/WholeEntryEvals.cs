@@ -40,7 +40,8 @@ internal static class WholeEntryEvals
             resolutions[member] = resolution;
         }
 
-        var answers = gold.Select(member => Generate(member, resolver)).OrderBy(answer => answer.Gold.Member, StringComparer.Ordinal).ToArray();
+        var answers = ModelEvals.GenerateAll(gold, member => Generate(member, resolver))
+                                .OrderBy(answer => answer.Gold.Member, StringComparer.Ordinal).ToArray();
         var packages = answers.Where(answer => resolutions[answer.Gold].Assembly is not null)
                               .GroupBy(answer => resolutions[answer.Gold].Assembly!.Path, StringComparer.OrdinalIgnoreCase)
                               .Select(group => Package(resolutions[group.First().Gold].Assembly!, resolutions[group.First().Gold].Reason,
