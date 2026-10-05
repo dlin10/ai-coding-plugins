@@ -72,7 +72,7 @@ sentences of explanation and no code.
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note` when you send one. |
+| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. |
 | `forge.status` | Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
 | `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note`; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
@@ -178,7 +178,8 @@ call stay applied; retry the round with the same batch and exact decisions.
 
 Fix execution is separate from decisions. Give each logical execution one `fixAttemptId` and the
 exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
-Your optional `note` follows them in a section of its own, and the Flow log records it verbatim.
+Your `note` follows them in a section of its own, and the Flow log records it verbatim; what it
+holds is under "Fix batches and their notes".
 A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID and exact ID
 set. A different set under that attempt is refused. A completed attempt returns its saved terminal
 result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields and
@@ -752,7 +753,8 @@ Between the two calls, classify every identified finding by ID:
 
 - **Fix** unresolved defects the diff gets wrong. Put exactly those IDs in `fixFindingIds`, allocate
   one `fixAttemptId` for that logical execution, and let the server render their verbatim ledger
-  findings for the Builder.
+  findings for the Builder. Batch them by rule and frame each batch with a note, as "Fix batches and
+  their notes" below describes.
 - **Defer or reject** what the approved plan excludes or the user already decided differently, with
   asserted `by` and a reason in one decision batch. This is a decision, not a deletion.
 - **Close a duplicate** when a new ID is semantically the same as a current ID: keep the canonical
@@ -775,25 +777,109 @@ The Builder reports each fix as a rule and its places: `rule:`, then one line pe
   for a Critic. Raise every other one in a decisions-only `forge.review.fix`, then fix it in a later
   call by the ID the raise returned, or leave it for the next Critic, which has to assess it. A place
   left only in a summary comes back as a Critic finding a round or two later, at a round's price.
-- When you know more than the findings say — the rule behind them, another place that decides the
-  same question, the owner the plan names for that rule — send it as the fix's `note`. The findings
-  still reach the Builder verbatim; the note is yours, in a section of its own, and replaces none of
-  them.
 
 When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
 findings go to the user with the outcome. They are real findings about real gaps; the plan is the
 only reason they were not fixed here, and they are candidates for the next run.
 
+### Fix batches and their notes
+
+A batch is the set of IDs one fix attempt fixes. Form batches by the rule the findings break, not by
+file or severity:
+
+- Never split one rule's findings across batches. Two deciders of one question in two batches — the
+  effect of a write and the value it stores, the cheap filter and the precise check — get one turn
+  that fixes half the rule and another that finds it half fixed.
+- A batch may carry several rules. Keep rules that share an owner or a subsystem together, and keep
+  apart rules whose failure should not hold the others back: every fix call runs the plan's
+  `## Gates`, so each batch costs a gate run as well as a turn. A finding whose rule no other finding
+  shares is a rule of its own.
+- When a fix also covers a finding outside its batch, close that finding afterwards with
+  `hostVerified` and the evidence: the test, the `file:line`, the gate run. `duplicateOf` cannot do
+  it, because it needs a canonical ID still in the ledger, and the gate's closure has removed the
+  batch's IDs.
+
+The first call of every fix attempt carries a `note` that frames its batch by the rules its findings
+break. The Builder already has the findings verbatim, so do not paste them or the critique back; the
+note adds only what the ledger lacks. For each rule:
+
+- **Rule** — one sentence: the property the code gets wrong, not the example that showed it, with
+  the IDs it covers and where it comes from. Cite the requirement, `R5`: the Builder holds the
+  requirements in its Brief. A fix prompt carries no task text, so when the rule rests on a task's
+  wording, quote that sentence. When it rests on a decision the user made during the run, say so,
+  and record the decision with `forge.log.append` if you have not.
+- **Owner** — the one place that decides the question: the owner the plan names, an existing
+  function, or one to create. Say that every other place calls it instead of deciding again.
+- **Axes** — every kind of place where the same question is decided, listed. Take them from the
+  plan first: the rules the matrix check listed with their axes, a matrix task's axes, the places
+  and axes a task names for the rule's owner. Then check the kinds a plan tends to miss: the forms
+  that reach the same operation (an invocation, an object creation, a delegate call); the channels
+  a value enters or leaves by (a result, an `out` or `ref` parameter, a store, a value kept for
+  later, a delegate's input); the executions it runs in (setup, the call, an enumeration, a startup
+  or unknown execution); the kinds of input or object; the direct path and the one through a
+  helper, a `ref` or an alias; the other arms of the same switch; and twin deciders — the cheap
+  filter and the precise solver, the producer and each consumer, the code and a document that
+  restates the rule. Tell the Builder to find them by references and callers of the data that
+  carries the fact, not by searching for a word: a search finds a spelling, not a place that decides
+  without it.
+
+Once for the whole batch, and again under a rule only where that rule has its own:
+
+- **Must not change** — recorded floors and snapshots, the fixes of other findings, and the scope
+  the plan excludes.
+- **Stop condition** — when to stop and report instead of widening: a floor would fall, the rule
+  would contradict the plan, a place has no source for what the rule needs.
+
+A part that does not apply says so in a few words — `Axes: none, the count is stated only here` —
+rather than being left out.
+
+A note steers the Builder as firmly when it is wrong as when it is right. In one measured run a note
+told the Builder to drop a guard that was a requirement's own rule, and the next attempt had to undo
+the unsafe narrowing that followed. The cited source is what lets the Builder check a rule against
+the plan before it acts on it.
+
+A retry of the same attempt resumes the Builder session that already holds the first note, so its
+note says what changed since the last call — what is on disk, what failed, what is left — and
+restates in full, with its source, only a rule it corrects. A retry sent to another vendor starts a
+fresh session: send the whole note again.
+
+An example, in a neutral domain — copy the form, not the words:
+
+```text
+Rule 1 (F-0031, F-0034, F-0040) — a request's tenant is the one its access token names, never one
+the caller supplies (R3; task 2: "every query is scoped to the tenant of the authenticated caller").
+Owner: `TenantResolver.FromToken`. Every place that needs the tenant asks it; none reads `tenantId`
+from the route, the query string or the body again.
+Axes: every way a request is served — HTTP handlers, background jobs run for a user, message
+consumers; every way the tenant leaves a call — repository filters, cache keys, outgoing calls, the
+audit log; the twin deciders — the authorization filter and the repository's own query filter. Find
+them by references to the tenant value and their callers, not by searching for `tenantId`.
+
+For the batch — Must not change: the recorded performance baseline, the schema (the plan excludes
+migrations), this round's fix of F-0029.
+Stop condition: a job with no token to read the tenant from — report the job rather than inventing
+a source.
+```
+
 ### When a round is mostly fallout
 
 Measured over nine runs, about half of the code-review findings after the first round were fallout
 of the previous round's fixes: a rule an earlier fix wrote was wrong, or a place answering the same
-question was left behind. After each round, mark every finding as fallout or as older than the
-review. When half a round or more is fallout, or its findings walk one axis of a rule case by case —
-field, then local, then `ref` — ask for no further round yet. Sweep instead: list the axes of each
-rule the fixes touched, probe every combination against an oracle (a second path that must agree),
-fix the root causes, then spend one round to confirm. Hold the fixes you make on the host to the
-Builder's own rule — fix the rule, not the place — and record each with `forge.log.append`.
+question was left behind. After each round, label every new finding and record the labels with
+`forge.log.append`, one line per round:
+`Code review round 3: own F-0150; sibling F-0152; same-class F-0149; older F-0151`.
+
+- `own` — something an earlier fix wrote is wrong: the rule it keyed on, or anything else it changed;
+- `sibling` — a place that answers the same question as an earlier fix was left behind;
+- `same-class` — an older instance of a class an earlier fix covered only where a finding named it;
+- `older` — anything else the review predates.
+
+`own` and `sibling` are fallout. When half a round or more is fallout, or its findings walk one axis
+of a rule case by case — field, then local, then `ref` — ask for no further round yet. Sweep instead:
+list the axes of each rule the fixes touched, probe every combination against an oracle (a second
+path that must agree), fix the root causes, then spend one round to confirm. Hold the fixes you make
+on the host to the Builder's own rule — fix the rule, not the place — and record each with
+`forge.log.append`.
 
 ## Choosing the vendor and model
 

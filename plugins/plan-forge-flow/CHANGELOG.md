@@ -1,5 +1,37 @@
 # Plan Forge Flow releases
 
+## 0.41.0
+
+A code-review fix batch is framed by the rules its findings break, so a domain's axes reach the
+Builder from the one participant that knows them. Over nine measured runs, 53% of the findings after
+the first code-review round were caused by an earlier round's fix. The generic "When you fix review
+findings" section of 0.38.0 lifted the recall of later-found places in an offline replay from 32% to
+57% for claude and from 23% to 46% for codex, and cost codex new defects, 0.17 to 0.75 per turn.
+The orchestrator ran the interview, wrote the plan and read every critique: in concurrency-hunter
+run `20261004-093111-b79938` its later fix notes stated numbered rules with their sources and axes,
+and one wrong note — it had the Builder drop a guard that was a requirement's own rule — showed why
+a rule has to cite where it comes from.
+
+- The forge skill forms fix batches by rule. One rule's findings never split across batches; a
+  batch may carry several rules, and rules whose failure should not hold the others back are kept
+  apart, since every fix call runs the plan's `## Gates`. A finding another batch's fix covered is
+  closed with `hostVerified` and its evidence, because `duplicateOf` needs a canonical ID still in
+  the ledger.
+- The first call of every fix attempt carries a `note`. For each rule: the rule with its source — a
+  requirement, a quoted task sentence, since a fix prompt carries no task text, or a decision the
+  user made during the run; its owner, which every other place calls; and its axes, taken from the
+  plan's matrix check and owner tasks first, then from the kinds a plan tends to miss, to be found by
+  references and callers rather than by searching for a word. Once for the batch: what must not
+  change and when to stop. A part that does not apply says so, and the note does not repeat the
+  findings. A retry's note says what changed and restates only a rule it corrects; a retry sent to
+  another vendor gets the whole note again. The skill shows one example in a neutral domain.
+- After each code-review round the orchestrator records every new finding as `own`, `sibling`,
+  `same-class` or `older` with `forge.log.append`. Over the 150 findings of the nine measured runs,
+  `own` and `sibling` — the fallout — came to 53%, and with `same-class` to 77%; these lines are the
+  measure for the runs that follow.
+- `forge.review.fix` and `forge.work.start` describe `note` by those parts, and so does the
+  glossary's Fix note. The server still requires no note and checks none of it.
+
 ## 0.40.0
 
 A rule the plan introduces or changes is checked for a matrix while the plan is drafted, rather than

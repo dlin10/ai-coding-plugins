@@ -32,8 +32,9 @@ internal sealed class ForgeTools
         "confirm, and claude refuses one its account will not serve. Omitted means standard speed, asked for explicitly.";
 
     private const string NOTE_DESCRIPTION =
-        "Optional framing for the Builder, shown after the verbatim findings under \"From the orchestrator\": the rule you " +
-        "see behind them, places you know answer the same question, what you settled. It never replaces a finding. Only " +
+        "Framing for the Builder, shown after the verbatim findings under \"From the orchestrator\": for each rule the " +
+        "findings break, the rule with the requirement it comes from, its owner and its axes; for the batch, what must not " +
+        "change and when to stop. A retry's note says what changed since the last call. It never replaces a finding. Only " +
         "with non-empty fixFindingIds; recorded verbatim in the Flow log.";
 
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic, builder, and Scout of the run may call without being asked; omit it for the Roslyn servers alone.")]
