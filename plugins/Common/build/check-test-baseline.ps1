@@ -5,6 +5,11 @@
 # Renaming a test, or changing what one asserts, stays legitimate. Regenerating the baseline with -Record
 # is how that becomes a deliberate edit rather than an accident, and the failure below names every case
 # that went missing so the edit can be checked.
+#
+# -KeepResults names a folder that receives a copy of each test project's trx, as <project directory>.trx,
+# before this script removes them: a gate that judges test classes by this run can then read it instead of
+# running those classes a second time. Every *.trx already in that folder is removed first, so a project
+# that failed to build leaves no copy from an earlier run behind.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -14,6 +19,7 @@ param(
     [string[]]$RequiredEnvironment = @(),
     [string]$BaselinePath = (Join-Path $PluginRoot 'build/test-baseline.txt'),
     [string]$Configuration = 'Release',
+    [string]$KeepResults = '',
     [switch]$Record
 )
 
@@ -22,6 +28,11 @@ $pluginRoot = $PluginRoot
 $solution = Join-Path $pluginRoot $Solution
 $baselinePath = $BaselinePath
 $logFileName = 'baseline.trx'
+
+# Cleared before anything can stop this script, so whatever the folder holds afterwards came from this run.
+if ($KeepResults -and (Test-Path -LiteralPath $KeepResults)) {
+    Get-ChildItem -LiteralPath $KeepResults -File -Filter '*.trx' | Remove-Item -Force
+}
 
 # A suite that skipped the cases these variables gate is not the suite the baseline recorded. Refusing
 # here beats passing on a run that checked a fraction of what it claims.
@@ -60,6 +71,13 @@ foreach ($file in $results) {
             default { 'Failed' }
         }
         $current[$result.testName] = $outcome
+    }
+}
+
+if ($KeepResults) {
+    New-Item -ItemType Directory -Force -Path $KeepResults | Out-Null
+    foreach ($file in $results) {
+        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $KeepResults "$($file.Directory.Parent.Name).trx") -Force
     }
 }
 
