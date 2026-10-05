@@ -12,26 +12,29 @@ public sealed class GeneratedDocumentTests
     private const string JOIN = "M:System.String.Join(System.String,System.String[])";
     private const string MVID = "5c8d0b6e-7a4f-4b1e-9f2a-3d6c1e8b0a47";
 
-    private static readonly string[] TOP_LEVEL = ["schemaVersion", "member", "assembly", "classified", "reason", "generation"];
+    private static readonly string[] TOP_LEVEL = ["schemaVersion", "member", "assembly", "classified", "reason", "model", "modelReason", "generation"];
 
     private static readonly string[] GENERATION =
     [
-        "implementation", "framework", "missingDependencies", "externBodies", "defaultedValues", "refusals", "setupWidened", "reachedBodies",
-        "seconds"
+        "implementation", "framework", "missingDependencies", "externBodies", "defaultedValues", "refusals", "setupWidened", "seeds", "unseeded",
+        "holderTriggers", "reachedBodies", "seconds"
     ];
 
     // G-6's two examples, their "…" filled.
     private const string FIRST_EXAMPLE =
-        "{\"schemaVersion\":1,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
-        "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"generation\":{\"implementation\":" +
+        "{\"schemaVersion\":2,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
+        "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"model\":null,\"modelReason\":null," +
+        "\"generation\":{\"implementation\":" +
         "{\"path\":\"C:\\\\Program Files\\\\dotnet\\\\shared\\\\Microsoft.NETCore.App\\\\10.0.0\\\\System.Linq.dll\",\"assemblyVersion\":\"10.0.0.0\"," +
         "\"fileVersion\":\"10.0.25.52411\",\"mvid\":\"" + MVID + "\"},\"framework\":\"net10.0\",\"missingDependencies\":[],\"externBodies\":3," +
-        "\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"reachedBodies\":41,\"seconds\":2.3}}\n";
+        "\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{}," +
+        "\"reachedBodies\":41,\"seconds\":2.3}}\n";
 
     private const string SECOND_EXAMPLE =
-        "{\"schemaVersion\":1,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
-        "\"classified\":null,\"reason\":\"corelib\",\"generation\":{\"implementation\":null,\"framework\":null,\"missingDependencies\":[]," +
-        "\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"reachedBodies\":0,\"seconds\":0.0}}\n";
+        "{\"schemaVersion\":2,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
+        "\"classified\":null,\"reason\":\"corelib\",\"model\":null,\"modelReason\":null,\"generation\":{\"implementation\":null," +
+        "\"framework\":null,\"missingDependencies\":[],\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[]," +
+        "\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{},\"reachedBodies\":0,\"seconds\":0.0}}\n";
 
     [Fact]
     public void Classified_answer_has_every_property_typed_as_G6_says()
@@ -40,7 +43,7 @@ public sealed class GeneratedDocumentTests
         var root = document.RootElement;
 
         Assert.Equal(TOP_LEVEL, Names(root));
-        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("member").ValueKind);
         var assembly = root.GetProperty("assembly");
         Assert.Equal(["name", "version", "package"], Names(assembly));
@@ -51,6 +54,8 @@ public sealed class GeneratedDocumentTests
         Assert.Equal("result", classified.GetProperty("sleepDurationProvider").GetProperty("holder").GetString());
         Assert.Equal(JsonValueKind.Null, classified.GetProperty("onRetry").GetProperty("holder").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("reason").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("model").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("modelReason").ValueKind);
 
         var generation = root.GetProperty("generation");
         Assert.Equal(GENERATION, Names(generation));
@@ -62,6 +67,10 @@ public sealed class GeneratedDocumentTests
         Assert.Equal(["context"], Strings(generation.GetProperty("defaultedValues")));
         Assert.Equal("holder this needs an instance method", generation.GetProperty("refusals").GetProperty("onRetry").GetString());
         Assert.Equal(["onRetry"], Strings(generation.GetProperty("setupWidened")));
+        Assert.Equal(3, generation.GetProperty("seeds").GetInt32());
+        Assert.Equal(["arg:context/F:Lib.Context.Value"], Strings(generation.GetProperty("unseeded")));
+        Assert.Equal(["onRetry"], Names(generation.GetProperty("holderTriggers")));
+        Assert.Equal(["M:Polly.Result.Fire"], Strings(generation.GetProperty("holderTriggers").GetProperty("onRetry")));
         Assert.Equal(152, generation.GetProperty("reachedBodies").GetInt32());
         Assert.Equal(12.0, generation.GetProperty("seconds").GetDouble());
     }
@@ -80,10 +89,11 @@ public sealed class GeneratedDocumentTests
         var generation = root.GetProperty("generation");
         Assert.Equal(GENERATION, Names(generation));
         Assert.Equal(JsonValueKind.Object, generation.GetProperty("implementation").ValueKind);
-        foreach (var name in new[] { "missingDependencies", "defaultedValues", "setupWidened" })
+        foreach (var name in new[] { "missingDependencies", "defaultedValues", "setupWidened", "unseeded" })
             Assert.Equal(JsonValueKind.Array, generation.GetProperty(name).ValueKind);
-        Assert.Equal(JsonValueKind.Object, generation.GetProperty("refusals").ValueKind);
-        foreach (var name in new[] { "externBodies", "reachedBodies", "seconds" })
+        foreach (var name in new[] { "refusals", "holderTriggers" })
+            Assert.Equal(JsonValueKind.Object, generation.GetProperty(name).ValueKind);
+        foreach (var name in new[] { "externBodies", "seeds", "reachedBodies", "seconds" })
             Assert.Equal(JsonValueKind.Number, generation.GetProperty(name).ValueKind);
         Assert.Equal(1501, generation.GetProperty("reachedBodies").GetInt32());
         Assert.Equal(1.0, generation.GetProperty("seconds").GetDouble());
@@ -165,15 +175,20 @@ public sealed class GeneratedDocumentTests
                 new GenerationRecord(new GenerationImplementation(@"C:\packages\polly\7.2.3\lib\netstandard2.0\Polly.dll", "7.0.0.0", "7.2.3.0", MVID), "net8.0",
                                      ["Polly.Extensions@[1.0.0]"], 7, ["context"],
                                      new SortedDictionary<string, string>(StringComparer.Ordinal) { ["onRetry"] = "holder this needs an instance method" },
-                                     ["onRetry"], 152, 12.0));
+                                     ["onRetry"], 3, ["arg:context/F:Lib.Context.Value"],
+                                     new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+                                     {
+                                         ["onRetry"] = ["M:Polly.Result.Fire"]
+                                     }, 152, 12.0));
 
     private static GeneratedAnswer Example(string member, GenerationAssembly assembly, IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason,
                                            GenerationRecord record) =>
-        new(1, member, assembly, classified, reason, record);
+        new(2, member, assembly, classified, reason, null, null, record);
 
     private static GenerationRecord Record(GenerationImplementation? implementation, string? framework, int externBodies = 0, int reachedBodies = 0,
                                            double seconds = 0) =>
-        new(implementation, framework, [], externBodies, [], new SortedDictionary<string, string>(StringComparer.Ordinal), [], reachedBodies, seconds);
+        new(implementation, framework, [], externBodies, [], new SortedDictionary<string, string>(StringComparer.Ordinal), [], 0, [],
+            new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal), reachedBodies, seconds);
 
     private static string[] Names(JsonElement element) => element.EnumerateObject().Select(property => property.Name).ToArray();
 

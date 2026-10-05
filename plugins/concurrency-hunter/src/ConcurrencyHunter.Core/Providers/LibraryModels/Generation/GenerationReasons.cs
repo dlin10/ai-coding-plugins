@@ -18,6 +18,9 @@ public static class GenerationReasons
     /// <summary>The library declares no member of the declaration id asked for.</summary>
     public const string MEMBER_NOT_FOUND = "member-not-found";
 
+    /// <summary>A property, event or accessor; generation for accessors belongs to run B2b.</summary>
+    public const string ACCESSOR = "accessor";
+
     /// <summary>A member kind the generator does not take, or a member no driver could be built for.</summary>
     public const string DRIVER_NOT_SYNTHESIZED = "driver-not-synthesized";
 
@@ -36,11 +39,39 @@ public static class GenerationReasons
     /// <summary>The engine run threw, or its lowering dropped the member's own body.</summary>
     public const string ANALYSIS_FAILED = "analysis-failed";
 
+    /// <summary>A probe or a value it reaches was touched where the analysis cannot see what happened.</summary>
+    public const string UNKNOWN_TOUCH = "unknown-touch";
+
+    /// <summary>The driver could not seed a field the member read, or the member awaited an untracked completion value.</summary>
+    public const string INCOMPLETE = "incomplete";
+
+    /// <summary>The observed effect or value has no form in the library-model vocabulary.</summary>
+    public const string VOCABULARY = "vocabulary";
+
     /// <summary>The reasons in the order the generator checks them (G-6); <c>driver-not-synthesized</c> stands twice, for a member kind
     /// the generator does not take and for a driver that could not be built.</summary>
     public static IReadOnlyList<string> Ordered { get; } =
     [
-        CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, ENGINE_RECOGNIZED, DRIVER_NOT_SYNTHESIZED,
+        CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, ACCESSOR, ENGINE_RECOGNIZED, DRIVER_NOT_SYNTHESIZED,
         NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, CLOSURE_BOUND, ANALYSIS_FAILED
     ];
+}
+
+/// <summary>The closed list of reasons a classified member has no generated model entry (SPEC TD-034b).</summary>
+public static class ModelReasons
+{
+    /// <summary>A probe or reachable value was touched where the analysis cannot see what happened.</summary>
+    public const string UNKNOWN_TOUCH = "unknown-touch";
+
+    /// <summary>A field the member read could not be seeded, or an awaited completion value was not tracked.</summary>
+    public const string INCOMPLETE = "incomplete";
+
+    /// <summary>The member wrote pre-existing library state outside a keeping chain.</summary>
+    public const string LIBRARY_STATE = "library-state";
+
+    /// <summary>The observed effect or value has no form in the model vocabulary.</summary>
+    public const string VOCABULARY = "vocabulary";
+
+    /// <summary>The reasons in the order the generator checks them.</summary>
+    public static IReadOnlyList<string> Ordered { get; } = [UNKNOWN_TOUCH, INCOMPLETE, LIBRARY_STATE, VOCABULARY];
 }

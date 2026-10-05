@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ConcurrencyHunter.Core.Tests" />
+    <InternalsVisibleTo Include="ConcurrencyHunter.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>

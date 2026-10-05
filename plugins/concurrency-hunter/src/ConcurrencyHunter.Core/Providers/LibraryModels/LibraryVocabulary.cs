@@ -41,6 +41,13 @@ public abstract record LibraryValue
     internal abstract string Canonical { get; }
 }
 
+/// <summary><c>new</c>: a fresh object of a delegate parameter's type.</summary>
+public sealed record NewValue : LibraryValue
+{
+    public override string ToString() => "new";
+    internal override string Canonical => ToString();
+}
+
 /// <summary><c>arg:P</c>: what the argument of parameter P points to.</summary>
 public sealed record ArgumentValue(string Parameter) : LibraryValue
 {
@@ -220,7 +227,7 @@ internal static class LibraryVocabulary
                 throw new FormatException($"stores target '{target}' needs writes-cells.");
             var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"stores value '{text}' does not parse.")).ToArray();
             foreach (var value in values)
-                Place(value, fates, into: null, result: null, whole: true);
+                Place(value, fates, into: null, result: null, "stores", whole: true);
             stores.Add(target, values);
         }
         var outputs = new Dictionary<string, LibraryResult>(StringComparer.Ordinal);
@@ -230,7 +237,7 @@ internal static class LibraryVocabulary
                 throw new FormatException($"outputs target '{target}' must be a parameter name.");
             var output = LibraryResult.Parse(text) ?? throw new FormatException($"outputs value '{text}' does not parse.");
             foreach (var value in output.Values)
-                Place(value, fates, into: null, output, whole: true);
+                Place(value, fates, into: null, output, "outputs", whole: true);
             outputs.Add(target, output);
         }
         var keeps = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
@@ -238,18 +245,26 @@ internal static class LibraryVocabulary
         {
             if (ValueParser.Whole(keeper, parser => parser.Name()) is null || texts.Length == 0)
                 throw new FormatException("keeps must map a keeper to a non-empty array of values.");
-            if (keeper == "result" && result?.Kind != LibraryResultKind.New)
+            if (keeper == "result" && result?.Kind != LibraryResultKind.New &&
+                !fates.Values.Any(fate => fate.Holder == LibraryHolderKind.Result))
                 throw new FormatException("keeps.result needs the result new.");
             var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"keeps value '{text}' does not parse.")).ToArray();
             foreach (var value in values)
-                Place(value, fates, into: null, result: null, whole: true);
+                Place(value, fates, into: null, result: null, "keeps", whole: true);
             keeps.Add(keeper, values);
         }
         foreach (var fate in fates.Values)
             foreach (var value in fate.Inputs?.SelectMany(input => input) ?? [])
-                Place(value, fates, fate, result: null, whole: true);
+                Place(value, fates, fate, result: null, "input", whole: true);
         foreach (var value in result?.Values ?? [])
-            Place(value, fates, into: null, result, whole: true);
+            Place(value, fates, into: null, result, result!.Kind switch
+            {
+                LibraryResultKind.Sequence => "sequence(…)",
+                LibraryResultKind.Collection => "collection(…)",
+                LibraryResultKind.Dictionary => "dictionary(…)",
+                LibraryResultKind.OneOf => "result list",
+                _ => "result"
+            }, whole: true);
         if (fates.Values.Any(fate => fate.Kind == LibraryFateKind.Iterator) && result?.Kind != LibraryResultKind.Sequence)
             throw new FormatException("an iterator fate needs a sequence(…) result.");
         if (result is not null && fates.Values.Any(fate => fate.Holder == LibraryHolderKind.Result))
@@ -262,16 +277,22 @@ internal static class LibraryVocabulary
     /// <param name="fates">The entry's fates.</param>
     /// <param name="into">The destination fate, if any.</param>
     /// <param name="result">The destination result, if any.</param>
+    /// <param name="place">The model place containing the value.</param>
     /// <param name="whole">Whether the value stands outside another value.</param>
     private static void Place(LibraryValue value, IReadOnlyDictionary<string, LibraryFate> fates, LibraryFate? into, LibraryResult? result,
-                              bool whole)
+                              string place, bool whole)
     {
         switch (value)
         {
             case HolderArgumentValue when into?.Kind != LibraryFateKind.Holder || !whole:
                 throw new FormatException($"{value} stands only alone in the inputs of a holder fate.");
+            case NewValue when into is null || !whole:
+                throw new FormatException($"new is not allowed in {place}.");
+            case NewValue when into.Kind is not (LibraryFateKind.InvokeNow or LibraryFateKind.Holder):
+                throw new FormatException("new input needs an invoke-now or holder fate.");
             case KeptValue { Keeper: "result" }:
                 throw new FormatException("kept:result is not allowed.");
+            case NewValue:
             case KeptValue:
             case HolderArgumentValue:
             case ArgumentValue:
@@ -292,15 +313,15 @@ internal static class LibraryVocabulary
                     throw new FormatException($"{value}: the runs of a {LibraryFate.Text(source.Kind)} delegate are not there to be had here.");
                 break;
             case ElementsValue elements:
-                Place(elements.Source, fates, into, result, whole: false);
+                Place(elements.Source, fates, into, result, "elements(…)", whole: false);
                 break;
             case SequenceValue sequence:
                 foreach (var item in sequence.Values)
-                    Place(item, fates, into, result, whole: false);
+                    Place(item, fates, into, result, "sequence(…)", whole: false);
                 break;
             case GroupingValue grouping:
-                Place(grouping.Key, fates, into, result, whole: false);
-                Place(grouping.Values, fates, into, result, whole: false);
+                Place(grouping.Key, fates, into, result, "grouping(…)", whole: false);
+                Place(grouping.Values, fates, into, result, "grouping(…)", whole: false);
                 break;
             default:
                 throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
@@ -383,6 +404,11 @@ internal static class LibraryVocabulary
     {
         internal void Run()
         {
+            if (result is not null && fates.Any(fate => fate.Holder == LibraryHolderKind.Result))
+                throw new Refusal("an entry whose holder is the result carries no result.");
+            if (keeps.ContainsKey("result") && result?.Kind != LibraryResultKind.New &&
+                !fates.Any(fate => fate.Holder == LibraryHolderKind.Result))
+                throw new Refusal("keeps.result needs the result new.");
             foreach (var effect in effects)
             {
                 var target = TargetType(effect.Parameter);
@@ -428,7 +454,13 @@ internal static class LibraryVocabulary
                 for (var index = 0; index < (fate.Inputs?.Count ?? 0); index++)
                 {
                     foreach (var value in fate.Inputs![index])
-                        if (value is not HolderArgumentValue)
+                        if (value is NewValue)
+                        {
+                            if (fate.Kind is not (LibraryFateKind.InvokeNow or LibraryFateKind.Holder))
+                                throw new Refusal("new input needs an invoke-now or holder fate.");
+                            CheckNewInputType(invoke.Parameters[index].Type);
+                        }
+                        else if (value is not HolderArgumentValue)
                             Converts(value, invoke.Parameters[index].Type);
                 }
             }
@@ -534,6 +566,8 @@ internal static class LibraryVocabulary
                     return;
                 case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue:
                     break;
+                case NewValue:
+                    throw new Refusal("new is allowed only at the top level of a fate input.");
                 default:
                     throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
@@ -569,6 +603,8 @@ internal static class LibraryVocabulary
                     if (source is not null && !Converts(source, destination))
                         throw new Refusal($"{value} is {source.ToDisplayString()}, which does not convert to {destination.ToDisplayString()}.");
                     break;
+                case NewValue:
+                    throw new Refusal("new is allowed only at the top level of a fate input.");
                 default:
                     throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
@@ -601,6 +637,8 @@ internal static class LibraryVocabulary
                     return source is null ? null : ElementType(source) ?? throw new Refusal($"{value}: {source.ToDisplayString()} is not enumerable.");
                 case SequenceValue or GroupingValue or HolderArgumentValue:
                     return null;
+                case NewValue:
+                    throw new Refusal("new is allowed only at the top level of a fate input.");
                 default:
                     throw new UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
@@ -609,6 +647,22 @@ internal static class LibraryVocabulary
         private ITypeSymbol TargetType(string target) => target == "this"
             ? !method.IsStatic ? method.ContainingType : throw new Refusal("this needs an instance member or constructor.")
             : method.Parameters.FirstOrDefault(parameter => parameter.Name == target)?.Type ?? throw new Refusal($"target '{target}' names a missing parameter.");
+
+        private static void CheckNewInputType(ITypeSymbol type)
+        {
+            if (IsAlwaysDelegate(type))
+                throw new Refusal("a fresh delegate would run code no model describes.");
+            if (!type.IsReferenceType)
+                throw new Refusal("new input needs a reference-typed parameter.");
+        }
+
+        private static bool IsAlwaysDelegate(ITypeSymbol type) => type switch
+        {
+            INamedTypeSymbol named when named.TypeKind == TypeKind.Delegate ||
+                                       MetadataName(named.OriginalDefinition) is "System.Delegate" or "System.MulticastDelegate" => true,
+            ITypeParameterSymbol parameter => parameter.ConstraintTypes.Any(IsAlwaysDelegate),
+            _ => false
+        };
 
         /// <summary>What enumerating a value of <paramref name="type"/> yields: an array's element type, the <c>T</c> of the
         /// <c>IEnumerable&lt;T&gt;</c> it is or implements, <c>object</c> for a non-generic <c>IEnumerable</c>; else null.</summary>
@@ -641,6 +695,8 @@ internal static class LibraryVocabulary
 
         internal LibraryValue? Value()
         {
+            if (Take("new"))
+                return new NewValue();
             if (Take("this"))
                 return new ThisValue();
             if (Take("kept:"))

@@ -132,13 +132,36 @@ internal static class ProjectModelResolver
     private static string? RejectReason(ProjectModelEntry entry, IMethodSymbol method, Compilation compilation)
     {
         var typeName = method.ContainingType.ContainingNamespace.ToDisplayString() + "." + method.ContainingType.MetadataName;
-        return entry.Versions is { } range && (method.ContainingAssembly.Identity.Version < range.Minimum ||
+        var checkedEntry = ProjectModelFiles.IsPattern(entry.Member)
+            ? entry with { Member = DocumentationCommentId.CreateDeclarationId(method.OriginalDefinition)! }
+            : entry;
+        return EntryRejection(checkedEntry, method, compilation) is { } refusal ? refusal :
+               LibraryModels.IsRecognizedType(typeName) ? "a phase 3-4 recognizer owns this type." :
+               method.DeclaringSyntaxReferences.Length != 0 ? "member has a body in the run." : null;
+    }
+
+    internal static string? EntryRejection(ProjectModelEntry entry, IMethodSymbol definition, Compilation compilation)
+    {
+        var method = (definition.ReducedFrom ?? definition).OriginalDefinition;
+        IMethodSymbol[] named;
+        try
+        {
+            named = DocumentationCommentId.GetSymbolsForDeclarationId(entry.Member, compilation).OfType<IMethodSymbol>()
+                                          .Select(candidate => (candidate.ReducedFrom ?? candidate).OriginalDefinition).ToArray();
+        }
+        catch (ArgumentException)
+        {
+            named = [];
+        }
+        return !named.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate, method)) ?
+                   "member does not name the definition." :
+               !entry.Assemblies.Contains(method.ContainingAssembly.Identity.Name, StringComparer.Ordinal) ?
+                   "entry assemblies do not name the declaring assembly." :
+               entry.Versions is { } range && (method.ContainingAssembly.Identity.Version < range.Minimum ||
                                                 method.ContainingAssembly.Identity.Version >= range.Maximum) ?
                    "assembly version is outside the entry's versions." :
                method.MethodKind == MethodKind.PropertySet ? "setters are not supported." :
                LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation, entry.Effects, entry.Stores, entry.Outputs, entry.Keeps) is { } refusal ? refusal :
-               LibraryModels.IsRecognizedType(typeName) ? "a phase 3-4 recognizer owns this type." :
-               method.DeclaringSyntaxReferences.Length != 0 ? "member has a body in the run." :
                entry.Effects.Any(effect => effect.Parameter != "this" && method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?
                    "an effect names a missing parameter." : null;
     }

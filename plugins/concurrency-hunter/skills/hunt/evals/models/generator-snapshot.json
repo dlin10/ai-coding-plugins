@@ -14,7 +14,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 40
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 49
     },
     {
       "member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
@@ -30,6 +32,23 @@
         }
       },
       "reason": null,
+      "model": {
+        "member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
+        "assemblies": [
+          "Google.Protobuf"
+        ],
+        "versions": {
+          "minimum": "3.21.9.0",
+          "maximumExclusive": "3.21.9.1"
+        },
+        "effects": {},
+        "fates": {
+          "factory": {
+            "fate": "unknown-execution"
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 22
     },
     {
@@ -46,7 +65,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 184
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 219
     },
     {
       "member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
@@ -66,7 +87,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 32
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 35
     },
     {
       "member": "M:Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(Polly.PolicyBuilder,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.Int32,System.TimeSpan})",
@@ -86,7 +109,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 33
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 36
     },
     {
       "member": "M:Polly.Policy.Execute(System.Action)",
@@ -102,7 +127,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 181
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 216
     },
     {
       "member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
@@ -122,7 +149,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 31
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 34
     },
     {
       "member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -138,7 +167,29 @@
         }
       },
       "reason": null,
-      "reachedBodies": 337
+      "model": {
+        "member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "8.0.0.0",
+          "maximumExclusive": "8.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "predicate": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 341
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -154,7 +205,30 @@
         }
       },
       "reason": null,
-      "reachedBodies": 338
+      "model": {
+        "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "8.0.0.0",
+          "maximumExclusive": "8.0.0.1"
+        },
+        "effects": {},
+        "result": "[elements(arg:source)]",
+        "fates": {
+          "predicate": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 342
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
@@ -178,7 +252,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 353
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 357
     },
     {
       "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
@@ -194,7 +270,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 347
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 352
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})",
@@ -210,7 +288,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 342
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 358
     },
     {
       "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
@@ -226,7 +306,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 367
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 371
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -242,7 +324,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 344
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 350
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
@@ -258,7 +342,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 338
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 342
     },
     {
       "member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
@@ -278,7 +364,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 351
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 355
     },
     {
       "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -294,7 +382,9 @@
         }
       },
       "reason": null,
-      "reachedBodies": 350
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 354
     },
     {
       "member": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
@@ -310,18 +400,2568 @@
         }
       },
       "reason": null,
-      "reachedBodies": 45
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 141
+    }
+  ],
+  "effects": [
+    {
+      "member": "M:AutoMapper.IMapperBase.Map``1(System.Object)",
+      "implementation": {
+        "assemblyVersion": "14.0.0.0",
+        "fileVersion": "14.0.0.0",
+        "mvid": "df12b206-485d-4371-b887-6bb99dcde699"
+      },
+      "classified": null,
+      "reason": "library-does-not-compile",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:AutoMapper.IMapperBase.Map``2(``0,``1)",
+      "implementation": {
+        "assemblyVersion": "14.0.0.0",
+        "fileVersion": "14.0.0.0",
+        "mvid": "df12b206-485d-4371-b887-6bb99dcde699"
+      },
+      "classified": null,
+      "reason": "library-does-not-compile",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:FluentValidation.AbstractValidator`1.Validate(`0)",
+      "implementation": {
+        "assemblyVersion": "11.0.0.0",
+        "fileVersion": "11.5.1.0",
+        "mvid": "d7cb9d39-2c1a-4c24-a513-8e02a30a4ae1"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 457
+    },
+    {
+      "member": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
+      "implementation": {
+        "assemblyVersion": "11.0.0.0",
+        "fileVersion": "11.5.1.0",
+        "mvid": "d7cb9d39-2c1a-4c24-a513-8e02a30a4ae1"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 457
+    },
+    {
+      "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
+      "implementation": {
+        "assemblyVersion": "11.0.0.0",
+        "fileVersion": "11.5.1.0",
+        "mvid": "d7cb9d39-2c1a-4c24-a513-8e02a30a4ae1"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.Validators.IPropertyValidator{`0,`1})",
+      "implementation": {
+        "assemblyVersion": "11.0.0.0",
+        "fileVersion": "11.5.1.0",
+        "mvid": "d7cb9d39-2c1a-4c24-a513-8e02a30a4ae1"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:Google.Protobuf.Collections.RepeatedField`1.Add(`0)",
+      "implementation": {
+        "assemblyVersion": "3.21.9.0",
+        "fileVersion": "3.21.9.0",
+        "mvid": "2f4141cc-f5a5-4604-aa0b-ceb8fe78a4dd"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 21
+    },
+    {
+      "member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan})",
+      "implementation": {
+        "assemblyVersion": "7.0.0.0",
+        "fileVersion": "7.2.3.0",
+        "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 33
+    },
+    {
+      "member": "M:System.Collections.Generic.EqualityComparer`1.Equals(`0,`0)",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Console.Write(System.Object)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "aaf146d0-4986-45a7-bfc8-18300c2e26b4"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 38
+    },
+    {
+      "member": "M:System.Console.WriteLine(System.Object)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "aaf146d0-4986-45a7-bfc8-18300c2e26b4"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 38
+    },
+    {
+      "member": "M:System.Runtime.InteropServices.CollectionsMarshal.SetCount``1(System.Collections.Generic.List{``0},System.Int32)",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.String.Join(System.String,System.Collections.Generic.IEnumerable{System.String})",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.String.Join(System.String,System.String[])",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.String.Join``1(System.String,System.Collections.Generic.IEnumerable{``0})",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.String.Split(System.Char[])",
+      "implementation": null,
+      "classified": null,
+      "reason": "corelib",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "2aaaf149-a6ae-4634-be1f-f86dca2ee497"
+      },
+      "classified": null,
+      "reason": "library-does-not-compile",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "8c1dd8b4-9b4a-4ef0-bb24-e462cfa0be05"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    }
+  ],
+  "linq": [
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``0,``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "func": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 400
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate``2(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1})~``1",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "func": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Aggregate``3(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1},System.Func{``1,``2})~``2",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "func": {
+          "fate": "invoke-now",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 395
+    },
+    {
+      "member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 518
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.AsEnumerable``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Cast``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 397
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Contains``1(System.Collections.Generic.IEnumerable{``0},``0)~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 424
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})~System.Int32",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 388
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int32",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.DistinctBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 398
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Empty``1~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": null,
+      "reason": "not-a-candidate",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "second": [
+            "reads-deep"
+          ]
+        },
+        "result": "sequence(elements(arg:first))",
+        "fates": {
+          "keySelector": {
+            "fate": "iterator",
+            "inputs": [
+              [
+                "elements(arg:first)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 398
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 518
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 518
+    },
+    {
+      "member": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``0}}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 397
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``2}}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2})~System.Collections.Generic.IEnumerable{``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})~System.Collections.Generic.IEnumerable{``3}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 407
+    },
+    {
+      "member": "M:System.Linq.Enumerable.GroupJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,System.Collections.Generic.IEnumerable{``1},``3})~System.Collections.Generic.IEnumerable{``3}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "innerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "outerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 410
+    },
+    {
+      "member": "M:System.Linq.Enumerable.IntersectBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.Linq.Enumerable.IntersectBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "second": [
+            "reads-deep"
+          ]
+        },
+        "result": "sequence(elements(arg:first))",
+        "fates": {
+          "keySelector": {
+            "fate": "iterator",
+            "inputs": [
+              [
+                "elements(arg:first)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 398
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Join``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "innerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "outerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 409
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 518
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 518
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 411
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LeftJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "innerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "outerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 409
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0})~System.Int64",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": {
+        "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "source": [
+            "reads-deep"
+          ]
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 389
+    },
+    {
+      "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int64",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "predicate": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.MaxBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 400
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Max``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.MinBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 400
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 391
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Min``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OfType``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderByDescending``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 400
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 400
+    },
+    {
+      "member": "M:System.Linq.Enumerable.RightJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "innerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "outerKeySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 409
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})~System.Collections.Generic.IEnumerable{``1}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 408
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Collections.Generic.IEnumerable{``1}})~System.Collections.Generic.IEnumerable{``1}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 409
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "collectionSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 414
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SelectMany``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Collections.Generic.IEnumerable{``1}},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "collectionSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        },
+        "resultSelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 414
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,``1})~System.Collections.Generic.IEnumerable{``1}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 397
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``1}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 416
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SequenceEqual``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 390
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 399
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Single``1(System.Collections.Generic.IEnumerable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Single``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "library-state",
+      "reachedBodies": 403
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SkipWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.SkipWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 406
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "selector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 392
+    },
+    {
+      "member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 390
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Range)~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 407
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ThenByDescending``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 418
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 418
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToArray``1(System.Collections.Generic.IEnumerable{``0})~``0[]",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 389
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToDictionary``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.Dictionary{``1,``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 399
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Collections.Generic.Dictionary{``1,``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "invoke-now",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 404
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.List{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 439
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.ILookup{``1,``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 399
+    },
+    {
+      "member": "M:System.Linq.Enumerable.ToLookup``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Linq.ILookup{``1,``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "elementSelector": {
+          "fate": "invoke-now",
+          "holder": null
+        },
+        "keySelector": {
+          "fate": "invoke-now",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 404
+    },
+    {
+      "member": "M:System.Linq.Enumerable.UnionBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "keySelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.Linq.Enumerable.UnionBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "result": "sequence(elements(arg:first),elements(arg:second))",
+        "fates": {
+          "keySelector": {
+            "fate": "iterator",
+            "inputs": [
+              [
+                "elements(arg:first)",
+                "elements(arg:second)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 398
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Union``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 401
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 402
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "predicate": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 396
+    },
+    {
+      "member": "M:System.Linq.Enumerable.Zip``3(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "97873af1-4849-430d-9ded-e9a460a2a88a"
+      },
+      "classified": {
+        "resultSelector": {
+          "fate": "iterator",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 398
+    },
+    {
+      "member": "M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Boolean",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}})~System.Linq.IOrderedQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}},System.Collections.Generic.IComparer{``1})~System.Linq.IOrderedQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},``0)~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},``0)~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Skip``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Range)~System.Linq.IQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Linq.IQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Int32,System.Boolean}})~System.Linq.IQueryable{``0}",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "da18b039-b700-4f75-b20a-d88c2d34de09"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
     }
   ],
   "packages": [
+    {
+      "assembly": "AutoMapper",
+      "package": "AutoMapper",
+      "implementationVersion": "14.0.0",
+      "bodies": 1062,
+      "externBodies": 0,
+      "members": 2,
+      "driversSynthesized": 0
+    },
+    {
+      "assembly": "FluentValidation",
+      "package": "FluentValidation",
+      "implementationVersion": "11.5.1",
+      "bodies": 675,
+      "externBodies": 0,
+      "members": 4,
+      "driversSynthesized": 2
+    },
     {
       "assembly": "Google.Protobuf",
       "package": "Google.Protobuf",
       "implementationVersion": "3.21.9",
       "bodies": 2623,
       "externBodies": 1,
-      "members": 2,
-      "driversSynthesized": 2
+      "members": 3,
+      "driversSynthesized": 3
     },
     {
       "assembly": "Polly",
@@ -329,8 +2969,26 @@
       "implementationVersion": "7.2.3",
       "bodies": 978,
       "externBodies": 0,
-      "members": 5,
-      "driversSynthesized": 5
+      "members": 6,
+      "driversSynthesized": 6
+    },
+    {
+      "assembly": "System.Console",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 380,
+      "externBodies": 0,
+      "members": 2,
+      "driversSynthesized": 2
+    },
+    {
+      "assembly": "System.Linq",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 989,
+      "externBodies": 6,
+      "members": 114,
+      "driversSynthesized": 113
     },
     {
       "assembly": "System.Linq",
@@ -342,6 +3000,15 @@
       "driversSynthesized": 10
     },
     {
+      "assembly": "System.Linq.Queryable",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 230,
+      "externBodies": 0,
+      "members": 15,
+      "driversSynthesized": 0
+    },
+    {
       "assembly": "System.Security.Claims",
       "package": null,
       "implementationVersion": "8.0.31",
@@ -349,7 +3016,31 @@
       "externBodies": 0,
       "members": 1,
       "driversSynthesized": 1
+    },
+    {
+      "assembly": "System.Text.Json",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 3296,
+      "externBodies": 0,
+      "members": 1,
+      "driversSynthesized": 0
+    },
+    {
+      "assembly": "System.Threading.Channels",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 230,
+      "externBodies": 1,
+      "members": 1,
+      "driversSynthesized": 0
     }
   ],
-  "exact": 11
+  "exact": 11,
+  "fateGoldEntries": 3,
+  "effectsExact": 8,
+  "linqExact": {
+    "System.Linq": 5,
+    "System.Linq.Queryable": 0
+  }
 }

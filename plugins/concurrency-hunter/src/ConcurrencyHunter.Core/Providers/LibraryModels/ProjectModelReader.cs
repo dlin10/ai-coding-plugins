@@ -92,7 +92,10 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                 var path = Path.GetRelativePath(repositoryRoot, child).Replace('\\', '/');
                 try
                 {
-                    ReadFile(File.ReadAllBytes(child), path, entries, rejections, namedPatterns);
+                    var file = Read(path, File.ReadAllBytes(child));
+                    entries.AddRange(file.Entries);
+                    rejections.AddRange(file.Rejections);
+                    namedPatterns.UnionWith(file.NamedPatterns);
                 }
                 catch (Exception error) when (error is UnauthorizedAccessException or IOException or System.Security.SecurityException)
                 {
@@ -103,6 +106,15 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
 
         Walk(models);
         return new ProjectModelFiles(entries, rejections, namedPatterns, modelsFolderAvailable);
+    }
+
+    public static ProjectModelFiles Read(string path, byte[] bytes)
+    {
+        var entries = new List<ProjectModelEntry>();
+        var rejections = new List<ModelRejection>();
+        var namedPatterns = new HashSet<string>(StringComparer.Ordinal);
+        ReadFile(bytes, path, entries, rejections, namedPatterns);
+        return new ProjectModelFiles(entries, rejections, namedPatterns, true);
     }
 
     private static void ReadFile(byte[] bytes, string path, List<ProjectModelEntry> entries, List<ModelRejection> rejections,

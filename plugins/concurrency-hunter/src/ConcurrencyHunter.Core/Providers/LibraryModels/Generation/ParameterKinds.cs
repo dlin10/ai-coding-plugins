@@ -76,6 +76,14 @@ public static class ParameterKinds
     public static bool IsHolding(ParameterKind kind) =>
         kind is ParameterKind.Container or ParameterKind.ProbeObject or ParameterKind.Subclass or ParameterKind.RecipeValue;
 
+    /// <summary>Whether a value of <paramref name="type"/> can carry a user object and makes its member a generation candidate.</summary>
+    /// <param name="type">The receiver or parameter type.</param>
+    public static bool IsCandidate(ITypeSymbol type) => TypeShape.Of(type) switch
+    {
+        TypeShapeKind.Delegate or TypeShapeKind.Reference or TypeShapeKind.StructWithReferences => true,
+        _ => false
+    };
+
     /// <summary>Whether the type is one of the sequence interfaces axis 4 fills with a list.</summary>
     /// <param name="type">The type.</param>
     internal static bool IsSequence(ITypeSymbol type) =>

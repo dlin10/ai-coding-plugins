@@ -25,10 +25,12 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <param name="ExternBodies">The bodies the rewrite removed.</param>
 /// <param name="ExternMembers">The documentation ids of the members the rewrite made <c>extern</c>, accessors and constructors
 /// declared in place of implicit ones included.</param>
+/// <param name="OpenedFields">The sorted documentation ids of fields and auto-properties the generator's library copy opened.</param>
 /// <param name="Errors">The codes of the errors that made the library unusable, or the types the decompiler threw on as
 /// <c>decompiler: &lt;type&gt;: …</c>; empty when it is usable.</param>
 public sealed record LibraryCompilationResult(CSharpCompilation? Compilation, string? Reason, int Bodies, int ExternBodies,
-                                              IReadOnlySet<string> ExternMembers, IReadOnlyList<string> Errors);
+                                              IReadOnlySet<string> ExternMembers, IReadOnlySet<string> OpenedFields,
+                                              IReadOnlyList<string> Errors);
 
 /// <summary>A module decompiled in memory: one tree per top-level type and the assembly-attributes tree last, and the top-level types
 /// the decompiler threw on.</summary>
@@ -147,6 +149,7 @@ public static class LibraryCompilation
         if (module.Failures.Count > 0)
         {
             return new LibraryCompilationResult(null, GenerationReasons.LIBRARY_DOES_NOT_COMPILE, 0, 0, new SortedSet<string>(StringComparer.Ordinal),
+                                                new SortedSet<string>(StringComparer.Ordinal),
                                                 module.Failures.Select(failure => $"decompiler: {failure}").ToArray());
         }
 
@@ -162,8 +165,10 @@ public static class LibraryCompilation
     /// <param name="references">The references of the platform version.</param>
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
-                                                          IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null)
+                                                          IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken,
+                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true)
     {
         var bodies = trees.Sum(tree => tree.GetRoot(cancellationToken).DescendantNodes().Count(IsBody));
         var compilation = CSharpCompilation.Create(assemblyName, trees, references,
@@ -223,10 +228,15 @@ public static class LibraryCompilation
             }
 
             if (unusable.Count == 0 && targets.IsEmpty)
-                return new LibraryCompilationResult(compilation, null, bodies, externBodies, externMembers, []);
+            {
+                var opened = openFields ? LibraryFieldOpening.Open(compilation, cancellationToken)
+                                        : (compilation, (IReadOnlySet<string>)new SortedSet<string>(StringComparer.Ordinal));
+                return new LibraryCompilationResult(opened.Item1, null, bodies, externBodies, externMembers, opened.Item2, []);
+            }
             if (unusable.Count > 0 || round == REWRITE_ROUNDS)
             {
                 return new LibraryCompilationResult(null, GenerationReasons.LIBRARY_DOES_NOT_COMPILE, bodies, externBodies, externMembers,
+                                                    new SortedSet<string>(StringComparer.Ordinal),
                                                     unusable.Count > 0 ? unusable.ToArray() : targets.Codes.ToArray());
             }
 

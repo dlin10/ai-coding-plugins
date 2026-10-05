@@ -622,6 +622,7 @@ public static class MethodSummaryBuilder
 
         private ValueOrigin ModelOrigin(IrCallOperation call, IrModelValue value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) => value switch
         {
+            IrModelNew => ValueOrigin.None,
             IrModelArgument argument => call.ArgumentAt(argument.ParameterOrdinal) is int input ? Producers(input) : ValueOrigin.None,
             IrModelThis => call.ReceiverValue is int receiver ? Producers(receiver) : ValueOrigin.None,
             IrModelElements { Source: IrModelArgument argument } => call.ArgumentAt(argument.ParameterOrdinal) is int input

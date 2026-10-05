@@ -139,6 +139,7 @@ public sealed class UnsafeNarrowingTests
     }
 
     private static GeneratedAnswer Answer(IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason) =>
-        new(1, "M:Lib.C.M(System.Action)", new GenerationAssembly("Lib", "1.0", null), classified, reason,
-            new GenerationRecord(null, null, [], 0, [], new Dictionary<string, string>(), [], 0, 0));
+        new(2, "M:Lib.C.M(System.Action)", new GenerationAssembly("Lib", "1.0", null), classified, reason, null, null,
+            new GenerationRecord(null, null, [], 0, [], new Dictionary<string, string>(), [], 0, [],
+                                 new Dictionary<string, IReadOnlyList<string>>(), 0, 0));
 }

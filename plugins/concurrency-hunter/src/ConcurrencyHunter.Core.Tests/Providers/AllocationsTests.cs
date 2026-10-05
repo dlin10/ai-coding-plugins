@@ -39,6 +39,8 @@ public sealed class AllocationsTests
                      allocations.Of(Assert.Single(Slot(trace, DriverSynthesizer.DRIVER_TYPE, "Arg_s_Call"))));
         Assert.Equal(new Allocation(AllocationKind.Driver, DriverRole.ProbeDelegate, null), allocations.Of(probe.Identity));
         Assert.Equal(new Allocation(AllocationKind.Driver, DriverRole.ProbeLambdaReturn, null), allocations.Of(returned.Identity));
+        Assert.False(allocations.CreatedByCall(probe.Identity));
+        Assert.False(allocations.CreatedByCall(returned.Identity));
     }
 
     [Fact]
@@ -106,6 +108,106 @@ public sealed class AllocationsTests
 
         Assert.Equal(new Allocation(AllocationKind.Unknown, DriverRole.None, null), allocations.Of(box.Identity));
         Assert.Equal(new Allocation(AllocationKind.Unknown, DriverRole.None, null), allocations.Of("no-such-region"));
+    }
+
+    [Fact]
+    public void A_region_whose_allocation_instance_also_ran_in_setup_was_not_created_by_the_call()
+    {
+        var (trace, allocations) = Run("""
+            public static class Factory { public static Box Make() => new Box(); }
+            public sealed class Carrier { public Carrier(Box value) { } }
+            public static class Api { public static void Run(Carrier carrier, Action done) { _ = Factory.Make(); done(); } }
+            """, "M:Lib.Api.Run(Lib.Carrier,System.Action)");
+        var regions = trace.Run!.Heap!.Regions.Values.Where(region => region.TypeKey == BOX).ToArray();
+
+        Assert.Contains(regions, region => !allocations.CreatedByCall(region.Identity));
+    }
+
+    [Fact]
+    public void A_trigger_actions_fresh_region_is_created_by_the_call_in_the_confirmation_run()
+    {
+        var trace = Trace("""
+            public sealed class Made { }
+            public sealed class Result
+            {
+                private readonly Action _done;
+                public Result(Action done) { _done = done; }
+                public void Fire() { Cache.Last = new Made(); _done(); }
+            }
+            public static class Api { public static Result Make(Action done) => new Result(done); }
+            """, "M:Lib.Api.Make(System.Action)");
+        var confirmation = Assert.IsType<ConcurrencyHunter.Analysis.ScopeRun>(trace.Confirmation);
+        Assert.False(confirmation.Stopped);
+        var reachability = new HeapReachability(confirmation.Heap!);
+        var result = reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
+        var executions = new DriverExecutions(trace.Driver!, confirmation.Executions!,
+            reachability.From(result is null ? [] : reachability.Targets(result)));
+        var allocations = new Allocations(trace.Driver!, confirmation.Heap!, confirmation.Executions!, executions, reachability);
+        var made = confirmation.Heap!.Regions.Values.Single(region => region.TypeKey == $"{ASSEMBLY}:Lib.Made");
+
+        Assert.True(allocations.CreatedByCall(made.Identity));
+    }
+
+    [Fact]
+    public void A_generic_probe_class_created_by_a_probe_lambda_has_the_return_role()
+    {
+        var (trace, allocations) = Run("public abstract class Node { public object Value; } " +
+                                       "public static class Api { public static T Run<T>(Func<T> make) where T : Node => make(); }",
+                                       "M:Lib.Api.Run``1(System.Func{``0})");
+
+        Assert.Equal(DriverRole.ProbeLambdaReturn, allocations.Of(Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"))).Role);
+    }
+
+    [Fact]
+    public void A_generic_probe_class_created_by_a_witness_has_the_witness_role()
+    {
+        var (trace, allocations) = Run("public abstract class Node { public object Value; } public interface IUser<T> { T Make(); } " +
+                                       "public static class Api { public static T Run<T>(IUser<T> user) where T : Node => user.Make(); }",
+                                       "M:Lib.Api.Run``1(Lib.IUser{``0})");
+
+        Assert.Equal(DriverRole.Witness, allocations.Of(Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"))).Role);
+    }
+
+    [Fact]
+    public void A_delegate_seed_has_the_seed_role_and_its_return_has_the_witness_role()
+    {
+        var (trace, allocations) = Run("public sealed class Options { public Func<object> Make; } " +
+                                       "public static class Api { public static object Run(Options options) => options.Make(); }",
+                                       "M:Lib.Api.Run(Lib.Options)");
+        var seeds = trace.Run!.Heap!.Regions.Values.Where(region => region.Kind == HeapRegionKind.Delegate &&
+            trace.Driver!.SeedFactories.Any(factory => region.SiteBodyId == $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{factory}")).ToArray();
+
+        Assert.NotEmpty(seeds);
+        Assert.All(seeds, seed => Assert.Equal(DriverRole.Seed, allocations.Of(seed.Identity).Role));
+        Assert.Equal(DriverRole.Witness, allocations.Of(Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"))).Role);
+    }
+
+    [Theory]
+    [InlineData("List<object>")]
+    [InlineData("Dictionary<string, object>")]
+    public void A_collection_a_witness_returned_through_a_container_helper_has_the_witness_role(string type)
+    {
+        var (trace, allocations) = Run($"public interface IUser {{ {type} Make(); }} " +
+                                       $"public static class Api {{ public static {type} Run(IUser user) => user.Make(); }}",
+                                       "M:Lib.Api.Run(Lib.IUser)");
+        var result = Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"));
+
+        Assert.StartsWith($"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.SeedContainer_", trace.Run!.Heap!.Regions[result].SiteBodyId);
+        Assert.Equal(DriverRole.Witness, allocations.Of(result).Role);
+    }
+
+    [Fact]
+    public void A_container_helper_setup_called_keeps_the_argument_value_role()
+    {
+        var (trace, allocations) = Run("public sealed class Options { public List<List<object>> Items; } " +
+                                       "public static class Api { public static object Run(Options options) => options.Items[0][0]; }",
+                                       "M:Lib.Api.Run(Lib.Options)");
+        var helpers = trace.Run!.Heap!.Regions.Values.Where(region => region.SiteBodyId?.StartsWith(
+            $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.SeedContainer_", StringComparison.Ordinal) == true &&
+            region.TypeKey?.StartsWith($"{DriverSynthesizer.ASSEMBLY}:", StringComparison.Ordinal) == false).ToArray();
+
+        Assert.NotEmpty(helpers);
+        Assert.All(helpers, region => Assert.Equal(DriverRole.ArgumentValue, allocations.Of(region.Identity).Role));
     }
 
     private static (GenerationTrace Trace, Allocations Allocations) Run(string types, string memberId)

@@ -395,7 +395,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     {
         IrModelArgument argument => argument.ParameterOrdinal,
         IrModelThis => RECEIVER,
-        IrModelReturns or IrModelKept => null,
+        IrModelReturns or IrModelKept or IrModelNew => null,
         _ => throw new UnreachableException($"Unexpected enumerated value kind {value.GetType().Name}.")
     };
 
@@ -410,7 +410,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
         IrModelElements elements => Enumerated(elements.Source, intoSequences),
         IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
         IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
-        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept => [],
+        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept or IrModelNew => [],
         _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
     };
 }
@@ -426,6 +426,10 @@ public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHold
 /// <summary>A value of a library model, with the parameters it names by ordinal: a set of objects a delegate is handed or the call
 /// returns.</summary>
 public abstract record IrModelValue;
+
+/// <summary>A fresh object of <see cref="TypeKey"/> made for one run of a modelled delegate.</summary>
+/// <param name="TypeKey">The delegate parameter's type key.</param>
+public sealed record IrModelNew(string TypeKey) : IrModelValue;
 
 /// <summary>What the argument of a parameter points to.</summary>
 public sealed record IrModelArgument(int ParameterOrdinal) : IrModelValue;

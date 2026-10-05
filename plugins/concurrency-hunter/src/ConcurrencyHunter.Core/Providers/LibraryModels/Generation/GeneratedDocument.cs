@@ -38,6 +38,14 @@ public static class GeneratedDocument
             else
                 json.WriteNull("classified");
             json.WriteString("reason", answer.Reason);
+            if (answer.Model is { } model)
+            {
+                json.WritePropertyName("model");
+                ModelEntryWriter.Write(model).WriteTo(json);
+            }
+            else
+                json.WriteNull("model");
+            json.WriteString("modelReason", answer.ModelReason);
             WriteGeneration(json, answer.Generation);
             json.WriteEndObject();
         }
@@ -69,6 +77,12 @@ public static class GeneratedDocument
             json.WriteString(parameter, refusal);
         json.WriteEndObject();
         WriteStrings(json, "setupWidened", generation.SetupWidened);
+        json.WriteNumber("seeds", generation.Seeds);
+        WriteStrings(json, "unseeded", generation.Unseeded);
+        json.WriteStartObject("holderTriggers");
+        foreach (var (parameter, triggers) in generation.HolderTriggers.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            WriteStrings(json, parameter, triggers.Order(StringComparer.Ordinal));
+        json.WriteEndObject();
         json.WriteNumber("reachedBodies", generation.ReachedBodies);
         // Always one decimal, as G-6's examples write it: 0.0, not 0.
         json.WritePropertyName("seconds");

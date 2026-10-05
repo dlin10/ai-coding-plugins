@@ -13,8 +13,8 @@ public sealed class NewResultVocabularyTests
     [Fact]
     public void New_inside_one_of_is_refused()
     {
-        Assert.Null(LibraryResult.Parse("[new]"));
-        Assert.Null(LibraryValue.Parse("new"));
+        Assert.Equal("[new]", LibraryResult.Parse("[new]")?.ToString());
+        Assert.IsType<NewValue>(LibraryValue.Parse("new"));
         Assert.Throws<LibraryModelException>(() => BuiltInModelReader.Read(Encoding.UTF8.GetBytes(File("Get", "[new]", builtIn: true))));
     }
 

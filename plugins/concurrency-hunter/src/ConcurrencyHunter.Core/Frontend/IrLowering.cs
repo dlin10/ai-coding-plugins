@@ -4200,7 +4200,8 @@ public static class IrLowering
             var fates = match.Fates.Select(fate =>
             {
                 var parameter = typed.Parameters.Single(candidate => candidate.Name == fate.Parameter);
-                var arity = ((INamedTypeSymbol)parameter.Type).DelegateInvokeMethod!.Parameters.Length;
+                var invoke = ((INamedTypeSymbol)parameter.Type).DelegateInvokeMethod!;
+                var arity = invoke.Parameters.Length;
                 var inputs = fate.Inputs ?? Enumerable.Repeat<IReadOnlyList<LibraryValue>>([], arity).ToArray();
                 return new IrLibraryFate(parameter.Ordinal, fate.Kind switch
                 {
@@ -4216,7 +4217,8 @@ public static class IrLowering
                     LibraryHolderKind.This => IrHolderKind.This,
                     null => null,
                     _ => throw new UnreachableException($"Unknown holder kind {fate.Holder}.")
-                }, inputs.Select(input => (IReadOnlyList<IrModelValue>)input.Select(value => Value(typed, value)).ToArray()).ToArray());
+                }, inputs.Select((input, index) => (IReadOnlyList<IrModelValue>)input.Select(value =>
+                                      Value(typed, value, invoke.Parameters[index].Type)).ToArray()).ToArray());
             }).ToArray();
             return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
                                      match.Layer == ModelLayer.Project ? IrModelLayer.Project : IrModelLayer.BuiltIn,
@@ -4252,8 +4254,9 @@ public static class IrLowering
             _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
         }, result.Values.Select(value => Value(method, value)).ToArray());
 
-        private static IrModelValue Value(IMethodSymbol method, LibraryValue value) => value switch
+        private static IrModelValue Value(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null) => value switch
         {
+            NewValue => new IrModelNew(SymbolNames.TypeKey(StaticType(method, value, newType)!)),
             Providers.LibraryModels.ThisValue => new IrModelThis(),
             KeptValue kept => new IrModelKept(KeeperOrdinal(method, kept.Keeper)),
             ArgumentValue argument => new IrModelArgument(Parameter(method, argument.Parameter).Ordinal),
@@ -4278,7 +4281,7 @@ public static class IrLowering
             ElementsValue elements => Keepers(elements.Source),
             SequenceValue sequence => sequence.Values.SelectMany(Keepers),
             GroupingValue grouping => Keepers(grouping.Key).Concat(Keepers(grouping.Values)),
-            ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
+            NewValue or ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
             _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
 
@@ -4287,8 +4290,10 @@ public static class IrLowering
         /// <summary>The type a value has as the call names it, null where it is none the model can say.</summary>
         /// <param name="method">The member as the caller names it.</param>
         /// <param name="value">The model value whose static type is requested.</param>
-        private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value) => value switch
+        /// <param name="newType">The delegate parameter type of a <c>new</c> input.</param>
+        private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null) => value switch
         {
+            NewValue => newType ?? throw new UnreachableException("A new input has no delegate parameter type."),
             Providers.LibraryModels.ThisValue => method.ContainingType,
             ArgumentValue argument => Parameter(method, argument.Parameter).Type,
             ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,

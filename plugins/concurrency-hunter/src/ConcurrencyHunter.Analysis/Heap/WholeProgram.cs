@@ -2930,6 +2930,8 @@ public static partial class WholeProgram
             {
                 case IrModelThis:
                     return Eval(caller, call.Receivers);
+                case IrModelNew created:
+                    return [ModelNew(caller, call.OperationId, created, path)];
                 case IrModelKept kept:
                     return KeeperTargets(caller, call, kept.KeeperOrdinal, read: true).SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToTrackedSet(StringComparer.Ordinal);
                 case IrModelArgument argument:
@@ -2967,6 +2969,21 @@ public static partial class WholeProgram
                 default:
                     throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
+        }
+
+        /// <summary>A fresh object a model hands to one delegate parameter at one call site.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="operationId">The call operation that runs the delegate.</param>
+        /// <param name="value">The fresh input and its declared type.</param>
+        /// <param name="path">The fate and input position distinguishing this object.</param>
+        private string ModelNew(InstanceState caller, int operationId, IrModelNew value, string path)
+        {
+            var typeKey = ProgramIndex.Substitute(value.TypeKey, caller.Substitution);
+            var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
+            var key = $"model-new|{caller.BodyId}#{operationId}|{path}|{typeKey}";
+            return Region($"{key}|{ContextKey(caller)}", HeapRegionKind.Allocation, $"alloc:{owner}#{DisplayType(typeKey)}", typeKey,
+                          caller.Context, key, merged: caller.IsMerged, site: new CreationSite(caller.BodyId, operationId, value.TypeKey, 1),
+                          modelCreationKey: key);
         }
 
         /// <summary>The arguments a sequence's values name the elements of are the sources it enumerates.</summary>
@@ -3357,13 +3374,27 @@ public static partial class WholeProgram
             public string Callee { get => _callee.Value; init => _callee.Value = value; }
             public TrackedList<TrackedSet<string>> Regions { get; } = [];
             public TrackedList<TrackedSet<int>> HolderArguments { get; } = [];
+            public TrackedList<TrackedSet<HeldNewInput>> NewInputs { get; } = [];
 
             public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
             {
                 Regions.Attach(key.Member("HeldDelegate.Regions"), read, write);
                 HolderArguments.Attach(key.Member("HeldDelegate.HolderArguments"), read, write);
+                NewInputs.Attach(key.Member("HeldDelegate.NewInputs"), read, write);
                 _callee.Attach(key.Member("HeldDelegate.Callee"), read, write);
             }
+        }
+
+        /// <summary>A fresh input retained until a holder member runs its delegate.</summary>
+        /// <param name="FatePlace">The original model member and call site that registered this fate.</param>
+        /// <param name="FateParameterOrdinal">The library member's delegate parameter.</param>
+        /// <param name="Position">The value's position in the delegate parameter input.</param>
+        /// <param name="TypeKey">The delegate parameter's type key.</param>
+        private sealed record HeldNewInput(string FatePlace, int FateParameterOrdinal, int Position, string TypeKey)
+        {
+            /// <summary>The unique place of this new value within the original fate.</summary>
+            /// <param name="ordinal">The delegate input parameter ordinal.</param>
+            public string Path(int ordinal) => $"{FatePlace}|fate{FateParameterOrdinal}.{ordinal}.{Position}";
         }
 
         /// <summary>A <c>holder</c> fate keeps the delegate in its holder: a new object created at the call, which the call returns, or
@@ -3376,25 +3407,35 @@ public static partial class WholeProgram
         private void Hold(InstanceState caller, SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyDictionary<int, TrackedSet<string>> returns)
         {
             var regions = fate.Inputs.Select((input, ordinal) => input.Select((value, position) => (Value: value, Position: position))
-                                                                      .Where(item => item.Value is not IrModelHolderArgument)
+                                                                      .Where(item => item.Value is not (IrModelHolderArgument or IrModelNew))
                                                                       .SelectMany(item => ModelValues(caller, call, item.Value, returns,
                                                                                                       $"fate{fate.ParameterOrdinal}.{ordinal}.{item.Position}"))
                                                                       .ToTrackedSet(StringComparer.Ordinal))
                               .ToArray();
             var holderArguments = fate.Inputs.Select(input => input.OfType<IrModelHolderArgument>().Select(argument => argument.Index).ToTrackedSet()).ToArray();
+            var newInputs = fate.Inputs.Select(input => input.Select((value, position) => (value, position))
+                                                            .Where(item => item.value is IrModelNew)
+                                                            .Select(item => new HeldNewInput($"{call.Callee}|{caller.Id}#{call.OperationId}",
+                                                                                           fate.ParameterOrdinal, item.position,
+                                                                                           ((IrModelNew)item.value).TypeKey)).ToTrackedSet())
+                                       .ToArray();
             var delegates = Eval(caller, ArgumentOf(call, fate.ParameterOrdinal)).Where(_delegates.ContainsKey).ToArray();
             IReadOnlyCollection<string> holders = fate.Holder == IrHolderKind.Result && !call.IsConstructor
                 ? CreatedAtCall(caller, call) is { } created ? [created] : []
                 : Eval(caller, call.Receivers);
             if (holders.Count == 0)
             {
+                var handed = regions.Select((values, ordinal) => values.Concat(newInputs[ordinal].Select(input =>
+                                              ModelNew(caller, call.OperationId, new IrModelNew(input.TypeKey),
+                                                       input.Path(ordinal))))
+                                                       .ToTrackedSet(StringComparer.Ordinal)).ToArray();
                 // A delegate no object is known for is an unresolved dispatch there, as it would be in that unknown execution (R3).
                 if (delegates.Length == 0)
-                    UnresolvedHeld(caller, call.OperationId, call.Callee, regions);
+                    UnresolvedHeld(caller, call.OperationId, call.Callee, handed);
                 foreach (var region in delegates)
                 {
                     CheckCancellation();
-                    HandOver(caller, call.OperationId, call.Callee, region, regions);
+                    HandOver(caller, call.OperationId, call.Callee, region, handed);
                 }
                 return;
             }
@@ -3403,16 +3444,17 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 if (delegates.Length == 0)
-                    Keep(holder, UNRESOLVED_DELEGATE, call.Callee, regions, holderArguments);
+                    Keep(holder, UNRESOLVED_DELEGATE, call.Callee, regions, holderArguments, newInputs);
                 foreach (var region in delegates)
                 {
                     CheckCancellation();
-                    Keep(holder, region, call.Callee, regions, holderArguments);
+                    Keep(holder, region, call.Callee, regions, holderArguments, newInputs);
                 }
             }
         }
 
-        private void Keep(string holder, string region, string callee, IReadOnlyList<TrackedSet<string>> regions, IReadOnlyList<TrackedSet<int>> holderArguments)
+        private void Keep(string holder, string region, string callee, IReadOnlyList<TrackedSet<string>> regions,
+                          IReadOnlyList<TrackedSet<int>> holderArguments, IReadOnlyList<TrackedSet<HeldNewInput>> newInputs)
         {
             if (!_held.TryGetValue(holder, out var kept))
             {
@@ -3433,6 +3475,7 @@ public static partial class WholeProgram
                 {
                     held.Regions.Add(new TrackedSet<string>(StringComparer.Ordinal));
                     held.HolderArguments.Add([]);
+                    held.NewInputs.Add([]);
                 }
 
                 Add(held.Regions[ordinal], regions[ordinal]);
@@ -3440,6 +3483,12 @@ public static partial class WholeProgram
                 {
                     CheckCancellation();
                     if (held.HolderArguments[ordinal].Add(index))
+                        _changes++;
+                }
+                foreach (var input in newInputs[ordinal])
+                {
+                    CheckCancellation();
+                    if (held.NewInputs[ordinal].Add(input))
                         _changes++;
                 }
             }
@@ -3461,6 +3510,8 @@ public static partial class WholeProgram
                 var inputs = held.Regions.Select((regions, ordinal) => new CallArgument(ordinal,
                                      regions.Concat(held.HolderArguments[ordinal].SelectMany(index =>
                                                 Eval(caller, arguments.FirstOrDefault(argument => argument.ParameterOrdinal == index)?.Values ?? new TrackedSet<AbstractValue>())))
+                                            .Concat(held.NewInputs[ordinal].Select(input => ModelNew(caller, operationId,
+                                                new IrModelNew(input.TypeKey), input.Path(ordinal))))
                                             .Select(value => (AbstractValue)new RegionValue(value))
                                             .ToTrackedSet()))
                                  .ToArray();
@@ -3596,10 +3647,14 @@ public static partial class WholeProgram
             foreach (var (region, held) in _held[holder].ToArray())
             {
                 CheckCancellation();
+                var inputs = held.Regions.Select((regions, ordinal) => regions.Concat(held.NewInputs[ordinal].Select(input =>
+                                             ModelNew(caller, operationId, new IrModelNew(input.TypeKey),
+                                                      input.Path(ordinal))))
+                                                      .ToTrackedSet(StringComparer.Ordinal)).ToArray();
                 if (region == UNRESOLVED_DELEGATE)
-                    UnresolvedHeld(caller, operationId, held.Callee, held.Regions);
+                    UnresolvedHeld(caller, operationId, held.Callee, inputs);
                 else
-                    HandOver(caller, operationId, held.Callee, region, held.Regions);
+                    HandOver(caller, operationId, held.Callee, region, inputs);
             }
         }
 

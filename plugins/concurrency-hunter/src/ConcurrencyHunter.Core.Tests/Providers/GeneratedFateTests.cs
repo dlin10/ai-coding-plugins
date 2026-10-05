@@ -985,16 +985,20 @@ public sealed class GeneratedFateTests
         Assert.Equal(GenerationReasons.NOT_A_CANDIDATE, candidate.Answer.Reason);
         Assert.Equal(1, candidate.Answer.Generation.ExternBodies);
         Assert.Equal(GenerationReasons.MEMBER_NOT_FOUND, missing.Answer.Reason);
+        Assert.True(GenerationReasons.Ordered.ToList().IndexOf(GenerationReasons.MEMBER_NOT_FOUND) <
+                    GenerationReasons.Ordered.ToList().IndexOf(GenerationReasons.ACCESSOR));
+        Assert.True(GenerationReasons.Ordered.ToList().IndexOf(GenerationReasons.ACCESSOR) <
+                    GenerationReasons.Ordered.ToList().IndexOf(GenerationReasons.ENGINE_RECOGNIZED));
         Assert.True(GenerationReasons.Ordered.ToList().IndexOf(GenerationReasons.NOT_A_CANDIDATE) <
                     GenerationReasons.Ordered.ToList().LastIndexOf(GenerationReasons.BODY_DOES_NOT_COMPILE));
     }
 
     [Fact]
-    public void A_member_kind_the_generator_does_not_take_is_driver_not_synthesized_before_not_a_candidate()
+    public void A_member_kind_the_generator_does_not_take_is_accessor_before_not_a_candidate()
     {
         var trace = Trace("public sealed class Bag { public int Count { get; set; } }", "P:Lib.Bag.Count");
 
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, trace.Answer.Reason);
+        Assert.Equal(GenerationReasons.ACCESSOR, trace.Answer.Reason);
         Assert.Equal(0, trace.Answer.Generation.ReachedBodies);
     }
 

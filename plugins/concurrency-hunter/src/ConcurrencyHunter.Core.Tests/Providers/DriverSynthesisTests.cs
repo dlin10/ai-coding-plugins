@@ -39,8 +39,8 @@ public sealed class DriverSynthesisTests
             public sealed class Circle : Shape { public Circle() { } }
             public sealed class Wrapper { public Wrapper(Inner inner) { } }
             public sealed class Inner { internal Inner() { } }
-            public sealed class Outer { public Outer(Middle middle, Action done) { } }
-            public sealed class Middle { public Middle() { } }
+            public sealed class Outer { public Outer(Middle middle, Action done) { Middle = middle; } public Middle Middle; }
+            public sealed class Middle { public Middle() { } public object Seed; }
             public sealed class Holder { public Holder(Func<int> f) { F = f; } public Func<int> F; public int Run() => F(); public Task RunAsync() => Task.CompletedTask; }
             public class Guarded { internal Guarded() { } public static Guarded Create() => new Guarded(); }
             public class Service { public virtual void Run(Action action) { action(); } public virtual int Other() => 0; public void Plain() { } }
@@ -72,6 +72,7 @@ public sealed class DriverSynthesisTests
             {
                 public static void Run(Action action) => action();
                 public static int Add(int a, Bag bag) => a;
+                public static int Only(int value, string text) => value;
                 public static void Make(out Action action) { action = null; }
                 public static string Name(Func<int> f) => "";
                 public static IEnumerable<T> Each<T>(IEnumerable<T> items, Func<T, bool> keep) { foreach (var i in items) if (keep(i)) yield return i; }
@@ -113,34 +114,34 @@ public sealed class DriverSynthesisTests
     // ---- member kinds and candidates ----
 
     [Fact]
-    public void A_property_id_is_driver_not_synthesized()
+    public void A_property_id_is_accessor()
     {
         var synthesis = Synthesize("P:Lib.ISink.Count");
 
         Assert.Null(synthesis.Driver);
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+        Assert.Equal(GenerationReasons.ACCESSOR, synthesis.Reason);
         Assert.Contains("P:Lib.ISink.Count", synthesis.Detail);
     }
 
     [Fact]
-    public void An_event_id_is_driver_not_synthesized()
+    public void An_event_id_is_accessor()
     {
         var synthesis = Synthesize("E:Lib.ISink.Changed");
 
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+        Assert.Equal(GenerationReasons.ACCESSOR, synthesis.Reason);
         Assert.Contains("E:Lib.ISink.Changed", synthesis.Detail);
     }
 
     [Fact]
-    public void An_accessor_named_by_a_method_id_is_driver_not_synthesized()
+    public void An_accessor_named_by_a_method_id_is_accessor()
     {
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, Synthesize("M:Lib.Renderer.get_Width").Reason);
+        Assert.Equal(GenerationReasons.ACCESSOR, Synthesize("M:Lib.Renderer.get_Width").Reason);
     }
 
     [Fact]
-    public void A_member_with_no_delegate_and_no_carried_probe_is_not_a_candidate()
+    public void A_member_with_only_immutable_values_is_not_a_candidate()
     {
-        Assert.Equal(GenerationReasons.NOT_A_CANDIDATE, Synthesize("M:Lib.Api.Add(System.Int32,Lib.Bag)").Reason);
+        Assert.Equal(GenerationReasons.NOT_A_CANDIDATE, Synthesize("M:Lib.Api.Only(System.Int32,System.String)").Reason);
         // An out delegate hands the member nothing.
         Assert.Equal(GenerationReasons.NOT_A_CANDIDATE, Synthesize("M:Lib.Api.Make(System.Action@)").Reason);
     }
@@ -157,7 +158,7 @@ public sealed class DriverSynthesisTests
         var add = DriverSynthesizer.Synthesize(library, DriverSynthesizer.FindMember(library, ADD)!, rewritten, CancellationToken.None);
 
         Assert.Equal(GenerationReasons.BODY_DOES_NOT_COMPILE, run.Reason);
-        Assert.Equal(GenerationReasons.NOT_A_CANDIDATE, add.Reason);
+        Assert.Equal(GenerationReasons.BODY_DOES_NOT_COMPILE, add.Reason);
     }
 
     // ---- setup and the call ----
@@ -172,7 +173,9 @@ public sealed class DriverSynthesisTests
         Assert.Contains("Arg_numbers_Call = new global::System.Collections.Generic.List<global::System.Int32> { default(global::System.Int32), default(global::System.Int32) };", setup);
         Assert.Contains("Keep.K0 = new global::Lib.Middle();", setup);
         Assert.Contains("Arg_outer_Call = new global::Lib.Outer(Keep.K0, L_outer_0_Call());", setup);
+        Assert.Contains("((global::Lib.Middle)((global::Lib.Outer)Arg_outer_Call).Middle).Seed = new Seed_", setup);
         Assert.True(setup.IndexOf("Keep.K0 =", StringComparison.Ordinal) < setup.IndexOf("Arg_outer_Call =", StringComparison.Ordinal));
+        Assert.True(setup.IndexOf("Arg_outer_Call =", StringComparison.Ordinal) < setup.IndexOf(".Seed = new Seed_", StringComparison.Ordinal));
         var outer = Assert.Single(driver.Parameters, parameter => parameter.Name == "outer");
         Assert.Equal(ParameterKind.RecipeValue, outer.Kind);
         Assert.Equal("Arg_outer_Call", outer.OwnFields[DriverSynthesizer.CALL_VARIANT]);
@@ -244,62 +247,59 @@ public sealed class DriverSynthesisTests
     }
 
     [Fact]
-    public void A_probe_class_has_two_reference_fields_and_an_int_field_and_overrides_every_object_and_base_member_as_extern()
+    public void A_probe_class_has_two_reference_fields_and_an_int_field_and_witnesses_every_object_and_base_member()
     {
         var probe = Type(Drive("M:Lib.Api.Pair(Lib.Handler,Lib.Renderer,System.Action)"), "Probe_a");
 
         Assert.Equal(["Int0:int", "Ref0:object", "Ref1:object"],
                      probe.GetMembers().OfType<IFieldSymbol>().Select(field => $"{field.Name}:{field.Type.ToDisplayString()}").Order(StringComparer.Ordinal));
-        AssertExternOverrides(probe, "Equals", "GetHashCode", "Handle", "Reset", "ToString");
+        AssertWitnessOverrides(probe, "Equals", "GetHashCode", "Handle", "Reset", "ToString");
     }
 
     [Fact]
-    public void A_probe_class_implements_every_interface_member_default_ones_included_as_extern()
+    public void A_probe_class_implements_every_interface_member_default_ones_included_as_witnesses()
     {
         var driver = Drive("M:Lib.Api.Sinks(Lib.ISink,System.Action)");
         var probe = Type(driver, "Probe_sink");
         var sink = driver.Compilation.GetTypeByMetadataName("Lib.ISink")!;
 
         Assert.Contains(sink, probe.Interfaces, SymbolEqualityComparer.Default);
-        AssertExternOverrides(probe, "Equals", "GetHashCode", "ToString");
+        AssertWitnessOverrides(probe, "Equals", "GetHashCode", "ToString");
         foreach (var member in sink.GetMembers().Where(member => member is IMethodSymbol { MethodKind: MethodKind.Ordinary } or IPropertySymbol or IEventSymbol))
         {
             var implementation = probe.FindImplementationForInterfaceMember(member);
-            Assert.True(implementation is not null && implementation.IsExtern && SymbolEqualityComparer.Default.Equals(implementation.ContainingType, probe),
+            Assert.True(implementation is not null && !implementation.IsExtern && SymbolEqualityComparer.Default.Equals(implementation.ContainingType, probe),
                         $"{member} is implemented by {implementation}");
         }
     }
 
     [Fact]
-    public void A_delegate_handed_to_an_overridable_member_of_a_probe_object_runs_in_an_unknown_execution()
+    public void A_delegate_handed_to_an_overridable_member_of_a_probe_object_has_an_unknown_execution_fate_through_the_witness()
     {
-        // Runner.Go would run the delegate during the call; the probe class overrides it as extern, as a user's override could do
-        // anything, so the delegate reaches a call without a body and runs only in an unknown execution.
+        // Runner.Go would run the delegate during the call; the probe class witnesses receiving it, which is still user code that
+        // may keep and run it anywhere.
         var open = Analyze(Drive("M:Lib.Api.Hand(Lib.Runner,System.Action)"));
         var known = Analyze(Drive("M:Lib.Api.HandFixed(Lib.FixedRunner,System.Action)"));
 
         Assert.False(open.Stopped);
         Assert.False(known.Stopped);
-        var openKinds = FiredIn(open, "P_action_0_Call");
-        Assert.NotEmpty(openKinds);
-        Assert.DoesNotContain(ExecutionKind.Root, openKinds);
-        Assert.Contains(ExecutionKind.UnknownDelegateCall, openKinds);
+        Assert.Equal(FateClassifier.UNKNOWN_EXECUTION,
+                     FateClassifier.Classify(Drive("M:Lib.Api.Hand(Lib.Runner,System.Action)"), open).Classified["action"].Fate);
         Assert.Equal([ExecutionKind.Root], FiredIn(known, "P_action_0_Call"));
 
-        // Equals is overridden as extern too: a delegate handed to it may run anywhere.
-        var equals = FiredIn(Analyze(Drive("M:Lib.Api.Match(Lib.Handler,System.Action)")), "P_action_0_Call");
-        Assert.DoesNotContain(ExecutionKind.Root, equals);
-        Assert.Contains(ExecutionKind.UnknownDelegateCall, equals);
+        var equalsDriver = Drive("M:Lib.Api.Match(Lib.Handler,System.Action)");
+        Assert.Equal(FateClassifier.UNKNOWN_EXECUTION,
+                     FateClassifier.Classify(equalsDriver, Analyze(equalsDriver)).Classified["action"].Fate);
     }
 
     [Fact]
-    public void A_non_sealed_concrete_parameter_gets_its_subclass_with_extern_overrides()
+    public void A_non_sealed_concrete_parameter_gets_its_subclass_with_witness_overrides()
     {
         var driver = Drive("M:Lib.Api.Fill(Lib.Bag,System.Action)");
         var subclass = Type(driver, "Sub_bag");
 
         Assert.Equal("Lib.Bag", subclass.BaseType!.ToDisplayString());
-        AssertExternOverrides(subclass, "Add", "Equals", "GetHashCode", "ToString");
+        AssertWitnessOverrides(subclass, "Add", "Equals", "GetHashCode", "ToString");
         Assert.Contains("Arg_bag_Call = new Sub_bag();", Body(driver, DriverSynthesizer.SETUP));
     }
 
@@ -309,7 +309,7 @@ public sealed class DriverSynthesisTests
         var driver = Drive("M:Lib.Api.Pair(Lib.Handler,Lib.Renderer,System.Action)");
 
         Assert.Contains("public Probe_b() : base(\"s\") { }", driver.Source);
-        Assert.Contains("public override extern global::System.Int32 Width { get; protected set; }", driver.Source);
+        Assert.Contains("public override global::System.Int32 Width { get {", driver.Source);
     }
 
     [Fact]
@@ -319,7 +319,7 @@ public sealed class DriverSynthesisTests
         var receiver = Type(driver, "Sub_Recv");
 
         Assert.Equal("Lib.Special", receiver.BaseType!.ToDisplayString());
-        AssertExternOverrides(receiver, "Equals", "GetHashCode", "Other", "ToString");
+        AssertWitnessOverrides(receiver, "Equals", "GetHashCode", "Other", "ToString");
         Assert.Contains("Recv_Call = new Sub_Recv();", Body(driver, DriverSynthesizer.SETUP));
         Assert.Contains("Recv_Call.Run(L_action_0_Call());", Body(driver, DriverSynthesizer.CALL));
     }
@@ -343,17 +343,17 @@ public sealed class DriverSynthesisTests
         Assert.Contains("global::Lib.Api.Each<Probe_T>(Arg_items_Call, L_keep_0_Call())", Body(driver, DriverSynthesizer.CALL));
         Assert.Contains("Arg_items_Call = new global::System.Collections.Generic.List<Probe_T> { new Probe_T() { Ref0 = new Probe_T() }, new Probe_T() { Ref0 = new Probe_T() } };",
                         Body(driver, DriverSynthesizer.SETUP));
-        AssertExternOverrides(Type(driver, "Probe_T"), "Equals", "GetHashCode", "ToString");
+        AssertWitnessOverrides(Type(driver, "Probe_T"), "Equals", "GetHashCode", "ToString");
     }
 
     [Fact]
-    public void A_concrete_class_constraint_is_met_by_a_probe_class_deriving_from_it_with_extern_overrides()
+    public void A_concrete_class_constraint_is_met_by_a_probe_class_deriving_from_it_with_witness_overrides()
     {
         var driver = Drive("M:Lib.Api.BagArg``1(``0,System.Action)");
         var probe = Type(driver, "Probe_T");
 
         Assert.Equal("Lib.Bag", probe.BaseType!.ToDisplayString());
-        AssertExternOverrides(probe, "Add", "Equals", "GetHashCode", "ToString");
+        AssertWitnessOverrides(probe, "Add", "Equals", "GetHashCode", "ToString");
         Assert.Contains("global::Lib.Api.BagArg<Probe_T>(Arg_value_Call, L_done_0_Call())", Body(driver, DriverSynthesizer.CALL));
     }
 
@@ -384,14 +384,14 @@ public sealed class DriverSynthesisTests
     }
 
     [Fact]
-    public void An_interface_constraint_is_met_by_a_probe_class_with_extern_members()
+    public void An_interface_constraint_is_met_by_a_probe_class_with_witness_members()
     {
         var driver = Drive("M:Lib.Api.Sink``1(``0,System.Action)");
         var probe = Type(driver, "Probe_T");
 
         Assert.Equal(["Lib.ISink"], probe.Interfaces.Select(@interface => @interface.ToDisplayString()));
         Assert.All(probe.GetMembers().OfType<IMethodSymbol>().Where(method => method.MethodKind is MethodKind.Ordinary or MethodKind.ExplicitInterfaceImplementation),
-                   method => Assert.True(method.IsExtern, $"{method} has a body"));
+                   method => Assert.False(method.IsExtern, $"{method} has no body"));
     }
 
     [Fact]
@@ -401,7 +401,7 @@ public sealed class DriverSynthesisTests
         var probe = Type(driver, "Probe_T");
 
         Assert.Equal(["Lib.IMessage<Probe_T>"], probe.Interfaces.Select(@interface => @interface.ToDisplayString()));
-        Assert.True(probe.GetMembers().OfType<IMethodSymbol>().Single(method => method.Name.EndsWith("Clone", StringComparison.Ordinal)).IsExtern);
+        Assert.False(probe.GetMembers().OfType<IMethodSymbol>().Single(method => method.Name.EndsWith("Clone", StringComparison.Ordinal)).IsExtern);
         Assert.Contains("return new Probe_T() { Ref0 = new Probe_T() };", driver.Source);
     }
 
@@ -471,7 +471,7 @@ public sealed class DriverSynthesisTests
         Assert.True(Type(driver, "R_e").IsSealed);
         Assert.Equal(["Lib.ISink"], Type(driver, "R_g").Interfaces.Select(@interface => @interface.ToDisplayString()));
         Assert.All(Type(driver, "R_g").GetMembers().OfType<IMethodSymbol>().Where(method => method.MethodKind != MethodKind.Constructor),
-                   method => Assert.True(method.IsExtern, $"{method} has a body"));
+                   method => Assert.False(method.IsExtern, $"{method} has no body"));
     }
 
     [Fact]
@@ -791,14 +791,14 @@ public sealed class DriverSynthesisTests
         return driver.Compilation.GetSemanticModel(method.SyntaxTree).GetOperation(method)!.Descendants();
     }
 
-    /// <summary>Asserts that a driver class overrides exactly the named members, each as <c>extern</c>.</summary>
+    /// <summary>Asserts that a driver class overrides exactly the named members, each with a witness body.</summary>
     /// <param name="type">The driver class.</param>
     /// <param name="names">The names of the members it must override.</param>
-    private static void AssertExternOverrides(INamedTypeSymbol type, params string[] names)
+    private static void AssertWitnessOverrides(INamedTypeSymbol type, params string[] names)
     {
         var overrides = type.GetMembers().Where(member => member.IsOverride).ToArray();
         Assert.Equal(names.Order(StringComparer.Ordinal), overrides.Select(member => member.Name).Order(StringComparer.Ordinal));
-        Assert.All(overrides, member => Assert.True(member.IsExtern, $"{member} has a body"));
+        Assert.All(overrides, member => Assert.False(member.IsExtern, $"{member} has no body"));
     }
 
     /// <summary>The kinds of the executions in which a probe's fired field is written.</summary>

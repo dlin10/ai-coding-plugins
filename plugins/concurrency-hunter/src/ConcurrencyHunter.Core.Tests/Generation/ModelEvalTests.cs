@@ -1,5 +1,7 @@
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using Microsoft.CodeAnalysis;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Generation.ModelEvals;
 
@@ -11,6 +13,7 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 [Collection(COLLECTION)]
 public sealed class ModelEvalTests
 {
+    private const string RECORDING_SNAPSHOT = "{\"fateGoldEntries\":3,\"effectsExact\":8,\"linqExact\":{\"System.Linq\":12,\"System.Linq.Queryable\":1}}";
     public const string COLLECTION = "Model evals";
 
     [RequiresModelEvalsFact]
@@ -42,12 +45,87 @@ public sealed class ModelEvalTests
     }
 
     [RequiresModelEvalsFact]
+    public void Entries_pass_the_project_reader()
+    {
+        foreach (var answer in InstalledRun.Answers.Where(answer => answer.Answer.Model is not null))
+        {
+            var files = ProjectModelFiles.Read("generated.json", ModelEntryWriter.File(answer.Answer.Model!));
+            Assert.Empty(files.Rejections);
+            var entry = Assert.Single(files.Entries);
+            var (member, compilation) = DeclaringMember(answer);
+            Assert.Null(ProjectModelResolver.EntryRejection(entry, member, compilation));
+        }
+    }
+
+    [RequiresModelEvalsFact]
+    public void Entry_fates_are_the_classified_delegate_fates()
+    {
+        foreach (var answer in InstalledRun.Answers.Where(answer => answer.Answer.Model is not null))
+        {
+            var (member, _) = DeclaringMember(answer);
+            var expected = member.Parameters.Where(parameter => parameter.Type.TypeKind == TypeKind.Delegate)
+                                 .Select(parameter => parameter.Name).Order(StringComparer.Ordinal).ToArray();
+            var actual = answer.Answer.Model!.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal).ToArray();
+
+            Assert.Equal(expected, actual.Select(fate => fate.Parameter));
+            foreach (var fate in actual)
+            {
+                var classified = Assert.Contains(fate.Parameter, answer.Answer.Classified!);
+                Assert.Equal(classified.Fate, LibraryFate.Text(fate.Kind));
+                Assert.Equal(classified.Holder, fate.Holder is null ? null : fate.Holder == LibraryHolderKind.Result ? "result" : "this");
+            }
+        }
+    }
+
+    [RequiresModelEvalsFact]
+    public void Fate_gold_members_with_an_entry_meet_the_recorded_count()
+    {
+        var entries = FateGoldEntries(InstalledRun);
+        var recorded = RecordedCount("fateGoldEntries");
+
+        Assert.True(entries >= recorded, $"{entries} fate-gold members have an entry, under the recorded count {recorded}");
+    }
+
+    [Fact]
+    public void Recording_cannot_lower_the_fate_gold_entry_floor() => AssertRecordingPreservesFloor("fateGoldEntries");
+
+    /// <summary>Checks that recording refuses a lower floor before touching bytes, and accepts an equal or higher floor.</summary>
+    /// <param name="property">The count property.</param>
+    /// <param name="group">The LINQ assembly group, or null for a top-level count.</param>
+    internal static void AssertRecordingPreservesFloor(string property, string? group = null)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"ch-floor-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, RECORDING_SNAPSHOT);
+        try
+        {
+            var current = System.Text.Json.Nodes.JsonNode.Parse(RECORDING_SNAPSHOT)!;
+            var counts = group is null ? current : current[property]!;
+            var key = group ?? property;
+            var floor = (int)counts[key]!;
+            counts[key] = floor - 1;
+            var error = Assert.Throws<InvalidOperationException>(() => RecordSnapshot(path, current.ToJsonString()));
+            Assert.Contains(key, error.Message);
+            Assert.Equal(RECORDING_SNAPSHOT, File.ReadAllText(path));
+            foreach (var count in new[] { floor, floor + 1 })
+            {
+                counts[key] = count;
+                RecordSnapshot(path, current.ToJsonString());
+                Assert.Equal(current.ToJsonString(), File.ReadAllText(path));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [RequiresModelEvalsFact]
     public void Answers_match_the_recorded_snapshot()
     {
-        var fresh = Snapshot(InstalledRun);
+        var fresh = Snapshot(InstalledRun, EffectEvals.InstalledRun, LinqEvals.InstalledRun);
         if (Environment.GetEnvironmentVariable(RECORD_VARIABLE) == "1")
         {
-            File.WriteAllBytes(SnapshotPath, new System.Text.UTF8Encoding(false).GetBytes(fresh));
+            RecordSnapshot(SnapshotPath, fresh);
             return;
         }
 
@@ -119,6 +197,29 @@ public sealed class ModelEvalTests
         return input.Package is null
             ? Path.GetFileName(Path.GetDirectoryName(answer.Answer.Generation.Implementation!.Path))!
             : input.Version;
+    }
+
+    internal static int RecordedCount(string property)
+    {
+        Assert.True(File.Exists(SnapshotPath), $"{SnapshotPath} is missing; record it with CH_MODEL_EVALS=1 {RECORD_VARIABLE}=1.");
+        return (int?)System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SnapshotPath))![property]
+               ?? throw new Xunit.Sdk.XunitException($"generator-snapshot.json has no {property}");
+    }
+
+    internal static int RecordedLinqExact(string group)
+    {
+        Assert.True(File.Exists(SnapshotPath), $"{SnapshotPath} is missing; record it with CH_MODEL_EVALS=1 {RECORD_VARIABLE}=1.");
+        return (int?)System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SnapshotPath))!["linqExact"]?[group]
+               ?? throw new Xunit.Sdk.XunitException($"generator-snapshot.json has no linqExact.{group}");
+    }
+
+    private static (IMethodSymbol Member, Compilation Compilation) DeclaringMember(EvalAnswer answer)
+    {
+        var input = Inputs[answer.Gold.Assembly];
+        var resolution = ImplementationAssemblies.ForThisProcess().Resolve(input.Assembly, input.Version, input.Package, input.Framework);
+        var library = LibraryCompilation.Compile(resolution.Assembly!, CancellationToken.None);
+        var compilation = Assert.IsType<Microsoft.CodeAnalysis.CSharp.CSharpCompilation>(library.Compilation);
+        return (Assert.IsAssignableFrom<IMethodSymbol>(DriverSynthesizer.FindMember(compilation, answer.Gold.Id)), compilation);
     }
 
     private static IReadOnlyList<Score> Scored(EvalRun run) =>

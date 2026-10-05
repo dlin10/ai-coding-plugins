@@ -1,6 +1,8 @@
+using System.Text;
 using System.Text.Json;
 using Common.Mcp;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Xunit;
 
@@ -10,6 +12,7 @@ namespace ConcurrencyHunter.Cli.Tests;
 public sealed class GenerateCommandTests : IDisposable
 {
     private const string ALL = "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})";
+    private const string LONG_COUNT = "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})";
     private const string USAGE = "Usage: concurrency-hunter generate";
 
     private readonly GenerationInstall _install = new();
@@ -150,7 +153,7 @@ public sealed class GenerateCommandTests : IDisposable
     }
 
     [Fact]
-    public void Property_id_reaches_the_generator_and_is_not_a_usage_error()
+    public void Property_id_reaches_the_generator_and_is_classified_as_an_accessor()
     {
         _install.SharedFramework("8.0.5", runtime: true);
         var lib = Directory.CreateDirectory(Path.Combine(_install.Packages, "acme.props", "2.0.0", "lib", "net8.0")).FullName;
@@ -162,7 +165,7 @@ public sealed class GenerateCommandTests : IDisposable
 
         Assert.True(code == ExitCode.Ok, error);
         using var document = Answer();
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, document.RootElement.GetProperty("reason").GetString());
+        Assert.Equal(GenerationReasons.ACCESSOR, document.RootElement.GetProperty("reason").GetString());
     }
 
     [Fact]
@@ -178,6 +181,26 @@ public sealed class GenerateCommandTests : IDisposable
         Assert.Equal("invoke-now", root.GetProperty("classified").GetProperty("predicate").GetProperty("fate").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("classified").GetProperty("predicate").GetProperty("holder").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("reason").ValueKind);
+        // On .NET 10 All reads its source through TryGetSpan(source, out span), and an element of that span has no name.
+        Assert.Equal(GenerationReasons.VOCABULARY, root.GetProperty("modelReason").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("model").ValueKind);
+    }
+
+    [Fact]
+    public void Installed_runtime_LongCount_writes_an_entry_the_project_reader_accepts()
+    {
+        var (code, error) = Run(["--assembly", "System.Linq", "--version", Environment.Version.Major.ToString(), "--member", LONG_COUNT, "--out", _out],
+                                ImplementationAssemblies.ForThisProcess());
+
+        Assert.True(code == ExitCode.Ok, error);
+        using var document = Answer();
+        var root = document.RootElement;
+        Assert.Equal(LONG_COUNT, root.GetProperty("member").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("modelReason").ValueKind);
+        var modelFile = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"models\":[" + root.GetProperty("model").GetRawText() + "]}");
+        var models = ProjectModelFiles.Read("generated.json", modelFile);
+        Assert.Empty(models.Rejections);
+        Assert.Single(models.Entries);
         Assert.Equal($"net{Environment.Version.Major}.0", root.GetProperty("generation").GetProperty("framework").GetString());
         Assert.False(string.IsNullOrEmpty(root.GetProperty("generation").GetProperty("implementation").GetProperty("mvid").GetString()));
     }

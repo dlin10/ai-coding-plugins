@@ -149,6 +149,8 @@ public static class FateClassifier
         private static readonly string KeepResult = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R");
         private static readonly string ReceiverOfCall = DriverSlot($"Recv_{DriverSynthesizer.CALL_VARIANT}");
         private static readonly string Inputs = DriverSlot("In_");
+        private static readonly string Witnessed = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_TYPE, "W");
+        private static readonly string WitnessedRefs = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_REF_TYPE, "Value");
 
         private readonly Driver _driver;
         private readonly HeapSolution _heap;
@@ -170,27 +172,19 @@ public static class FateClassifier
             _driver = driver;
             _heap = run.Heap!;
             _reach = new HeapReachability(_heap, Held(driver, run));
-            _starts = _reach.StaticFields().Where(start => !start.Slot.StartsWith(Inputs, StringComparison.Ordinal)).ToArray();
+            _starts = _reach.StaticFields().Where(start => !start.Slot.StartsWith(Inputs, StringComparison.Ordinal) &&
+                                                          !start.Slot.StartsWith(Witnessed, StringComparison.Ordinal) &&
+                                                          !start.Slot.StartsWith(WitnessedRefs, StringComparison.Ordinal)).ToArray();
             var result = _reach.StaticField(KeepResult);
             var resultTargets = result is null ? new HashSet<string>(StringComparer.Ordinal) : _reach.Targets(result);
             _executions = new DriverExecutions(driver, run.Executions!, _reach.From(resultTargets));
             var allocations = new Allocations(driver, _heap, run.Executions!, _executions, _reach);
 
-            // What a call the engine could not follow was handed, in any execution, and what setup's calls were handed.
-            var handed = new List<string>();
-            var handedBySetup = new List<string>();
-            foreach (var call in UnknownCalls.Of(run.ScopeProgram!, _heap))
-            {
-                var values = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values)).Concat(call.Delegates);
-                var regions = values.SelectMany(value => _heap.Resolve(call.Instance.Id, value)).ToArray();
-                handed.AddRange(regions);
-                if ((run.Executions!.InstanceExecutions.GetValueOrDefault(call.Instance.Id) ?? new HashSet<string>()).Any(_executions.InSetup))
-                    handedBySetup.AddRange(regions);
-            }
-
-            handed.AddRange(_heap.DelegateHandoffs.Select(handoff => handoff.RegionId));
-            _handed = _reach.From(handed);
-            _handedBySetup = _reach.From(handedBySetup);
+            var handoffs = new GenerationHandoffs(driver, run, _executions, _reach);
+            _handed = handoffs.HandedInSetup.Concat(handoffs.HandedOutsideSetup)
+                                .Concat(handoffs.WitnessedInSetup).Concat(handoffs.WitnessedOutsideSetup)
+                                .ToHashSet(StringComparer.Ordinal);
+            _handedBySetup = handoffs.HandedInSetup.Concat(handoffs.WitnessedInSetup).ToHashSet(StringComparer.Ordinal);
 
             // What an execution other than setup writes, and where each probe fired.
             foreach (var access in run.Executions!.Accesses.Where(access => !_executions.InSetup(access.ExecutionId)))

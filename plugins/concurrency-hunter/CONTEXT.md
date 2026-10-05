@@ -358,7 +358,8 @@ the returned sequence is enumerated, by whoever enumerates it), `holder` (wherev
 object that keeps it runs), `di-factory` (where the service it builds is resolved, as often as its
 lifetime says), `startup` (in startup), or `unknown-execution` (in an **Unknown execution**, as the
 model's known answer rather than a gap). A fate also says what each of the delegate's parameters is
-handed — an argument of the call, the elements of one, what another delegate returned — and whether
+handed — an argument of the call, the elements of one, what another delegate returned, a new object
+the library made for it — and whether
 what the delegate returns is part of what the call returns; what it does not name, the delegate is
 handed nothing known.
 _Avoid_: callback kind, invocation mode, effect (an effect is what happens to an argument)
@@ -404,6 +405,16 @@ the member with probe lambdas and probe objects and, in further actions, enumera
 calls each member of the object that may keep the delegate. Where a probe lambda's write lands is the
 answer for a delegate; what the member did to a probe object is the answer for an argument.
 _Avoid_: harness, test, stub
+
+**Seed**:
+A user object the **Driver** adds, before it calls the member, to every field that could hold one —
+in the library objects it hands over and in the library's static fields — because a program may
+have put its own object there: a converter in serializer options, a writer given to
+`Console.SetOut`. Every member of a seed is a witness: a value the library hands it is a value user
+code received, which a **Library model** writes as a **Deep read** of it, and a delegate handed to it
+runs in an **Unknown execution**. A seed only adds to what the field already holds, and never makes a
+value that came from a call without a body look followed.
+_Avoid_: stub, mock, placeholder
 
 **Open-world rule**:
 Library code is not a closed world: a delegate the **Model generator** did not see run, or saw run

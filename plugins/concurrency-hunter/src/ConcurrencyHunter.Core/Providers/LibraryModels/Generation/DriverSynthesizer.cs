@@ -37,6 +37,11 @@ public sealed record DriverParameter(string Name, int Ordinal, RefKind RefKind, 
 /// receiver).</param>
 public sealed record DriverTrigger(string Action, string Member, string Holder);
 
+/// <summary>One setup assignment that places a seed at a library field path.</summary>
+/// <param name="Path">The path from <c>this</c>, <c>arg:&lt;parameter&gt;</c> or <c>static</c>.</param>
+/// <param name="Operation">The assignment operation that stores the seed.</param>
+public sealed record DriverSeedStatement(string Path, ISimpleAssignmentOperation Operation);
+
 /// <summary>A synthesized driver, compiled against its library.</summary>
 /// <param name="Member">The member the driver calls, in the library compilation.</param>
 /// <param name="Compilation">The driver compilation; it references the library compilation.</param>
@@ -49,11 +54,19 @@ public sealed record DriverTrigger(string Action, string Member, string Holder);
 /// trigger calls, each with why: an empty list means every such member has a trigger; a holder absent has none.</param>
 /// <param name="DefaultedValues">The owners of the non-holding values the driver could fill only with a default, by parameter
 /// name (<c>this</c> for the receiver), sorted.</param>
+/// <param name="Unseeded">The sorted field paths that could hold a user object but setup could not seed.</param>
+/// <param name="UnseededMembers">The last field or auto-property of every unseeded path.</param>
+/// <param name="SeedStatements">Every setup assignment that stores a seed, with its field path.</param>
 /// <param name="Enumerates">Whether the result is enumerable, so <c>V_Enum</c> exists.</param>
 public sealed record Driver(IMethodSymbol Member, CSharpCompilation Compilation, string Source, IReadOnlyList<string> Actions,
                             IReadOnlyList<DriverParameter> Parameters, IReadOnlyList<DriverTrigger> Triggers,
-                            IReadOnlyDictionary<string, IReadOnlyList<string>> Uncovered, IReadOnlyList<string> DefaultedValues, bool Enumerates)
+                            IReadOnlyDictionary<string, IReadOnlyList<string>> Uncovered, IReadOnlyList<string> DefaultedValues,
+                            IReadOnlyList<string> Unseeded, IReadOnlyList<ISymbol> UnseededMembers,
+                            IReadOnlyList<DriverSeedStatement> SeedStatements, bool Enumerates)
 {
+    /// <summary>The factory names of delegate seeds whose bodies are witnesses.</summary>
+    public IReadOnlyList<string> SeedFactories { get; init; } = [];
+
     /// <summary>Whether the triggers cover a holder (A5): it has at least one trigger, and every member a caller could invoke on its
     /// static type has one.</summary>
     /// <param name="holder"><c>result</c> or <c>this</c>.</param>
@@ -69,8 +82,8 @@ public sealed record DriverSynthesis(Driver? Driver, string? Reason, string Deta
 
 /// <summary>Synthesizes the <b>Driver</b> of one library member from its signature (SPEC TD-034b, G-3): <c>V_Setup</c> builds
 /// every receiver, argument and intermediate into static fields; <c>V_Call</c>, <c>V_Enum</c> and each trigger <c>T&lt;i&gt;</c>
-/// read their own fields, make their own probe lambdas and call the member. Every member the driver writes only to satisfy a type
-/// is <c>extern</c>, so a library call of it is a call the engine cannot follow, as a user's override would be.</summary>
+/// read their own fields, make their own probe lambdas and call the member. Every expressible member the driver writes for a user
+/// type is a witness that records its receiver and arguments.</summary>
 public static class DriverSynthesizer
 {
     /// <summary>The driver compilation's assembly name.</summary>
@@ -81,6 +94,12 @@ public static class DriverSynthesizer
 
     /// <summary>The static class holding the result and the intermediates.</summary>
     public const string KEEP_TYPE = "Keep";
+
+    /// <summary>The static class whose object fields record what witness bodies receive.</summary>
+    public const string WITNESSED_TYPE = "Witnessed";
+
+    /// <summary>The generic static class whose field supplies witness bodies' by-reference returns.</summary>
+    public const string WITNESSED_REF_TYPE = "WitnessedRef";
 
     /// <summary>The action that builds every receiver, argument and intermediate.</summary>
     public const string SETUP = "V_Setup";
@@ -100,6 +119,7 @@ public static class DriverSynthesizer
     private const int MAX_TRIGGERS = 24;
     private const int RECEIVER_DEPTH = 3;
     private const int ARGUMENT_DEPTH = 2;
+    private const int STATIC_DEPTH = 2;
     private const int INLINE_DEPTH = 1;
     private const int DETAILS_SHOWN = 3;
 
@@ -124,15 +144,40 @@ public static class DriverSynthesizer
                               .FirstOrDefault(symbol => SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, library.Assembly));
 
     /// <summary>The driver of one member, or the first reason of G-6's order that applies from the member's kind on:
-    /// <c>driver-not-synthesized</c> for a kind the generator does not take, <c>not-a-candidate</c>, <c>body-does-not-compile</c>,
-    /// <c>driver-not-synthesized</c> for a driver that could not be built.</summary>
+    /// <c>accessor</c> for a property, an event or an accessor method, <c>driver-not-synthesized</c> for any other kind the
+    /// generator does not take (a field), <c>not-a-candidate</c>, <c>body-does-not-compile</c>, <c>driver-not-synthesized</c> for a
+    /// driver that could not be built.</summary>
     /// <param name="library">The library compilation, its failing bodies made <c>extern</c>.</param>
     /// <param name="member">The member, from <see cref="FindMember"/>.</param>
     /// <param name="externMembers">The documentation ids of the library's members made <c>extern</c>.</param>
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              CancellationToken cancellationToken)
+        => Synthesize(library, member, externMembers, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
+
+    /// <summary>The driver of one member, with the library fields that opening made reachable, or the first G-6 reason.</summary>
+    /// <param name="library">The library compilation, its failing bodies made <c>extern</c>.</param>
+    /// <param name="member">The member, from <see cref="FindMember"/>.</param>
+    /// <param name="externMembers">The documentation ids of the library's members made <c>extern</c>.</param>
+    /// <param name="openedFields">The documentation ids of fields and auto-properties opened for the driver.</param>
+    /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
+                                             IReadOnlySet<string> openedFields, CancellationToken cancellationToken)
+        => Synthesize(library, member, externMembers, openedFields, new HashSet<(string Type, string Name)>(), cancellationToken);
+
+    /// <summary>The driver with seeds only for static storage loaded by its reached closure.</summary>
+    /// <param name="library">The library compilation.</param>
+    /// <param name="member">The member to call.</param>
+    /// <param name="externMembers">The members whose bodies could not compile.</param>
+    /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
+    /// <param name="loadedStatics">The static storage loaded by the closure, by declaring type definition and name.</param>
+    /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
+                                             IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
+                                             CancellationToken cancellationToken)
     {
+        if (IsAccessor(member))
+            return new DriverSynthesis(null, GenerationReasons.ACCESSOR, $"{Id(member)} is a property, event or accessor");
         if (member is not IMethodSymbol { MethodKind: MethodKind.Ordinary or MethodKind.Constructor or MethodKind.UserDefinedOperator or MethodKind.Conversion } method)
         {
             var kind = member is IMethodSymbol other ? other.MethodKind.ToString() : member.Kind.ToString();
@@ -141,12 +186,12 @@ public static class DriverSynthesizer
         }
 
         var definition = method.OriginalDefinition;
-        var writer = new Writer(library, definition);
+        var writer = new Writer(library, definition, openedFields, loadedStatics);
         writer.Build();
-        if (writer.Parameters.Count == 0)
+        if (!writer.Candidate)
         {
             return new DriverSynthesis(null, GenerationReasons.NOT_A_CANDIDATE,
-                                       $"{Id(definition)} takes no delegate and no holding value that carries probes");
+                                       $"{Id(definition)} has no receiver or parameter that can hold a user object");
         }
 
         if (externMembers.Contains(Id(definition)))
@@ -182,9 +227,38 @@ public static class DriverSynthesizer
 
         if (!Binds(compilation, tree, Id(definition), cancellationToken))
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, $"the driver's call does not bind to {Id(definition)}");
+        var seeds = SeedOperations(compilation, tree, writer.SeedStatements, cancellationToken);
         return new DriverSynthesis(new Driver(definition, compilation, source, writer.Actions, writer.Parameters, writer.Triggers, writer.Uncovered,
-                                              writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(), writer.Enumerates),
+                                              writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(), writer.Unseeded.Keys.ToArray(),
+                                              writer.Unseeded.Values.ToArray(), seeds, writer.Enumerates) { SeedFactories = writer.SeedFactories },
                                    null, "");
+    }
+
+    /// <summary>Whether a symbol is a property, event, or one of their accessor methods.</summary>
+    /// <param name="member">The library member.</param>
+    public static bool IsAccessor(ISymbol member) => member is IPropertySymbol or IEventSymbol ||
+        member is IMethodSymbol { MethodKind: MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd or MethodKind.EventRemove };
+
+    private static IReadOnlyList<DriverSeedStatement> SeedOperations(CSharpCompilation compilation, SyntaxTree tree,
+                                                                     IReadOnlyList<(string Path, string Statement)> statements,
+                                                                     CancellationToken cancellationToken)
+    {
+        var setup = tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>()
+                        .Single(method => method.Identifier.Text == SETUP);
+        var assignments = compilation.GetSemanticModel(tree).GetOperation(setup, cancellationToken)!.Descendants()
+                                     .OfType<ISimpleAssignmentOperation>().ToList();
+        var result = new List<DriverSeedStatement>();
+        foreach (var (path, statement) in statements)
+        {
+            var text = statement.TrimEnd(';');
+            var index = assignments.FindIndex(operation => operation.Syntax.ToString() == text);
+            if (index < 0)
+                continue;
+            result.Add(new DriverSeedStatement(path, assignments[index]));
+            assignments.RemoveAt(index);
+        }
+
+        return result;
     }
 
     /// <summary>The trigger variants every error lies in — a trigger action, or a setup statement of a trigger's own argument — or
@@ -265,24 +339,35 @@ public static class DriverSynthesizer
     /// <summary>The driver of one member, written as text.</summary>
     /// <param name="library">The library compilation.</param>
     /// <param name="member">The member's definition.</param>
-    private sealed class Writer(CSharpCompilation library, IMethodSymbol member)
+    /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
+    /// <param name="loadedStatics">The static storage loaded by the reached closure.</param>
+    private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
+                                IReadOnlySet<(string Type, string Name)> loadedStatics)
     {
+        private readonly IReadOnlySet<string> _openedFields = openedFields;
         private readonly Dictionary<ITypeParameterSymbol, string> _probeTypes = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<ITypeParameterSymbol, ITypeSymbol> _choices = new(SymbolEqualityComparer.Default);
         private readonly List<ITypeParameterSymbol> _chosen = [];
-        private readonly HashSet<string> _names = new(StringComparer.Ordinal) { DRIVER_TYPE, KEEP_TYPE };
+        private readonly HashSet<string> _names = new(StringComparer.Ordinal) { DRIVER_TYPE, KEEP_TYPE, WITNESSED_TYPE, WITNESSED_REF_TYPE };
         private readonly List<string> _types = [];
         private readonly List<string> _fields = [];
         private readonly List<string> _keep = [];
         private readonly List<string> _methods = [];
         private readonly List<string> _actions = [];
         private readonly List<string> _setup = [];
+        private readonly List<(string Path, string Statement)> _seedStatements = [];
+        private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
+        private readonly Dictionary<ITypeSymbol, string> _seedTypes = new(SymbolEqualityComparer.Default);
+        private readonly List<ITypeSymbol> _seedTypeKeys = [];
         private readonly Dictionary<string, string> _classes = new(StringComparer.Ordinal);
         private readonly List<string> _classKeys = [];
         private readonly Dictionary<(string Parameter, string Variant), Owner> _owners = [];
         private List<IMethodSymbol>? _producers;
         private int _intermediates;
         private int _lambdaParameters;
+        private int _witnessed;
+        private int _seedContainers;
+        private bool _staticsSeeded;
         private INamedTypeSymbol? _receiver;
         private ITypeSymbol? _result;
         private bool _awaits;
@@ -297,6 +382,15 @@ public static class DriverSynthesizer
 
         public List<string> Actions { get; } = [SETUP];
 
+        public IReadOnlyList<(string Path, string Statement)> SeedStatements => _seedStatements;
+
+        public IReadOnlyList<string> SeedFactories => _seedTypes.Where(seed => TypeShape.Of(seed.Key) == TypeShapeKind.Delegate)
+                                                               .Select(seed => seed.Value).ToArray();
+
+        public SortedDictionary<string, ISymbol> Unseeded => _unseeded;
+
+        public bool Candidate { get; private set; }
+
         public bool Enumerates { get; private set; }
 
         /// <summary>Builds every part of the driver; what could not be built is in <see cref="Failures"/>.</summary>
@@ -307,6 +401,9 @@ public static class DriverSynthesizer
             var constructs = member.MethodKind == MethodKind.Constructor;
             var containing = (INamedTypeSymbol)Substitute(member.ContainingType);
             _receiver = !member.IsStatic && !constructs ? containing : null;
+            Candidate = _receiver is not null && ParameterKinds.IsCandidate(_receiver) ||
+                        member.Parameters.Any(parameter => parameter.RefKind != RefKind.Out &&
+                                                           ParameterKinds.IsCandidate(Substitute(parameter.Type)));
             if (constructs)
                 _result = containing;
             else if (!member.ReturnsVoid)
@@ -389,6 +486,8 @@ public static class DriverSynthesizer
             foreach (var (variant, _, statement) in triggers)
                 _actions.Add(Action(variant, variant, statement));
 
+            SeedStatics();
+
             Classify();
         }
 
@@ -441,7 +540,10 @@ public static class DriverSynthesizer
             text.Append("}\n\npublic static class ").Append(KEEP_TYPE).Append("\n{\n");
             foreach (var field in _keep)
                 text.Append("    ").Append(field).Append('\n');
-            text.Append("}\n");
+            text.Append("}\n\npublic static class ").Append(WITNESSED_TYPE).Append("\n{\n");
+            for (var index = 0; index < _witnessed; index++)
+                text.Append("    public static object W").Append(index).Append(";\n");
+            text.Append("}\n\npublic static class ").Append(WITNESSED_REF_TYPE).Append("<T>\n{\n    public static T Value;\n}\n");
             foreach (var type in _types)
                 text.Append('\n').Append(type);
             return text.ToString();
@@ -585,6 +687,7 @@ public static class DriverSynthesizer
             {
                 _fields.Add($"public static {R(_receiver)} Recv_{variant};");
                 _setup.Add($"Recv_{variant} = {ReceiverValue(_receiver)};");
+                SeedObject(_receiver, $"Recv_{variant}", "this", RECEIVER_DEPTH, _setup);
             }
 
             foreach (var parameter in member.Parameters)
@@ -600,16 +703,478 @@ public static class DriverSynthesizer
                     case RefKind.Ref:
                         _fields.Add($"public static {R(type)} Out_{id}_{variant};");
                         if (!isDelegate)
+                        {
                             _setup.Add($"Out_{id}_{variant} = {Value(type, OwnerOf(parameter, variant), ARGUMENT_DEPTH, _setup)};");
+                            SeedObject(type, $"Out_{id}_{variant}", $"arg:{parameter.Name}", ARGUMENT_DEPTH, _setup);
+                        }
                         break;
                     default:
                         if (isDelegate)
                             break;
                         _fields.Add($"public static {R(type)} Arg_{id}_{variant};");
                         _setup.Add($"Arg_{id}_{variant} = {Value(type, OwnerOf(parameter, variant), ARGUMENT_DEPTH, _setup)};");
+                        SeedObject(type, $"Arg_{id}_{variant}", $"arg:{parameter.Name}", ARGUMENT_DEPTH, _setup);
                         break;
                 }
             }
+        }
+
+        // ---- seeds ----
+
+        private void SeedObject(ITypeSymbol type, string value, string path, int depth, List<string> statements)
+        {
+            type = Substitute(type);
+            if (SeedableFields.Struct(type))
+            {
+                RecordStruct(type, path);
+                return;
+            }
+            if (type is IArrayTypeSymbol array)
+            {
+                if (SeedableFields.Path(array.ElementType))
+                    SeedElements(value, array.ElementType, path, depth, statements);
+                return;
+            }
+
+            if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is { } rootCollection)
+            {
+                SeedCollectionElements(value, rootCollection, path, depth, statements);
+                return;
+            }
+
+            if (type is not INamedTypeSymbol named)
+                return;
+            foreach (var field in SeedMembers(named, isStatic: false))
+            {
+                var fieldPath = path + "/" + Id(field);
+                var access = $"(({R(field.ContainingType)}){value}).{Escape(field.Name)}";
+                SeedMember(field, access, fieldPath, depth, statements);
+            }
+        }
+
+        private void SeedMember(ISymbol field, string access, string path, int depth, List<string> statements)
+        {
+            var type = Substitute(MemberType(field));
+            if (!CanRead(field) || depth == 0)
+            {
+                RecordUnseeded(path, field, type);
+                return;
+            }
+            if (SeedableFields.Struct(type))
+            {
+                RecordStruct(type, path);
+                return;
+            }
+            if (type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+            {
+                AddUnseeded(path, field);
+                return;
+            }
+
+            var seed = SeedableFields.Seed(type);
+            var container = type is IArrayTypeSymbol || type is INamedTypeSymbol named && SeedableFields.Collection(named) is not null;
+            string? seededValue = null;
+            if (seed || container && CanWrite(field))
+            {
+                if (!CanWrite(field) || !SeedField(access, type, path, statements, out seededValue))
+                    RecordUnseeded(path, field, type);
+            }
+            else if (container && SeedableFields.Path(type) && !SeedElement(access, type, statements))
+            {
+                // A container the driver cannot replace may be empty: the seeds below it count only where an element it adds carries them.
+                RecordUnseeded(path, field, type);
+            }
+            if (SeedableFields.Path(type))
+            {
+                SeedObject(type, access, path, depth - 1, statements);
+                if (seededValue is not null && seededValue != access)
+                    SeedObject(type, seededValue, path, depth - 1, statements);
+            }
+        }
+
+        private bool SeedField(string target, ITypeSymbol type, string path, List<string> statements, out string? seededValue)
+        {
+            var snapshot = Snapshot();
+            if (TrySeedField(target, type, path, statements, out seededValue) && Failures.Count == snapshot.Failures)
+                return true;
+            Rollback(snapshot, "Seed");
+            seededValue = null;
+            return false;
+        }
+
+        private bool TrySeedField(string target, ITypeSymbol type, string path, List<string> statements, out string? seededValue)
+        {
+            seededValue = null;
+            if (type is IArrayTypeSymbol array)
+            {
+                if (!SeedableFields.Seed(array.ElementType) && !SeedableFields.Path(array.ElementType))
+                    return false;
+                if (SeedArray(array) is not { } created)
+                    return false;
+                AddSeed(path, $"{target} = {created};", statements);
+                seededValue = target;
+                return true;
+            }
+
+            if (type is INamedTypeSymbol named && SeedableFields.Collection(named) is { } collection)
+            {
+                var local = SeedCollection(collection, statements);
+                if (local is null && named.TypeKind != TypeKind.Interface && !named.IsAbstract)
+                    return false;
+                if (local is not null)
+                {
+                    AddSeed(path, $"{target} = {local};", statements);
+                    seededValue = named.TypeKind == TypeKind.Interface || named.IsAbstract ? local : target;
+                }
+                if (named.TypeKind == TypeKind.Interface || named.IsAbstract)
+                {
+                    if (SeedClassValue(named) is not { } implementation)
+                        return false;
+                    AddSeed(path, $"{target} = {implementation};", statements);
+                }
+                return true;
+            }
+
+            if (SeedClassValue(type) is not { } seed)
+                return false;
+            AddSeed(path, $"{target} = {seed};", statements);
+            seededValue = target;
+            return true;
+        }
+
+        private string? SeedCollection(SeedableFields.CollectionSeed collection, List<string> statements)
+        {
+            var values = collection.Axes.Select(SeedAxis).ToArray();
+            if (values.Any(value => value is null))
+                return null;
+            var type = CollectionType(collection);
+            var local = $"SeedContainer_{_seedContainers++}";
+            statements.Add($"var {local} = new {type}();");
+            statements.Add(Insertion(collection, local, values));
+            return local;
+        }
+
+        /// <summary>Adds one recipe-built element to a container the driver reaches but cannot replace, before its elements are seeded:
+        /// a concrete ADR 0010 collection through its insertion member, an array into its first cell when it has one (R2).</summary>
+        /// <param name="target">The expression reading the container.</param>
+        /// <param name="type">The container's type.</param>
+        /// <param name="statements">The statements the element is added in.</param>
+        private bool SeedElement(string target, ITypeSymbol type, List<string> statements)
+        {
+            var collection = type is INamedTypeSymbol { TypeKind: not TypeKind.Interface, IsAbstract: false } named ? SeedableFields.Collection(named) : null;
+            if (type is not IArrayTypeSymbol && collection is null)
+                return false;
+            var snapshot = Snapshot();
+            var values = type is IArrayTypeSymbol array ? new[] { SeedAxis(array.ElementType) } : collection!.Axes.Select(SeedAxis).ToArray();
+            // A defaulted element is a null: it carries no seed.
+            if (values.Any(value => value is null) || Failures.Count != snapshot.Failures || Defaulted.Count != snapshot.Defaulted)
+            {
+                Rollback(snapshot, "Seed");
+                return false;
+            }
+            if (type is IArrayTypeSymbol cells)
+                statements.Add($"if ({target}.Length != 0) {target}[{string.Join(", ", Enumerable.Repeat("0", cells.Rank))}] = {values[0]};");
+            else
+                statements.Add(Insertion(collection!, target, values));
+            return true;
+        }
+
+        private static string Insertion(SeedableFields.CollectionSeed collection, string target, IReadOnlyList<string?> values) =>
+            !collection.Dictionary ? $"{target}.{collection.InsertionMember}({values[0]});"
+            : collection.InsertionMember == "TryAdd" ? $"{target}.TryAdd({values[0]}, {values[1]});"
+            : $"{target}[{values[0]}] = {values[1]};";
+
+        /// <summary>A new array holding one seed: of length 1 in every dimension of its own rank, whose one cell holds the seed of its
+        /// element type, itself an array of its own rank when the element is one (R2).</summary>
+        /// <param name="array">The array type.</param>
+        private string? SeedArray(IArrayTypeSymbol array)
+        {
+            var value = SeedAxis(array.ElementType);
+            if (value is null)
+                return null;
+            var initializer = "{ " + value + " }";
+            for (var rank = 1; rank < array.Rank; rank++)
+                initializer = "{ " + initializer + " }";
+            return $"new {R(array)} {initializer}";
+        }
+
+        private string? SeedAxis(ITypeSymbol type)
+        {
+            type = Substitute(type);
+            if (SeedableFields.Seed(type))
+            {
+                if (type is IArrayTypeSymbol array)
+                    return SeedArray(array);
+                if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is not null)
+                    return SeedReturnValue(type);
+                return SeedClassValue(type);
+            }
+            if (SeedableFields.Path(type))
+                return Value(type, new Owner("Seed", null), INLINE_DEPTH, null);
+            return Canned(type, new Owner("Seed", null));
+        }
+
+        private string? SeedClassValue(ITypeSymbol type)
+        {
+            type = Substitute(type);
+            if (type is ITypeParameterSymbol parameter)
+                return _probeTypes.TryGetValue(parameter, out var probe) ? ProbeInstance(probe) : null;
+            if (type is IDynamicTypeSymbol)
+                type = library.GetSpecialType(SpecialType.System_Object);
+            if (type is INamedTypeSymbol delegateType && TypeShape.Of(type) == TypeShapeKind.Delegate)
+            {
+                if (_seedTypes.TryGetValue(type, out var factory))
+                    return $"{factory}()";
+                factory = Unique($"Seed_{_seedTypes.Count}");
+                _seedTypes[type] = factory;
+                _seedTypeKeys.Add(type);
+                if (delegateType.DelegateInvokeMethod is not { } invoke)
+                    return null;
+                _types.Add($"public unsafe sealed class {factory} {{ {MethodWitness("public ", invoke)} }}");
+                _methods.Add($"internal static {R(type)} {factory}() => new {factory}().Invoke;");
+                return $"{factory}()";
+            }
+            if (type is not INamedTypeSymbol named || named.TypeKind == TypeKind.Interface && !Implementable(named) ||
+                named.TypeKind == TypeKind.Class && named.SpecialType != SpecialType.System_Object && !Derivation.CanDerive(named))
+            {
+                return null;
+            }
+
+            if (_seedTypes.TryGetValue(type, out var existing))
+                return $"new {existing}()";
+            var name = Unique($"Seed_{_seedTypes.Count}");
+            _seedTypes[type] = name;
+            _seedTypeKeys.Add(type);
+            var (baseClass, interfaces) = named.TypeKind == TypeKind.Interface ? (null, new[] { named })
+                : named.SpecialType == SpecialType.System_Object ? (null, Array.Empty<INamedTypeSymbol>())
+                : (named, Array.Empty<INamedTypeSymbol>());
+            _types.Add(ClassDeclaration(name, baseClass, interfaces, fields: false, null, name));
+            return $"new {name}()";
+        }
+
+        private void SeedElements(string value, ITypeSymbol element, string path, int depth, List<string> statements)
+        {
+            var local = $"SeedElement_{_seedContainers++}";
+            statements.Add($"foreach ({R(element)} {local} in {value}) {{");
+            var nested = new List<string>();
+            SeedObject(element, local, path, depth, nested);
+            statements.AddRange(nested.Select(statement => "    " + statement));
+            statements.Add("}");
+        }
+
+        private void SeedCollectionElements(string value, SeedableFields.CollectionSeed collection, string path, int depth,
+                                            List<string> statements)
+        {
+            if (collection.Dictionary)
+            {
+                if (SeedableFields.Path(collection.Axes[0]))
+                    SeedElements(value + ".Keys", collection.Axes[0], path, depth, statements);
+                if (SeedableFields.Path(collection.Axes[1]))
+                    SeedElements(value + ".Values", collection.Axes[1], path, depth, statements);
+            }
+            else if (SeedableFields.Path(collection.Axes[0]))
+                SeedElements(value, collection.Axes[0], path, depth, statements);
+        }
+
+        private void SeedStatics()
+        {
+            if (_staticsSeeded)
+                return;
+            _staticsSeeded = true;
+            foreach (var definition in AllLibraryTypes())
+            {
+                var staticFields = SeedMembers(definition, isStatic: true)
+                                      .Where(field => loadedStatics.Contains(SeedableFields.StaticStorage(field))).ToArray();
+                if (staticFields.Length == 0)
+                    continue;
+                if (!TryConstructStaticType(definition, out var type, out var typeName))
+                {
+                    foreach (var field in staticFields)
+                        RecordUnseeded("static/" + Id(field), field, MemberType(field));
+                    continue;
+                }
+
+                foreach (var field in SeedMembers(type, isStatic: true))
+                {
+                    if (!loadedStatics.Contains(SeedableFields.StaticStorage(field)))
+                        continue;
+                    var path = "static/" + Id(field.OriginalDefinition);
+                    var access = $"{typeName}.{Escape(field.Name)}";
+                    SeedMember(field, access, path, STATIC_DEPTH + 1, _setup);
+                }
+            }
+        }
+
+        private bool TryConstructStaticType(INamedTypeSymbol definition, out INamedTypeSymbol type, out string text)
+        {
+            type = definition;
+            if (definition.Arity == 0)
+            {
+                text = R(definition);
+                return true;
+            }
+
+            var arguments = new List<ITypeSymbol>();
+            foreach (var parameter in definition.TypeParameters)
+            {
+                if (CanProbe(parameter))
+                {
+                    if (!_probeTypes.TryGetValue(parameter, out var probe))
+                    {
+                        probe = Unique("Probe_" + parameter.Name);
+                        _probeTypes[parameter] = probe;
+                        var classes = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(candidate => candidate.TypeKind == TypeKind.Class).ToArray();
+                        var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(candidate => candidate.TypeKind == TypeKind.Interface).ToArray();
+                        _types.Add(ClassDeclaration(probe, classes.FirstOrDefault(), interfaces, fields: true, null, parameter.Name));
+                    }
+                    arguments.Add(parameter);
+                }
+                else if (RecipeChoice(parameter) is { } choice)
+                {
+                    _choices[parameter] = choice;
+                    arguments.Add(choice);
+                }
+                else
+                {
+                    text = "";
+                    return false;
+                }
+            }
+
+            type = definition.Construct(arguments.ToArray());
+            text = R(type);
+            return true;
+        }
+
+        private IEnumerable<ISymbol> SeedMembers(INamedTypeSymbol type, bool isStatic)
+        {
+            for (var current = type; current is not null; current = isStatic ? null : current.BaseType)
+            {
+                foreach (var candidate in current.GetMembers())
+                {
+                    if (candidate.IsStatic != isStatic || candidate.IsImplicitlyDeclared)
+                        continue;
+                    if (candidate is IFieldSymbol { IsConst: false } || candidate is IPropertySymbol { IsIndexer: false } property && IsAutoProperty(property))
+                        yield return candidate;
+                }
+            }
+        }
+
+        private static bool IsAutoProperty(IPropertySymbol property) => property.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() is
+            PropertyDeclarationSyntax { AccessorList.Accessors: var accessors } &&
+            accessors.Count > 0 && accessors.All(accessor => accessor.Body is null && accessor.ExpressionBody is null);
+
+        private bool CanRead(ISymbol field) => (Accessible(field) || IsOpened(field)) && field switch
+        {
+            IPropertySymbol property => property.GetMethod is { } getter && (Accessible(getter) || IsOpened(property)),
+            _ => true
+        };
+
+        private bool CanWrite(ISymbol field) => (Accessible(field) || IsOpened(field)) && field switch
+        {
+            IFieldSymbol { IsReadOnly: false } => true,
+            IPropertySymbol property => property.SetMethod is { } setter && (Accessible(setter) || IsOpened(property)),
+            _ => false
+        };
+
+        private bool IsOpened(ISymbol symbol) => symbol.DeclaredAccessibility is not (Accessibility.Private or Accessibility.Protected or
+                                                                                      Accessibility.ProtectedAndInternal) &&
+                                                 symbol.DeclaringSyntaxReferences.Length > 0 &&
+                                                 SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, library.Assembly) &&
+                                                 _openedFields.Contains(Id(symbol));
+
+        private bool Accessible(ISymbol symbol)
+        {
+            for (var current = symbol; current is not null; current = current.ContainingType)
+            {
+                if (current.DeclaredAccessibility is Accessibility.Private or Accessibility.Protected or Accessibility.ProtectedAndInternal)
+                    return false;
+                if (current.DeclaredAccessibility is Accessibility.Internal or Accessibility.ProtectedOrInternal &&
+                    !SymbolEqualityComparer.Default.Equals(current.ContainingAssembly, library.Assembly))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void RecordStruct(ITypeSymbol type, string path)
+        {
+            if (type is not INamedTypeSymbol named)
+                return;
+            foreach (var field in named.GetMembers().OfType<IFieldSymbol>().Where(field => !field.IsStatic))
+            {
+                var storage = field.AssociatedSymbol ?? field;
+                var fieldPath = path + "/" + Id(storage);
+                if (SeedableFields.Struct(field.Type))
+                    RecordStruct(field.Type, fieldPath);
+                else if (SeedableFields.Seed(field.Type) || SeedableFields.Path(field.Type) ||
+                         field.Type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                    RecordUnseeded(fieldPath, storage, field.Type);
+            }
+        }
+
+        private void RecordUnseeded(string path, ISymbol field, ITypeSymbol type)
+        {
+            if (SeedableFields.Seed(type) || type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                AddUnseeded(path, field);
+            if (SeedableFields.Struct(type))
+                RecordStruct(type, path);
+            else if (SeedableFields.Path(type))
+                RecordBelow(type, path, new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
+        }
+
+        private void RecordBelow(ITypeSymbol type, string path, HashSet<ITypeSymbol> seen)
+        {
+            type = Substitute(type);
+            if (!seen.Add(type))
+                return;
+            if (type is IArrayTypeSymbol array)
+            {
+                RecordBelow(array.ElementType, path, seen);
+                return;
+            }
+            if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is { } collection)
+            {
+                foreach (var axis in collection.Axes.Where(SeedableFields.Path))
+                    RecordBelow(axis, path, seen);
+                return;
+            }
+            if (type is not INamedTypeSymbol named)
+                return;
+            foreach (var field in SeedMembers(named, isStatic: false))
+            {
+                var nested = path + "/" + Id(field);
+                if (SeedableFields.Seed(MemberType(field)) || MemberType(field) is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                    AddUnseeded(nested, field);
+                else if (SeedableFields.Struct(MemberType(field)))
+                    RecordStruct(MemberType(field), nested);
+                else if (SeedableFields.Path(MemberType(field)))
+                    RecordBelow(MemberType(field), nested, seen);
+            }
+            seen.Remove(type);
+        }
+
+        private void AddUnseeded(string path, ISymbol member) => _unseeded.TryAdd(path, member);
+
+        private void AddSeed(string path, string statement, List<string> statements)
+        {
+            statements.Add(statement);
+            _seedStatements.Add((path, statement));
+        }
+
+        private static ITypeSymbol MemberType(ISymbol member) => member switch
+        {
+            IFieldSymbol field => field.Type,
+            IPropertySymbol property => property.Type,
+            _ => throw new ArgumentOutOfRangeException(nameof(member))
+        };
+
+        private string CollectionType(SeedableFields.CollectionSeed collection)
+        {
+            var tick = collection.ConcreteMetadataName.IndexOf('`');
+            var name = tick < 0 ? collection.ConcreteMetadataName : collection.ConcreteMetadataName[..tick];
+            return "global::" + name + "<" + string.Join(", ", collection.Axes.Select(R)) + ">";
         }
 
         /// <summary>The receiver: the driver's subclass when a user could subclass its type, overriding everything but the member and
@@ -970,6 +1535,8 @@ public static class DriverSynthesizer
         /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
         private string Recipe(ITypeSymbol type, Owner owner, int depth, List<string>? hoist)
         {
+            if (TypeShape.Of(type) == TypeShapeKind.StructWithReferences && type.IsValueType)
+                return $"default({R(type)})";
             if (type is INamedTypeSymbol task && TypeShape.Of(type) is TypeShapeKind.Task or TypeShapeKind.TaskOfT)
             {
                 if (task.Arity == 0)
@@ -1105,7 +1672,7 @@ public static class DriverSynthesizer
         }
 
         /// <summary>A lambda with explicit parameter types, cast to its delegate type. A probe writes its fired field first and
-        /// stores each parameter in an <c>In_</c> field; every lambda assigns its <c>out</c> parameters and returns a value made in
+        /// stores each parameter in an <c>In_</c> field; a plain lambda witnesses its inputs. Every lambda assigns its <c>out</c> parameters and returns a value made in
         /// its own body.</summary>
         /// <param name="type">The delegate type.</param>
         /// <param name="owner">What the lambda belongs to.</param>
@@ -1134,6 +1701,8 @@ public static class DriverSynthesizer
                     body.Add($"{field} = {name};");
                     stored.Inputs.Add(field);
                 }
+                else if (probe is null && TypeShape.Of(parameterType) != TypeShapeKind.RefLikeOrPointer)
+                    body.Add(WitnessStore(name));
             }
 
             if (!invoke.ReturnsVoid)
@@ -1200,7 +1769,7 @@ public static class DriverSynthesizer
 
         /// <summary>The driver's sealed class of one role for one owner and type, built once: <c>Probe_</c> with two reference fields
         /// and an <c>int</c> field, <c>Sub_</c> a subclass, <c>R_</c> a returned marker. Its one constructor calls the base
-        /// constructor the recipe would pick; every member a user type could override or implement is <c>extern</c>.</summary>
+        /// constructor the recipe would pick; every expressible member a user type could override or implement is a witness.</summary>
         /// <param name="role"><c>Probe</c>, <c>Sub</c> or <c>R</c>.</param>
         /// <param name="owner">The parameter, <c>Recv</c>, or a trigger argument the class is for.</param>
         /// <param name="type">The class to derive from, the interface to implement, or <c>object</c>.</param>
@@ -1270,17 +1839,15 @@ public static class DriverSynthesizer
             var access = overridden.DeclaredAccessibility == Accessibility.Public ? "public" : "protected";
             return overridden switch
             {
-                IMethodSymbol method => $"{access} override extern {RefReturn(method.ReturnsByRef, method.ReturnsByRefReadonly)}" +
-                                        $"{(method.ReturnsVoid ? "void" : R(method.ReturnType))} {Escape(method.Name)}{TypeParameters(method)}({Signature(method.Parameters)});",
-                IPropertySymbol property => $"{access} override extern {RefReturn(property.ReturnsByRef, property.ReturnsByRefReadonly)}{R(property.Type)} " +
-                                            $"{(property.IsIndexer ? $"this[{Signature(property.Parameters)}]" : Escape(property.Name))} {{ {Accessors(property, explicitly: false)} }}",
-                IEventSymbol @event => $"{access} override extern event {R(@event.Type)} {Escape(@event.Name)};",
+                IMethodSymbol method => MethodWitness($"{access} override ", method),
+                IPropertySymbol property => PropertyWitness($"{access} override ", property),
+                IEventSymbol @event => $"{access} override event {R(@event.Type)} {Escape(@event.Name)} {{ " +
+                                        $"add {{ {WitnessStore("this")} {WitnessStore("value")} }} remove {{ {WitnessStore("this")} {WitnessStore("value")} }} }}",
                 _ => ""
             };
         }
 
-        /// <summary>An <c>extern</c> explicit implementation of an interface member. An event is the exception: an explicit event
-        /// needs accessor bodies (CS0073), so it is implemented by a public field-like <c>extern</c> event of the same name.</summary>
+        /// <summary>An explicit witness implementation of an interface member.</summary>
         /// <param name="interface">The interface.</param>
         /// <param name="implemented">Its method, property, indexer or event.</param>
         private string Explicit(INamedTypeSymbol @interface, ISymbol implemented)
@@ -1288,29 +1855,145 @@ public static class DriverSynthesizer
             var owner = R(@interface);
             return implemented switch
             {
-                IMethodSymbol method => $"extern {RefReturn(method.ReturnsByRef, method.ReturnsByRefReadonly)}{(method.ReturnsVoid ? "void" : R(method.ReturnType))} " +
-                                        $"{owner}.{Escape(method.Name)}{TypeParameters(method)}({Signature(method.Parameters)});",
-                IPropertySymbol property => $"extern {RefReturn(property.ReturnsByRef, property.ReturnsByRefReadonly)}{R(property.Type)} " +
-                                            $"{owner}.{(property.IsIndexer ? $"this[{Signature(property.Parameters)}]" : Escape(property.Name))} {{ {Accessors(property, explicitly: true)} }}",
-                IEventSymbol @event => $"public extern event {R(@event.Type)} {Escape(@event.Name)};",
+                IMethodSymbol method => MethodWitness("", method, owner + "."),
+                IPropertySymbol property => PropertyWitness("", property, owner + "."),
+                IEventSymbol @event => $"event {R(@event.Type)} {owner}.{Escape(@event.Name)} {{ " +
+                                        $"add {{ {WitnessStore("this")} {WitnessStore("value")} }} remove {{ {WitnessStore("this")} {WitnessStore("value")} }} }}",
                 _ => ""
             };
         }
 
-        private static string Accessors(IPropertySymbol property, bool explicitly)
+        private string PropertyWitness(string modifier, IPropertySymbol property, string explicitOwner = "")
         {
-            var accessors = new List<string>();
+            var accessors = new List<(string Declaration, string? Body)>();
+            var snapshot = Snapshot();
+            var explicitly = explicitOwner.Length > 0;
             foreach (var accessor in new[] { property.GetMethod, property.SetMethod })
             {
                 if (accessor is null || !explicitly && !Derivation.IsVisibleToSubclass(accessor.DeclaredAccessibility))
                     continue;
-                var modifier = explicitly || accessor.DeclaredAccessibility == property.DeclaredAccessibility ? ""
+                var accessorModifier = explicitly || accessor.DeclaredAccessibility == property.DeclaredAccessibility ? ""
                     : accessor.DeclaredAccessibility == Accessibility.Public ? "public " : "protected ";
-                accessors.Add(modifier + (accessor.MethodKind == MethodKind.PropertyGet ? "get;" : accessor.IsInitOnly ? "init;" : "set;"));
+                var keyword = accessor.MethodKind == MethodKind.PropertyGet ? "get" : accessor.IsInitOnly ? "init" : "set";
+                var body = WitnessBody(accessor, accessor.ReturnType, accessor.ReturnsByRef, accessor.ReturnsByRefReadonly,
+                                       index => accessor.MethodKind == MethodKind.PropertySet && index == accessor.Parameters.Length - 1 ? "value" : $"p{index}");
+                accessors.Add(($"{accessorModifier}{keyword}", body));
             }
 
-            return string.Join(" ", accessors);
+            var isExtern = accessors.Any(accessor => accessor.Body is null);
+            if (isExtern)
+                Rollback(snapshot, "Witness");
+            var bodies = string.Join(" ", accessors.Select(accessor => accessor.Declaration + (isExtern ? ";" : " " + accessor.Body)));
+            return $"{modifier}{(isExtern ? "extern " : "")}{RefReturn(property.ReturnsByRef, property.ReturnsByRefReadonly)}{R(property.Type)} " +
+                   $"{explicitOwner}{(property.IsIndexer ? $"this[{Signature(property.Parameters)}]" : Escape(property.Name))} {{ {bodies} }}";
         }
+
+        private string MethodWitness(string modifier, IMethodSymbol method, string explicitOwner = "")
+        {
+            var body = WitnessBody(method, method.ReturnType, method.ReturnsByRef, method.ReturnsByRefReadonly, index => $"p{index}");
+            var externModifier = body is null ? "extern " : "";
+            return $"{modifier}{externModifier}{RefReturn(method.ReturnsByRef, method.ReturnsByRefReadonly)}" +
+                   $"{(method.ReturnsVoid ? "void" : R(method.ReturnType))} {explicitOwner}{Escape(method.Name)}{TypeParameters(method)}" +
+                   $"({Signature(method.Parameters)}){(body is null ? ";" : " " + body)}";
+        }
+
+        private string? WitnessBody(IMethodSymbol method, ITypeSymbol returnType, bool returnsByRef, bool returnsByRefReadonly,
+                                    Func<int, string> parameterName)
+        {
+            if (method.Parameters.Any(parameter => TypeShape.Of(Substitute(parameter.Type)) == TypeShapeKind.RefLikeOrPointer) ||
+                TypeShape.Of(Substitute(returnType)) == TypeShapeKind.RefLikeOrPointer)
+            {
+                return null;
+            }
+
+            var result = WitnessReturn(method.ReturnsVoid, Substitute(returnType), returnsByRef, returnsByRefReadonly);
+            if (!method.ReturnsVoid && result is null)
+                return null;
+            var statements = new List<string> { WitnessStore("this") };
+            foreach (var (parameter, index) in method.Parameters.Select((parameter, index) => (parameter, index)))
+            {
+                var name = parameterName(index);
+                if (parameter.RefKind == RefKind.Out)
+                    statements.Add($"{name} = default!;");
+                else
+                    statements.Add(WitnessStore(name));
+            }
+
+            if (result is not null)
+                statements.Add(result);
+            return "{ " + string.Join(" ", statements) + " }";
+        }
+
+        private string? WitnessReturn(bool returnsVoid, ITypeSymbol type, bool byRef, bool byRefReadonly)
+        {
+            if (returnsVoid)
+                return null;
+            if (byRef || byRefReadonly)
+                return $"return ref {WITNESSED_REF_TYPE}<{R(type)}>.Value;";
+            var shape = TypeShape.Of(type);
+            if (shape == TypeShapeKind.Task)
+                return type.Name == "Task" ? "return global::System.Threading.Tasks.Task.CompletedTask;" : $"return default({R(type)});";
+            if (shape == TypeShapeKind.TaskOfT)
+            {
+                var inner = ((INamedTypeSymbol)type).TypeArguments[0];
+                var value = WitnessValue(inner);
+                if (value is null)
+                    return null;
+                return type.Name == "Task"
+                    ? $"return global::System.Threading.Tasks.Task.FromResult<{R(inner)}>({value});"
+                    : $"return new {R(type)}({value});";
+            }
+
+            var direct = WitnessValue(type);
+            return direct is null ? null : $"return {direct};";
+        }
+
+        private string? WitnessValue(ITypeSymbol type)
+        {
+            type = Substitute(type);
+            if (type is ITypeParameterSymbol parameter)
+                return _probeTypes.TryGetValue(parameter, out var probe) ? ProbeInstance(probe) : null;
+            if (TypeShape.Of(type) == TypeShapeKind.RefLikeOrPointer)
+                return null;
+            if (TypeShape.Of(type) is TypeShapeKind.Immutable or TypeShapeKind.PlainStruct)
+                return Canned(type, new Owner("Witness", null));
+            var snapshot = Snapshot();
+            var value = SeedableFields.Seed(type) ||
+                        SeedableFields.Path(type) && (type is IArrayTypeSymbol ||
+                                                     type is INamedTypeSymbol collection && SeedableFields.Collection(collection) is not null)
+                ? SeedReturnValue(type)
+                : type is INamedTypeSymbol namedType
+                    ? Constructor(namedType, new Owner("Witness", null), INLINE_DEPTH, null) ??
+                      Factory(namedType, new Owner("Witness", null), INLINE_DEPTH, null)
+                    : null;
+            if (value is not null && Failures.Count == snapshot.Failures)
+                return value;
+            Rollback(snapshot, "Witness");
+            return null;
+        }
+
+        private string? SeedReturnValue(ITypeSymbol type)
+        {
+            type = Substitute(type);
+            if (type is IArrayTypeSymbol array)
+                return SeedArray(array);
+            if (type is INamedTypeSymbol named && SeedableFields.Collection(named) is { } collection)
+            {
+                var values = collection.Axes.Select(SeedAxis).ToArray();
+                if (values.Any(value => value is null))
+                    return named.TypeKind == TypeKind.Interface || named.IsAbstract ? SeedClassValue(named) : null;
+                var concrete = CollectionType(collection);
+                var factory = Unique($"SeedContainer_{_seedContainers++}");
+                var insert = collection.Dictionary
+                    ? collection.InsertionMember == "TryAdd" ? $"value.TryAdd({values[0]}, {values[1]});" : $"value[{values[0]}] = {values[1]};"
+                    : $"value.{collection.InsertionMember}({values[0]});";
+                _methods.Add($"internal static {R(type)} {factory}() {{ var value = new {concrete}(); {insert} return value; }}");
+                return $"{DRIVER_TYPE}.{factory}()";
+            }
+            return SeedClassValue(type);
+        }
+
+        private string WitnessStore(string value) => $"{WITNESSED_TYPE}.W{_witnessed++} = {value};";
 
         private static string TypeParameters(IMethodSymbol method) =>
             method.IsGenericMethod ? "<" + string.Join(", ", method.TypeParameters.Select(parameter => Escape(parameter.Name))) + ">" : "";
@@ -1412,7 +2095,9 @@ public static class DriverSynthesizer
             }
         }
 
-        private IEnumerable<INamedTypeSymbol> LibraryTypes() => Types(library.Assembly.GlobalNamespace).Where(PubliclyNamed);
+        private IEnumerable<INamedTypeSymbol> AllLibraryTypes() => Types(library.Assembly.GlobalNamespace);
+
+        private IEnumerable<INamedTypeSymbol> LibraryTypes() => AllLibraryTypes().Where(PubliclyNamed);
 
         private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
             @namespace.GetTypeMembers().SelectMany(Nested).Concat(@namespace.GetNamespaceMembers().SelectMany(Types));
@@ -1461,13 +2146,14 @@ public static class DriverSynthesizer
 
         private static string Escape(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None ? "@" + name : name;
 
-        private (int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int ClassKeys, int Chosen) Snapshot() =>
-            (Failures.Count, Defaulted.Count, _setup.Count, _fields.Count, _keep.Count, _types.Count, _methods.Count, _classKeys.Count, _chosen.Count);
+        private (int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int SeedTypes, int ClassKeys, int Chosen) Snapshot() =>
+            (Failures.Count, Defaulted.Count, _setup.Count, _fields.Count, _keep.Count, _types.Count, _methods.Count, _seedTypeKeys.Count,
+             _classKeys.Count, _chosen.Count);
 
         /// <summary>Drops everything a trigger variant added, when one of its values could not be built.</summary>
         /// <param name="snapshot">The sizes before the variant was built.</param>
         /// <param name="variant">The trigger's variant.</param>
-        private void Rollback((int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int ClassKeys, int Chosen) snapshot,
+        private void Rollback((int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int SeedTypes, int ClassKeys, int Chosen) snapshot,
                               string variant)
         {
             foreach (var parameter in _chosen.Skip(snapshot.Chosen))
@@ -1484,6 +2170,9 @@ public static class DriverSynthesizer
             _keep.RemoveRange(snapshot.Keep, _keep.Count - snapshot.Keep);
             _types.RemoveRange(snapshot.Types, _types.Count - snapshot.Types);
             _methods.RemoveRange(snapshot.Methods, _methods.Count - snapshot.Methods);
+            foreach (var key in _seedTypeKeys.Skip(snapshot.SeedTypes))
+                _seedTypes.Remove(key);
+            _seedTypeKeys.RemoveRange(snapshot.SeedTypes, _seedTypeKeys.Count - snapshot.SeedTypes);
             foreach (var key in _classKeys.Skip(snapshot.ClassKeys))
                 _classes.Remove(key);
             _classKeys.RemoveRange(snapshot.ClassKeys, _classKeys.Count - snapshot.ClassKeys);

@@ -2,6 +2,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Xunit;
 
@@ -16,7 +17,7 @@ public sealed class RequiresModelEvalsFactAttribute : FactAttribute
     public RequiresModelEvalsFactAttribute()
     {
         if (Environment.GetEnvironmentVariable(VARIABLE) != "1")
-            Skip = $"{VARIABLE} is not 1. Set it to run the model evals against the installed .NET 8 and the NuGet packages folder.";
+            Skip = $"{VARIABLE} is not 1. Set it to run the model evals against the installed .NET 8 and .NET 10 and the NuGet packages folder.";
     }
 }
 
@@ -140,6 +141,10 @@ internal static class ModelEvals
     public static int Exact(EvalRun run) =>
         run.Answers.Sum(answer => answer.Gold.DelegateParams.Count(parameter => IsExact(Answered(answer.Answer, parameter), answer.Gold.Fate)));
 
+    /// <summary>The number of fate-gold members for which generation produced a whole entry.</summary>
+    /// <param name="run">The run.</param>
+    public static int FateGoldEntries(EvalRun run) => run.Answers.Count(answer => answer.Answer.Model is not null);
+
     /// <summary>The <c>exact</c> count a snapshot recorded, or <c>null</c> when it records none.</summary>
     /// <param name="snapshot">The snapshot's text.</param>
     public static int? RecordedExact(string snapshot) => (int?)JsonNode.Parse(snapshot)!["exact"];
@@ -217,9 +222,38 @@ internal static class ModelEvals
 
     // ---- the snapshot ----
 
+    /// <summary>Records answers only when every existing entry floor is preserved.</summary>
+    /// <param name="path">The snapshot file.</param>
+    /// <param name="fresh">The new snapshot text.</param>
+    public static void RecordSnapshot(string path, string fresh)
+    {
+        if (File.Exists(path))
+        {
+            var recorded = JsonNode.Parse(File.ReadAllText(path))!;
+            var current = JsonNode.Parse(fresh)!;
+            foreach (var property in new[] { "fateGoldEntries", "effectsExact" })
+                Check(property, (int?)recorded[property], (int?)current[property]);
+            foreach (var group in recorded["linqExact"]!.AsObject())
+                Check($"linqExact.{group.Key}", (int?)group.Value, (int?)current["linqExact"]?[group.Key]);
+        }
+        File.WriteAllBytes(path, new System.Text.UTF8Encoding(false).GetBytes(fresh));
+
+        /// <summary>Refuses an absent or lower recorded count.</summary>
+        /// <param name="name">The count's name.</param>
+        /// <param name="previous">The recorded floor.</param>
+        /// <param name="next">The proposed count.</param>
+        void Check(string name, int? previous, int? next)
+        {
+            if (previous is { } floor && (next is null || next < floor))
+                throw new InvalidOperationException($"{name}: {next?.ToString() ?? "missing"} is under the recorded count {floor}; snapshot was not written.");
+        }
+    }
+
     /// <summary>The snapshot of a run: UTF-8 without BOM, LF, two-space indentation, a final newline.</summary>
     /// <param name="run">The run.</param>
-    public static string Snapshot(EvalRun run)
+    /// <param name="effects">The whole-entry effects run.</param>
+    /// <param name="linq">The built-in LINQ oracle run.</param>
+    public static string Snapshot(EvalRun run, WholeEntryRun effects, WholeEntryRun linq)
     {
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -232,8 +266,16 @@ internal static class ModelEvals
             foreach (var answer in run.Answers)
                 WriteMember(json, answer.Answer);
             json.WriteEndArray();
+            json.WriteStartArray("effects");
+            foreach (var answer in effects.Answers)
+                WriteMember(json, answer.Answer);
+            json.WriteEndArray();
+            json.WriteStartArray("linq");
+            foreach (var answer in linq.Answers)
+                WriteMember(json, answer.Answer);
+            json.WriteEndArray();
             json.WriteStartArray("packages");
-            foreach (var package in run.Packages)
+            foreach (var package in MergePackages(run.Packages, effects.Packages, linq.Packages))
             {
                 json.WriteStartObject();
                 json.WriteString("assembly", package.Assembly);
@@ -247,6 +289,12 @@ internal static class ModelEvals
             }
             json.WriteEndArray();
             json.WriteNumber("exact", Exact(run));
+            json.WriteNumber("fateGoldEntries", FateGoldEntries(run));
+            json.WriteNumber("effectsExact", WholeEntryEvals.Exact(effects));
+            json.WriteStartObject("linqExact");
+            foreach (var (group, exact) in WholeEntryEvals.ExactByGroup(linq).OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                json.WriteNumber(group, exact);
+            json.WriteEndObject();
             json.WriteEndObject();
         }
 
@@ -282,9 +330,25 @@ internal static class ModelEvals
         else
             json.WriteNull("classified");
         json.WriteString("reason", answer.Reason);
+        json.WritePropertyName("model");
+        if (answer.Model is null)
+            json.WriteNullValue();
+        else
+            ModelEntryWriter.Write(answer.Model).WriteTo(json);
+        json.WriteString("modelReason", answer.ModelReason);
         json.WriteNumber("reachedBodies", answer.Generation.ReachedBodies);
         json.WriteEndObject();
     }
+
+    private static IReadOnlyList<EvalPackage> MergePackages(params IReadOnlyList<EvalPackage>[] sets) =>
+        sets.SelectMany(set => set)
+            .GroupBy(package => (package.Assembly, package.Package, package.ImplementationVersion))
+            .Select(group => new EvalPackage(group.Key.Assembly, group.Key.Package, group.Key.ImplementationVersion,
+                                             group.Max(package => package.Bodies), group.Max(package => package.ExternBodies),
+                                             group.Sum(package => package.Members), group.Sum(package => package.DriversSynthesized)))
+            .OrderBy(package => package.Assembly, StringComparer.Ordinal)
+            .ThenBy(package => package.ImplementationVersion, StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>How a fresh snapshot differs from the recorded one: implementation identity changes (a runtime or package update) first,
     /// then answer differences; empty when they are the same.</summary>
@@ -294,10 +358,10 @@ internal static class ModelEvals
     {
         var before = JsonNode.Parse(recorded)!;
         var after = JsonNode.Parse(fresh)!;
-        var beforeMembers = Keyed(before["members"], "member");
-        var afterMembers = Keyed(after["members"], "member");
-        var beforePackages = Keyed(before["packages"], "assembly");
-        var afterPackages = Keyed(after["packages"], "assembly");
+        var beforeMembers = AnswerNodes(before);
+        var afterMembers = AnswerNodes(after);
+        var beforePackages = Keyed(before["packages"], package => PackageKey(package));
+        var afterPackages = Keyed(after["packages"], package => PackageKey(package));
 
         var identity = new List<string>();
         foreach (var (id, member) in afterMembers)
@@ -305,11 +369,11 @@ internal static class ModelEvals
             if (beforeMembers.TryGetValue(id, out var old) && !JsonNode.DeepEquals(old["implementation"], member["implementation"]))
                 identity.Add($"implementation of {id}: {old["implementation"]?.ToJsonString() ?? "null"} -> {member["implementation"]?.ToJsonString() ?? "null"}");
         }
-        foreach (var (assembly, package) in afterPackages)
+        foreach (var (key, package) in afterPackages)
         {
-            if (beforePackages.TryGetValue(assembly, out var old) &&
+            if (beforePackages.TryGetValue(key, out var old) &&
                 (string?)old["implementationVersion"] != (string?)package["implementationVersion"])
-                identity.Add($"implementation version of {assembly}: {old["implementationVersion"]} -> {package["implementationVersion"]}");
+                identity.Add($"implementation version of {key}: {old["implementationVersion"]} -> {package["implementationVersion"]}");
         }
         if (identity.Count > 0)
         {
@@ -334,6 +398,11 @@ internal static class ModelEvals
         }
         if (!JsonNode.DeepEquals(before["exact"], after["exact"]))
             answers.Add($"exact: recorded {before["exact"]?.ToJsonString() ?? "nothing"}, now {after["exact"]?.ToJsonString() ?? "nothing"}");
+        foreach (var count in new[] { "fateGoldEntries", "effectsExact", "linqExact" })
+        {
+            if (!JsonNode.DeepEquals(before[count], after[count]))
+                answers.Add($"{count}: recorded {before[count]?.ToJsonString() ?? "nothing"}, now {after[count]?.ToJsonString() ?? "nothing"}");
+        }
         if (answers.Count == 0 && Normalize(recorded) != Normalize(fresh))
             answers.Add("the recorded text differs from the fresh one in order or layout");
         return answers;
@@ -341,6 +410,16 @@ internal static class ModelEvals
 
     public static string Normalize(string text) => text.Replace("\r\n", "\n");
 
-    private static Dictionary<string, JsonNode> Keyed(JsonNode? array, string key) =>
-        (array?.AsArray() ?? []).Where(entry => entry is not null).ToDictionary(entry => (string)entry![key]!, entry => entry!, StringComparer.Ordinal);
+    private static Dictionary<string, JsonNode> AnswerNodes(JsonNode document) =>
+        new[] { "members", "effects", "linq" }.SelectMany(section => (document[section]?.AsArray() ?? []).Select(entry => (Section: section, Entry: entry)))
+                                                   .Where(item => item.Entry is not null)
+                                                   .ToDictionary(item => $"{item.Section}:{(string)item.Entry!["member"]!}", item => item.Entry!,
+                                                                 StringComparer.Ordinal);
+
+    private static string PackageKey(JsonNode package) =>
+        $"{(string)package["assembly"]!}:{(string?)package["package"] ?? "framework"}:" +
+        $"{Version.Parse((string)package["implementationVersion"]!).Major}";
+
+    private static Dictionary<string, JsonNode> Keyed(JsonNode? array, Func<JsonNode, string> key) =>
+        (array?.AsArray() ?? []).Where(entry => entry is not null).ToDictionary(entry => key(entry!), entry => entry!, StringComparer.Ordinal);
 }
