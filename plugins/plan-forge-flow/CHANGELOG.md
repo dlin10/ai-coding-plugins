@@ -1,5 +1,72 @@
 # Plan Forge Flow releases
 
+## 0.41.0
+
+A code-review fix batch is framed by the rules its findings break, so a domain's axes reach the
+Builder from the one participant that knows them. Over nine measured runs, 53% of the findings after
+the first code-review round were caused by an earlier round's fix. The generic "When you fix review
+findings" section of 0.38.0 lifted the recall of later-found places in an offline replay from 32% to
+57% for claude and from 23% to 46% for codex, and cost codex new defects, 0.17 to 0.75 per turn.
+The orchestrator ran the interview, wrote the plan and read every critique: in concurrency-hunter
+run `20261004-093111-b79938` its later fix notes stated numbered rules with their sources and axes,
+and one wrong note — it had the Builder drop a guard that was a requirement's own rule — showed why
+a rule has to cite where it comes from.
+
+- The forge skill forms fix batches by rule. One rule's findings never split across batches; a
+  batch may carry several rules, and rules whose failure should not hold the others back are kept
+  apart, since every fix call runs the plan's `## Gates`. A finding another batch's fix covered is
+  closed with `hostVerified` and its evidence, because `duplicateOf` needs a canonical ID still in
+  the ledger.
+- The first call of every fix attempt carries a `note`. For each rule: the rule with its source — a
+  requirement, a quoted task sentence, since a fix prompt carries no task text, or a decision the
+  user made during the run; its owner, which every other place calls; and its axes, taken from the
+  plan's matrix check and owner tasks first, then from the kinds a plan tends to miss, to be found by
+  references and callers rather than by searching for a word. Once for the batch: what must not
+  change and when to stop. A part that does not apply says so, and the note does not repeat the
+  findings. A retry's note says what changed and restates only a rule it corrects; a retry sent to
+  another vendor gets the whole note again. The skill shows one example in a neutral domain.
+- After each code-review round the orchestrator records every new finding as `own`, `sibling`,
+  `same-class` or `older` with `forge.log.append`. Over the 150 findings of the nine measured runs,
+  `own` and `sibling` — the fallout — came to 53%, and with `same-class` to 77%; these lines are the
+  measure for the runs that follow.
+- `forge.review.fix` and `forge.work.start` describe `note` by those parts, and so does the
+  glossary's Fix note. The server still requires no note and checks none of it.
+
+## 0.40.0
+
+A rule the plan introduces or changes is checked for a matrix while the plan is drafted, rather than
+after rounds of review have found its combinations one at a time, and the orchestrator asks the user
+one question at a time, each explained. In one measured plan review the rounds ran 28, 17, 15, 11,
+12, 14 and 9 findings, and from the third round on nearly every finding was a combination of one
+rule's axes; the matrix arrived after the fifth round, and the next critic found an error in its
+expectation table.
+
+- Before the Impact pass and the first `forge.plan.write`, the forge skill lists every rule the plan
+  introduces or changes with the axes its answer depends on, and puts a matrix task into the first
+  draft when the answer depends on two or more axes with about six values between them, the plan
+  lists more than about ten of its cases, a neighbouring rule already has a matrix, or a missed cell
+  would be a silent fault. The first time the plan is shown, one line says which rules were checked
+  and what was decided.
+- A matrix task is a task of its own with a test class in the ordinary suite. It names its axes,
+  its excluded combinations with their reasons, an expectation table written from the requirements,
+  and the cells known to be wider with their reasons, each of which becomes an open question in the
+  project's documents; its tests check unsafe narrowing, every expected answer and every axis value.
+  It replaces the one-by-one cases of the same rule elsewhere in the plan.
+- From the second round on, when more than half of a round's new findings are combinations or edge
+  cases of one rule that has no matrix, the orchestrator adds one in that revision and says so.
+- The plan-review critic reports the combinations of one rule's axes as one finding that lists them
+  all and recommends a matrix task, rather than a finding per combination.
+- Every question to the user is one question per call, in dependency order, overriding the
+  `grilling` rule to ask the whole frontier in one round. Each comes with an explanation in the
+  chat — the problem in plain words, an example from the repository for a question about code
+  behaviour, and every option's effect, advantages, drawbacks and cost — and the question lists the
+  recommended option first as "(Recommended)". Two batches are made unasked, one per worker role:
+  the critic's vendor, model-and-effort, Fast and instruction questions share one call, and the
+  builder's another, both built from the catalogue fetched before the first. Each model option names
+  its vendor and the Fast question the models that offer it; answers that do not fit together get
+  one follow-up question. Gate values are asked one variable at a time; a user who asks for a batch
+  gets one.
+
 ## 0.39.3
 
 - Codex Builders run without the Codex sandbox or approval prompts on fresh and resumed turns,

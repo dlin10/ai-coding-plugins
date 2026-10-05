@@ -20,6 +20,43 @@ the plugin is installed but the server did not start, and nothing here will work
 Only on an explicit `$forge` or a direct request to run Plan Forge Flow. Installation, availability,
 an ordinary request to plan something, or an existing draft are not consent.
 
+## Asking the user
+
+Every question you put to the user follows this section unless the user asks otherwise: the
+interview, the Scout, critic and builder selections, the instruction questions, decisions on
+findings, the round cap, approval, and the values a gate needs. It belongs to forge and holds
+whichever skill is running the interview.
+
+Ask one question per call of the host's question tool — `AskUserQuestion` in Claude Code — or per
+message where the host has none, and wait for the answer before you ask the next. Work out the
+frontier of the decision tree — every decision that could be asked now — but ask it one question at
+a time: first the one the others depend on, and the next only once that one is answered, because an
+answer can change or remove the questions behind it. This overrides the `grilling` rule to ask the
+whole frontier in one round: a delegated interview skill supplies the questions, never their
+batching. You make two batches unasked, one per worker role, both described under "Choosing the
+vendor and model": the critic's vendor, model-and-effort, Fast and instruction questions share one
+call, and the builder's another. Their options come from the catalogue you fetch before the first
+of them, each naming what it depends on, and answers that do not fit together get one follow-up
+question. Explain each question of a batch before the call. If the user asks for questions in a
+batch, batch them as they asked.
+
+Before each question, explain it in the chat:
+
+1. **The problem it settles** — what the code or the plan does now, and what breaks or stays
+   unclear if nobody decides. In plain words: an internal ID — a finding's `F-0012`, a round
+   number, a class name — appears only beside what it stands for, and every term the user has not
+   met yet gets a one-sentence definition.
+2. **An example**, when the question is about how code behaves — a short fragment from the
+   repository with its `path:line`, the path taken from the repository root, or a minimal
+   illustrative one labelled as such — and what happens to it under each answer.
+3. **The options** — for each, what it means, what it changes in the plan or the code, its
+   advantages, its drawbacks and its cost; then the one you recommend, and why.
+
+The question offers the same options. Keep their descriptions short and in agreement with the
+explanation, put the recommended option first, and end its label with "(Recommended)". A mechanical
+question — a vendor, a model and effort, the Fast tier, a value a gate needs — needs one or two
+sentences of explanation and no code.
+
 ## The tools, in order
 
 | Tool | When |
@@ -35,7 +72,7 @@ an ordinary request to plan something, or an existing draft are not consent.
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note` when you send one. |
+| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. |
 | `forge.status` | Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
 | `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note`; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
@@ -141,7 +178,8 @@ call stay applied; retry the round with the same batch and exact decisions.
 
 Fix execution is separate from decisions. Give each logical execution one `fixAttemptId` and the
 exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
-Your optional `note` follows them in a section of its own, and the Flow log records it verbatim.
+Your `note` follows them in a section of its own, and the Flow log records it verbatim; what it
+holds is under "Fix batches and their notes".
 A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID and exact ID
 set. A different set under that attempt is refused. A completed attempt returns its saved terminal
 result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields and
@@ -166,6 +204,8 @@ Scout is lazy and independent of the separate Critic and Builder selections. On 
 make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
 Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
 the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
+Before the question, say in a sentence or two what Scout is for and what continuing without it
+costs: the Impact pass then falls to you.
 A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
 an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
 after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
@@ -204,10 +244,11 @@ by area into several questions.
 
 ### The Impact pass
 
-After you have drafted the plan's approach, and before the first `forge.plan.write`, ask the Scout
-one Impact pass. Every plan gets one. It is a Scout need, so it starts the Scout selection round
-when none has been made. Name every Change point the approach introduces — symbols, contracts, wire
-and persisted formats, counters, prompts and skill text — and ask, for each one:
+After you have drafted the plan's approach and made its matrix check, and before the first
+`forge.plan.write`, ask the Scout one Impact pass. Every plan gets one. It is a Scout need, so it
+starts the Scout selection round when none has been made. Name every Change point the approach
+introduces — symbols, contracts, wire and persisted formats, counters, prompts and skill text — and
+ask, for each one:
 
 - every consumer, and what its behaviour becomes;
 - every test that asserts today's behaviour, with file:line and test method name;
@@ -289,8 +330,9 @@ documentation lazily and follow the [`CONTEXT-FORMAT.md`](references/CONTEXT-FOR
 use the built-in rules here for documented mode and the interview paragraph below for the mode
 without documentation.
 
-Ask grilling questions **one at a time** and wait for each answer. You are looking for the decisions
-the plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
+Ask grilling questions **one at a time**, each explained as "Asking the user" describes, and wait
+for each answer, whichever skill is running the interview. You are looking for the decisions the
+plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
 When the interview has settled the decisions, write the requirements first — the `## Requirements`
@@ -414,7 +456,61 @@ State the builder's selection at the top of the plan, above `## Requirements`, i
 model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
 builder named there.
 
-The draft is not ready for its first `forge.plan.write` until the Impact pass and the Evidence check described under "Scout reconnaissance" have run against it.
+The draft is not ready for its first `forge.plan.write` until the matrix check below, the Impact
+pass and the Evidence check described under "Scout reconnaissance" have run against it.
+
+### The matrix check
+
+While you draft the `## Approach` — before the Impact pass and before the first `forge.plan.write`
+— decide yourself whether the plan needs a matrix task: a task whose test walks every combination
+of a rule's axes and checks each against an expectation written from the requirements, not from
+the code. List every rule the plan introduces or changes — a predicate, a classification, a mapping,
+the choice of a name or a form, the order in which reasons are given — and, for each, the axes its
+answer depends on: the kind of value × the action × the execution it happens in, say. A rule needs
+a matrix when any one of these holds:
+
+- its answer depends on a combination of two or more axes, with about six or more values across
+  them;
+- the plan lists its cases one by one, and there are more than about ten;
+- a neighbouring rule of the same kind already has a matrix in the codebase;
+- a missed cell is a silent fault: an unsafe narrowing (an answer narrower than the truth where
+  only a wider one is safe), a wrong refusal, a security gap.
+
+A rule that needs one gets its matrix task in the first draft. Left to review, it comes back one
+combination at a time: in one measured plan review the rounds ran 28, 17, 15, 11, 12, 14 and 9
+findings, and from the third round on nearly every finding was an uncovered combination of one rule
+or an edge where it contradicted another. The matrix arrived after the fifth round, and the next
+critic found an error in its expectation table — caught in the plan, before any code. In an earlier
+pass, a matrix of 1,729 probes did the work of the review rounds. Make the same check for a rule a
+later revision introduces.
+
+In the turn of the first `forge.plan.write`, beside the plan's path, say in one line which rules
+you checked, what you decided for each and why: `Matrix check: Classify — value kind × action ×
+execution, 11 values: matrix, task 4. ReasonOrder — one axis, 4 values: none.` When the plan
+introduces or changes no rule, the line says so.
+
+### The matrix task
+
+The critic judges a matrix task with the rest of the plan, so the plan spells it out:
+
+- It is a task of its own, with its own test class in the ordinary suite — never behind an
+  environment flag.
+- It lists every axis and every value of each, and every excluded combination — what the test's
+  `Allowed` filter drops — with the reason it is left out.
+- It writes the expectation table into the plan from the requirements — by axis values where the
+  cells are too many to list — each answer citing its R-item. In the code, every branch of
+  `Expected(cell)` cites a requirement, never the code under test.
+- It lists the cells known to be wider: each by name, with the reason its expectation cannot be
+  reached without a change this plan does not make, such as one to the engine the rule runs on.
+  Such a cell must come out wider than its expectation, never exact, and a name on the list that
+  matches no cell fails the test. For a rule whose answers have no safe side, the list is empty and
+  every cell must be exact.
+- Its tests assert that no cell narrows unsafely, that every cell off the wider list gets its
+  expected answer, and that every value of every axis occurs in some cell.
+- Every reason on the wider list becomes an open question in the project's own catalogue or design
+  document, and the plan names the task that writes it.
+- It replaces the one-by-one cases of the same rule in other tasks rather than repeating them. Only
+  cases outside its axes stay listed by hand.
 
 ## Rounds, revision, and caps
 
@@ -425,6 +521,11 @@ receives only the current plan-phase ledger projection, so it converges on curre
 being anchored by the transcript.
 
 A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before it is written.
+
+From the second round on, sort each critique's new findings by the rule they are about. When more
+than half of them are combinations or edge cases of one rule and the plan has no matrix task for
+it, add one in this revision — do not wait for the cap — and say so in `revision`. Each of those
+findings is then addressed by its cell in the table, not by a case of its own.
 
 Every round after the first carries your answer to the one before it. The tool refuses the call
 without `revision`:
@@ -448,14 +549,17 @@ stated too vaguely to check — you revise and carry on without stopping. One it
 requirement covering a question nobody asked, or an answer that would move the scope — goes to the
 user before you revise, and its answer goes into `forge.log.append`. Ask the moment it comes up
 rather than saving it for approval: a scope question answered late invalidates every round that ran
-after it.
+after it. When one critique brings several, ask them one at a time, the one the others depend on
+first.
 
 Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
 Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
-what the last verdict said, so the question carries its numbers. On a yes, pass `userGrantedRound:
-true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the same argument on
-`forge.work.start` — which raises the cap by exactly one. The grant is spent by that round, so the
-round after it needs a fresh answer, and never pass the argument without having asked.
+what the last verdict said, so the question carries its numbers. Say in plain words what the open
+findings are, and what one more round would cost against stopping here. On a yes, pass
+`userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the
+same argument on `forge.work.start` — which raises the cap by exactly one. The grant is spent by
+that round, so the round after it needs a fresh answer, and never pass the argument without having
+asked.
 
 Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
 the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
@@ -537,9 +641,9 @@ job, in five steps:
    with `forge.plan.write`, and go back to `forge.plan.review` with `revision` saying what you
    changed — a plan amended after the last verdict has not been reviewed — then show the revised
    plan again before asking a second time.
-4. With a yes, ask once for what the gates need on this host: the value of every `$env:NAME` the
-   plan's gates reference. Collect them in the chat — never write a value into the plan, and never
-   guess one.
+4. With a yes, ask for what the gates need on this host: the value of every `$env:NAME` the plan's
+   gates reference, one variable per question, each saying which gate reads it and what for.
+   Collect them in the chat — never write a value into the plan, and never guess one.
 5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and
    any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
    compatibility and does not control access. Use `addressedByRevision` for IDs the final revision
@@ -649,7 +753,8 @@ Between the two calls, classify every identified finding by ID:
 
 - **Fix** unresolved defects the diff gets wrong. Put exactly those IDs in `fixFindingIds`, allocate
   one `fixAttemptId` for that logical execution, and let the server render their verbatim ledger
-  findings for the Builder.
+  findings for the Builder. Batch them by rule and frame each batch with a note, as "Fix batches and
+  their notes" below describes.
 - **Defer or reject** what the approved plan excludes or the user already decided differently, with
   asserted `by` and a reason in one decision batch. This is a decision, not a deletion.
 - **Close a duplicate** when a new ID is semantically the same as a current ID: keep the canonical
@@ -672,25 +777,109 @@ The Builder reports each fix as a rule and its places: `rule:`, then one line pe
   for a Critic. Raise every other one in a decisions-only `forge.review.fix`, then fix it in a later
   call by the ID the raise returned, or leave it for the next Critic, which has to assess it. A place
   left only in a summary comes back as a Critic finding a round or two later, at a round's price.
-- When you know more than the findings say — the rule behind them, another place that decides the
-  same question, the owner the plan names for that rule — send it as the fix's `note`. The findings
-  still reach the Builder verbatim; the note is yours, in a section of its own, and replaces none of
-  them.
 
 When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
 findings go to the user with the outcome. They are real findings about real gaps; the plan is the
 only reason they were not fixed here, and they are candidates for the next run.
 
+### Fix batches and their notes
+
+A batch is the set of IDs one fix attempt fixes. Form batches by the rule the findings break, not by
+file or severity:
+
+- Never split one rule's findings across batches. Two deciders of one question in two batches — the
+  effect of a write and the value it stores, the cheap filter and the precise check — get one turn
+  that fixes half the rule and another that finds it half fixed.
+- A batch may carry several rules. Keep rules that share an owner or a subsystem together, and keep
+  apart rules whose failure should not hold the others back: every fix call runs the plan's
+  `## Gates`, so each batch costs a gate run as well as a turn. A finding whose rule no other finding
+  shares is a rule of its own.
+- When a fix also covers a finding outside its batch, close that finding afterwards with
+  `hostVerified` and the evidence: the test, the `file:line`, the gate run. `duplicateOf` cannot do
+  it, because it needs a canonical ID still in the ledger, and the gate's closure has removed the
+  batch's IDs.
+
+The first call of every fix attempt carries a `note` that frames its batch by the rules its findings
+break. The Builder already has the findings verbatim, so do not paste them or the critique back; the
+note adds only what the ledger lacks. For each rule:
+
+- **Rule** — one sentence: the property the code gets wrong, not the example that showed it, with
+  the IDs it covers and where it comes from. Cite the requirement, `R5`: the Builder holds the
+  requirements in its Brief. A fix prompt carries no task text, so when the rule rests on a task's
+  wording, quote that sentence. When it rests on a decision the user made during the run, say so,
+  and record the decision with `forge.log.append` if you have not.
+- **Owner** — the one place that decides the question: the owner the plan names, an existing
+  function, or one to create. Say that every other place calls it instead of deciding again.
+- **Axes** — every kind of place where the same question is decided, listed. Take them from the
+  plan first: the rules the matrix check listed with their axes, a matrix task's axes, the places
+  and axes a task names for the rule's owner. Then check the kinds a plan tends to miss: the forms
+  that reach the same operation (an invocation, an object creation, a delegate call); the channels
+  a value enters or leaves by (a result, an `out` or `ref` parameter, a store, a value kept for
+  later, a delegate's input); the executions it runs in (setup, the call, an enumeration, a startup
+  or unknown execution); the kinds of input or object; the direct path and the one through a
+  helper, a `ref` or an alias; the other arms of the same switch; and twin deciders — the cheap
+  filter and the precise solver, the producer and each consumer, the code and a document that
+  restates the rule. Tell the Builder to find them by references and callers of the data that
+  carries the fact, not by searching for a word: a search finds a spelling, not a place that decides
+  without it.
+
+Once for the whole batch, and again under a rule only where that rule has its own:
+
+- **Must not change** — recorded floors and snapshots, the fixes of other findings, and the scope
+  the plan excludes.
+- **Stop condition** — when to stop and report instead of widening: a floor would fall, the rule
+  would contradict the plan, a place has no source for what the rule needs.
+
+A part that does not apply says so in a few words — `Axes: none, the count is stated only here` —
+rather than being left out.
+
+A note steers the Builder as firmly when it is wrong as when it is right. In one measured run a note
+told the Builder to drop a guard that was a requirement's own rule, and the next attempt had to undo
+the unsafe narrowing that followed. The cited source is what lets the Builder check a rule against
+the plan before it acts on it.
+
+A retry of the same attempt resumes the Builder session that already holds the first note, so its
+note says what changed since the last call — what is on disk, what failed, what is left — and
+restates in full, with its source, only a rule it corrects. A retry sent to another vendor starts a
+fresh session: send the whole note again.
+
+An example, in a neutral domain — copy the form, not the words:
+
+```text
+Rule 1 (F-0031, F-0034, F-0040) — a request's tenant is the one its access token names, never one
+the caller supplies (R3; task 2: "every query is scoped to the tenant of the authenticated caller").
+Owner: `TenantResolver.FromToken`. Every place that needs the tenant asks it; none reads `tenantId`
+from the route, the query string or the body again.
+Axes: every way a request is served — HTTP handlers, background jobs run for a user, message
+consumers; every way the tenant leaves a call — repository filters, cache keys, outgoing calls, the
+audit log; the twin deciders — the authorization filter and the repository's own query filter. Find
+them by references to the tenant value and their callers, not by searching for `tenantId`.
+
+For the batch — Must not change: the recorded performance baseline, the schema (the plan excludes
+migrations), this round's fix of F-0029.
+Stop condition: a job with no token to read the tenant from — report the job rather than inventing
+a source.
+```
+
 ### When a round is mostly fallout
 
 Measured over nine runs, about half of the code-review findings after the first round were fallout
 of the previous round's fixes: a rule an earlier fix wrote was wrong, or a place answering the same
-question was left behind. After each round, mark every finding as fallout or as older than the
-review. When half a round or more is fallout, or its findings walk one axis of a rule case by case —
-field, then local, then `ref` — ask for no further round yet. Sweep instead: list the axes of each
-rule the fixes touched, probe every combination against an oracle (a second path that must agree),
-fix the root causes, then spend one round to confirm. Hold the fixes you make on the host to the
-Builder's own rule — fix the rule, not the place — and record each with `forge.log.append`.
+question was left behind. After each round, label every new finding and record the labels with
+`forge.log.append`, one line per round:
+`Code review round 3: own F-0150; sibling F-0152; same-class F-0149; older F-0151`.
+
+- `own` — something an earlier fix wrote is wrong: the rule it keyed on, or anything else it changed;
+- `sibling` — a place that answers the same question as an earlier fix was left behind;
+- `same-class` — an older instance of a class an earlier fix covered only where a finding named it;
+- `older` — anything else the review predates.
+
+`own` and `sibling` are fallout. When half a round or more is fallout, or its findings walk one axis
+of a rule case by case — field, then local, then `ref` — ask for no further round yet. Sweep instead:
+list the axes of each rule the fixes touched, probe every combination against an oracle (a second
+path that must agree), fix the root causes, then spend one round to confirm. Hold the fixes you make
+on the host to the Builder's own rule — fix the rule, not the place — and record each with
+`forge.log.append`.
 
 ## Choosing the vendor and model
 
@@ -698,31 +887,43 @@ This happens at the end of Act 1, after the last interview question and before t
 draft — the depth rule above reads the builder's selection.
 
 Critic/Builder selection remains at most six questions total: two Vendor questions, two
-model/effort questions, and one Fast question for each role whose choice offers it. Then ask the two
-instruction questions of step 4 as one round. A single
+model/effort questions, and one Fast question for each role whose choice offers it. Ask them in two
+calls, one per role, the critic's first: each call carries that role's vendor, model-and-effort,
+Fast and instruction questions, in the order of the steps below — four questions at most. A single
 just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
 return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
-CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once.
+CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once. Build
+both calls from that one answer: it holds every available vendor's models, efforts and Fast tiers,
+which is what lets one call carry questions that would otherwise wait on each other's answers.
 
-1. Ask for the critic vendor and the builder vendor, offering only vendors the catalogue reports
-   `available: true`. Never offer a vendor with `available: false`; its `detail` names the cause —
-   a missing CLI, a sign-in — so tell the user why it is out and what would bring it back.
+The questions in a call cannot see each other's answers, so every option says what it depends on:
+a model-and-effort pair names its vendor, and the Fast question names the pairs that offer it. When
+the answers do not fit together — a pair from a vendor the user did not choose, a free-text model
+the chosen vendor's catalogue does not list, Fast for a pair that has none — ask one follow-up
+question about the part that does not fit before that role's selection is used.
+
+1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
+   vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
+   tell the user why it is out and what would bring it back.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
-     both roles will use and continue directly to step 2.
+     both roles will use, and draw step 2's pairs from it alone.
    - If you are orchestrating from inside Cursor and `cursor` is available, do not ask either
      vendor question even when other vendors are too: Cursor fronts models from several vendors
      behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
      model choice. Trust either signal alone: the `client` field `forge.begin` returned names
      cursor, or the host you are running in is Cursor. Tell the user both workers will run through
-     `cursor-agent` and continue directly to step 2 with both roles on the `cursor` vendor.
-2. Ask one question for each role, requesting its model and effort together as a valid combination
-   for that role's chosen vendor, drawn from that vendor's catalogue in the tool's order — it is
-   already newest first. Offer three concrete model-plus-effort pairs, leading with the vendor's
-   own pick where it names one (`isDefault`, `defaultEffort`), and always leave free text open.
+     `cursor-agent`, put both roles on the `cursor` vendor, and draw step 2's pairs from its
+     catalogue alone.
+2. The model-and-effort question requests a valid combination, drawn from the catalogue in the
+   tool's order — it is already newest first. Offer three concrete model-plus-effort pairs, your
+   recommendation first, among them the vendor's own pick where it names one (`isDefault`,
+   `defaultEffort`), and say which that is; always leave free text open. While the call also asks
+   for the vendor, draw the pairs from the vendors it offers, your recommended vendor's first, and
+   name each pair's vendor in its label.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
    `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
    CLI into the model it currently stands for — so name that model beside the alias, because
@@ -740,24 +941,25 @@ CLI or sign-in can re-enter the choices. Do not claim that the catalogue is call
    not list for that family, and never use the bracket-override syntax the CLI's own tip advertises
    (`model[effort=high]`): measured on 2026-08-19, cursor-agent rejects even the tip's own example.
 
-3. For each role whose chosen model lists the chosen effort under `fastEfforts` — `default` for a
-   cursor family chosen without an effort, any entry at all for claude or codex without one — with
-   `fastUnavailable` null, ask whether it should run at the vendor's Fast tier: quicker, at a higher
-   usage price. Ask both roles in one round, offer "standard speed" first, and name `fastHint`
-   beside Fast where the catalogue gives one — it is the vendor's own word on the price. Pass
-   `fast: true` to that role's tools only on a yes. A model whose `fastUnavailable` is set offers
-   Fast but this account will not serve it: do not ask, and say why when the user asks for Fast
-   anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has it
-   off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
+3. Ask the Fast question only when a pair the call offers lists its effort under `fastEfforts` —
+   `default` for a cursor family offered without an effort, any entry at all for claude or codex
+   without one — with `fastUnavailable` null: should the role run at the vendor's Fast tier,
+   quicker, at a higher usage price? Name the pairs that offer it. Offer "standard speed" first, as
+   the recommendation unless the user has asked for speed, and name `fastHint` beside Fast where
+   the catalogue gives one — it is the vendor's own word on the price. Pass `fast: true` to that
+   role's tools only on a yes for a pair that offers it. A model whose `fastUnavailable` is set
+   offers Fast but this account will not serve it: do not ask, and say why when the user asks for
+   Fast anyway (`extra_usage_disabled` means claude bills Fast as extra usage, and the account has
+   it off). The server refuses a Fast request the catalogue does not confirm, and claude refuses one
    again at the start of the worker's session; a turn claude served at standard speed for part of
    the way still counts, and its result carries `speedWarning` — tell the user.
 
-4. Ask, as one round of two questions, whether the user wants to tell either worker anything for
-   this run — one question for the critic, one for the builder, each offering "no instructions"
-   first. This is their only channel to a worker besides the plan: a language to answer in, a class
-   of finding this repository does not want raised, a skill the builder should use, a house style.
-   Pass what they answer to `forge.instructions.set` **verbatim**, and add nothing of your own. If
-   both answers are "no instructions", do not call the tool at all.
+4. The instruction question asks whether the user wants to tell that role's worker anything for
+   this run, offering "no instructions" first. This is their only channel to a worker besides the
+   plan: a language to answer in, a class of finding this repository does not want raised, a skill
+   the builder should use, a house style. Say that much before the call, and propose no wording of
+   your own. Pass what they answer to `forge.instructions.set` **verbatim**, and add nothing of your
+   own. If both roles' answers are "no instructions", do not call the tool at all.
 
    The two roles hear it differently, which is worth saying if they ask. A critic is a fresh process
    every round and is handed its text every round. A builder holds a session for one plan task or

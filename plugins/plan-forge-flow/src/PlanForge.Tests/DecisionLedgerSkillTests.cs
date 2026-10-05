@@ -299,6 +299,17 @@ public sealed class DecisionLedgerSkillTests
     }
 
     [Fact]
+    public void The_note_parameter_names_its_parts_on_both_fix_paths()
+    {
+        foreach (var method in new[] { nameof(ForgeTools.ReviewFix), nameof(ForgeTools.StartWork) })
+        {
+            var note = SchemaFor(method).GetProperty("properties").GetProperty("note").GetProperty("description").GetString()!;
+            Contains("for each rule the findings break", "its owner and its axes", "what must not change and when to stop",
+                     "says what changed since the last call", note);
+        }
+    }
+
+    [Fact]
     public void Review_code_schema_accepts_no_decisions()
     {
         Assert.False(SchemaFor(nameof(ForgeTools.ReviewCode)).GetProperty("properties").TryGetProperty("decisions", out _));
