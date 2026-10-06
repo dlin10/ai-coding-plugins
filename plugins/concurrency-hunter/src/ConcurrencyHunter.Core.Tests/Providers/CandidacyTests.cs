@@ -58,9 +58,16 @@ public sealed class CandidacyTests
     [InlineData("M:Lib.Box.set_Value(System.Object)")]
     [InlineData("M:Lib.Box.add_Changed(System.Action)")]
     [InlineData("M:Lib.Box.remove_Changed(System.Action)")]
+    // The name and rows stay as recorded in the test baseline although the rows' meaning changed: only a P: or E: id answers
+    // accessor now, and an accessor named by its M: id is generated as a method is (R6).
     public void Property_event_and_accessor_ids_are_accessor(string id)
     {
-        Assert.Equal(GenerationReasons.ACCESSOR, Synthesize(id).Reason);
+        var reason = Synthesize(id).Reason;
+
+        if (id.StartsWith("M:", StringComparison.Ordinal))
+            Assert.NotEqual(GenerationReasons.ACCESSOR, reason);
+        else
+            Assert.Equal(GenerationReasons.ACCESSOR, reason);
     }
 
     private static DriverSynthesis Synthesize(string id)

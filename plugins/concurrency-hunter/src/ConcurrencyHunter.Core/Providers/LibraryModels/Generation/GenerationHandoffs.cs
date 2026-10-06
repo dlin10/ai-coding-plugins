@@ -11,6 +11,8 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 public sealed class GenerationHandoffs
 {
     private const string UNSAFE_OBJECT_CAST = "System.Runtime.CompilerServices.Unsafe.As<T>(object)";
+    private const string LOWERING = "lowering: ";
+    private const string UNSUPPORTED = "unsupported";
 
     private readonly HeapSolution _heap;
     private readonly ExecutionAnalysis _analysis;
@@ -22,6 +24,7 @@ public sealed class GenerationHandoffs
     private readonly HashSet<string> _witnessedOutsideSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _foreignAccesses = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
+    private readonly Dictionary<string, IReadOnlyList<string>> _unseen = new(StringComparer.Ordinal);
 
     /// <summary>Builds all handoff sets once for a completed generator run.</summary>
     /// <param name="driver">The driver.</param>
@@ -101,6 +104,9 @@ public sealed class GenerationHandoffs
             _foreignAccesses.UnionWith(Close([access.RegionId]));
         }
 
+        foreach (var action in new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE })
+            _unseen[action] = UnseenIn(run, action);
+
         void AddCall((string Instance, int Operation) site, IEnumerable<string> regions)
         {
             var together = calls.TryGetValue(site, out var existing) ? existing.Concat(regions) : regions;
@@ -125,6 +131,39 @@ public sealed class GenerationHandoffs
 
     /// <summary>Regions a library body loaded or stored in an execution outside setup, the call, enumeration and escape artefact.</summary>
     public IReadOnlySet<string> ForeignAccesses => _foreignAccesses;
+
+    /// <summary>What the analysis did not see in the tree of <c>V_Call</c> or <c>V_Enum</c>, sorted: every unresolved dispatch of an
+    /// instance running there, of any call kind, delegate calls included, and every dispatch without a receiver object in a body one
+    /// runs; every reached body whose lowering was dropped, which has no
+    /// instance to place in a tree and so counts in every tree; every unsupported operation of a body an instance running there has.
+    /// Empty for any other action.</summary>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    public IReadOnlyList<string> Unseen(string action) => _unseen.GetValueOrDefault(action) ?? [];
+
+    private IReadOnlyList<string> UnseenIn(ScopeRun run, string action)
+    {
+        var instances = _heap.Instances.Values.Where(instance => ExecutionsOf(instance.Id).Any(execution => _executions.InTree(execution, action)))
+                             .ToArray();
+        var ids = instances.Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
+        var unseen = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var (instance, operation) in _heap.UnresolvedDispatches.Concat(_heap.UnresolvedCallTargets).Where(site => ids.Contains(site.Instance)))
+            unseen.Add($"unresolved dispatch: {instance}#{operation}");
+        var bodies = instances.Select(instance => instance.BodyId).ToHashSet(StringComparer.Ordinal);
+        foreach (var (body, operation) in _heap.NoReceiverObjects.Where(site => bodies.Contains(site.BodyId)))
+            unseen.Add($"no receiver object: {body}#{operation}");
+        foreach (var dropped in run.LoweringDiagnostics.Where(diagnostic => diagnostic.StartsWith(LOWERING, StringComparison.Ordinal)))
+            unseen.Add(dropped);
+        foreach (var body in bodies)
+        {
+            if (run.Reachable.Bodies.TryGetValue(body, out var ir) &&
+                ir.Blocks.SelectMany(block => block.Operations).Any(operation => operation is IrUnknownOperation { Reason: UNSUPPORTED }))
+            {
+                unseen.Add($"unsupported operation: {body}");
+            }
+        }
+
+        return unseen.ToArray();
+    }
 
     private IEnumerable<string> Receipts(string instanceId)
     {

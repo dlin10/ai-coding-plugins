@@ -11,6 +11,7 @@ public sealed class UnsafeNarrowingTests
     private static readonly ClassifiedFate InvokeNow = new(FateClassifier.INVOKE_NOW, null);
     private static readonly ClassifiedFate Iterator = new(FateClassifier.ITERATOR, null);
     private static readonly ClassifiedFate HolderThis = new(FateClassifier.HOLDER, FateClassifier.THIS);
+    private static readonly ClassifiedFate NotRun = new(FateClassifier.NOT_RUN, null);
 
     [Fact]
     public void The_gold_fate_itself_is_safe_and_exact()
@@ -70,6 +71,23 @@ public sealed class UnsafeNarrowingTests
         Assert.False(IsSafe(HolderThis, HolderResult));
         Assert.False(IsSafe(HolderResult, HolderThis));
         Assert.False(IsSafe(new ClassifiedFate(FateClassifier.HOLDER, null), HolderResult));
+    }
+
+    [Fact]
+    public void A_not_run_gold_admits_every_answer_and_is_exact_only_for_not_run()
+    {
+        foreach (var answered in new[] { InvokeNow, Iterator, HolderResult, HolderThis, Unknown, NotRun })
+        {
+            Assert.True(IsSafe(answered, NotRun), Show(answered));
+            Assert.Equal(answered == NotRun, IsExact(answered, NotRun));
+        }
+    }
+
+    [Fact]
+    public void Not_run_where_the_gold_is_any_other_fate_is_unsafe()
+    {
+        foreach (var gold in new[] { InvokeNow, Iterator, HolderResult, HolderThis, Unknown, GoldFate("di-registration", null) })
+            Assert.False(IsSafe(NotRun, gold), Show(gold));
     }
 
     [Fact]

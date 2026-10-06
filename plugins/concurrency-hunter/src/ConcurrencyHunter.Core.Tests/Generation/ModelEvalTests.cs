@@ -13,7 +13,8 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 [Collection(COLLECTION)]
 public sealed class ModelEvalTests
 {
-    private const string RECORDING_SNAPSHOT = "{\"fateGoldEntries\":3,\"effectsExact\":8,\"linqExact\":{\"System.Linq\":12,\"System.Linq.Queryable\":1}}";
+    private const string RECORDING_SNAPSHOT = "{\"exact\":11,\"fateGoldEntries\":3,\"effectsExact\":8,\"linqExact\":{\"System.Linq\":12,\"System.Linq.Queryable\":1}," +
+                                              "\"accessorsExact\":5}";
     public const string COLLECTION = "Model evals";
 
     [RequiresModelEvalsFact]
@@ -31,6 +32,7 @@ public sealed class ModelEvalTests
     {
         // A4: at least 14 of the 24 exact, or, when fewer are, no fewer than the snapshot recorded; recording sets that floor.
         var scores = Scored(InstalledRun);
+        EvalReport.Write(EvalReport.Folder, "members", Lines(InstalledRun));
         var exact = Exact(InstalledRun);
         int? recorded = Environment.GetEnvironmentVariable(RECORD_VARIABLE) == "1" ? exact
                       : File.Exists(SnapshotPath) ? RecordedExact(File.ReadAllText(SnapshotPath)) : null;
@@ -89,6 +91,90 @@ public sealed class ModelEvalTests
     [Fact]
     public void Recording_cannot_lower_the_fate_gold_entry_floor() => AssertRecordingPreservesFloor("fateGoldEntries");
 
+    [Fact]
+    public void Recording_cannot_lower_the_accessor_floor() => AssertRecordingPreservesFloor("accessorsExact");
+
+    [Fact]
+    public void Recording_cannot_lower_the_exact_floor() => AssertRecordingPreservesFloor("exact");
+
+    [Fact]
+    public void Eval_report_lists_each_answer_and_its_verdict()
+    {
+        // A fate member with an exact, a wider and an unsafe parameter; whole entries exact, unsafe and wider; accessors exact by an
+        // unclassified fate and no entry for an opaque truth, wider by a fate, unsafe by a fate, unsafe by an entry.
+        var members = new EvalRun([
+            new EvalAnswer(new GoldMember("A", "M:Lib.C.A(System.Action,System.Action)", "invoke-now", null, ["a", "b"], "Lib", "1.0"),
+                           Answer(new Dictionary<string, ClassifiedFate> { ["a"] = new("invoke-now", null) }, null), true),
+            new EvalAnswer(new GoldMember("B", "M:Lib.C.B(System.Action)", "invoke-now", null, ["c"], "Lib", "1.0"),
+                           Answer(new Dictionary<string, ClassifiedFate> { ["c"] = HolderResult }, null), true)
+        ], []);
+        var input = new EvalInput("Lib", "1.0", null, "net10.0");
+        var model = new LibraryModel("M:Lib.C.E(Lib.Item)", [new ConcurrencyHunter.Providers.SupportedAssemblyVersion("Lib", new Version(1, 0, 0, 0),
+                                                                                                                      new Version(2, 0, 0, 0))], []);
+        var effects = new WholeEntryRun([
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.E(Lib.Item)", input, EntryTruth.Opaque, "Lib"), Answer(null, null), true),
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.F(Lib.Item)", input, EntryTruth.Opaque, "Lib"), Answer(null, null, model), true),
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.G(Lib.Item)", input, EntryTruth.Entry(model), "Other"), Answer(null, null), true)
+        ], []);
+        var unknown = new Dictionary<string, ClassifiedFate> { ["value"] = Unknown };
+        var notRun = new Dictionary<string, ClassifiedFate> { ["value"] = new(FateClassifier.NOT_RUN, null) };
+        var invokeNow = new Dictionary<string, ClassifiedFate> { ["value"] = new(FateClassifier.INVOKE_NOW, null) };
+        var accessors = new WholeEntryRun([
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.add_E(System.Action)", input, EntryTruth.Opaque, "Lib", unknown), Answer(null, null), true),
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.remove_E(System.Action)", input, EntryTruth.Opaque, "Lib", notRun), Answer(unknown, null), true),
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.add_F(System.Action)", input, EntryTruth.Opaque, "Lib", unknown), Answer(invokeNow, null), true),
+            new WholeEntryAnswer(new WholeEntryGold("M:Lib.C.set_P(Lib.Item)", input, EntryTruth.Opaque, "Lib", new Dictionary<string, ClassifiedFate>()),
+                                 Answer(null, null, model), true)
+        ], []);
+        var folder = Path.Combine(Path.GetTempPath(), $"ch-report-{Guid.NewGuid():N}");
+        try
+        {
+            EvalReport.Write(null, "members", Lines(members));
+            Assert.False(Directory.Exists(folder));
+
+            EvalReport.Write(folder, "members", Lines(members));
+            EvalReport.Write(folder, "effects", WholeEntryEvals.Lines(effects));
+            EvalReport.Write(folder, "accessors", AccessorEvals.Lines(accessors));
+            EvalReport.WriteNames(folder, "entry-matrix-wider.json", ["Setter/Item/Store"]);
+            var memberLines = EvalReport.Read(Path.Combine(folder, "members.json"));
+            var effectLines = EvalReport.Read(Path.Combine(folder, "effects.json"));
+            var accessorLines = EvalReport.Read(Path.Combine(folder, "accessors.json"));
+
+            Assert.Equal([new ReportLine("M:Lib.C.A(System.Action,System.Action)", EvalReport.EXACT),
+                          new ReportLine("M:Lib.C.A(System.Action,System.Action)", EvalReport.WIDER),
+                          new ReportLine("M:Lib.C.B(System.Action)", EvalReport.UNSAFE)], memberLines);
+            Assert.Equal([new ReportLine("M:Lib.C.E(Lib.Item)", EvalReport.EXACT, "Lib"), new ReportLine("M:Lib.C.F(Lib.Item)", EvalReport.UNSAFE, "Lib"),
+                          new ReportLine("M:Lib.C.G(Lib.Item)", EvalReport.WIDER, "Other")], effectLines);
+            Assert.Equal([new ReportLine("M:Lib.C.add_E(System.Action)", EvalReport.EXACT), new ReportLine("M:Lib.C.remove_E(System.Action)", EvalReport.WIDER),
+                          new ReportLine("M:Lib.C.add_F(System.Action)", EvalReport.UNSAFE), new ReportLine("M:Lib.C.set_P(Lib.Item)", EvalReport.UNSAFE)],
+                         accessorLines);
+            Assert.Equal(["Setter/Item/Store"],
+                         System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "entry-matrix-wider.json")))!.AsArray()
+                                                        .Select(node => (string)node!));
+
+            Assert.Equal(EvalReport.Exact(memberLines), Exact(members));
+            Assert.Equal(EvalReport.Exact(effectLines), WholeEntryEvals.Exact(effects));
+            Assert.Equal(new Dictionary<string, int> { ["Lib"] = 1, ["Other"] = 0 }, WholeEntryEvals.ExactByGroup(effects));
+            Assert.Equal(EvalReport.Exact(accessorLines), AccessorEvals.Exact(accessors));
+            Assert.Equal([1, 1, 1], new[] { Exact(members), WholeEntryEvals.Exact(effects), AccessorEvals.Exact(accessors) });
+            var snapshot = System.Text.Json.Nodes.JsonNode.Parse(Snapshot(members, effects, effects, accessors))!;
+            Assert.Equal(1, (int)snapshot["exact"]!);
+            Assert.Equal(1, (int)snapshot["effectsExact"]!);
+            Assert.Equal(1, (int)snapshot["accessorsExact"]!);
+            Assert.Equal(4, snapshot["accessors"]!.AsArray().Count);
+        }
+        finally
+        {
+            if (Directory.Exists(folder))
+                Directory.Delete(folder, true);
+        }
+    }
+
+    private static GeneratedAnswer Answer(IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason, LibraryModel? model = null) =>
+        new(2, "M:Lib.C.M(System.Action)", new GenerationAssembly("Lib", "1.0", null), classified, reason, model, null,
+            new GenerationRecord(null, null, [], 0, [], new Dictionary<string, string>(), [], 0, [],
+                                 new Dictionary<string, IReadOnlyList<string>>(), 0, 0));
+
     /// <summary>Checks that recording refuses a lower floor before touching bytes, and accepts an equal or higher floor.</summary>
     /// <param name="property">The count property.</param>
     /// <param name="group">The LINQ assembly group, or null for a top-level count.</param>
@@ -122,7 +208,7 @@ public sealed class ModelEvalTests
     [RequiresModelEvalsFact]
     public void Answers_match_the_recorded_snapshot()
     {
-        var fresh = Snapshot(InstalledRun, EffectEvals.InstalledRun, LinqEvals.InstalledRun);
+        var fresh = Snapshot(InstalledRun, EffectEvals.InstalledRun, LinqEvals.InstalledRun, AccessorEvals.InstalledRun);
         if (Environment.GetEnvironmentVariable(RECORD_VARIABLE) == "1")
         {
             RecordSnapshot(SnapshotPath, fresh);

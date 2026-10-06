@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using ConcurrencyHunter.Frontend;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -11,6 +13,14 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// opening units until the opening introduces no compilation error.</summary>
 internal static class LibraryFieldOpening
 {
+    private static readonly ConditionalWeakTable<CSharpCompilation, CSharpCompilation> Baselines = new();
+
+    /// <summary>The compilation an opened copy was opened from, kept so that what a caller could call is judged as the library
+    /// declares it; a compilation that was never opened is its own.</summary>
+    /// <param name="compilation">The compilation, opened or not.</param>
+    internal static CSharpCompilation Unopened(CSharpCompilation compilation) =>
+        Baselines.TryGetValue(compilation, out var baseline) ? baseline : compilation;
+
     internal static (CSharpCompilation Compilation, IReadOnlySet<string> OpenedFields) Open(CSharpCompilation baseline,
                                                                                            CancellationToken cancellationToken)
     {
@@ -26,7 +36,10 @@ internal static class LibraryFieldOpening
                                                          !baselineErrors.Contains(ErrorOf(applied.Compilation, diagnostic, cancellationToken)))
                                     .ToArray();
             if (introduced.Length == 0)
+            {
+                Baselines.AddOrUpdate(applied.Compilation, baseline);
                 return (applied.Compilation, plan.OpenedFields(active));
+            }
 
             var reverted = new HashSet<OpeningUnit>();
             foreach (var error in introduced)
@@ -111,6 +124,22 @@ internal static class LibraryFieldOpening
                         var opened = OpenProperty(property, propertySymbol, SeedableFields.Seed(propertySymbol.Type));
                         var own = Equivalent(property, opened) ? null : AddUnit(treeIndex, property, opened, units, unitByNode);
                         AddMember([propertySymbol], property, own, type, treeIndex, model, units, unitByNode, members, cancellationToken);
+                    }
+
+                    // A field-like event's storage is a slot the driver seeds by subscribing to the event (task 10).
+                    foreach (var @event in type.Members.OfType<EventFieldDeclarationSyntax>())
+                    {
+                        var events = @event.Declaration.Variables.Select(variable => model.GetDeclaredSymbol(variable, cancellationToken))
+                                           .OfType<IEventSymbol>().ToArray();
+                        if (events.Length != @event.Declaration.Variables.Count ||
+                            !events.All(symbol => FieldLikeEvents.Is(symbol) && SeedableFields.Seed(symbol.Type)))
+                        {
+                            continue;
+                        }
+
+                        var opened = @event.WithModifiers(OpenMemberModifiers(@event.Modifiers, events[0].DeclaredAccessibility));
+                        var own = Equivalent(@event, opened) ? null : AddUnit(treeIndex, @event, opened, units, unitByNode);
+                        AddMember(events, @event, own, type, treeIndex, model, units, unitByNode, members, cancellationToken);
                     }
                 }
             }
@@ -215,6 +244,8 @@ internal static class LibraryFieldOpening
         public override SyntaxNode? VisitFieldDeclaration(FieldDeclarationSyntax node) => Open(node, base.VisitFieldDeclaration(node));
 
         public override SyntaxNode? VisitPropertyDeclaration(PropertyDeclarationSyntax node) => Open(node, base.VisitPropertyDeclaration(node));
+
+        public override SyntaxNode? VisitEventFieldDeclaration(EventFieldDeclarationSyntax node) => Open(node, base.VisitEventFieldDeclaration(node));
 
         public override SyntaxNode? VisitClassDeclaration(ClassDeclarationSyntax node) => Open(node, base.VisitClassDeclaration(node));
 

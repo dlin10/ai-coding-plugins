@@ -222,6 +222,7 @@ public static class InjectionBindings
 
         /// <summary>The types of the chain from the bound type up to, not including, <paramref name="declaringType"/>: a member
         /// they inherit is written or passed by reference there as much as in its declaring type.</summary>
+        /// <param name="declaringType">The type declaring the member.</param>
         private IEnumerable<INamedTypeSymbol> DerivedTypes(INamedTypeSymbol declaringType)
         {
             for (var current = type.OriginalDefinition;
@@ -331,7 +332,8 @@ public static class InjectionBindings
 
         private static IEnumerable<EqualsValueClauseSyntax> Initializers(MemberDeclarationSyntax member) => member switch
         {
-            FieldDeclarationSyntax field => field.Declaration.Variables.Select(variable => variable.Initializer).OfType<EqualsValueClauseSyntax>(),
+            // A field's or a field-like event's: both are a field the constructor initializes.
+            BaseFieldDeclarationSyntax field => field.Declaration.Variables.Select(variable => variable.Initializer).OfType<EqualsValueClauseSyntax>(),
             PropertyDeclarationSyntax { Initializer: not null } property => [property.Initializer],
             _ => []
         };

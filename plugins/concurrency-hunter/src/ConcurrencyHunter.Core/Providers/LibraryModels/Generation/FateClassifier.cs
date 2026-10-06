@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis;
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
 /// <summary>The fate the generator classified for one parameter.</summary>
-/// <param name="Fate"><c>invoke-now</c>, <c>iterator</c>, <c>holder</c> or <c>unknown-execution</c>.</param>
+/// <param name="Fate"><c>invoke-now</c>, <c>iterator</c>, <c>holder</c>, <c>not-run</c> or <c>unknown-execution</c>.</param>
 /// <param name="Holder">For <c>holder</c>, <c>result</c> or <c>this</c>; else <c>null</c>.</param>
 public sealed record ClassifiedFate(string Fate, string? Holder);
 
@@ -29,6 +29,7 @@ public static class FateClassifier
     public const string ITERATOR = "iterator";
     public const string HOLDER = "holder";
     public const string UNKNOWN_EXECUTION = "unknown-execution";
+    public const string NOT_RUN = "not-run";
     public const string RESULT = "result";
     public const string THIS = "this";
 
@@ -92,10 +93,11 @@ public static class FateClassifier
 
     /// <summary>The fates after a holder's confirmation run (A5): a <c>holder</c> stands only when the driver's triggers cover that
     /// holder — every member a caller could invoke on its static type has a trigger (<see cref="Driver.Covers"/>) — and the run that
-    /// roots the triggers beside the three actions stayed under the bound, finished, and every firing of a probe any trigger hands
-    /// over for that parameter is in the root execution of a driver action other than setup (A3 applies); otherwise the parameter is
+    /// roots the triggers beside the three actions stayed under the bound, finished, every firing of a probe any trigger hands over
+    /// for that parameter is in the root execution of a driver action other than setup (A3 applies), and at least one trigger ran the
+    /// probe it hands over in its own root execution (<see cref="TriggersThatRan"/>, R7); otherwise the parameter is
     /// <c>unknown-execution</c>. A member no trigger calls, a trigger that runs the delegate in a <c>Task.Run</c>, a timer or an
-    /// unknown execution, and a holder with no trigger at all each fail it.</summary>
+    /// unknown execution, a holder with no trigger at all, and an object that only stores the delegate for other code each fail it.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="classified">The fates of the fate run.</param>
     /// <param name="confirmation">The confirmation run, or <c>null</c> when it threw or did not run.</param>
@@ -109,7 +111,8 @@ public static class FateClassifier
             fired is not null && driver.Covers(holder) &&
             parameter.Probes.Where(probe => triggers.Contains(probe.Variant))
                      .SelectMany(probe => fired.GetValueOrDefault(probe.FiredField) ?? [])
-                     .All(executions!.IsOwnOfAnAction);
+                     .All(executions!.IsOwnOfAnAction) &&
+            TriggersThatRan(driver, parameter, fired).Count != 0;
 
         var confirmed = new SortedDictionary<string, ClassifiedFate>(StringComparer.Ordinal);
         foreach (var (name, fate) in classified)
@@ -120,6 +123,22 @@ public static class FateClassifier
         }
 
         return confirmed;
+    }
+
+    /// <summary>The trigger actions that ran the probe they hand over for a parameter in their own root execution in a holder's
+    /// confirmation run: the one answer to which triggers ran a held delegate, for <see cref="Confirmed"/> and the holder's inputs.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="parameter">The parameter.</param>
+    /// <param name="confirmation">The confirmation run, not stopped.</param>
+    public static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, ScopeRun confirmation) =>
+        TriggersThatRan(driver, parameter, FiredByField(confirmation));
+
+    private static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, Dictionary<string, HashSet<string>> fired)
+    {
+        var triggers = driver.Triggers.Select(trigger => trigger.Action).ToHashSet(StringComparer.Ordinal);
+        return parameter.Probes.Where(probe => triggers.Contains(probe.Variant) &&
+                                               (fired.GetValueOrDefault(probe.FiredField) ?? []).Any(execution => DriverExecutions.IsOwn(execution, probe.Variant)))
+                        .Select(probe => probe.Variant).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>By driver field, the executions a store into it ran in: where each probe, through its fired field, ran.</summary>
@@ -166,6 +185,7 @@ public static class FateClassifier
         private readonly bool _resultHanded;
         private readonly bool _resultUnknown;
         private readonly bool _enumerationLost;
+        private readonly bool _callUnseen;
 
         public Run(Driver driver, ScopeRun run)
         {
@@ -185,6 +205,7 @@ public static class FateClassifier
                                 .Concat(handoffs.WitnessedInSetup).Concat(handoffs.WitnessedOutsideSetup)
                                 .ToHashSet(StringComparer.Ordinal);
             _handedBySetup = handoffs.HandedInSetup.Concat(handoffs.WitnessedInSetup).ToHashSet(StringComparer.Ordinal);
+            _callUnseen = handoffs.Unseen(DriverSynthesizer.CALL).Count != 0;
 
             // What an execution other than setup writes, and where each probe fired.
             foreach (var access in run.Executions!.Accesses.Where(access => !_executions.InSetup(access.ExecutionId)))
@@ -240,7 +261,9 @@ public static class FateClassifier
         /// <summary>The first fate of G-5 that applies to one probe of <c>V_Call</c>, with its counterpart of <c>V_Enum</c>. Each fate
         /// runs the delegate in the execution of the action that called the member; a counterpart the engine saw run anywhere else ran in
         /// a way no fate covers. A result the heap cannot say keeps everything, and a sequence V_Enum could not enumerate shows neither
-        /// how it runs the delegate nor that it only holds it.</summary>
+        /// how it runs the delegate nor that it only holds it. When no fate applies, a probe the call carried into the member that
+        /// fired nowhere, is not kept, was handed to nothing the analysis cannot follow, and whose call reached no unseen code is
+        /// <c>not-run</c> (R7); any other is <c>unknown-execution</c>.</summary>
         /// <param name="parameter">The parameter.</param>
         /// <param name="probe">The probe of <c>V_Call</c>.</param>
         private ClassifiedFate FateOf(DriverParameter parameter, DriverProbe probe)
@@ -274,7 +297,48 @@ public static class FateClassifier
                     return new ClassifiedFate(HOLDER, THIS);
             }
 
-            return new ClassifiedFate(UNKNOWN_EXECUTION, null);
+            // R7: a delegate the call was handed, that fired nowhere, is not kept, was handed to nothing the analysis cannot follow, and
+            // whose call reached no code the analysis did not see, is not run.
+            var quiet = !kept && !_callUnseen && !FiredAnywhere(probe) && (counterpart is null || !FiredAnywhere(counterpart));
+            return quiet && Carried(parameter, probe) ? new ClassifiedFate(NOT_RUN, null) : new ClassifiedFate(UNKNOWN_EXECUTION, null);
+        }
+
+        /// <summary>Whether a probe fired in any execution at all, setup's and the escape artefact's included.</summary>
+        /// <param name="probe">The probe.</param>
+        private bool FiredAnywhere(DriverProbe probe) => _fired.GetValueOrDefault(probe.FiredField) is { Count: > 0 };
+
+        /// <summary>Whether the call edge of <c>V_Call</c> carries the probe into the member: on an edge from <c>V_Call</c>'s body to
+        /// the member's, the member's parameter, or the argument bound to it, may point to the probe or to an object it is reachable
+        /// from — the carrying argument of a carried probe. A delegate the engine cannot name, such as an <c>in</c> temporary, is never
+        /// carried.</summary>
+        /// <param name="parameter">The parameter.</param>
+        /// <param name="probe">The probe of <c>V_Call</c>.</param>
+        private bool Carried(DriverParameter parameter, DriverProbe probe)
+        {
+            var targets = Regions(probe);
+            var call = $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{DriverSynthesizer.CALL}";
+            var member = IrLowering.RootBodyId(_driver.Member);
+            foreach (var edge in _heap.Edges)
+            {
+                if (!_heap.Instances.TryGetValue(edge.CallerInstance, out var caller) || caller.BodyId != call ||
+                    !_heap.Instances.TryGetValue(edge.CalleeInstance, out var callee) || callee.BodyId != member)
+                {
+                    continue;
+                }
+
+                var arguments = caller.Summary.Calls.Where(transfer => transfer.OperationId == edge.OperationId).SelectMany(transfer => transfer.Arguments)
+                                      .Where(argument => argument.ParameterOrdinal == parameter.Ordinal).ToArray();
+                var values = (callee.Parameters.GetValueOrDefault(parameter.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal))
+                             .Concat(arguments.SelectMany(argument => argument.Values).SelectMany(value => _heap.Resolve(caller.Id, value)))
+                             .Concat(arguments.SelectMany(argument => argument.References).OfType<ReferenceCell>().Where(cell => cell.Field.IsStatic)
+                                              .Select(cell => _reach.StaticField(HeapReachability.Slot(cell.Field.Assembly, cell.Field.ContainingTypeId,
+                                                                                                       cell.Field.Name)))
+                                              .OfType<PathStart>().SelectMany(_reach.Targets));
+                if (_reach.From(values).Overlaps(targets))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>Whether a counted path reaches the probe, avoiding <paramref name="avoid"/> when it is set: one from any path start

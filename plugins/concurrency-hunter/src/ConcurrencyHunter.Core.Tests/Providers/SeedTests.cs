@@ -471,14 +471,21 @@ public sealed class SeedTests
     }
 
     [Fact]
-    public void Every_seed_statement_carries_its_field_path_and_assignment()
+    public void Every_seed_statement_carries_its_field_path_and_operation()
     {
-        Assert.All(Use().SeedStatements, seed =>
+        var library = Compile("namespace Lib { public sealed class Holder { public object Value; public event System.Action Changed; } " +
+                              "public static class Api { public static void Run(Holder holder) { } } }");
+        var seeds = Use().SeedStatements.Concat(Drive("M:Lib.Api.Run(Lib.Holder)", library).SeedStatements).ToArray();
+
+        Assert.All(seeds, seed =>
         {
             Assert.True(seed.Path.StartsWith("arg:", StringComparison.Ordinal) || seed.Path.StartsWith("this", StringComparison.Ordinal) ||
                         seed.Path.StartsWith("static", StringComparison.Ordinal), seed.Path);
-            Assert.IsAssignableFrom<ISimpleAssignmentOperation>(seed.Operation);
+            Assert.True(seed.Path.Contains("/E:", StringComparison.Ordinal)
+                            ? seed.Operation is IEventAssignmentOperation { Adds: true }
+                            : seed.Operation is ISimpleAssignmentOperation, seed.Path);
         });
+        Assert.Contains(seeds, seed => seed.Operation is IEventAssignmentOperation);
     }
 
     [Fact]

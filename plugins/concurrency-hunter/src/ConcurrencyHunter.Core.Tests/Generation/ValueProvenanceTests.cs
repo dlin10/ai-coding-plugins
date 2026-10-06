@@ -722,10 +722,12 @@ public sealed class ValueProvenanceTests
         var trace = Trace("public sealed class Result { private readonly Action _done; public Result(Action done) { _done = done; } public void Fire() { _done(); } } " +
                           "public static class Api { public static async Task<Result> Make(Action done) { await Task.Yield(); return new Result(done); } }",
                           "M:Lib.Api.Make(System.Action)");
-        var values = Read(trace);
+        // The fate run finds the holder; R7 drops it after the confirmation run, whose trigger's Fire on the awaited object runs no body.
+        var classified = FateClassifier.Classify(trace.Driver!, trace.Run!).Classified;
+        var values = new ValueProvenance(trace.Driver!, trace.Run!, classified, trace.Confirmation);
 
-        Assert.Equal(FateClassifier.HOLDER, trace.Answer.Classified!["done"].Fate);
-        Assert.Equal(FateClassifier.RESULT, trace.Answer.Classified!["done"].Holder);
+        Assert.Equal(new ClassifiedFate(FateClassifier.HOLDER, FateClassifier.RESULT), classified["done"]);
+        Assert.Equal(FateClassifier.UNKNOWN_EXECUTION, trace.Answer.Classified!["done"].Fate);
         Assert.Equal(GenerationReasons.VOCABULARY, values.Reason);
     }
 

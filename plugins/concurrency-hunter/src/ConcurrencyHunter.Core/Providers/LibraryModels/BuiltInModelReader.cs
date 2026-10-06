@@ -95,9 +95,9 @@ internal static class BuiltInModelReader
     internal static DeclarationId? MemberId(string id) =>
         DeclarationId.Parse(id) is { IsMember: true, Member: { } member } parsed && FollowsMemberRules(member) ? parsed : null;
 
-    /// <summary>No setter, and a conversion operator only with its return type.</summary>
+    /// <summary>A conversion operator only with its return type; every accessor is named by its <c>M:</c> id like a method.</summary>
+    /// <param name="member">The parsed member of the id.</param>
     internal static bool FollowsMemberRules(IdMember member) =>
-        !member.Name.StartsWith("set_", StringComparison.Ordinal) &&
         !(member.Name is "op_Implicit" or "op_Explicit" && member.Arity == 0 && member.ReturnType is null);
 
     private static (Version Minimum, Version Maximum) Version(ModelVersionRange range)

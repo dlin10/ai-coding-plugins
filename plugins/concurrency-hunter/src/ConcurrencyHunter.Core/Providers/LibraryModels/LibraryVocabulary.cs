@@ -5,8 +5,9 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ConcurrencyHunter.Providers.LibraryModels;
 
 /// <summary>Where a delegate a known call receives runs (ADR 0012): at the call, where the library sequence it makes is enumerated,
-/// where a member of its holder is called, in startup, or in an unknown execution.</summary>
-public enum LibraryFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution }
+/// where a member of its holder is called, in startup, in an unknown execution, or nowhere: the call neither runs nor keeps it
+/// (ADR 0015).</summary>
+public enum LibraryFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution, NotRun }
 
 /// <summary>The object that keeps a <see cref="LibraryFateKind.Holder"/> delegate: what the call returns, or its receiver.</summary>
 public enum LibraryHolderKind { Result, This }
@@ -27,6 +28,7 @@ public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, Library
         LibraryFateKind.Holder => "holder",
         LibraryFateKind.Startup => "startup",
         LibraryFateKind.UnknownExecution => "unknown-execution",
+        LibraryFateKind.NotRun => "not-run",
         _ => throw new UnreachableException($"Unknown fate kind {kind}.")
     };
 }
@@ -193,6 +195,7 @@ internal static class LibraryVocabulary
                 "holder" => LibraryFateKind.Holder,
                 "startup" => LibraryFateKind.Startup,
                 "unknown-execution" => LibraryFateKind.UnknownExecution,
+                "not-run" => LibraryFateKind.NotRun,
                 "di-factory" => throw new FormatException($"fate of '{fate.Parameter}': di-factory is not supported before phase 5d, which brings the generator."),
                 null => throw new FormatException($"fate of '{fate.Parameter}' needs a fate."),
                 _ => throw new FormatException($"fate of '{fate.Parameter}': unknown fate '{fate.Fate}'.")
@@ -206,6 +209,8 @@ internal static class LibraryVocabulary
                 (_, null) => null,
                 _ => throw new FormatException($"fate of '{fate.Parameter}': holder goes only with the holder fate.")
             };
+            if (kind == LibraryFateKind.NotRun && fate.Inputs is not null)
+                throw new FormatException($"fate of '{fate.Parameter}': not-run carries no inputs.");
             var inputs = fate.Inputs?.Select(input => (IReadOnlyList<LibraryValue>)input.Select(text =>
                              LibraryValue.Parse(text) ?? throw new FormatException($"fate of '{fate.Parameter}': input '{text}' does not parse."))
                          .ToArray()).ToArray();
@@ -306,7 +311,7 @@ internal static class LibraryVocabulary
                     LibraryFateKind.InvokeNow => true,
                     LibraryFateKind.Iterator => result?.Kind == LibraryResultKind.Sequence ||
                                                 into is { Kind: LibraryFateKind.Iterator } && into.Parameter != source.Parameter,
-                    LibraryFateKind.Holder or LibraryFateKind.Startup or LibraryFateKind.UnknownExecution => false,
+                    LibraryFateKind.Holder or LibraryFateKind.Startup or LibraryFateKind.UnknownExecution or LibraryFateKind.NotRun => false,
                     _ => throw new UnreachableException($"Unknown fate kind {source.Kind}.")
                 };
                 if (!available)

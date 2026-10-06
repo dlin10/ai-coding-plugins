@@ -204,13 +204,15 @@ public sealed class OpenedFieldsTests
     }
 
     [Fact]
-    public void A_field_like_event_is_untouched()
+    public void A_field_like_event_is_opened()
     {
         var result = CompileSource("public sealed class Holder { private event System.Action Changed; }");
 
         var @event = result.Compilation!.GetTypeByMetadataName("Holder")!.GetMembers("Changed").OfType<IEventSymbol>().Single();
-        Assert.Equal(Accessibility.Private, @event.DeclaredAccessibility);
-        Assert.Empty(result.OpenedFields);
+        Assert.Equal(Accessibility.Internal, @event.DeclaredAccessibility);
+        Assert.Contains("E:Holder.Changed", result.OpenedFields);
+        AssertNoErrors(result);
+        AssertDriverCompiles(result, "public static class Driver { public static void Seed(Holder h, System.Action value) { h.Changed += value; } }");
     }
 
     [Fact]

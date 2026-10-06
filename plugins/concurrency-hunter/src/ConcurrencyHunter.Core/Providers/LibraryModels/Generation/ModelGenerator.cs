@@ -69,6 +69,9 @@ internal sealed record GenerationTrace(GeneratedAnswer Answer, Driver? Driver, S
 {
     /// <summary>A holder's confirmation run (A5), when one ran and did not throw; it may be stopped.</summary>
     public ScopeRun? Confirmation { get; init; }
+
+    /// <summary>The stores into library state the effect reading recorded, when the generation read effects; empty otherwise.</summary>
+    public IReadOnlyList<StateStore> StateStores { get; init; } = [];
 }
 
 /// <summary>The <b>Model generator</b> of SPEC TD-034b: finds a member's implementation assembly, decompiles and compiles it,
@@ -83,8 +86,9 @@ public static class ModelGenerator
     /// <summary>Whether a text is a declaration id the generator can be asked for: one the reader's grammar accepts (question 44),
     /// never the member pattern <c>(*)</c>. The grammar knows only <c>T:</c> and <c>M:</c>; a property's, an event's or a field's id
     /// is read as a member's and a namespace's as a type's, so those kinds reach the generator rather than a usage error: a
-    /// <c>P:</c> or <c>E:</c> id, like an accessor method's, is refused with <c>accessor</c> (G-6: after <c>member-not-found</c>,
-    /// before <c>engine-recognized</c>) and an <c>F:</c> id with <c>driver-not-synthesized</c>.</summary>
+    /// <c>P:</c> or <c>E:</c> id is refused with <c>accessor</c> (G-6: after <c>member-not-found</c>, before
+    /// <c>engine-recognized</c>), its detail naming the <c>M:</c> ids of the accessors, which are generated as methods are; an
+    /// <c>F:</c> id is refused with <c>driver-not-synthesized</c>.</summary>
     /// <param name="id">The text.</param>
     public static bool IsMemberId(string? id)
     {
@@ -145,7 +149,7 @@ public static class ModelGenerator
         if (DriverSynthesizer.FindMember(compilation, facts.Request.MemberId) is not { } member)
             return facts.Refused(GenerationReasons.MEMBER_NOT_FOUND, $"{compilation.AssemblyName} declares no {facts.Request.MemberId}");
         if (DriverSynthesizer.IsAccessor(member))
-            return facts.Refused(GenerationReasons.ACCESSOR, $"{facts.Request.MemberId} is a property, event or accessor");
+            return facts.Refused(GenerationReasons.ACCESSOR, DriverSynthesizer.AccessorDetail(member));
         if (EngineClaims.FirstIn(compilation.Assembly) is { } claim)
             return facts.Refused(GenerationReasons.ENGINE_RECOGNIZED, $"{claim.Method} is claimed by the {claim.Recognizer} recognizer");
 
@@ -164,11 +168,15 @@ public static class ModelGenerator
                               models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, cancellationToken);
 
         ScopeRun run;
+        // The lowering cache is shared by the runs, so a dropped body is reported only by the run that first lowered it.
+        var dropped = new SortedSet<string>(StringComparer.Ordinal);
         try
         {
             while (true)
             {
                 run = Pipeline(triggers: false);
+                dropped.UnionWith(run.LoweringDiagnostics);
+                run = run with { LoweringDiagnostics = dropped.ToArray() };
                 var previousCount = loadedStatics.Count;
                 loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
                     field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
@@ -197,8 +205,8 @@ public static class ModelGenerator
         }
 
         var body = IrLowering.RootBodyId(driver.Member);
-        if (run.LoweringDiagnostics.FirstOrDefault(diagnostic => diagnostic.StartsWith($"lowering: {body}:", StringComparison.Ordinal)) is { } dropped)
-            return facts.Refused(GenerationReasons.ANALYSIS_FAILED, dropped, driver, run);
+        if (run.LoweringDiagnostics.FirstOrDefault(diagnostic => diagnostic.StartsWith($"lowering: {body}:", StringComparison.Ordinal)) is { } own)
+            return facts.Refused(GenerationReasons.ANALYSIS_FAILED, own, driver, run);
 
         FateClassification classification;
         try
@@ -234,7 +242,7 @@ public static class ModelGenerator
             classified = FateClassifier.Confirmed(driver, classified, confirmation);
         }
 
-        var effects = new EffectReader(driver, run);
+        var effects = new EffectReader(driver, run, classified);
         var values = new ValueProvenance(driver, run, classified, confirmation);
         facts.Unseeded = driver.Unseeded.Concat(effects.UnreachedSeeds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         facts.HolderTriggers = values.HolderTriggers;
@@ -261,7 +269,11 @@ public static class ModelGenerator
             }
         }
 
-        return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason), driver, run) { Confirmation = confirmation };
+        return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason), driver, run)
+        {
+            Confirmation = confirmation,
+            StateStores = effects.StateStores
+        };
     }
 
     private static LibraryModel? BuildModel(IMethodSymbol member, IReadOnlyDictionary<string, ClassifiedFate> classified, EffectReader reader,
@@ -276,8 +288,17 @@ public static class ModelGenerator
         {
             foreach (var effect in observed)
             {
+                // TD-034a lets `this` carry only writes-cells. A read of the receiver that reaches a seed — a user object a program
+                // stored there — is a real effect the vocabulary cannot name; every other receiver effect is the library's own state.
                 if (parameter == FateClassifier.THIS && effect.Kind != EffectReader.WRITES_CELLS)
+                {
+                    if (effect.ReadsSeed)
+                    {
+                        reason = ModelReasons.VOCABULARY;
+                        return null;
+                    }
                     continue;
+                }
                 if (effect.Kind == EffectReader.READS_DEEP && EnumerationReadIsNamed(parameter, effect, fates, values))
                     continue;
                 if (effect.Roots.Contains(DriverSynthesizer.ENUMERATE, StringComparer.Ordinal) &&
@@ -318,6 +339,7 @@ public static class ModelGenerator
             FateClassifier.ITERATOR => LibraryFateKind.Iterator,
             FateClassifier.HOLDER => LibraryFateKind.Holder,
             FateClassifier.UNKNOWN_EXECUTION => LibraryFateKind.UnknownExecution,
+            FateClassifier.NOT_RUN => LibraryFateKind.NotRun,
             _ => throw new UnreachableException($"Unknown classified fate {classified.Fate}.")
         }, classified.Holder switch
         {

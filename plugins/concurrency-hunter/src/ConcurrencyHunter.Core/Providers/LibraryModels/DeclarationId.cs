@@ -2,11 +2,13 @@ namespace ConcurrencyHunter.Providers.LibraryModels;
 
 /// <summary>A declaration id in the form <c>DocumentationCommentId.CreateDeclarationId</c> writes it (ECMA-334 D.4.2): a type id
 /// <c>T:</c>, a member id <c>M:</c>, or the member pattern <c>M:Namespace.Type.Name(*)</c>. <see cref="Parse"/> refuses text that
-/// breaks the grammar anywhere, and a parsed id renders back to its text. The member rules on top of the grammar (no setter,
-/// conversion operators with their return type, the pattern form) are the readers'.</summary>
+/// breaks the grammar anywhere, and a parsed id renders back to its text. The member rules on top of the grammar
+/// (conversion operators with their return type, the pattern form) are the readers'.</summary>
 /// <remarks>A name is a C# identifier, <c>#ctor</c> or <c>#cctor</c>, or one of the metadata names that call writes as they are:
 /// an explicit implementation's (<c>System#IDisposable#Dispose</c>, the interface's dots written <c>#</c>), a compiler-generated
 /// name (it starts with <c>&lt;</c>), and any name nested in a compiler-generated type. Angle brackets balance in each.</remarks>
+/// <param name="Type">The dotted names of the type, namespace first: the type a type id names, or a member id's containing type.</param>
+/// <param name="Member">The member, or <c>null</c> for a type id.</param>
 internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Member)
 {
     internal bool IsType => Member is null;

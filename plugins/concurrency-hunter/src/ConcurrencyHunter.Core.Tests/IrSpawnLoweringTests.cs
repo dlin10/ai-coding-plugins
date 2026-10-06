@@ -496,11 +496,11 @@ public sealed class IrSpawnLoweringTests
     {
         Expect(
             [
-                "7 timer ElapsedSubscribe %2 callback=%8 state=- due=- period=- wait-handle=- result=- flag=-",
-                "9 timer SetAutoReset %2 callback=- state=- due=- period=- wait-handle=- result=- flag=True",
-                "11 timer SetEnabled %2 callback=- state=- due=- period=- wait-handle=- result=- flag=Unknown",
-                "13 timer Start %2 callback=- state=- due=- period=- wait-handle=- result=- flag=-",
-                "15 timer Stop %2 callback=- state=- due=- period=- wait-handle=- result=- flag=-"
+                "5 timer ElapsedSubscribe %2 callback=%7 state=- due=- period=- wait-handle=- result=- flag=-",
+                "7 timer SetAutoReset %2 callback=- state=- due=- period=- wait-handle=- result=- flag=True",
+                "9 timer SetEnabled %2 callback=- state=- due=- period=- wait-handle=- result=- flag=Unknown",
+                "11 timer Start %2 callback=- state=- due=- period=- wait-handle=- result=- flag=-",
+                "13 timer Stop %2 callback=- state=- due=- period=- wait-handle=- result=- flag=-"
             ],
             await Bcl("""
             void M(bool flag)

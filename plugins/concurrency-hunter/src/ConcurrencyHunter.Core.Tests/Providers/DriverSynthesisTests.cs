@@ -121,6 +121,7 @@ public sealed class DriverSynthesisTests
         Assert.Null(synthesis.Driver);
         Assert.Equal(GenerationReasons.ACCESSOR, synthesis.Reason);
         Assert.Contains("P:Lib.ISink.Count", synthesis.Detail);
+        Assert.Contains("M:Lib.ISink.get_Count", synthesis.Detail);
     }
 
     [Fact]
@@ -130,12 +131,17 @@ public sealed class DriverSynthesisTests
 
         Assert.Equal(GenerationReasons.ACCESSOR, synthesis.Reason);
         Assert.Contains("E:Lib.ISink.Changed", synthesis.Detail);
+        Assert.Contains("M:Lib.ISink.add_Changed(System.EventHandler)", synthesis.Detail);
+        Assert.Contains("M:Lib.ISink.remove_Changed(System.EventHandler)", synthesis.Detail);
     }
 
     [Fact]
-    public void An_accessor_named_by_a_method_id_is_accessor()
+    public void An_accessor_named_by_a_method_id_is_synthesized()
     {
-        Assert.Equal(GenerationReasons.ACCESSOR, Synthesize("M:Lib.Renderer.get_Width").Reason);
+        var synthesis = Synthesize("M:Lib.Renderer.get_Width");
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        Assert.Contains("var r = Recv_Call.Width;", synthesis.Driver.Source);
     }
 
     [Fact]

@@ -1,0 +1,326 @@
+[
+ {
+  "n": 1,
+  "id": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "holder",
+    "holder": "this"
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "holder",
+     "holder": "this"
+    }
+   }
+  },
+  "evidence": "Decompiled Microsoft.NETCore.App 10.0.12 System.ObjectModel.dll with ICSharpCode.Decompiler (AutomaticEvents=false). `public virtual event NotifyCollectionChangedEventHandler? CollectionChanged` is compiler-generated: add = `Delegate.Combine(old, value)` stored with an `Interlocked.CompareExchange` retry loop on the backing field. The only invoker in the type is `protected virtual OnCollectionChanged(NotifyCollectionChangedEventArgs)`, which reads the field and calls `handler(this, e)` synchronously inside `_blockReentrancyCount++ / --`. Doc id confirmed with ICSharpCode IdStringProvider.",
+  "path": "Caller thread, synchronously, inside a member of the same collection: Collection<T>.Add/Insert/Remove/RemoveAt/Clear/this[]set (CoreLib, Collection.cs: they call the virtual InsertItem/RemoveItem/ClearItems/SetItem) -> ObservableCollection<T>.InsertItem/RemoveItem/ClearItems/SetItem, or Move -> MoveItem -> private OnCollectionChanged(action, ...) / OnCollectionReset -> protected virtual OnCollectionChanged(e) -> handler(this, e). No thread-pool, SynchronizationContext or static-registry path in the type.",
+  "notes": "reads-deep on value only because Delegate.Combine -> MulticastDelegate.CombineImpl reads the argument delegate's _invocationList/_invocationCount (CoreLib, decompiled); no user code runs and those fields are immutable after construction, so an empty effect list would be equally sound. The event and OnCollectionChanged are virtual: a subclass can override them (e.g. marshal to a dispatcher) - this label describes the ObservableCollection<T> implementation itself. Collection<T> members are inherited members of the holder, so the holder `this` fate holds."
+ },
+ {
+  "n": 2,
+  "id": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "not-run",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {},
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "not-run",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Same decompilation as #1: compiler-generated remove = `Delegate.Remove(old, value)` stored with an `Interlocked.CompareExchange` retry loop on the backing field. Delegate.Remove (CoreLib) returns source when value is null, otherwise checks InternalEqualTypes and calls MulticastDelegate.RemoveImpl(value); it never invokes value and the result never contains value.",
+  "path": "value is never run by this call; it is only compared against the stored invocation list and dropped.",
+  "notes": "Not labelled opaque: the only state change is removing a previously kept handler from the same backing field (the inverse of the add's keep, done atomically via CompareExchange); no mode/flag/other state changes. reads-deep for the same reason as #1 (RemoveImpl reads the argument delegate's invocation list/target; runtime equality, no user code); [] would be equally sound."
+ },
+ {
+  "n": 3,
+  "id": "M:System.IO.FileSystemWatcher.add_Changed(System.IO.FileSystemEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "unknown-execution",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Decompiled System.IO.FileSystem.Watcher.dll 10.0.12 (Windows build: contains Interop.Kernel32.ReadDirectoryChangesW). Custom accessor: `add { _onChangedHandler = (FileSystemEventHandler)Delegate.Combine(_onChangedHandler, value); }` on a plain (non-volatile) field `private FileSystemEventHandler _onChangedHandler;` - no CompareExchange loop, no lock. Invokers: NotifyFileSystemEventArgs -> GetHandler(Changed) -> InvokeOn, and protected OnChanged -> InvokeOn; InvokeOn does `SynchronizingObject.BeginInvoke(handler, ...)` when InvokeRequired, else `handler(this, e)`.",
+  "path": "EnableRaisingEvents=true / EndInit -> StartRaisingEvents: ThreadPoolBoundHandle.BindHandle(dir handle) + PreAllocatedOverlapped(IOCompletionCallback) -> Monitor -> ReadDirectoryChangesW (overlapped). On completion a thread-pool I/O completion thread runs the IOCompletionCallback lambda -> ReadDirectoryChangesCallback -> ParseEventBufferAndNotifyForEach -> NotifyFileSystemEventArgs(WatcherChangeTypes.Changed, name) -> InvokeOn -> handler(this, e) on that IOCP thread, or ISynchronizeInvoke.BeginInvoke (e.g. UI thread) when SynchronizingObject is set. Only the protected OnChanged path is synchronous in a member call.",
+  "notes": "Not a field-like event: read-Combine-write is non-atomic, so concurrent add/remove calls can lose a handler (a race inside the library object). The keep is still just the handed handler, so not opaque. reads-deep on value only via Delegate.Combine reading the argument delegate's immutable invocation list (see #1)."
+ },
+ {
+  "n": 4,
+  "id": "M:System.IO.FileSystemWatcher.remove_Changed(System.IO.FileSystemEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "not-run",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {},
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "not-run",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Same decompilation as #3: `remove { _onChangedHandler = (FileSystemEventHandler)Delegate.Remove(_onChangedHandler, value); }` - plain read/Remove/write of the non-volatile field.",
+  "path": "value is never run by this call; it is only compared against the stored invocation list and dropped.",
+  "notes": "Not opaque for the same reason as #2 (only removes a previously kept handler from the same field). Unlike #2 the write is non-atomic (no CompareExchange), so it can race with a concurrent add/remove and with the IOCP thread reading _onChangedHandler in GetHandler; that race is on the backing field, not on the argument. reads-deep via Delegate.Remove as in #2."
+ },
+ {
+  "n": 5,
+  "id": "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "unknown-execution",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Decompiled System.ComponentModel.EventBasedAsync.dll 10.0.12 (AutomaticEvents=false): `public event DoWorkEventHandler? DoWork` is compiler-generated (field m_DoWork), add = Delegate.Combine + Interlocked.CompareExchange loop. Invoker: `protected virtual void OnDoWork(DoWorkEventArgs e) { m_DoWork?.Invoke(this, e); }`, called only from private WorkerThreadStart.",
+  "path": "RunWorkerAsync(argument) -> `Task.Factory.StartNew(WorkerThreadStart, argument, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default)` -> thread-pool worker runs WorkerThreadStart -> OnDoWork(e) -> m_DoWork(this, e). The handler runs on a thread-pool thread, after RunWorkerAsync has returned.",
+  "notes": "Library raise path is thread pool only, hence unknown-execution. A subclass could call the protected virtual OnDoWork synchronously, but that does not change the library's own path. reads-deep on value only via Delegate.Combine (see #1)."
+ },
+ {
+  "n": 6,
+  "id": "M:System.ComponentModel.BackgroundWorker.add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "unknown-execution",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Same decompilation as #5: compiler-generated field m_RunWorkerCompleted, add = Delegate.Combine + Interlocked.CompareExchange loop. Invoker: `protected virtual void OnRunWorkerCompleted(RunWorkerCompletedEventArgs e) { m_RunWorkerCompleted?.Invoke(this, e); }`, called only from private AsyncOperationCompleted (the SendOrPostCallback _operationCompleted). AsyncOperation.PostOperationCompleted -> PostCore -> `_syncContext.Post(d, arg)`; AsyncOperationManager.CreateOperation uses SynchronizationContext.Current, installing `new SynchronizationContext()` if none; base SynchronizationContext.Post = ThreadPool.QueueUserWorkItem (CoreLib, decompiled).",
+  "path": "RunWorkerAsync -> AsyncOperationManager.CreateOperation(null) captures the caller's SynchronizationContext (or a new default one) -> thread-pool WorkerThreadStart (see #5) -> after DoWork: _asyncOperation.PostOperationCompleted(_operationCompleted, args) -> SynchronizationContext.Post -> (default context: ThreadPool.QueueUserWorkItem -> thread-pool thread; UI context: UI message loop) -> AsyncOperationCompleted -> OnRunWorkerCompleted -> m_RunWorkerCompleted(this, e).",
+  "notes": "Runs via SynchronizationContext.Post, never inside the subscriber's or RunWorkerAsync caller's execution, hence unknown-execution. reads-deep on value only via Delegate.Combine (see #1)."
+ },
+ {
+  "n": 7,
+  "id": "M:System.Console.add_CancelKeyPress(System.ConsoleCancelEventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": "opaque",
+  "evidence": "Decompiled System.Console.dll 10.0.12: `add { ConsolePal.EnsureConsoleInitialized(); lock (s_syncObject) { s_cancelCallbacks = (ConsoleCancelEventHandler)Delegate.Combine(s_cancelCallbacks, value); if (s_sigIntRegistration == null) { Action<PosixSignalContext> handler = HandlePosixSignal; s_sigIntRegistration = PosixSignalRegistration.Create(PosixSignal.SIGINT, handler); s_sigQuitRegistration = PosixSignalRegistration.Create(PosixSignal.SIGQUIT, handler); } } }`. ConsolePal.EnsureConsoleInitialized is empty in the Windows build. PosixSignalRegistration is in System.Private.CoreLib (decompiled): Register adds a Token to the static `s_registrations` dictionary under lock and, on first registration, calls Interop.Kernel32.SetConsoleCtrlHandler(&HandlerRoutine, true); HandlerRoutine is [UnmanagedCallersOnly] and invokes each token's Handler. HandlePosixSignal reads s_cancelCallbacks and calls `handler(null, e)`.",
+  "path": "Ctrl+C / Ctrl+Break -> Windows creates a new thread in the process to run the console control handler -> PosixSignalRegistration.HandlerRoutine (CoreLib) -> token.Handler = Console.HandlePosixSignal -> s_cancelCallbacks(null, ConsoleCancelEventArgs). Runs on an OS-injected thread, never in the subscriber's execution. (On Unix the same registration is driven by the runtime's signal-handling thread.)",
+  "notes": "Opaque because it is static (no receiver for `keeps`; the handler goes into the static field s_cancelCallbacks) and, on first subscription, it creates two PosixSignalRegistration objects (static registry in CoreLib + process-wide SetConsoleCtrlHandler) and stores them in static fields - global state the vocabulary cannot express. Not field-like: custom accessor guarded by lock(s_syncObject)."
+ },
+ {
+  "n": 8,
+  "id": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite)",
+  "delegateParams": {},
+  "safeModel": {
+   "effects": {
+    "value": []
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {}
+  },
+  "evidence": "Decompiled System.ComponentModel.Primitives.dll 10.0.12: `public virtual ISite? Site { get { return _site; } set { _site = value; } }` with `private ISite _site;`. Plain field store, nothing else.",
+  "path": "No delegate-typed parameter (ISite is an interface). The stored site is later read by Container, DesignMode, GetService, ToString and Dispose(true) (which calls _site?.Container?.Remove(this) under lock(this)); none of that happens in the setter.",
+  "notes": "The property is virtual; derived types (e.g. WinForms Control) override it with more behavior - this label is Component's own implementation."
+ },
+ {
+  "n": 9,
+  "id": "M:System.Collections.Specialized.ListDictionary.set_Item(System.Object,System.Object)",
+  "delegateParams": {},
+  "safeModel": {
+   "effects": {
+    "key": [
+     "reads-deep"
+    ],
+    "value": []
+   },
+   "keeps": {
+    "this": [
+     "arg:key",
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {}
+  },
+  "evidence": "Decompiled System.Collections.Specialized.dll 10.0.12: set { ThrowIfNull(key); version++; walk nodes from head comparing `(comparer == null) ? node.key.Equals(key) : comparer.Compare(node.key, key) == 0`; if found: `node.value = value; return;` else new DictionaryNode { key = key, value = value } appended (or becomes head), count++ }.",
+  "path": "No delegate-typed parameter. User code runs synchronously on the caller's thread: each stored key's Equals(key) or the stored IComparer's Compare(storedKey, key).",
+  "notes": "reads-deep on key because user Equals/Compare receive key. The key argument is kept only when no equal key exists (otherwise the existing node keeps its old key and only value is replaced) - keeps is a may-keep. version++ is a version counter and count++ tracks the added node: bookkeeping, so not opaque. value is stored without being read. Not thread-safe (unsynchronized linked list)."
+ },
+ {
+  "n": 10,
+  "id": "M:System.Collections.Specialized.ListDictionary.get_Item(System.Object)",
+  "delegateParams": {},
+  "safeModel": {
+   "effects": {
+    "key": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {},
+   "result": [
+    "kept:this"
+   ],
+   "fates": {}
+  },
+  "evidence": "Same decompilation as #9: get { ThrowIfNull(key); walk from head; comparer == null ? `if (node.key.Equals(key)) return node.value;` : `if (comparer.Compare(node.key, key) == 0) return node.value;` ; return null; }. No writes.",
+  "path": "No delegate-typed parameter. Stored keys' Equals(key) / the stored comparer's Compare run synchronously on the caller's thread.",
+  "notes": "Result is a value previously stored by the setter/Add (or null)."
+ },
+ {
+  "n": 11,
+  "id": "M:System.Net.Security.SslClientAuthenticationOptions.set_RemoteCertificateValidationCallback(System.Net.Security.RemoteCertificateValidationCallback)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": []
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "unknown-execution",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Decompiled System.Net.Security.dll 10.0.12 (AutomaticProperties=false): compiler-generated auto-property, set = `<RemoteCertificateValidationCallback>k__BackingField = value;`. The options class never invokes it. SslAuthenticationOptions.UpdateOptions(SslClientAuthenticationOptions) copies it into `CertValidationDelegate` (or throws on a conflicting one); SslStream.CompleteHandshake -> VerifyRemoteCertificate(_sslAuthenticationOptions.CertValidationDelegate, ...) invokes `remoteCertValidationCallback(this, remoteCertificate, chain, sslPolicyErrors)` with the SslStream as sender.",
+  "path": "SslStream.AuthenticateAsClient[Async](options) -> _sslAuthenticationOptions.UpdateOptions(options) (copies the delegate out of the holder) -> ForceAuthenticationAsync<TIOAdapter> -> (after ConfigureAwait(false) awaits of inner-stream reads in the async adapter, i.e. typically on a thread-pool continuation) CompleteHandshake -> VerifyRemoteCertificate -> callback. Runs inside SslStream (another object), not inside any member of the options object; other consumers (SocketsHttpHandler, QUIC via QuicClientConnectionOptions.ClientAuthenticationOptions) also run it outside the holder.",
+  "notes": "Kept by the options object, but every run is in code that is not a member of the holder and may be on another thread, hence unknown-execution rather than holder. Only SslStream/SslAuthenticationOptions were decompiled for the call chain; the SocketsHttpHandler/QUIC consumers are named from knowledge, not re-read."
+ },
+ {
+  "n": 12,
+  "id": "M:System.Diagnostics.Process.add_Exited(System.EventHandler)",
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution",
+    "holder": null
+   }
+  },
+  "safeModel": {
+   "effects": {
+    "value": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   },
+   "result": null,
+   "fates": {
+    "value": {
+     "fate": "unknown-execution",
+     "holder": null
+    }
+   }
+  },
+  "evidence": "Decompiled System.Diagnostics.Process.dll 10.0.12 (Windows build): `public event EventHandler Exited { add { _onExited = (EventHandler)Delegate.Combine(_onExited, value); } remove { ... Delegate.Remove ... } }` on plain field `private EventHandler _onExited;` - no CompareExchange, no lock. Invoker: protected OnExited reads _onExited and calls `SynchronizingObject.BeginInvoke(onExited, ...)` when InvokeRequired, else `onExited(this, EventArgs.Empty)`; reached only via private RaiseOnExited (lock(this), once via _raisedOnExited).",
+  "path": "EnableRaisingEvents=true (or Start with it set) -> EnsureWatchingForExit -> `ThreadPool.RegisterWaitForSingleObject(_waitHandle, CompletionCallback, _waitHandle, -1, executeOnlyOnce: true)` -> on process exit a thread-pool wait-completion thread runs CompletionCallback -> lock(this) -> StopWatchingForExit; RaiseOnExited -> OnExited -> handler (or ISynchronizeInvoke.BeginInvoke). Synchronous paths also exist: HasExited getter -> RaiseOnExited when it observes the exit, and WaitForExit(int) -> RaiseOnExited when _watchForExit - both members of the holder on the caller's thread.",
+  "notes": "Mixed: some runs are inside holder members (HasExited, WaitForExit), but the RegisterWaitForSingleObject callback runs it on a thread-pool thread, so the truth is unknown-execution. Not field-like: the read-Combine-write is non-atomic, so concurrent subscriptions can lose a handler. reads-deep on value only via Delegate.Combine (see #1)."
+ }
+]

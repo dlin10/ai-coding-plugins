@@ -156,6 +156,11 @@ public static class ProgramIndexBuilder
                                 .Where(field => !field.IsImplicitlyDeclared)
                                 .Select(field => new ProgramField(typeKey, field.Name, field.IsStatic, field.IsReadOnly,
                                                                   SymbolNames.TypeKey(field.Type))));
+            // A field-like event is the delegate field the compiler declares for it, which Roslyn does not list (ADR 0014).
+            fields.AddRange(type.GetMembers().OfType<IEventSymbol>()
+                                .Where(FieldLikeEvents.Is)
+                                .Select(@event => new ProgramField(typeKey, @event.Name, @event.IsStatic, false,
+                                                                   SymbolNames.TypeKey(@event.Type))));
         }
 
         return new ProgramIndex(scopeId,
@@ -181,7 +186,10 @@ public static class ProgramIndexBuilder
 
     /// <summary>The instance fields a source type declares, named as accesses name them: its fields, the backing fields of its
     /// automatic properties and of a record's positional ones, the backing field a property's accessors name with <c>field</c>,
-    /// and the primary constructor parameters it captures (R3).</summary>
+    /// the storage of its field-like events, and the primary constructor parameters it captures (R3).</summary>
+    /// <param name="type">The source type.</param>
+    /// <param name="compilation">The compilation declaring it.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
     private static IReadOnlyList<IrFieldRef> InstanceFields(INamedTypeSymbol type, Compilation compilation, CancellationToken cancellationToken)
     {
         // An accessor body reaches the backing field through `field` as an ordinary field; an automatic or positional property's
@@ -196,12 +204,15 @@ public static class ProgramIndexBuilder
                              .Where(property => !property.IsStatic && !property.IsIndexer &&
                                                 (IrLowering.IsAutoProperty(property, cancellationToken) || IsPositional(property, cancellationToken)))
                              .Select(IrLowering.PropertyField);
+        var events = type.GetMembers().OfType<IEventSymbol>()
+                         .Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event))
+                         .Select(FieldLikeEvents.FieldRef);
         var parameters = type.InstanceConstructors
                              .Where(constructor => constructor.DeclaringSyntaxReferences.Any(reference =>
                                  reference.GetSyntax(cancellationToken) is TypeDeclarationSyntax))
                              .SelectMany(constructor => IrLowering.CapturedPrimaryConstructorParameters(type, constructor, compilation, cancellationToken))
                              .Select(IrLowering.PrimaryConstructorParameterField);
-        return fields.Concat(properties).Concat(parameters).ToArray();
+        return fields.Concat(properties).Concat(events).Concat(parameters).ToArray();
     }
 
     /// <summary>A property a record declares by a parameter of its primary constructor: the compiler gives it a backing field.</summary>
@@ -235,9 +246,19 @@ public static class ProgramIndexBuilder
     }
 
     /// <summary>A declared body, the top-level statements' entry point, a primary constructor, an auto-property's synthesized accessor,
-    /// the implicit constructor of a source class or struct, and the implicit type initializer of a type with static initializers.</summary>
+    /// the implicit constructor of a source class or struct, the implicit type initializer of a type with static initializers, and
+    /// the compiler's add and remove accessors of a field-like event.</summary>
+    /// <param name="method">The method.</param>
+    /// <param name="compilations">The compilations of the scope.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
     private static bool HasSourceBody(IMethodSymbol method, IReadOnlyList<Compilation> compilations, CancellationToken cancellationToken)
     {
+        if (method.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove &&
+            method.AssociatedSymbol is IEventSymbol @event && FieldLikeEvents.Is(@event))
+        {
+            return true;
+        }
+
         var type = method.ContainingType;
         if (method.DeclaringSyntaxReferences.Length == 0)
         {

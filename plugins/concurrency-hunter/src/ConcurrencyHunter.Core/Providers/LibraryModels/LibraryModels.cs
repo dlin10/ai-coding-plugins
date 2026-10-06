@@ -202,6 +202,12 @@ public sealed class LibraryModels
     /// of those phases and is never an unresolved call (R1).</summary>
     public static bool IsRecognizedType(string metadataName) => RecognizedTypes.Contains(metadataName);
 
+    /// <summary>Whether a member is declared in the run, so no library model ever applies to a call of it: the run lowers its body
+    /// — a declared one or one the compiler writes, as a field-like event's accessors, which have no declaring syntax — or its
+    /// overrides'. The lowering's library calls and the project model resolver both ask it.</summary>
+    /// <param name="definition">The member's original definition.</param>
+    public static bool IsDeclaredInRun(IMethodSymbol definition) => definition.Locations.Any(location => location.IsInSource);
+
     /// <summary>What a library model says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
     /// or null for a member it does not describe. A member it describes by its immutable type only is known when every parameter
     /// is immutable and passed by value or <c>out</c>, and it is a method, a constructor, an operator or a getter.</summary>

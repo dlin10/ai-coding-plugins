@@ -69,6 +69,8 @@ using Demo.Web.Cases.FactoryInterfaceDispatch;
 using Demo.Web.Cases.FactoryResolvesOtherService;
 using Demo.Web.Cases.FactoryReturnsSharedStatic;
 using Demo.Web.Cases.FactoryScopedPerRequest;
+using Demo.Web.Cases.FieldLikeEventRaisedByWorker;
+using Demo.Web.Cases.FieldLikeEventRaisedInRequest;
 using Demo.Web.Cases.FireAndForgetVsAwaited;
 using Demo.Web.Cases.ForeachOverListElementWrite;
 using Demo.Web.Cases.FromServicesActionParameter;
@@ -370,6 +372,8 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddArraySortWritesCells()
                 .AddDeserializeReturnsNewObject()
                 .AddProjectModelKeptObject()
+                .AddFieldLikeEventRaisedByWorker()
+                .AddFieldLikeEventRaisedInRequest()
                 .AddProjectModelTryGetValue();
 
 var app = builder.Build();

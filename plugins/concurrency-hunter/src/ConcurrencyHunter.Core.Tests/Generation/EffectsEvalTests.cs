@@ -26,7 +26,8 @@ public sealed class EffectsEvalTests
     public void Exact_effect_entries_meet_the_recorded_count()
     {
         var compared = WholeEntryEvals.Compared(EffectEvals.InstalledRun);
-        var exact = compared.Count(item => item.Comparison.IsExact);
+        EvalReport.Write(EvalReport.Folder, "effects", WholeEntryEvals.Lines(EffectEvals.InstalledRun));
+        var exact = WholeEntryEvals.Exact(EffectEvals.InstalledRun);
         var recorded = ModelEvalTests.RecordedCount("effectsExact");
 
         Assert.True(exact >= recorded,

@@ -85,7 +85,7 @@ internal static class EntryComparator
                 return $"missing fate {expectedFate.Parameter}";
             }
 
-            if (!FateIsSafe(actualFate, expectedFate))
+            if (!FateIsSafe(LibraryFate.Text(expectedFate.Kind), Text(expectedFate.Holder), LibraryFate.Text(actualFate.Kind), Text(actualFate.Holder)))
                 return $"fate {expectedFate.Parameter} is narrower: {actualFate.Kind} {actualFate.Holder}";
             var count = expectedFate.Inputs?.Count ?? 0;
             for (var index = 0; index < count; index++)
@@ -100,10 +100,26 @@ internal static class EntryComparator
         return null;
     }
 
-    private static bool FateIsSafe(LibraryFate actual, LibraryFate expected) =>
-        actual.Kind == LibraryFateKind.UnknownExecution ||
-        actual.Kind == expected.Kind && actual.Holder == expected.Holder ||
-        actual is { Kind: LibraryFateKind.Holder, Holder: LibraryHolderKind.Result } && expected.Kind == LibraryFateKind.Iterator;
+    /// <summary>Whether an answered fate and holder are no unsafe narrowing of a gold one — the one owner of the question: a gold
+    /// <c>not-run</c> admits every answer, since running or keeping a delegate that never runs claims more, never less; otherwise the
+    /// answer is safe when it is the gold fate with the gold holder, <c>unknown-execution</c>, or <c>holder</c> <c>result</c> where the
+    /// gold is <c>iterator</c>. An answered <c>not-run</c> is an unsafe narrowing of every other gold.</summary>
+    /// <param name="goldFate">The gold fate, as the vocabulary writes it.</param>
+    /// <param name="goldHolder">The gold holder, <c>result</c> or <c>this</c>, or <c>null</c>.</param>
+    /// <param name="answeredFate">The answered fate.</param>
+    /// <param name="answeredHolder">The answered holder, or <c>null</c>.</param>
+    internal static bool FateIsSafe(string goldFate, string? goldHolder, string answeredFate, string? answeredHolder) =>
+        goldFate == FateClassifier.NOT_RUN ||
+        answeredFate == FateClassifier.UNKNOWN_EXECUTION ||
+        answeredFate == goldFate && answeredHolder == goldHolder ||
+        answeredFate == FateClassifier.HOLDER && answeredHolder == FateClassifier.RESULT && goldFate == FateClassifier.ITERATOR;
+
+    private static string? Text(LibraryHolderKind? holder) => holder switch
+    {
+        LibraryHolderKind.Result => FateClassifier.RESULT,
+        LibraryHolderKind.This => FateClassifier.THIS,
+        _ => null
+    };
 
     private static string? MissingValues(IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> actual,
                                          IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> expected)

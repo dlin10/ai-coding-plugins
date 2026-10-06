@@ -24,6 +24,17 @@
       ]
     },
     {
+      "id": "field-like-event-raised-by-worker/vs-action",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.FieldLikeEventRaisedByWorker.TickCounter@Singleton", "accessPath": ["_ticks"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.FieldLikeEventRaisedByWorker.TickCounter.OnTick()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.FieldLikeEventRaisedByWorker.TickCounter.Read()", "operation": "read" }
+      ]
+    },
+    {
       "id": "deserialize-returns-new-object/changes",
       "phase": "5d",
       "rule": "DCA1002",
@@ -2872,6 +2883,11 @@
       "id": "pattern-binds-tested-object/not-this",
       "phase": "5d",
       "resource": { "region": "alloc:Demo.Web.Cases.PatternBindsTestedObject.Panel..ctor()#Demo.Web.Cases.PatternBindsTestedObject.Meter", "accessPath": ["Level"] }
+    },
+    {
+      "id": "field-like-event-raised-in-request/owned",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.FieldLikeEventRaisedInRequest.TickCounter@Scoped", "accessPath": ["_ticks"] }
     }
   ]
 }

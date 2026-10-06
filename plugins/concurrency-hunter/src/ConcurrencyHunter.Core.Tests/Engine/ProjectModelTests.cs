@@ -156,12 +156,15 @@ public sealed class ProjectModelTests
     }
 
     [Fact]
-    public async Task Setter_entry_is_rejected()
+    public async Task Setter_entry_of_a_source_property_is_rejected()
     {
         using var repo = new Repository();
         repo.Model(FileModel(Entry("\"assemblies\": [\"Fixture\"], \"opaque\": true", "M:State.set_Value(System.Int32)")));
+        var result = await Run(repo);
 
-        AssertRejected(await Run(repo), "set_Value");
+        AssertRejected(result, "set_Value");
+        Assert.Contains(Assert.Single(result.Coverage).Diagnostics, diagnostic => diagnostic.Contains("set_Value", StringComparison.Ordinal) &&
+                                                                               diagnostic.Contains("member has a body in the run.", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -4,8 +4,6 @@ kind: CollectionExpression | demo: 6 | eshop: 0 | question: 60
 kind: DeconstructionAssignment | demo: 1 | eshop: 0 | question: 61
 kind: DefaultValue | demo: 0 | eshop: 179 | question: 66
 kind: DynamicMemberReference | demo: 0 | eshop: 1 | question: 67
-kind: EventAssignment | demo: 2 | eshop: 0 | question: 62
-kind: EventReference | demo: 2 | eshop: 0 | question: 62
 kind: FlowAnonymousFunction | demo: 0 | eshop: 18 | question: 68
 kind: InterpolatedString | demo: 0 | eshop: 72 | question: 69
 kind: InterpolatedStringText | demo: 0 | eshop: 114 | question: 69

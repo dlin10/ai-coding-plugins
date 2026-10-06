@@ -12,7 +12,9 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// <param name="Input">The implementation input.</param>
 /// <param name="Truth">The whole-entry truth.</param>
 /// <param name="Group">The reporting group.</param>
-internal sealed record WholeEntryGold(string Member, EvalInput Input, EntryTruth Truth, string Group);
+/// <param name="Fates">The gold fate of each delegate parameter, by name, for a set that also judges fates; else <c>null</c>.</param>
+internal sealed record WholeEntryGold(string Member, EvalInput Input, EntryTruth Truth, string Group,
+                                      IReadOnlyDictionary<string, ClassifiedFate>? Fates = null);
 
 /// <summary>One generated whole-entry answer.</summary>
 /// <param name="Gold">The oracle member.</param>
@@ -55,11 +57,19 @@ internal static class WholeEntryEvals
     internal static IReadOnlyList<(WholeEntryAnswer Answer, EntryComparison Comparison)> Compared(WholeEntryRun run) =>
         run.Answers.Select(answer => (answer, EntryComparator.Compare(answer.Answer, answer.Gold.Truth))).ToArray();
 
-    internal static int Exact(WholeEntryRun run) => Compared(run).Count(item => item.Comparison.IsExact);
+    /// <summary>The verdict report of a whole-entry set: one line per declaration id, its group beside it, judged by the whole-entry
+    /// comparison.</summary>
+    /// <param name="run">The run.</param>
+    internal static IReadOnlyList<ReportLine> Lines(WholeEntryRun run) =>
+        Compared(run).Select(item => new ReportLine(item.Answer.Gold.Member, EvalReport.Verdict(item.Comparison.IsExact, item.Comparison.IsUnsafeNarrowing),
+                                                    item.Answer.Gold.Group))
+                     .ToArray();
+
+    internal static int Exact(WholeEntryRun run) => EvalReport.Exact(Lines(run));
 
     internal static IReadOnlyDictionary<string, int> ExactByGroup(WholeEntryRun run) =>
-        Compared(run).GroupBy(item => item.Answer.Gold.Group, StringComparer.Ordinal)
-                     .ToDictionary(group => group.Key, group => group.Count(item => item.Comparison.IsExact), StringComparer.Ordinal);
+        Lines(run).GroupBy(line => line.Group!, StringComparer.Ordinal)
+                  .ToDictionary(group => group.Key, group => EvalReport.Exact(group), StringComparer.Ordinal);
 
     private static WholeEntryAnswer Generate(WholeEntryGold member, ImplementationAssemblies resolver)
     {
@@ -110,11 +120,20 @@ internal static class EffectEvals
         var assembly = (string)entry["assembly"]!;
         var version = (string)entry["version"]!;
         var input = Input(assembly, version);
+        return new WholeEntryGold(member, input, Truth(member, assembly, entry), assembly);
+    }
+
+    /// <summary>A gold member's <c>safeModel</c> as a truth: <c>opaque</c>, or the entry the project reader reads from it.</summary>
+    /// <param name="member">The declaration id.</param>
+    /// <param name="assembly">The assembly.</param>
+    /// <param name="entry">The gold member.</param>
+    /// <exception cref="MissingEvalInputException">The <c>safeModel</c> is missing or the project reader refuses it.</exception>
+    internal static EntryTruth Truth(string member, string assembly, JsonObject entry)
+    {
         var safe = entry["safeModel"] ?? throw new MissingEvalInputException($"{member}: safeModel is missing");
-        var truth = safe.GetValueKind() == System.Text.Json.JsonValueKind.String && safe.GetValue<string>() == "opaque"
+        return safe.GetValueKind() == System.Text.Json.JsonValueKind.String && safe.GetValue<string>() == "opaque"
             ? EntryTruth.Opaque
             : EntryTruth.Entry(ReadModel(member, assembly, safe.AsObject()));
-        return new WholeEntryGold(member, input, truth, assembly);
     }
 
     private static EvalInput Input(string assembly, string version) => assembly switch
@@ -193,5 +212,69 @@ internal static class LinqEvals
                                                 $"{gold.Count(member => member.Group == "System.Linq")} Enumerable and " +
                                                 $"{gold.Count(member => member.Group == "System.Linq.Queryable")} Queryable");
         return gold;
+    }
+}
+
+/// <summary>The 12-member accessor gold set (<c>accessors-gold.json</c>), generated against the installed .NET 10 shared framework:
+/// each answer's fates are judged against the gold <c>delegateParams</c> and its entry against the gold <c>safeModel</c>.</summary>
+internal static class AccessorEvals
+{
+    internal const int MEMBERS = 12;
+
+    private static readonly Lazy<WholeEntryRun> Installed = new(() => WholeEntryEvals.Run(ImplementationAssemblies.ForThisProcess(), ReadGold()),
+                                                                LazyThreadSafetyMode.ExecutionAndPublication);
+
+    internal static string GoldPath => Path.Combine(ModelEvals.ModelsDirectory, "accessors-gold.json");
+
+    internal static WholeEntryRun InstalledRun => Installed.Value;
+
+    /// <summary>The gold members, each a framework assembly of version <c>10.0</c> on <c>net10.0</c>, with its fates.</summary>
+    /// <exception cref="MissingEvalInputException">The gold file is missing, holds another number of members, or a member is not
+    /// of version <c>10.0</c>.</exception>
+    internal static IReadOnlyList<WholeEntryGold> ReadGold()
+    {
+        if (!File.Exists(GoldPath))
+            throw new MissingEvalInputException($"the accessor gold file {GoldPath} is missing");
+
+        var gold = JsonNode.Parse(File.ReadAllText(GoldPath))!.AsArray().Select(ReadMember).ToArray();
+        if (gold.Length != MEMBERS)
+            throw new MissingEvalInputException($"the accessor gold file holds {gold.Length} members, not {MEMBERS}");
+        return gold;
+    }
+
+    /// <summary>The verdict report of the accessor set: one line per declaration id, <c>exact</c> when every fate, with its holder,
+    /// and the entry are exact, <c>unsafe</c> when any of them is an unsafe narrowing, <c>wider</c> otherwise.</summary>
+    /// <param name="run">The run.</param>
+    internal static IReadOnlyList<ReportLine> Lines(WholeEntryRun run) =>
+        run.Answers.Select(answer =>
+        {
+            var entry = EntryComparator.Compare(answer.Answer, answer.Gold.Truth);
+            var fates = Fates(answer).ToArray();
+            return new ReportLine(answer.Gold.Member,
+                                  EvalReport.Verdict(entry.IsExact && fates.All(fate => ModelEvals.IsExact(fate.Answered, fate.Gold)),
+                                                     entry.IsUnsafeNarrowing || fates.Any(fate => !ModelEvals.IsSafe(fate.Answered, fate.Gold))));
+        }).ToArray();
+
+    internal static int Exact(WholeEntryRun run) => EvalReport.Exact(Lines(run));
+
+    /// <summary>Each gold delegate parameter's gold fate and the fate the answer gives it.</summary>
+    /// <param name="answer">The answer.</param>
+    internal static IEnumerable<(string Parameter, ClassifiedFate Gold, ClassifiedFate Answered)> Fates(WholeEntryAnswer answer) =>
+        (answer.Gold.Fates ?? new Dictionary<string, ClassifiedFate>()).OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                                                        .Select(pair => (pair.Key, pair.Value, ModelEvals.Answered(answer.Answer, pair.Key)));
+
+    private static WholeEntryGold ReadMember(JsonNode? node)
+    {
+        var entry = node?.AsObject() ?? throw new MissingEvalInputException("the accessor gold file contains a null member");
+        var member = (string)entry["id"]!;
+        var assembly = (string)entry["assembly"]!;
+        var version = (string)entry["version"]!;
+        if (version != "10.0")
+            throw new MissingEvalInputException($"{member}: the gold version {version} is not 10.0");
+        var fates = entry["delegateParams"]!.AsObject()
+                                            .ToDictionary(pair => pair.Key,
+                                                          pair => new ClassifiedFate((string)pair.Value!["fate"]!, (string?)pair.Value["holder"]),
+                                                          StringComparer.Ordinal);
+        return new WholeEntryGold(member, new EvalInput(assembly, version, null, "net10.0"), EffectEvals.Truth(member, assembly, entry), assembly, fates);
     }
 }

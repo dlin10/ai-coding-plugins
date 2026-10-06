@@ -320,6 +320,54 @@ public sealed class ProgramIndexTests
         Assert.All(fields, field => Assert.Equal("T", field.Type));
     }
 
+    [Fact]
+    public void Field_like_event_storage_is_an_instance_field_and_a_static_ones_is_static()
+    {
+        var index = Index("""
+            public class Item { }
+            public class Hub
+            {
+                public event System.Action<Item> Changed;
+                public static event System.Action Shared;
+                public event System.Action Custom { add { } remove { } }
+            }
+            """);
+
+        Assert.Contains(new ProgramField("Fixture:Hub", "Changed", false, false, "System.Private.CoreLib:System.Action<Fixture:Item>"), index.Fields);
+        Assert.Contains(new ProgramField("Fixture:Hub", "Shared", true, false, "System.Private.CoreLib:System.Action"), index.Fields);
+        Assert.DoesNotContain(index.Fields, field => field.Name == "Custom");
+        var storage = Assert.Single(index.InstanceFieldsOf("Fixture:Hub")!);
+        Assert.Equal(("Changed", IrFieldKind.Field, false), (storage.Name, storage.Kind, storage.IsStatic));
+    }
+
+    [Fact]
+    public void Field_like_event_accessors_have_a_source_body_and_abstract_or_extern_ones_do_not()
+    {
+        var index = Index("""
+            public interface ISource { event System.Action Changed; }
+            public class Hub : ISource
+            {
+                public event System.Action Changed;
+                public static extern event System.Action External;
+            }
+            """);
+
+        Assert.True(index.Method("body:Fixture:M:Hub.add_Changed(System.Action)")!.HasSourceBody);
+        Assert.True(index.Method("body:Fixture:M:Hub.remove_Changed(System.Action)")!.HasSourceBody);
+        Assert.False(index.Method("body:Fixture:M:ISource.add_Changed(System.Action)")!.HasSourceBody);
+        Assert.False(index.Method("body:Fixture:M:Hub.add_External(System.Action)")!.HasSourceBody);
+        Assert.DoesNotContain(index.Fields, field => field.Name == "External");
+    }
+
+    [Fact]
+    public void Field_like_event_initializer_alone_gives_its_type_a_static_constructor_body()
+    {
+        var index = Index("public static class Hub { public static event System.Action Shared = () => { }; }");
+
+        var initializer = index.Method("body:Fixture:M:Hub.#cctor")!;
+        Assert.Equal((ProgramMethodKind.TypeInitializer, true), (initializer.Kind, initializer.HasSourceBody));
+    }
+
     private static ProgramIndex Index(string source) => IndexAndCompilation(source).Index;
 
     private static (ProgramIndex Index, Compilation Compilation) IndexAndCompilation(string source)

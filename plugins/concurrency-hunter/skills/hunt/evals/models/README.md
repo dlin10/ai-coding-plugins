@@ -30,9 +30,11 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
 | the 5 of Polly | `Polly` | `7.2.3` | `Polly` | `net8.0` |
 | the 2 of Google.Protobuf | `Google.Protobuf` | `3.21.9` | `Google.Protobuf` | `net8.0` |
 
-- **Comparator.** A classified fate is safe when it is the gold fate with the gold holder kind, `unknown-execution`, or
-  `holder` with holder `result` where the gold is `iterator`; anything else is an unsafe narrowing, a `holder` of the
-  wrong kind included. A member the generator did not classify counts as `unknown-execution` for each gold parameter.
+- **Comparator.** `EntryComparator.FateIsSafe` decides it for every eval: a classified fate is safe when it is the gold
+  fate with the gold holder kind, `unknown-execution`, or `holder` with holder `result` where the gold is `iterator`;
+  anything else is an unsafe narrowing, a `holder` of the wrong kind included. A gold `not-run` admits every answer —
+  running or keeping a delegate that never runs claims more, never less — and an answered `not-run` is an unsafe
+  narrowing of every other gold fate. A member the generator did not classify counts as `unknown-execution` for each gold parameter.
   The bar is zero unsafe narrowings. Every generated entry passes the project byte reader and its member check,
   and its fates equal the classified fates of the delegate-typed parameters. `ForMessage`'s carried `parser` has
   no fate in an entry: it is a non-delegate argument.
@@ -47,19 +49,34 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   5 of 114 `System.Linq` entries and 0 of 15 `System.Linq.Queryable` entries. A refusal can be an exact whole
   answer only when the truth requires the member to stay opaque. These counts do not make the fate gold set
   whole-entry truth.
-  The fate floor may be re-recorded only for parameters whose fate a seed or a witness changed; every such
-  parameter and declaration id must be named with that cause in `demo/SCENARIOS.md`. Run B2 changes no recorded
-  fate. The effects and LINQ exact-entry floors and the fate-gold entry floor cannot decrease.
-- **Snapshot.** `generator-snapshot.json` holds the `members`, `effects` and `linq` answer arrays, sorted by declaration id:
+  A recorded fate changes only by a cause of the floor rule below, every changed one named by declaration id with
+  its cause in `demo/SCENARIOS.md`. Run B2 changes no recorded fate. No recorded floor can decrease — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
+  `accessorsExact`: the recording writer refuses a lower one and leaves the file's bytes as they were.
+- **Floor rule (run B2b).** A recorded answer of `members`, `effects` or `linq` may change only by one of the causes
+  `not-run`, `holder-trigger`, `event-seed`, `delegate-value` or `delegate-slot`, or by `event-call` for an answer
+  whose one change is its `reachedBodies` (library code it reaches subscribes to or raises an event the run now lowers
+  as an accessor call or a field access); each changed answer is named by declaration id beside its cause in
+  `demo/SCENARIOS.md` — in question 90's closing row when it stays exact, in an open question otherwise. Run B2b
+  changes two: `AbstractValidator<T>.Validate` and `ValidateAsync` of FluentValidation reach 458 bodies instead of 457,
+  through `TrackingCollection<T>.ItemAdded` (`event-call`).
+- **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
+  `LinqOracleTests` and `AccessorEvalTests` write `members.json`, `effects.json`, `linq.json` and `accessors.json`
+  there: one line per unit the set's recorded count counts, each with its declaration id and its verdict — `exact`,
+  `wider` or `unsafe`. `members` has one line per gold delegate parameter, `effects` and `linq` (with its group) one
+  per declaration id by the whole-entry comparison, `accessors` one per declaration id. Each exact count — `exact`,
+  `effectsExact`, `linqExact`, `accessorsExact` — is the number of its set's `exact` lines; `fateGoldEntries` stays
+  the number of fate-gold members whose answer has an entry. `AccessorEntryMatrixTests` writes
+  `entry-matrix-wider.json`, the cells it lists as wider. Without the variable nothing is written.
+- **Snapshot.** `generator-snapshot.json` holds the `members`, `effects`, `linq` and `accessors` answer arrays, sorted by declaration id:
   the implementation identity (assembly version, file version, MVID), the classification or the reason, the whole
   `model` entry or null, `modelReason`, and the bodies the driver reached; per
   implementation assembly the package, the version folder the resolver took, the method bodies of the decompiled
   compilation and those made `extern`, the gold members and the drivers synthesized. The counts are `exact` for
-  fates, `fateGoldEntries`, `effectsExact`, and `linqExact` with separate `System.Linq` and `System.Linq.Queryable`
-  counts. Every eval run
+  fates, `fateGoldEntries`, `effectsExact`, `linqExact` with separate `System.Linq` and `System.Linq.Queryable`
+  counts, and `accessorsExact`. Every eval run
   compares a fresh snapshot with it and reports an implementation identity change (a runtime or package update) before
   any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
-- **Flag.** The evals (`ModelEvalTests`, `EffectsEvalTests`, `LinqOracleTests`) share the serial `Model evals` collection
+- **Flag.** The evals (`ModelEvalTests`, `EffectsEvalTests`, `LinqOracleTests`, `AccessorEvalTests`) share the serial `Model evals` collection
   and read the installed .NET 8 and .NET 10 shared frameworks and the NuGet global packages
   folder, so they run only with `CH_MODEL_EVALS=1` and skip otherwise; under the flag a missing package, shared
   framework or gold file fails them. The test baseline is recorded without the flag.
@@ -68,7 +85,7 @@ To record, from the plugin root in PowerShell:
 
 ```powershell
 $env:CH_MODEL_EVALS = '1'; $env:CH_MODEL_EVALS_RECORD = '1'
-dotnet test src/ConcurrencyHunter.Core.Tests --filter "Category!=Integration&(FullyQualifiedName~.ModelEvalTests.|FullyQualifiedName~.EffectsEvalTests.|FullyQualifiedName~.LinqOracleTests.)" *> $env:TEMP\ch-model-evals.log
+dotnet test src/ConcurrencyHunter.Core.Tests --filter "Category!=Integration&(FullyQualifiedName~.ModelEvalTests.|FullyQualifiedName~.EffectsEvalTests.|FullyQualifiedName~.LinqOracleTests.|FullyQualifiedName~.AccessorEvalTests.)" *> $env:TEMP\ch-model-evals.log
 $evalExit = $LASTEXITCODE
 Get-Content $env:TEMP\ch-model-evals.log -Tail 50
 Remove-Item Env:CH_MODEL_EVALS, Env:CH_MODEL_EVALS_RECORD
@@ -120,3 +137,24 @@ Every whole answer is compared with the built-in entry by `EntryComparator`, wit
 The exact counts are reported separately for `Enumerable` and `Queryable`, and never fall below the snapshot's
 `linqExact` counts. Every inexact answer is named with its cause in `demo/SCENARIOS.md`. This oracle reads the
 built-in models without changing their behaviour in a run.
+
+## Accessors
+
+The accessor set (phase 5d run B2b): 12 getters, setters and event add and remove accessors of the .NET 10 shared
+framework, each named by its `M:` id — `ObservableCollection<T>`'s `CollectionChanged`, `FileSystemWatcher.Changed`,
+`BackgroundWorker`'s `DoWork` and `RunWorkerCompleted`, the static `Console.CancelKeyPress`, `Component.Site`,
+`ListDictionary`'s indexer, `SslClientAuthenticationOptions.RemoteCertificateValidationCallback` and `Process.Exited`.
+
+- `accessors-gold.json`: per member `key`, `id`, `assembly`, `version` (`10.0`), the `accessor` kind, `isStatic`,
+  `fieldLikeEvent`, `delegateParams` with each fate and holder (`not-run` for a remove accessor that neither runs nor
+  keeps its handler), `safeModel` — an entry or `opaque` — the `nearestExpressibleModel` where the truth is `opaque`, and
+  a `note`.
+- `accessors-source-verdicts.json`: the labels of a second reader, in the same order.
+
+`AccessorEvalTests` generates every member against the installed .NET 10 shared framework (`net10.0`, no package) and
+compares every fate with the gold fate through `EntryComparator.FateIsSafe` — an unclassified parameter counts as
+`unknown-execution` — and the whole answer with `safeModel` through `EntryComparator`; an `opaque` truth is met only by no
+entry. The bar is zero unsafe narrowings. Every entry passes the project reader and its member check, and no member is
+refused as an `accessor`. An answer is exact when every fate, with its holder, and the entry are; the number of exact
+answers never falls below the snapshot's `accessorsExact`, and every inexact answer is named with its cause in
+`demo/SCENARIOS.md`. Run B2b records 7 of 12.

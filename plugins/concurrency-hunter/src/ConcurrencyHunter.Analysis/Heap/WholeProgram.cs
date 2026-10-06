@@ -2611,7 +2611,9 @@ public static partial class WholeProgram
             else
                 projections[library] = call;
             var runs = new TrackedMap<int, TrackedList<(string Region, InstanceState Callee)>>();
-            foreach (var fate in library.Fates)
+            // A not-run delegate is neither run nor kept by the call (ADR 0015): it has no callees, no missing receiver and no
+            // unresolved fate, though its parameter still counts as fated.
+            foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
             {
                 CheckCancellation();
                 var invocation = Invocation(call, fate, []);
@@ -2636,7 +2638,7 @@ public static partial class WholeProgram
                     new TrackedSet<string>(StringComparer.Ordinal));
             if (sequence is not null)
                 AddReturnedSources(sequence, library.EnumeratedReturns(true).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
-            foreach (var fate in library.Fates)
+            foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
             {
                 CheckCancellation();
                 if (fate.Kind == IrFateKind.Holder)

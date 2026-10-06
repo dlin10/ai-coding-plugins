@@ -47,9 +47,8 @@ public sealed class LinqOracleTests
     public void Exact_linq_entries_meet_the_recorded_count()
     {
         var compared = WholeEntryEvals.Compared(LinqEvals.InstalledRun);
-        var exact = compared.Where(item => item.Comparison.IsExact)
-                            .GroupBy(item => item.Answer.Gold.Group, StringComparer.Ordinal)
-                            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        EvalReport.Write(EvalReport.Folder, "linq", WholeEntryEvals.Lines(LinqEvals.InstalledRun));
+        var exact = WholeEntryEvals.ExactByGroup(LinqEvals.InstalledRun);
 
         foreach (var group in new[] { "System.Linq", "System.Linq.Queryable" })
         {

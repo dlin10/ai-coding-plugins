@@ -24,8 +24,9 @@ public static class SeedableFields
                      .ToHashSet();
     }
 
-    /// <summary>The static storage a field or auto-property declares, in the same form as <see cref="LoadedStatics"/>.</summary>
-    /// <param name="member">The field or auto-property.</param>
+    /// <summary>The static storage a field, auto-property or field-like event declares, in the same form as
+    /// <see cref="LoadedStatics"/>: a field-like event's storage is named like the event.</summary>
+    /// <param name="member">The field, auto-property or field-like event.</param>
     public static (string Type, string Name) StaticStorage(ISymbol member) =>
         (SymbolNames.TypeKey(member.ContainingType.OriginalDefinition), member.Name);
 

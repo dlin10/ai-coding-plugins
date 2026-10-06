@@ -18,6 +18,7 @@ public sealed class FateMatrixTests
     private static readonly ClassifiedFate HolderResult = new(FateClassifier.HOLDER, FateClassifier.RESULT);
     private static readonly ClassifiedFate HolderThis = new(FateClassifier.HOLDER, FateClassifier.THIS);
     private static readonly ClassifiedFate Unknown = new(FateClassifier.UNKNOWN_EXECUTION, null);
+    private static readonly ClassifiedFate NotRun = new(FateClassifier.NOT_RUN, null);
 
     private const string IN_TEMPORARY = "the driver hands an in delegate as a temporary the engine cannot name: invoking it is an unresolved " +
                                         "dispatch, and the probe is never followed into the member";
@@ -28,41 +29,70 @@ public sealed class FateMatrixTests
     private const string AWAITED_SEQUENCE = "the heap carries no value through an await, so V_Enum's foreach never enumerates an awaited " +
                                             "sequence: how it runs or holds the delegate is never seen";
 
+    private const string NO_RUNNING_TRIGGER = "R7 keeps a holder only when a trigger ran the delegate it keeps, and a trigger's call on an " +
+                                              "awaited result runs no body, since the heap carries no value through an await (SCENARIOS, " +
+                                              "holder-trigger)";
+
     /// <summary>The cells whose expected answer the engine cannot reach without changing the engine, by name, with the reason: their
     /// answer may be wider than the table, never narrower, and stays in the matrix so a change of either shows.</summary>
     private static readonly IReadOnlyDictionary<string, string> Wider = Listed(
         (IN_TEMPORARY, [
             "In/Constructor/InvokeNow", "In/Constructor/KeepInResult", "In/Constructor/KeepInThis",
             "In/InstanceReference/InvokeNow", "In/InstanceReference/KeepInResult", "In/InstanceReference/KeepInThis",
-            "In/InstanceSequence/InvokeNow", "In/InstanceSequence/KeepInResult", "In/InstanceSequence/KeepInThis", "In/InstanceSequence/LazySequence",
+            "In/InstanceSequence/InvokeNow", "In/InstanceSequence/KeepInThis", "In/InstanceSequence/LazySequence",
             "In/InstanceTaskOfReference/InvokeNow", "In/InstanceTaskOfReference/KeepInResult", "In/InstanceTaskOfReference/KeepInThis",
-            "In/InstanceTaskOfSequence/InvokeNow", "In/InstanceTaskOfSequence/KeepInResult", "In/InstanceTaskOfSequence/KeepInThis",
+            "In/InstanceTaskOfSequence/InvokeNow", "In/InstanceTaskOfSequence/KeepInThis",
             "In/InstanceTaskOfSequence/LazySequence",
             "In/InstanceValueTaskOfReference/InvokeNow", "In/InstanceValueTaskOfReference/KeepInResult", "In/InstanceValueTaskOfReference/KeepInThis",
             "In/InstanceVoid/InvokeNow", "In/InstanceVoid/KeepInThis",
             "In/StaticReference/InvokeNow", "In/StaticReference/KeepInResult",
-            "In/StaticSequence/InvokeNow", "In/StaticSequence/KeepInResult", "In/StaticSequence/LazySequence",
+            "In/StaticSequence/InvokeNow", "In/StaticSequence/LazySequence",
             "In/StaticTaskOfReference/InvokeNow", "In/StaticTaskOfReference/KeepInResult",
-            "In/StaticTaskOfSequence/InvokeNow", "In/StaticTaskOfSequence/KeepInResult", "In/StaticTaskOfSequence/LazySequence",
+            "In/StaticTaskOfSequence/InvokeNow", "In/StaticTaskOfSequence/LazySequence",
             "In/StaticValueTaskOfReference/InvokeNow", "In/StaticValueTaskOfReference/KeepInResult",
-            "In/StaticVoid/InvokeNow"
+            "In/StaticVoid/InvokeNow",
+            "In/StaticVoid/DoNothing", "In/StaticReference/DoNothing", "In/StaticTaskOfReference/DoNothing", "In/StaticValueTaskOfReference/DoNothing",
+            "In/StaticSequence/DoNothing", "In/StaticTaskOfSequence/DoNothing", "In/InstanceVoid/DoNothing", "In/InstanceReference/DoNothing",
+            "In/InstanceTaskOfReference/DoNothing", "In/InstanceValueTaskOfReference/DoNothing", "In/InstanceSequence/DoNothing",
+            "In/InstanceTaskOfSequence/DoNothing", "In/Constructor/DoNothing",
+            "In/StaticVoid/CompareOnly", "In/StaticReference/CompareOnly", "In/StaticTaskOfReference/CompareOnly", "In/StaticValueTaskOfReference/CompareOnly",
+            "In/StaticSequence/CompareOnly", "In/StaticTaskOfSequence/CompareOnly", "In/InstanceVoid/CompareOnly", "In/InstanceReference/CompareOnly",
+            "In/InstanceTaskOfReference/CompareOnly", "In/InstanceValueTaskOfReference/CompareOnly", "In/InstanceSequence/CompareOnly",
+            "In/InstanceTaskOfSequence/CompareOnly", "In/Constructor/CompareOnly",
+            "In/InstanceVoid/RemoveFromThis", "In/InstanceReference/RemoveFromThis", "In/InstanceTaskOfReference/RemoveFromThis",
+            "In/InstanceValueTaskOfReference/RemoveFromThis", "In/InstanceSequence/RemoveFromThis", "In/InstanceTaskOfSequence/RemoveFromThis",
+            "In/Constructor/RemoveFromThis",
+            "In/InstanceVoid/CombineIntoThis", "In/InstanceReference/CombineIntoThis", "In/InstanceTaskOfReference/CombineIntoThis",
+            "In/InstanceValueTaskOfReference/CombineIntoThis", "In/InstanceSequence/CombineIntoThis", "In/InstanceTaskOfSequence/CombineIntoThis",
+            "In/Constructor/CombineIntoThis"
         ]),
         (TASK_NOT_ASYNC, [
             "Ref/InstanceTaskOfReference/InvokeNow", "Ref/InstanceTaskOfReference/KeepInResult", "Ref/InstanceTaskOfReference/KeepInThis",
-            "Ref/InstanceTaskOfSequence/InvokeNow", "Ref/InstanceTaskOfSequence/KeepInResult", "Ref/InstanceTaskOfSequence/KeepInThis",
+            "Ref/InstanceTaskOfSequence/InvokeNow", "Ref/InstanceTaskOfSequence/KeepInThis",
             "Ref/InstanceTaskOfSequence/LazySequence",
             "Ref/InstanceValueTaskOfReference/InvokeNow", "Ref/InstanceValueTaskOfReference/KeepInResult", "Ref/InstanceValueTaskOfReference/KeepInThis",
             "Ref/StaticTaskOfReference/InvokeNow", "Ref/StaticTaskOfReference/KeepInResult",
-            "Ref/StaticTaskOfSequence/InvokeNow", "Ref/StaticTaskOfSequence/KeepInResult", "Ref/StaticTaskOfSequence/LazySequence",
-            "Ref/StaticValueTaskOfReference/InvokeNow", "Ref/StaticValueTaskOfReference/KeepInResult"
+            "Ref/StaticTaskOfSequence/InvokeNow", "Ref/StaticTaskOfSequence/LazySequence",
+            "Ref/StaticValueTaskOfReference/InvokeNow", "Ref/StaticValueTaskOfReference/KeepInResult",
+            "Ref/StaticTaskOfReference/DoNothing", "Ref/StaticValueTaskOfReference/DoNothing", "Ref/StaticTaskOfSequence/DoNothing",
+            "Ref/InstanceTaskOfReference/DoNothing", "Ref/InstanceValueTaskOfReference/DoNothing", "Ref/InstanceTaskOfSequence/DoNothing",
+            "Ref/StaticTaskOfReference/CompareOnly", "Ref/StaticValueTaskOfReference/CompareOnly", "Ref/StaticTaskOfSequence/CompareOnly",
+            "Ref/InstanceTaskOfReference/CompareOnly", "Ref/InstanceValueTaskOfReference/CompareOnly", "Ref/InstanceTaskOfSequence/CompareOnly",
+            "Ref/InstanceTaskOfReference/RemoveFromThis", "Ref/InstanceValueTaskOfReference/RemoveFromThis", "Ref/InstanceTaskOfSequence/RemoveFromThis",
+            "Ref/InstanceTaskOfReference/CombineIntoThis", "Ref/InstanceValueTaskOfReference/CombineIntoThis", "Ref/InstanceTaskOfSequence/CombineIntoThis"
         ]),
         (AWAITED_SEQUENCE, [
-            "Value/InstanceTaskOfSequence/KeepInResult", "Value/InstanceTaskOfSequence/LazySequence",
-            "Value/StaticTaskOfSequence/KeepInResult", "Value/StaticTaskOfSequence/LazySequence",
-            "Carried/InstanceTaskOfSequence/KeepInResult", "Carried/InstanceTaskOfSequence/LazySequence",
-            "Carried/StaticTaskOfSequence/KeepInResult", "Carried/StaticTaskOfSequence/LazySequence",
-            "TwoCarried/InstanceTaskOfSequence/KeepInResult", "TwoCarried/InstanceTaskOfSequence/LazySequence",
-            "TwoCarried/StaticTaskOfSequence/KeepInResult", "TwoCarried/StaticTaskOfSequence/LazySequence"
+            "Value/InstanceTaskOfSequence/LazySequence", "Value/StaticTaskOfSequence/LazySequence",
+            "Carried/InstanceTaskOfSequence/LazySequence", "Carried/StaticTaskOfSequence/LazySequence",
+            "TwoCarried/InstanceTaskOfSequence/LazySequence", "TwoCarried/StaticTaskOfSequence/LazySequence"
+        ]),
+        (NO_RUNNING_TRIGGER, [
+            "Value/StaticTaskOfReference/KeepInResult", "Value/StaticValueTaskOfReference/KeepInResult", "Value/InstanceTaskOfReference/KeepInResult",
+            "Value/InstanceValueTaskOfReference/KeepInResult", "Carried/StaticTaskOfReference/KeepInResult",
+            "Carried/StaticValueTaskOfReference/KeepInResult", "Carried/InstanceTaskOfReference/KeepInResult",
+            "Carried/InstanceValueTaskOfReference/KeepInResult", "TwoCarried/StaticTaskOfReference/KeepInResult",
+            "TwoCarried/StaticValueTaskOfReference/KeepInResult", "TwoCarried/InstanceTaskOfReference/KeepInResult",
+            "TwoCarried/InstanceValueTaskOfReference/KeepInResult"
         ]));
 
     private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -101,7 +131,11 @@ public sealed class FateMatrixTests
         DoNothing,
         InvokeNowAndKeepInResult,
         LazySequenceStartingTaskRun,
-        InvokeOneKeepOther
+        InvokeOneKeepOther,
+        KeepInThisBag,
+        CompareOnly,
+        CombineIntoThis,
+        RemoveFromThis
     }
 
     /// <summary>What a member returns, before any task around it.</summary>
@@ -261,10 +295,13 @@ public sealed class FateMatrixTests
     // ---- the table ----
 
     /// <summary>The cell's expected answer, from TD-034b's fates and G-5's applicability: <c>invoke-now</c> for a delegate run in the
-    /// call; <c>holder</c> <c>result</c> for one kept in the returned or constructed object, <c>holder</c> <c>this</c> for one kept in
-    /// the receiver of an instance method; <c>iterator</c> for a lazy sequence that runs it when enumerated; <c>unknown-execution</c>
-    /// for every other cell, for a fate the member's kind does not admit, and for a probe that setup's construction ran or handed to a
-    /// call the engine cannot follow.</summary>
+    /// call; <c>holder</c> <c>result</c> for one kept in the returned or constructed object that is no sequence — a sequence's
+    /// triggers can only call <c>GetEnumerator</c>, which never runs it (R7) — <c>holder</c> <c>this</c> for one kept in
+    /// the receiver of an instance method — combined into a field of it with <c>+=</c> included — that a trigger runs it from;
+    /// <c>iterator</c> for a lazy sequence that runs it when enumerated; <c>not-run</c> for one the member ignores, only compares or only
+    /// removes from a field with <c>-=</c> (R7); <c>unknown-execution</c> for every other cell — one kept where no member of the class
+    /// runs it included (R7) — for a fate the member's kind does not admit, and for a probe that setup's construction ran or handed to
+    /// a call the engine cannot follow.</summary>
     /// <param name="cell">The cell.</param>
     private static ClassifiedFate Expected(Cell cell)
     {
@@ -273,8 +310,11 @@ public sealed class FateMatrixTests
         var fate = cell.Act switch
         {
             Act.InvokeNow or Act.InvokeBeforeFirstAwait => InvokeNow,
-            Act.KeepInResult => HolderResult,
-            Act.KeepInThis => cell.Shape.Constructor ? HolderResult : HolderThis,
+            // R7: a holder needs a trigger that runs the delegate in its own execution; a sequence's static type offers only
+            // GetEnumerator, which never runs it.
+            Act.KeepInResult => cell.Shape.Result == Result.Sequence ? Unknown : HolderResult,
+            Act.KeepInThis or Act.CombineIntoThis => cell.Shape.Constructor ? HolderResult : HolderThis,
+            Act.DoNothing or Act.CompareOnly or Act.RemoveFromThis => NotRun,
             Act.LazySequence => Iterator,
             _ => Unknown
         };
@@ -294,12 +334,11 @@ public sealed class FateMatrixTests
         _ => true
     };
 
-    /// <summary>G-7's comparator: an answer is safe when it is the expected fate with the expected holder kind, <c>unknown-execution</c>,
-    /// or <c>holder</c> <c>result</c> where <c>iterator</c> is expected.</summary>
+    /// <summary>G-7's comparator, as <see cref="EntryComparator.FateIsSafe"/> decides it.</summary>
     /// <param name="actual">The classified fate.</param>
     /// <param name="expected">The expected fate.</param>
     private static bool IsSafe(ClassifiedFate actual, ClassifiedFate expected) =>
-        actual == expected || actual == Unknown || actual == HolderResult && expected == Iterator;
+        EntryComparator.FateIsSafe(expected.Fate, expected.Holder, actual.Fate, actual.Holder);
 
     /// <summary>The cell's classified fate; a cell with no classification counts as <c>unknown-execution</c>.</summary>
     /// <param name="answer">The answer.</param>
@@ -318,7 +357,8 @@ public sealed class FateMatrixTests
     /// <c>out</c> parameter; a member with no result keeps nothing in one; a static member has no <c>this</c>; a lazy sequence needs a
     /// sequence result; another slot of the value handed exists only for a carried handing, and two probes treated differently only for
     /// two carried probes. A constructor's <c>this</c> is the object it constructs, so keeping in the result and in <c>this</c> are both
-    /// keeping in it there, and keeping in both is one keep; a constructor returns no lazy sequence.</summary>
+    /// keeping in it there, and keeping in both is one keep; a constructor returns no lazy sequence. A static member has no receiver
+    /// field to keep in, combine into or remove from.</summary>
     private static IEnumerable<Cell> Cells() =>
         from handing in Enum.GetValues<Handing>()
         from shape in Shapes
@@ -336,6 +376,8 @@ public sealed class FateMatrixTests
             Act.InvokeBeforeFirstAwait => IsAsync(cell),
             Act.KeepInResult or Act.KeepInResultAndHandResult or Act.InvokeNowAndKeepInResult => hasResult,
             Act.KeepInThis or Act.KeepInThisAndHandThis => shape.Instance || shape.Constructor,
+            // A static member has no receiver field (R7).
+            Act.KeepInThisBag or Act.CombineIntoThis or Act.RemoveFromThis => shape.Instance || shape.Constructor,
             Act.KeepInResultAndThis => shape.Instance && shape.Result != Result.None,
             Act.LazySequence or Act.LazySequenceStartingTaskRun => shape.Result == Result.Sequence,
             Act.StoreIntoOtherSlot => cell.Handing is not (Handing.Value or Handing.In or Handing.Ref),
@@ -378,6 +420,8 @@ public sealed class FateMatrixTests
         string? result = null;
         string? helper = null;
         var iterator = false;
+        var fire = true;
+        string? combined = null;
         string Holder(IEnumerable<string> held)
         {
             var values = held.ToList();
@@ -501,6 +545,21 @@ public sealed class FateMatrixTests
                     result = Holder(["e"]);
 
                 break;
+            case Act.KeepInThisBag:
+                Keep(delegates);
+                fire = false;
+                break;
+            case Act.CompareOnly:
+                Each(d => shape.Result == Result.None ? $"if ({d} is null) return;" : $"if ({d} is null) {{ }}");
+                break;
+            case Act.CombineIntoThis:
+                Each(d => $"_h += {d};");
+                combined = "        public void Fire() { _h?.Invoke(); }\n";
+                break;
+            case Act.RemoveFromThis:
+                Each(d => $"_h -= {d};");
+                combined = "";
+                break;
         }
 
         var parameters = new List<string>
@@ -551,13 +610,16 @@ public sealed class FateMatrixTests
         text.Append("    {\n");
         foreach (var index in kept)
             text.Append("        private Action _").Append(index).Append(";\n");
+        if (combined is not null)
+            text.Append("        private Action _h;\n");
         text.Append("        ").Append(signature).Append('(').Append(string.Join(", ", parameters)).Append(")\n");
         text.Append("        {\n");
         foreach (var statement in body)
             text.Append("            ").Append(statement).Append('\n');
         text.Append("        }\n");
-        if (kept.Count > 0)
+        if (kept.Count > 0 && fire)
             text.Append("        public void Fire() { ").Append(string.Concat(kept.Select(index => $"_{index}(); "))).Append("}\n");
+        text.Append(combined ?? "");
         if (helper is not null)
         {
             text.Append("        private static IEnumerable<string> Lazy(").Append(string.Join(", ", delegates.Select(d => $"Action {d}"))).Append(")\n");

@@ -179,7 +179,6 @@ internal sealed class ModelLock
     {
         MethodKind.Constructor => "#ctor",
         MethodKind.StaticConstructor => "#cctor",
-        MethodKind.PropertyGet => "get_" + method.AssociatedSymbol!.Name,
         _ => method.Name
     };
 }

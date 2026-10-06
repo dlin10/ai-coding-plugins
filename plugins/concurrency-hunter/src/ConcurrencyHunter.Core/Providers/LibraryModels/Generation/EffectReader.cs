@@ -15,8 +15,10 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <param name="Roots"><c>V_Call</c> and/or <c>V_Enum</c>.</param>
 /// <param name="EnumerationRoots">The roots in which a <c>reads-deep</c> access was an enumeration read.</param>
 /// <param name="NonEnumerationRoots">The roots in which an access was not an enumeration read.</param>
+/// <param name="ReadsSeed">Whether a <c>reads-deep</c> of the receiver read a seed setup placed in it, standing for a user object a
+/// program stored there, or an object reachable from one.</param>
 public sealed record GeneratedEffect(string Kind, IReadOnlyList<string> Roots, IReadOnlyList<string> EnumerationRoots,
-                                     IReadOnlyList<string> NonEnumerationRoots);
+                                     IReadOnlyList<string> NonEnumerationRoots, bool ReadsSeed);
 
 /// <summary>A pre-existing library region the member stored into, with the roots in whose trees it did so.</summary>
 /// <param name="Region">The stored-into region.</param>
@@ -39,7 +41,10 @@ public sealed class EffectReader
     private readonly HeapReachability _reachability;
     private readonly Allocations _allocations;
     private readonly GenerationHandoffs _handoffs;
+    private readonly ValueObservation _observation;
     private readonly Dictionary<string, Allocation> _origins = new(StringComparer.Ordinal);
+    private Dictionary<(string Slot, string Region), HashSet<string>>? _setupSlotValues;
+    private ILookup<string, string>? _staticStorage;
     private readonly Dictionary<(string Parameter, string Kind), Observation> _effects = [];
     private readonly Dictionary<string, HashSet<string>> _stateStores = new(StringComparer.Ordinal);
     private readonly List<Input> _inputs = [];
@@ -47,6 +52,7 @@ public sealed class EffectReader
     private readonly HashSet<string> _witnessReturns = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unknownSensitive = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessObjects = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _receiverSeedObjects = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
     private bool _unknownTouch;
     private bool _incomplete;
@@ -55,7 +61,8 @@ public sealed class EffectReader
     /// <summary>Reads one completed driver run.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="run">The completed run.</param>
-    public EffectReader(Driver driver, ScopeRun run)
+    /// <param name="fates">The classified fates, or <c>null</c>: a parameter whose fate is <c>not-run</c> has no effect (R5).</param>
+    public EffectReader(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate>? fates = null)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no effects to read.", nameof(run));
@@ -69,6 +76,8 @@ public sealed class EffectReader
         _executions = new DriverExecutions(driver, _analysis, _reachability.From(result is null ? [] : _reachability.Targets(result)));
         _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability);
         _handoffs = new GenerationHandoffs(driver, run, _executions, _reachability);
+        _observation = new ValueObservation(driver, run, GenerationHandoffs.UnfollowedCalls(run).Select(call => (call.Instance.Id, call.OperationId))
+                                                                                             .ToHashSet());
 
         BuildInputs();
         BuildSpecialObjects();
@@ -81,7 +90,8 @@ public sealed class EffectReader
         if (AwaitsHoldingValue())
             _incomplete = true;
 
-        Effects = _effects.OrderBy(pair => pair.Key.Parameter, StringComparer.Ordinal).ThenBy(pair => pair.Key.Kind, StringComparer.Ordinal)
+        Effects = _effects.Where(pair => fates?.GetValueOrDefault(pair.Key.Parameter)?.Fate != FateClassifier.NOT_RUN)
+                          .OrderBy(pair => pair.Key.Parameter, StringComparer.Ordinal).ThenBy(pair => pair.Key.Kind, StringComparer.Ordinal)
                           .GroupBy(pair => pair.Key.Parameter, StringComparer.Ordinal)
                           .ToDictionary(group => group.Key,
                                         group => (IReadOnlyList<GeneratedEffect>)group.Select(pair => pair.Value.ToEffect(pair.Key.Kind)).ToArray(),
@@ -169,8 +179,32 @@ public sealed class EffectReader
         }
 
         _unknownSensitive.UnionWith(_reachability.From(probeStarts));
+        BuildReceiverSeedObjects();
         CloseInPlace(_probeReturns);
         CloseInPlace(_witnessReturns);
+    }
+
+    /// <summary>The seeds setup placed in the receiver and every object below them: found from the receiver's roots without ever
+    /// entering a probe or an argument's own object. A seed of an argument the member kept on the receiver is reached only through
+    /// that argument, whose own effect the entry names. An object an argument also reaches stays the receiver's when a path from the
+    /// receiver reaches it without the argument: the heap, which does not follow order, puts a seed setup stored below the receiver
+    /// into the argument kept there too, and the read of it is still a read of what the receiver held (R9).</summary>
+    private void BuildReceiverSeedObjects()
+    {
+        var arguments = _inputs.Where(input => !input.IsReceiver).SelectMany(input => input.Roots).ToHashSet(StringComparer.Ordinal);
+        var pending = new Stack<(string Region, bool BelowSeed)>(_inputs.Where(input => input.IsReceiver).SelectMany(input => input.Roots)
+                                                                         .Select(root => (root, false)));
+        var seen = new HashSet<(string, bool)>();
+        while (pending.TryPop(out var current))
+        {
+            if (arguments.Contains(current.Region) || IsProbeObject(current.Region) || !seen.Add(current))
+                continue;
+            var belowSeed = current.BelowSeed || Origin(current.Region).Role == DriverRole.Seed;
+            if (belowSeed)
+                _receiverSeedObjects.Add(current.Region);
+            foreach (var (_, target) in _reachability.Edges(current.Region))
+                pending.Push((target, belowSeed));
+        }
     }
 
     private void ReadReasonsFromHandoffs()
@@ -216,19 +250,22 @@ public sealed class EffectReader
         foreach (var input in Inputs(action))
         {
             if (input.ProbeGraph.Contains(access.RegionId) || input.IsCollection && input.Roots.Contains(access.RegionId))
-                AddEffect(input.Name, READS_DEEP, action, enumeration);
+                AddEffect(input.Name, READS_DEEP, action, enumeration, [access.RegionId]);
         }
     }
 
     private void ReadStore(CollectedAccess access, string action) =>
-        ReadStore(access.RegionId, access.Access.Field, access.Access.IsOnCollection && access.Access.Selector is not null, action);
+        ReadStore(access.RegionId, access.Access.Field, access.Access.IsOnCollection && access.Access.Selector is not null, action,
+                  _heap.Instances.TryGetValue(access.InstanceId, out var instance) &&
+                  IsDelegateSlotStore(instance, access.Access, access.RegionId));
 
     /// <summary>Classifies one library store outside setup into the object it writes: an effect, a state store or a model reason.</summary>
     /// <param name="region">The object written into.</param>
     /// <param name="field">The field written.</param>
     /// <param name="cell">Whether the store writes a cell of a collection.</param>
     /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
-    private void ReadStore(string region, IrFieldRef field, bool cell, string action)
+    /// <param name="delegateSlot">Whether <see cref="IsDelegateSlotStore"/> says the store is no state store.</param>
+    private void ReadStore(string region, IrFieldRef field, bool cell, string action, bool delegateSlot = false)
     {
         if (_probeReturns.Contains(region) || _witnessReturns.Contains(region))
         {
@@ -236,7 +273,7 @@ public sealed class EffectReader
             return;
         }
 
-        if (StructStorageStore(field, action))
+        if (StructStorageStore(field, action) || delegateSlot)
             return;
 
         var handled = false;
@@ -244,7 +281,7 @@ public sealed class EffectReader
         {
             if (input.IsArray && input.Roots.Contains(region) && cell)
             {
-                AddEffect(input.Name, WRITES_CELLS, action, enumeration: false);
+                AddEffect(input.Name, WRITES_CELLS, action, enumeration: false, []);
                 handled = true;
                 continue;
             }
@@ -270,13 +307,108 @@ public sealed class EffectReader
             if (input.IsReceiver && field.Assembly == _driver.Member.ContainingAssembly.Name)
                 AddStateStore(region, action);
             else
-                AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false);
+                AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false, []);
             handled = true;
         }
 
         if (!handled && !_witnessObjects.Contains(region) && !_allocations.CreatedByCall(region))
             AddStateStore(region, action);
     }
+
+    /// <summary>Whether a store is the slot a handler waits in, which is no library state (TD-034a, task 11): a store into a
+    /// delegate-typed field of the receiver or of a static, whose every object the heap says the value may point to is a probe of one
+    /// of the member's delegate parameters or an object setup stored into that same field of that same object (its seed), and whose
+    /// value may come from no origin the heap does not follow. <c>null</c> stores no object, and a removal keeps only its left
+    /// operand's objects (R3). The heap may merge the seeds of one delegate type, so a value read from a field holds the slot's
+    /// seed only when it reads that same field of that same object; a read of any other field qualifies only through probes. A read
+    /// of the slot itself is checked object by object like any value: a delegate the library put there — an event initializer, a
+    /// constructor's store — is no seed, so storing it back keeps the store a state store.
+    /// <see cref="ReadStore(CollectedAccess, string)"/> and <see cref="ReadUnknownDelegateStateStores"/> both ask it before
+    /// recording a state store.</summary>
+    /// <param name="instance">The library instance that stores.</param>
+    /// <param name="store">The store.</param>
+    /// <param name="region">The object written into.</param>
+    private bool IsDelegateSlotStore(MethodInstance instance, SummaryAccess store, string region)
+    {
+        if (store.Kind != SummaryAccessKind.Store || !IsDelegateField(store.Field))
+            return false;
+        var slotObject = store.Field.IsStatic
+            ? _heap.Regions.TryGetValue(region, out var held) && held.Kind == HeapRegionKind.Static
+            : _inputs.Any(input => input.IsReceiver && input.Roots.Contains(region));
+        if (!slotObject)
+            return false;
+
+        var producers = instance.Summary.Stores.Where(transfer => transfer.OperationId == store.OperationId)
+                                .Select(transfer => transfer.Producers);
+        if (_observation.HasUnobservedValues(instance, store.Values, ValueOrigin.Union(producers)))
+            return false;
+        var seeds = SetupSlotValues().GetValueOrDefault((FieldSlot.Key(store.Field), region));
+        foreach (var value in store.Values)
+        {
+            var seedable = ReadsOwnSlot(instance, value, store.Field, region) || value is not (PathValue or StaticFieldValue);
+            if (!_observation.Resolve(instance, value).All(stored => Origin(stored).Role == DriverRole.ProbeDelegate ||
+                                                                     seedable && Origin(stored).Role == DriverRole.Seed &&
+                                                                     seeds?.Contains(stored) == true))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Whether a value is a read of the slot itself: the same static field, or the same field of no object but the one
+    /// stored into.</summary>
+    /// <param name="instance">The library instance that stores.</param>
+    /// <param name="value">One alternative of the stored value.</param>
+    /// <param name="field">The field stored into.</param>
+    /// <param name="region">The object stored into.</param>
+    private bool ReadsOwnSlot(MethodInstance instance, AbstractValue value, IrFieldRef field, string region)
+    {
+        var slot = FieldSlot.Key(field);
+        if (value is StaticFieldValue @static)
+            return field.IsStatic && FieldSlot.Key(@static.Field) == slot;
+        if (field.IsStatic || value is not PathValue { Segments: [.., var last] } path || last != slot)
+            return false;
+        var owner = path.Segments.Count == 1 ? path.Base : path with { Segments = path.Segments.Take(path.Segments.Count - 1).ToArray() };
+        var owners = _observation.Resolve(instance, owner);
+        return owners.Count != 0 && owners.All(candidate => candidate == region);
+    }
+
+    /// <summary>What setup stored into each delegate-typed field of each object, by the field's slot and the object: the seeds the
+    /// slot holds before the call. A value setup read back from the same field is what the field held, not what setup put there, so
+    /// it does not count.</summary>
+    private Dictionary<(string Slot, string Region), HashSet<string>> SetupSlotValues()
+    {
+        if (_setupSlotValues is not null)
+            return _setupSlotValues;
+        _setupSlotValues = [];
+        foreach (var access in _analysis.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store && _executions.InSetup(access.ExecutionId)))
+        {
+            if (!IsDelegateField(access.Access.Field) || !_heap.Instances.TryGetValue(access.InstanceId, out var instance))
+                continue;
+            var key = (FieldSlot.Key(access.Access.Field), access.RegionId);
+            if (!_setupSlotValues.TryGetValue(key, out var values))
+                _setupSlotValues[key] = values = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var value in access.Access.Values.Where(value => !ReadsField(value, access.Access.Field)))
+                values.UnionWith(_observation.Resolve(instance, value));
+        }
+        return _setupSlotValues;
+    }
+
+    /// <summary>Whether a value is a read of a field's own slot: the same static field, or a path ending in it.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="field">The field.</param>
+    private static bool ReadsField(AbstractValue value, IrFieldRef field) => value switch
+    {
+        StaticFieldValue @static => FieldSlot.Key(@static.Field) == FieldSlot.Key(field),
+        PathValue { Segments: [.., var last] } => last == FieldSlot.Key(field),
+        _ => false
+    };
+
+    /// <summary>Whether a field, or the storage of a field-like event, has a delegate type.</summary>
+    /// <param name="field">The field.</param>
+    private bool IsDelegateField(IrFieldRef field) =>
+        FieldSymbols.TypeOf(field, _driver.Compilation) is { } type && TypeShape.Of(type) == TypeShapeKind.Delegate;
 
     /// <summary>A store into a field of a struct that sits in a field of an object, which the heap carries no region for: no
     /// collected access shows it, so it lands here (rule 2 of the run). A value that can hold a user object is kept where the heap
@@ -300,7 +432,7 @@ public sealed class EffectReader
     /// <summary>The field a store writes, when it is declared in a struct.</summary>
     /// <param name="field">The stored field.</param>
     private IFieldSymbol? StructField(IrFieldRef field) =>
-        DocumentationCommentId.GetFirstSymbolForDeclarationId($"F:{field.ContainingTypeId}.{field.Name}", _driver.Compilation) is IFieldSymbol
+        FieldSymbols.Of(field, _driver.Compilation) is IFieldSymbol
         {
             ContainingType.IsValueType: true
         } symbol ? symbol : null;
@@ -327,8 +459,9 @@ public sealed class EffectReader
         return owners;
     }
 
-    /// <summary>The objects a library store writes into: the regions its bases resolve to, and for a field of a struct held in an
-    /// object, that object.</summary>
+    /// <summary>The objects a library store writes into: the regions its bases resolve to, for a field of a struct held in an
+    /// object, that object, and for a static field, the static storage of its declaring type, which the collected accesses name
+    /// as the object a static store writes into (task 11).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="access">The store.</param>
     private IReadOnlySet<string> StoreTargets(MethodInstance instance, SummaryAccess access)
@@ -336,8 +469,15 @@ public sealed class EffectReader
         var targets = access.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
         if (StructField(access.Field) is not null)
             targets.UnionWith(StructOwners(instance, access));
+        if (access.Field.IsStatic)
+            targets.UnionWith(StaticStorage()[FieldSlot.TypeKey(access.Field.Assembly, access.Field.ContainingTypeId)]);
         return targets;
     }
+
+    /// <summary>The static storage regions of the run, by their declaring type without type arguments.</summary>
+    private ILookup<string, string> StaticStorage() =>
+        _staticStorage ??= _heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static && region.TypeKey is not null)
+                                .ToLookup(region => FieldSlot.WithoutTypeArguments(region.TypeKey!), region => region.Identity, StringComparer.Ordinal);
 
     /// <summary>The arrays a library instance's cell stores write into, directly or through a reference into a cell.</summary>
     /// <param name="instance">The library instance that stores.</param>
@@ -346,14 +486,16 @@ public sealed class EffectReader
                 .SelectMany(store => store.Arrays).SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Every object a library instance's own stores write into, whatever the kind of store: a field store, a cell store,
-    /// and a store through a reference into a cell or into a field (R6).</summary>
+    /// and a store through a reference into a cell or into a field (R6). A field store <see cref="IsDelegateSlotStore"/> says is no
+    /// state store writes no object here (task 11).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="unobserved">Whether a store through a reference has no proven place.</param>
     private IReadOnlySet<string> StoreTargets(MethodInstance instance, out bool unobserved)
     {
         unobserved = false;
         var targets = instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store)
-                              .SelectMany(access => StoreTargets(instance, access)).ToHashSet(StringComparer.Ordinal);
+                              .SelectMany(access => StoreTargets(instance, access).Where(region => !IsDelegateSlotStore(instance, access, region)))
+                              .ToHashSet(StringComparer.Ordinal);
         targets.UnionWith(CellStoreTargets(instance));
         foreach (var target in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store)
                                        .SelectMany(access => access.Targets))
@@ -464,7 +606,8 @@ public sealed class EffectReader
             if (unobserved && access.Kind == SummaryAccessKind.Store)
                 _vocabulary = true;
             foreach (var input in Inputs(action).Where(input => input.IsArray && input.Roots.Any(arrays.Contains)))
-                AddEffect(input.Name, access.Kind == SummaryAccessKind.Store ? WRITES_CELLS : READS_DEEP, action, enumeration: false);
+                AddEffect(input.Name, access.Kind == SummaryAccessKind.Store ? WRITES_CELLS : READS_DEEP, action, enumeration: false,
+                          input.Roots.Where(arrays.Contains));
             switch (target)
             {
                 case ReferenceParameter parameter when access.Kind == SummaryAccessKind.Store && Parameter(parameter.Ordinal) is
@@ -496,7 +639,7 @@ public sealed class EffectReader
             foreach (var input in inputs)
             {
                 if (reads)
-                    AddEffect(input.Name, READS_DEEP, action, enumeration);
+                    AddEffect(input.Name, READS_DEEP, action, enumeration, regions.Where(input.Reached.Contains));
                 if (writes)
                     _vocabulary = true;
             }
@@ -508,16 +651,16 @@ public sealed class EffectReader
             switch (effect.Kind)
             {
                 case IrLibraryEffectKind.DeepRead:
-                    AddEffect(input.Name, READS_DEEP, action, enumeration: false);
+                    AddEffect(input.Name, READS_DEEP, action, enumeration: false, regions.Where(input.Reached.Contains));
                     break;
                 case IrLibraryEffectKind.WriteArgument when input.OwnProbeRoots.Any(regions.Contains):
-                    AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false);
+                    AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false, []);
                     break;
                 case IrLibraryEffectKind.WriteArgument:
                     _vocabulary = true;
                     break;
                 case IrLibraryEffectKind.WriteCells when input.IsArray:
-                    AddEffect(input.Name, WRITES_CELLS, action, enumeration: false);
+                    AddEffect(input.Name, WRITES_CELLS, action, enumeration: false, []);
                     break;
             }
         }
@@ -541,7 +684,7 @@ public sealed class EffectReader
         foreach (var input in _inputs)
         {
             if (input.Reached.Any(_handoffs.WitnessedOutsideSetup.Contains))
-                AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false);
+                AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, input.Reached.Where(_handoffs.WitnessedOutsideSetup.Contains));
         }
 
         foreach (var regions in _handoffs.HandoffsOutsideSetup.Values)
@@ -549,7 +692,7 @@ public sealed class EffectReader
             if (!regions.Any(_witnessObjects.Contains))
                 continue;
             foreach (var input in _inputs.Where(input => input.Reached.Any(regions.Contains)))
-                AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false);
+                AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, regions.Where(input.Reached.Contains));
         }
     }
 
@@ -560,7 +703,7 @@ public sealed class EffectReader
         var paths = new List<string>();
         foreach (var statement in _driver.SeedStatements)
         {
-            if (SeedField(statement.Operation.Target) is not { } member)
+            if (SeedField(statement.Operation) is not { } member)
                 continue;
             // One statement at a time, by the store its own assignment makes: a reached seed of the same field elsewhere never
             // hides this one (task 6). A statement is reached only when that store is found: no store means unreached.
@@ -580,9 +723,10 @@ public sealed class EffectReader
     }
 
     /// <summary>The stores of a seed statement into its field: a store setup makes inside the statement, or, for an auto-property
-    /// the statement assigns through its setter, the setter instance's store into the backing field.</summary>
+    /// the statement assigns through its setter, the setter instance's store into the backing field, and for a field-like event
+    /// the statement subscribes to, the add accessor's compare-and-swap store into the event's storage.</summary>
     /// <param name="setup">The instances of the driver's setup body.</param>
-    /// <param name="member">The field or auto-property the statement seeds.</param>
+    /// <param name="member">The field, auto-property or field-like event the statement seeds.</param>
     /// <param name="span">The statement's assignment.</param>
     private IEnumerable<(MethodInstance Instance, SummaryAccess Access)> SeedStores(IReadOnlyList<MethodInstance> setup, ISymbol member,
                                                                                    FileLinePositionSpan span)
@@ -669,11 +813,20 @@ public sealed class EffectReader
     private bool MatchesUnseeded(IrFieldRef field) =>
         _unreachedFields.Concat(_driver.UnseededMembers).Any(member => Matches(field, member));
 
-    private void AddEffect(string parameter, string kind, string root, bool enumeration)
+    /// <summary>Records one effect on an argument, and for a <c>reads-deep</c> of the receiver whether the objects it read include a
+    /// seed setup placed in the receiver or an object reachable from one — the one place that answers it for every read.</summary>
+    /// <param name="parameter">The parameter name, or <c>this</c>.</param>
+    /// <param name="kind"><c>reads-deep</c>, <c>writes-arg</c> or <c>writes-cells</c>.</param>
+    /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    /// <param name="enumeration">Whether the access was an enumeration read.</param>
+    /// <param name="read">The objects a <c>reads-deep</c> read; empty for a write.</param>
+    private void AddEffect(string parameter, string kind, string root, bool enumeration, IEnumerable<string> read)
     {
         var key = (parameter, kind);
         if (!_effects.TryGetValue(key, out var observation))
             _effects[key] = observation = new Observation();
+        if (kind == READS_DEEP && parameter == FateClassifier.THIS && read.Any(_receiverSeedObjects.Contains))
+            observation.ReadsSeed = true;
         observation.Roots.Add(root);
         if (enumeration)
             observation.EnumerationRoots.Add(root);
@@ -770,6 +923,9 @@ public sealed class EffectReader
 
     private static ISymbol? SeedField(IOperation target) => target switch
     {
+        ISimpleAssignmentOperation assignment => SeedField(assignment.Target),
+        IEventAssignmentOperation subscription => SeedField(subscription.EventReference),
+        IEventReferenceOperation @event => @event.Event,
         IFieldReferenceOperation field => field.Field,
         IPropertyReferenceOperation property => property.Property,
         IConversionOperation conversion => SeedField(conversion.Operand),
@@ -809,7 +965,9 @@ public sealed class EffectReader
         public HashSet<string> Roots { get; } = new(StringComparer.Ordinal);
         public HashSet<string> EnumerationRoots { get; } = new(StringComparer.Ordinal);
         public HashSet<string> NonEnumerationRoots { get; } = new(StringComparer.Ordinal);
+        public bool ReadsSeed { get; set; }
 
-        public GeneratedEffect ToEffect(string kind) => new(kind, OrderRoots(Roots), OrderRoots(EnumerationRoots), OrderRoots(NonEnumerationRoots));
+        public GeneratedEffect ToEffect(string kind) =>
+            new(kind, OrderRoots(Roots), OrderRoots(EnumerationRoots), OrderRoots(NonEnumerationRoots), ReadsSeed);
     }
 }

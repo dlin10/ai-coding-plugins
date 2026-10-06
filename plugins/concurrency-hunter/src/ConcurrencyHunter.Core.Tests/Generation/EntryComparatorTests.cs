@@ -77,6 +77,72 @@ public sealed class EntryComparatorTests
         Unsafe(Answer(Model(fates: [Fate("f", LibraryFateKind.InvokeNow, inputs: [[]])])),
                EntryTruth.Entry(Model(fates: [Fate("f", LibraryFateKind.InvokeNow, inputs: [[Value("arg:p")]])])));
 
+    /// <summary>Every pair of the seven fate forms, as gold and as answer: the one owner, and the whole-entry comparison that asks it,
+    /// agree. A gold <c>not-run</c> admits every answer; an answered <c>not-run</c> narrows every other gold.</summary>
+    /// <param name="gold">The gold fate, with its holder after a space.</param>
+    /// <param name="answer">The answered fate, with its holder after a space.</param>
+    /// <param name="safe">Whether the answer is no unsafe narrowing of the gold.</param>
+    [Theory]
+    [InlineData("invoke-now", "invoke-now", true)]
+    [InlineData("invoke-now", "iterator", false)]
+    [InlineData("invoke-now", "startup", false)]
+    [InlineData("invoke-now", "unknown-execution", true)]
+    [InlineData("invoke-now", "not-run", false)]
+    [InlineData("invoke-now", "holder this", false)]
+    [InlineData("invoke-now", "holder result", false)]
+    [InlineData("iterator", "invoke-now", false)]
+    [InlineData("iterator", "iterator", true)]
+    [InlineData("iterator", "startup", false)]
+    [InlineData("iterator", "unknown-execution", true)]
+    [InlineData("iterator", "not-run", false)]
+    [InlineData("iterator", "holder this", false)]
+    [InlineData("iterator", "holder result", true)]
+    [InlineData("startup", "invoke-now", false)]
+    [InlineData("startup", "iterator", false)]
+    [InlineData("startup", "startup", true)]
+    [InlineData("startup", "unknown-execution", true)]
+    [InlineData("startup", "not-run", false)]
+    [InlineData("startup", "holder this", false)]
+    [InlineData("startup", "holder result", false)]
+    [InlineData("unknown-execution", "invoke-now", false)]
+    [InlineData("unknown-execution", "iterator", false)]
+    [InlineData("unknown-execution", "startup", false)]
+    [InlineData("unknown-execution", "unknown-execution", true)]
+    [InlineData("unknown-execution", "not-run", false)]
+    [InlineData("unknown-execution", "holder this", false)]
+    [InlineData("unknown-execution", "holder result", false)]
+    [InlineData("not-run", "invoke-now", true)]
+    [InlineData("not-run", "iterator", true)]
+    [InlineData("not-run", "startup", true)]
+    [InlineData("not-run", "unknown-execution", true)]
+    [InlineData("not-run", "not-run", true)]
+    [InlineData("not-run", "holder this", true)]
+    [InlineData("not-run", "holder result", true)]
+    [InlineData("holder this", "invoke-now", false)]
+    [InlineData("holder this", "iterator", false)]
+    [InlineData("holder this", "startup", false)]
+    [InlineData("holder this", "unknown-execution", true)]
+    [InlineData("holder this", "not-run", false)]
+    [InlineData("holder this", "holder this", true)]
+    [InlineData("holder this", "holder result", false)]
+    [InlineData("holder result", "invoke-now", false)]
+    [InlineData("holder result", "iterator", false)]
+    [InlineData("holder result", "startup", false)]
+    [InlineData("holder result", "unknown-execution", true)]
+    [InlineData("holder result", "not-run", false)]
+    [InlineData("holder result", "holder this", false)]
+    [InlineData("holder result", "holder result", true)]
+    public void Fate_safety_of_every_gold_and_answer_pair(string gold, string answer, bool safe)
+    {
+        var (goldFate, goldHolder) = Split(gold);
+        var (answeredFate, answeredHolder) = Split(answer);
+
+        Assert.Equal(safe, EntryComparator.FateIsSafe(goldFate, goldHolder, answeredFate, answeredHolder));
+        var comparison = EntryComparator.Compare(Answer(Model(fates: [FateOf(answer)])), EntryTruth.Entry(Model(fates: [FateOf(gold)])));
+        Assert.Equal(!safe, comparison.IsUnsafeNarrowing);
+        Assert.Equal(gold == answer, comparison.IsExact);
+    }
+
     [Fact]
     public void Wider_answers_are_safe_but_not_exact()
     {
@@ -148,6 +214,28 @@ public sealed class EntryComparatorTests
     private static LibraryFate Fate(string parameter, LibraryFateKind kind, LibraryHolderKind? holder = null,
                                     IReadOnlyList<IReadOnlyList<LibraryValue>>? inputs = null) =>
         new(parameter, kind, holder, inputs);
+
+    private static (string Fate, string? Holder) Split(string form) =>
+        form.Split(' ') is [var fate, var holder] ? (fate, holder) : (form, null);
+
+    private static LibraryFate FateOf(string form)
+    {
+        var (fate, holder) = Split(form);
+        return Fate("f", fate switch
+        {
+            FateClassifier.INVOKE_NOW => LibraryFateKind.InvokeNow,
+            FateClassifier.ITERATOR => LibraryFateKind.Iterator,
+            "startup" => LibraryFateKind.Startup,
+            FateClassifier.UNKNOWN_EXECUTION => LibraryFateKind.UnknownExecution,
+            FateClassifier.NOT_RUN => LibraryFateKind.NotRun,
+            _ => LibraryFateKind.Holder
+        }, holder switch
+        {
+            FateClassifier.RESULT => LibraryHolderKind.Result,
+            FateClassifier.THIS => LibraryHolderKind.This,
+            _ => null
+        });
+    }
 
     private static IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Values(string place, params string[] values) =>
         new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal) { [place] = values.Select(Value).ToArray() };

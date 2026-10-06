@@ -259,8 +259,12 @@ public static class IrLowering
             SymbolNames.Type(parameter.Type),
             SymbolNames.TypeIdentity(parameter.ContainingType)) { FieldTypeKey = SymbolNames.TypeKey(parameter.Type) };
 
-    /// <summary>The field and property initializers of <paramref name="type"/> with the member each initializes, instance or
-    /// static, ordered by file path (ordinal) and span start.</summary>
+    /// <summary>The field, field-like event and property initializers of <paramref name="type"/> with the member each initializes
+    /// (an event's backing field for an event's), instance or static, ordered by file path (ordinal) and span start.</summary>
+    /// <param name="type">The type whose declarations hold the initializers.</param>
+    /// <param name="isStatic">Whether to collect the static initializers rather than the instance ones.</param>
+    /// <param name="compilation">The compilation the type is declared in.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
     internal static IReadOnlyList<(EqualsValueClauseSyntax Clause, ISymbol Member)> Initializers(
         INamedTypeSymbol type, bool isStatic, Compilation compilation, CancellationToken cancellationToken)
     {
@@ -287,6 +291,21 @@ public static class IrLowering
                     case PropertyDeclarationSyntax { Initializer: { } initializer } property
                         when model.GetDeclaredSymbol(property, cancellationToken) is { } symbol && symbol.IsStatic == isStatic:
                         initializers.Add((initializer, symbol));
+                        break;
+                    // A field-like event's initializer stores into the field the compiler declares for it (ADR 0014), whose
+                    // initializer it is.
+                    case EventFieldDeclarationSyntax @event:
+                        foreach (var variable in @event.Declaration.Variables)
+                        {
+                            if (variable.Initializer is not null &&
+                                model.GetDeclaredSymbol(variable, cancellationToken) is IEventSymbol symbol && symbol.IsStatic == isStatic)
+                            {
+                                var owner = model.GetOperation(variable.Initializer, cancellationToken) is IFieldInitializerOperation { InitializedFields: [var field] }
+                                    ? field
+                                    : (ISymbol)symbol;
+                                initializers.Add((variable.Initializer, owner));
+                            }
+                        }
                         break;
                 }
             }
@@ -360,6 +379,10 @@ public static class IrLowering
                 when method.AssociatedSymbol is IPropertySymbol property && IsAutoProperty(property, cancellationToken):
                 segments.Add(new AutoAccessorSegment(property, declaration ?? property.DeclaringSyntaxReferences[0].GetSyntax(cancellationToken)));
                 break;
+            case MethodKind.EventAdd or MethodKind.EventRemove
+                when method.AssociatedSymbol is IEventSymbol @event && FieldLikeEvents.Is(@event):
+                segments.Add(new FieldLikeEventAccessorSegment(@event, declaration ?? @event.DeclaringSyntaxReferences[0].GetSyntax(cancellationToken)));
+                break;
             default:
                 if (declaration is null)
                     throw new ArgumentException("The method has no source body.", nameof(method));
@@ -399,8 +422,9 @@ public static class IrLowering
         })).ToArray();
     }
 
-    /// <summary>Whether a reference sits in a field or property initializer and not in a lambda or local function that initializer
-    /// declares; the constructor runs such a reference itself, so it is not a capture.</summary>
+    /// <summary>Whether a reference sits in a field, field-like event or property initializer and not in a lambda or local function
+    /// that initializer declares; the constructor runs such a reference itself, so it is not a capture.</summary>
+    /// <param name="reference">The referencing syntax.</param>
     private static bool IsDirectlyInInitializer(SyntaxNode reference)
     {
         foreach (var ancestor in reference.Ancestors())
@@ -409,7 +433,7 @@ public static class IrLowering
                 return false;
             if (ancestor is EqualsValueClauseSyntax
                 {
-                    Parent: VariableDeclaratorSyntax { Parent.Parent: FieldDeclarationSyntax } or PropertyDeclarationSyntax
+                    Parent: VariableDeclaratorSyntax { Parent.Parent: FieldDeclarationSyntax or EventFieldDeclarationSyntax } or PropertyDeclarationSyntax
                 })
             {
                 return true;
@@ -430,6 +454,11 @@ public static class IrLowering
     private sealed record ImplicitBaseCallSegment(IMethodSymbol Constructor, SyntaxNode Syntax) : Segment;
 
     private sealed record AutoAccessorSegment(IPropertySymbol Property, SyntaxNode Syntax) : Segment;
+
+    /// <summary>The compiler's body of a field-like event's add or remove accessor (ADR 0014).</summary>
+    /// <param name="Event">The field-like event.</param>
+    /// <param name="Syntax">The syntax the body's operations are attributed to.</param>
+    private sealed record FieldLikeEventAccessorSegment(IEventSymbol Event, SyntaxNode Syntax) : Segment;
 
     private sealed record LoweringContext(string RootBodyId, SiteOrdinals SiteOrdinals, string RootDirectory,
                                           Compilation Compilation, CancellationToken CancellationToken, LibraryModels LibraryModels)
@@ -838,6 +867,22 @@ public static class IrLowering
                                                               provenance));
                     return IrBranchKind.Regular;
                 }
+                // The compiler's accessor reads the field, combines the handler into it or removes the handler from it, and stores the
+                // result with a compare-and-swap against the value it read, retrying until none came between (ADR 0014).
+                case FieldLikeEventAccessorSegment accessor:
+                {
+                    var field = FieldLikeEvents.FieldRef(accessor.Event);
+                    var provenance = Provenance(accessor.Syntax, "field-like-event");
+                    var loaded = AddTemporary(accessor.Event.Type);
+                    var loadId = NextOperation();
+                    _operations.Add(new IrLoadFieldOperation(loadId, loaded, _receiverValue, field, provenance));
+                    var combined = CombineDelegates(_method.MethodKind == MethodKind.EventRemove, [loaded, current[_method.Parameters[^1]]],
+                                                    accessor.Event.Type, provenance);
+                    var storeId = NextOperation();
+                    _operations.Add(new IrStoreFieldOperation(storeId, _receiverValue, field, combined, loadId, provenance));
+                    _operations.Add(Atomic(storeId, IrAtomicEffect.CompareAndSwap, "Interlocked.CompareExchange", null, provenance, loaded));
+                    return IrBranchKind.Regular;
+                }
                 default:
                     throw new ArgumentOutOfRangeException(nameof(segment), segment.GetType().FullName);
             }
@@ -1118,6 +1163,9 @@ public static class IrLowering
 
         /// <summary>One <c>lock</c> statement the compiler left unlowered: the statement, the expression it locks and the blocks
         /// its body covers.</summary>
+        /// <param name="Statement">The <c>lock</c> statement.</param>
+        /// <param name="Gate">The expression it locks.</param>
+        /// <param name="Blocks">The blocks its body covers.</param>
         private sealed record LockSectionInfo(LockStatementSyntax Statement, IOperation Gate, HashSet<int> Blocks);
 
         private void LowerTop(IOperation operation)
@@ -1178,6 +1226,7 @@ public static class IrLowering
                 IFieldReferenceOperation { Field.IsConst: true } field when field.ConstantValue.HasValue =>
                     Constant(field, "constant"),
                 IFieldReferenceOperation field => LowerFieldLoad(field, "direct"),
+                IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event) => LowerEventStorageLoad(reference),
                 IPropertyReferenceOperation property => LowerPropertyLoad(property),
                 IParameterReferenceOperation parameter => parameter.Parameter.RefKind == RefKind.None
                     ? LowerParameter(parameter) : LowerReferencedParameter(parameter),
@@ -1205,9 +1254,7 @@ public static class IrLowering
                 ISwitchExpressionOperation @switch => LowerSwitchExpression(@switch),
                 IDelegateCreationOperation delegateCreation => LowerDelegateCreation(delegateCreation),
                 ICollectionExpressionOperation collection => LowerCollectionExpression(collection),
-                IEventAssignmentOperation { Adds: true, EventReference: IEventReferenceOperation { Instance: not null } reference } assignment
-                    when reference.Event.Name == "Elapsed" && Bcl.TypeOf(reference.Event) == Bcl.TIMERS_TIMER =>
-                    LowerElapsedSubscription(assignment, reference),
+                IEventAssignmentOperation assignment => LowerEventAssignment(assignment),
                 IArgumentOperation argument => LowerArgument(argument) ?? Unknown(argument, "address-taken"),
                 IDynamicInvocationOperation invocation => LowerDynamicInvocation(invocation),
                 IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation => LowerDynamicRead(operation),
@@ -1239,6 +1286,14 @@ public static class IrLowering
                                                                 Provenance(field, "address")));
                     return address;
                 }
+                case IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event):
+                {
+                    var location = GetEventLocation(reference);
+                    var address = AddTemporary(reference.Type);
+                    _operations.Add(new IrAddressFieldOperation(NextOperation(), address, location.Receiver, location.Field,
+                                                                Provenance(reference, "address")));
+                    return address;
+                }
                 case IArrayElementReferenceOperation element:
                 {
                     var receiver = LowerValue(element.ArrayReference);
@@ -1259,9 +1314,12 @@ public static class IrLowering
                 }
                 case IPropertyReferenceOperation property when IsElementIndexer(property):
                 {
-                    var address = AddCall(property, property.Property.GetMethod!, LowerValue(property.Instance!),
-                                          LowerArguments(property.Arguments), property.Type);
-                    _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property));
+                    var getter = property.Property.GetMethod!;
+                    var receiver = LowerValue(property.Instance!);
+                    var arguments = LowerArguments(property.Arguments);
+                    var address = AddCall(property, getter, receiver, arguments, property.Type);
+                    _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
+                                                          property.Arguments, arguments);
                     return address;
                 }
                 case IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly:
@@ -1299,10 +1357,8 @@ public static class IrLowering
                 var loaded = LowerReferenceLoad(address, compound.Target);
                 var loadId = ((IrLoadReferenceOperation)_operations[^1]).Id;
                 var right = LowerValue(compound.Value);
-                var result = AddTemporary(compound.Type);
                 var provenance = Provenance(compound, "compound-assignment");
-                _operations.Add(new IrComputeOperation(NextOperation(), result, compound.OperatorKind.ToString(),
-                                                      [loaded, right], provenance));
+                var result = CompoundResult(compound, loaded, right);
                 _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, result, loadId, provenance));
                 return result;
             }
@@ -1315,9 +1371,7 @@ public static class IrLowering
                     loadId, loaded, location.Receiver, location.Field, provenance));
                 MarkVolatile(location.Field, loadId, IrAtomicEffect.Read, provenance);
                 var right = LowerValue(compound.Value);
-                var result = AddTemporary(compound.Type);
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], provenance));
+                var result = CompoundResult(compound, loaded, right);
                 var storeId = NextOperation();
                 _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, result, loadId, provenance));
                 MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
@@ -1336,10 +1390,7 @@ public static class IrLowering
             {
                 var left = GetSymbolValue(symbol);
                 var right = LowerValue(compound.Value);
-                var result = AddTemporary(compound.Type);
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), result, compound.OperatorKind.ToString(), [left, right],
-                    Provenance(compound, "compound-assignment")));
+                var result = CompoundResult(compound, left, right);
                 StoreSymbol(symbol, result, compound, "compound-assignment");
                 return result;
             }
@@ -1348,9 +1399,7 @@ public static class IrLowering
             {
                 var loaded = Unknown(target, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
                 var right = LowerValue(compound.Value);
-                var result = AddTemporary(compound.Type);
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
+                var result = CompoundResult(compound, loaded, right);
                 Unknown(compound, "unsupported", [.. dynamicTarget.Operands, result], dynamicTarget.Set);
                 return result;
             }
@@ -1361,27 +1410,80 @@ public static class IrLowering
             {
                 var loaded = LowerCaptureReference(captured);
                 var right = LowerValue(compound.Value);
-                var result = AddTemporary(compound.Type);
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
+                var result = CompoundResult(compound, loaded, right);
                 write(result, compound, "compound-assignment");
                 return result;
             }
 
             if (IsLongFormTarget(target))
             {
-                return LowerLongForm(target, compound, "compound-assignment", loaded =>
-                {
-                    var right = LowerValue(compound.Value);
-                    var result = AddTemporary(compound.Type);
-                    _operations.Add(new IrComputeOperation(
-                        NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], Provenance(compound, "compound-assignment")));
-                    return result;
-                }).Written;
+                return LowerLongForm(target, compound, "compound-assignment", loaded => CompoundResult(compound, loaded, LowerValue(compound.Value))).Written;
             }
 
             // A target the lowering does not model still evaluates its receiver, its indices and the right-hand side (R2).
             return Unknown(compound, "unsupported", [.. target.ChildOperations.Select(LowerValue), LowerValue(compound.Value)]);
+        }
+
+        /// <summary>What a compound assignment computes from the target's value and the right-hand side: the combination or removal of
+        /// delegates where it is one (R3), the operator's compute otherwise.</summary>
+        /// <param name="compound">The compound assignment.</param>
+        /// <param name="loaded">The target's value before the assignment.</param>
+        /// <param name="right">The right-hand side's value.</param>
+        private int CompoundResult(ICompoundAssignmentOperation compound, int loaded, int right)
+        {
+            var provenance = Provenance(compound, "compound-assignment");
+            if (DelegateCombination.Of(compound) is { } combination)
+                return CombineDelegates(combination.Removes, [loaded, right], compound.Type, provenance);
+
+            var result = AddTemporary(compound.Type);
+            _operations.Add(new IrComputeOperation(NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], provenance));
+            return result;
+        }
+
+        /// <summary>The one builder of a delegate combination or removal (R3), whatever form it is written in: a new delegate that may
+        /// run every delegate its contributing operands may run.</summary>
+        /// <param name="removes">Whether it removes its later operand from its first rather than combining them.</param>
+        /// <param name="operands">The operand values in parameter order, the left operand or <c>source</c> first.</param>
+        /// <param name="type">The type of the combined delegate.</param>
+        /// <param name="provenance">The source location and lowering evidence.</param>
+        private int CombineDelegates(bool removes, IReadOnlyList<int> operands, ITypeSymbol? type, IrProvenance provenance)
+        {
+            var result = AddTemporary(type);
+            _operations.Add(new IrCombineDelegatesOperation(NextOperation(), result, removes, operands, provenance));
+            return result;
+        }
+
+        /// <summary>A <c>Delegate.Combine</c>, <c>Remove</c> or <c>RemoveAll</c> as the combination it is (R3): the arguments lowered as
+        /// any call's are, then the combination of the delegates they pass, of those the call lists, or of what an existing array's
+        /// cells hold, read as an element load of no one cell.</summary>
+        /// <param name="invocation">The call.</param>
+        /// <param name="combination">What <see cref="DelegateCombination.Of"/> answered for it.</param>
+        private int LowerCombinationCall(IInvocationOperation invocation, DelegateCombination combination)
+        {
+            var arguments = LowerArguments(invocation.Arguments);
+            IReadOnlyList<int> operands;
+            if (combination.CombinesCells)
+            {
+                var array = ArgumentValue(arguments, 0) ?? throw new UnreachableException("A combined array has no argument value.");
+                var loaded = AddTemporary(((IArrayTypeSymbol)invocation.TargetMethod.Parameters[0].Type).ElementType);
+                _operations.Add(new IrLoadElementOperation(NextOperation(), loaded, array, [], Provenance(invocation, "element-load"))
+                {
+                    NamesOneCell = false
+                });
+                operands = [loaded];
+            }
+            else if (combination.ListedIn is { } listed)
+            {
+                operands = ListedElements(listed) ?? throw new UnreachableException("The delegates a combination lists were not lowered.");
+            }
+            else
+            {
+                operands = combination.Operands.Select(operand => ArgumentValue(arguments, ((IArgumentOperation)operand.Parent!).Parameter!.Ordinal)
+                                                                  ?? throw new UnreachableException("A combined delegate has no argument value."))
+                                      .ToArray();
+            }
+
+            return CombineDelegates(combination.Removes, operands, invocation.Type, Provenance(invocation, "call"));
         }
 
         private int LowerIncrement(IIncrementOrDecrementOperation increment)
@@ -1485,6 +1587,7 @@ public static class IrLowering
 
         /// <summary>The first half of a long form: the receiver and every index lowered once and the target read, with the write of a value
         /// to the same target through the same receiver and indices.</summary>
+        /// <param name="target">The long form's target.</param>
         private (int Read, Action<int, IOperation, string> Write) LowerLongFormRead(IOperation target)
         {
             if (target is IPropertyReferenceOperation property)
@@ -1616,6 +1719,15 @@ public static class IrLowering
                     var storeId = NextOperation();
                     _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, value, coalesceLoad, provenance));
                     MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
+                    return value;
+                }
+                case IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event):
+                {
+                    var location = GetEventLocation(reference);
+                    var coalesceLoad = CoalesceLoad(target);
+                    _operations.Add(new IrStoreFieldOperation(
+                        NextOperation(), location.Receiver, location.Field, value, coalesceLoad,
+                        Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment")));
                     return value;
                 }
                 case IPropertyReferenceOperation property when IsAutomatic(property.Property):
@@ -1774,6 +1886,18 @@ public static class IrLowering
             return result;
         }
 
+        /// <summary>A field-like event read as the field it is (ADR 0014): raising it, copying it or testing it reads its storage.</summary>
+        /// <param name="reference">The reference to a field-like event.</param>
+        private int LowerEventStorageLoad(IEventReferenceOperation reference)
+        {
+            var location = GetEventLocation(reference);
+            var result = AddTemporary(reference.Type);
+            var operationId = NextOperation();
+            _operations.Add(new IrLoadFieldOperation(operationId, result, location.Receiver, location.Field, Provenance(reference, "direct")));
+            RememberCoalesceLoad(reference, operationId);
+            return result;
+        }
+
         private int LowerPropertyLoad(IPropertyReferenceOperation property)
         {
             // Reading through a ref-returning indexer reads one cell of the receiver's own storage (TD-043).
@@ -1810,11 +1934,17 @@ public static class IrLowering
             return CallGetter(property, receiver, LowerArguments(property.Arguments));
         }
 
-        /// <summary>The call of a property's getter on a receiver and arguments already lowered.</summary>
+        /// <summary>The call of a property's getter on a receiver and arguments already lowered, with a library model's effects bound
+        /// to its indexer arguments (R4).</summary>
+        /// <param name="property">The property or indexer read.</param>
+        /// <param name="receiver">The receiver's value; null for a static property.</param>
+        /// <param name="arguments">The indexer arguments' lowered values and ordinals.</param>
         private int CallGetter(IPropertyReferenceOperation property, int? receiver, LoweredArguments arguments)
         {
-            var value = AddCall(property, property.Property.GetMethod!, receiver, arguments, property.Type);
-            _operations[^1] = AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property));
+            var getter = property.Property.GetMethod!;
+            var value = AddCall(property, getter, receiver, arguments, property.Type);
+            _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
+                                                  property.Arguments, arguments);
             return value;
         }
 
@@ -1827,7 +1957,14 @@ public static class IrLowering
             return CallSetter(property, receiver, LowerArguments(property.Arguments), value, source, transformation);
         }
 
-        /// <summary>The call of a property's setter with <paramref name="value"/> on a receiver and arguments already lowered.</summary>
+        /// <summary>The call of a property's setter with <paramref name="value"/> on a receiver and arguments already lowered, with a
+        /// library model's effects bound to its indexer arguments and the value (R4).</summary>
+        /// <param name="property">The property or indexer written.</param>
+        /// <param name="receiver">The receiver's value; null for a static property.</param>
+        /// <param name="arguments">The indexer arguments' lowered values and ordinals.</param>
+        /// <param name="value">The value the setter is given.</param>
+        /// <param name="source">The operation that writes the property.</param>
+        /// <param name="transformation">The provenance's transformation.</param>
         private int CallSetter(IPropertyReferenceOperation property, int? receiver, LoweredArguments arguments, int value,
                                IOperation source, string transformation)
         {
@@ -1837,7 +1974,8 @@ public static class IrLowering
                 Values = [.. arguments.Values, value],
                 Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
             };
-            _operations.Add(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property)));
+            _operations.Add(AnnotateLibraryCall(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property)),
+                                                setter, property.Arguments, arguments));
             if (receiver is int timer && Bcl.TypeOf(setter) == Bcl.TIMERS_TIMER && property.Property.Name is "AutoReset" or "Enabled")
             {
                 var action = property.Property.Name == "AutoReset" ? IrTimerAction.SetAutoReset : IrTimerAction.SetEnabled;
@@ -2015,6 +2153,7 @@ public static class IrLowering
 
         /// <summary>Whether a captured operation is a target <see cref="LowerLongForm"/> lowers, read as a load of it would read it: an array
         /// element, or a property with both accessors whose getter the lowering calls.</summary>
+        /// <param name="captured">The captured operation.</param>
         private bool IsCapturedLongFormTarget(IOperation captured) =>
             captured is IArrayElementReferenceOperation ||
             captured is IPropertyReferenceOperation { Property: { GetMethod: not null, SetMethod: not null } } property &&
@@ -2039,13 +2178,15 @@ public static class IrLowering
             // its arguments, so nothing runs here and there is nothing opaque about it.
             if (method.IsPartialDefinition && method.PartialImplementationPart is null)
                 return Constant(invocation, null, "removed-partial-call");
+            if (!asAddress && DelegateCombination.Of(invocation) is { } combination)
+                return LowerCombinationCall(invocation, combination);
 
             int? receiver = invocation.Instance is null ? null : LowerValue(invocation.Instance);
             var arguments = LowerArguments(invocation.Arguments);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
                                  ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
             var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
-            call = AnnotateLibraryCall(call, invocation.Arguments, arguments) with { CreatedArrayArguments = CreatedArrays(invocation.Arguments) };
+            call = AnnotateLibraryCall(call, method, invocation.Arguments, arguments) with { CreatedArrayArguments = CreatedArrays(invocation.Arguments) };
             _operations[^1] = call;
 
             if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
@@ -2288,15 +2429,18 @@ public static class IrLowering
             }
         }
 
-        /// <summary>Binds each effect of a library call to the values it applies to (R3): the argument, or each element of a
-        /// <c>params</c> array or slice the call creates, which are arguments of their own. A value of an immutable type touches
-        /// nothing and is left out; a framework slice handed over ready is marked, since its effect is on the storage it is cut
-        /// from.</summary>
+        /// <summary>Binds each effect of a library call to the values it applies to (R3, R4): the call's own argument value of the
+        /// effect's parameter ordinal — an invocation's or a creation's argument, an accessor's indexer argument, the value a setter
+        /// is given or the handler an event accessor is given — or each element of a <c>params</c> array or slice the call creates,
+        /// which are arguments of their own. A value of an immutable type touches nothing and is left out; a framework slice handed
+        /// over ready is marked, since its effect is on the storage it is cut from.</summary>
         /// <param name="call">The lowered library call.</param>
-        /// <param name="argumentOperations">The arguments' source operations.</param>
+        /// <param name="method">The method the call calls, whose parameters the effects name.</param>
+        /// <param name="argumentOperations">The source operations of the arguments that have one; a setter's value and an event
+        /// accessor's handler have none.</param>
         /// <param name="arguments">The arguments' lowered values and ordinals.</param>
-        private IrCallOperation AnnotateLibraryCall(IrCallOperation call, IEnumerable<IArgumentOperation> argumentOperations,
-                                                    LoweredArguments arguments)
+        private IrCallOperation AnnotateLibraryCall(IrCallOperation call, IMethodSymbol method,
+                                                    IEnumerable<IArgumentOperation> argumentOperations, LoweredArguments arguments)
         {
             if (call.Library is not { Effects.Count: > 0 } library)
                 return call;
@@ -2309,9 +2453,12 @@ public static class IrLowering
                     return effect with { Arguments = target is int array ? [new IrLibraryArgument(array, false)] : [] };
                 }
                 var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal == effect.ParameterOrdinal);
-                if (argument is null)
+                var parameter = argument?.Parameter ??
+                                (effect.ParameterOrdinal >= 0 && effect.ParameterOrdinal < method.Parameters.Length ? method.Parameters[effect.ParameterOrdinal] : null);
+                if (parameter is null)
                     return effect;
-                if (argument.ArgumentKind is ArgumentKind.ParamArray or ArgumentKind.ParamCollection &&
+                if (argument is not null &&
+                    argument.ArgumentKind is ArgumentKind.ParamArray or ArgumentKind.ParamCollection &&
                     ListedElements(argument.Value) is { } listed && Unwrapped(argument.Value) is var created &&
                     (created is IArrayCreationOperation { Initializer: { } initializer } ? initializer.ElementValues
                         : created is ICollectionExpressionOperation collection ? collection.Elements
@@ -2324,13 +2471,15 @@ public static class IrLowering
                     };
                 }
 
-                return ArgumentValue(arguments, effect.ParameterOrdinal) is int value && !IsImmutableValue(argument.Value)
+                // A value with no operation of its own is judged by the parameter it is handed to.
+                return ArgumentValue(arguments, effect.ParameterOrdinal) is int value &&
+                       !IsImmutableType(argument is null ? parameter.Type : Unwrapped(argument.Value).Type)
                     ? effect with
                     {
                         // The parameter as declared: `TEntity entity` takes one entity whatever type the call gives it.
-                        Arguments = [new IrLibraryArgument(value, IsFrameworkSlice(argument.Parameter!.Type))
+                        Arguments = [new IrLibraryArgument(value, IsFrameworkSlice(parameter.Type))
                         {
-                            IsSequence = IsSequence(argument.Parameter.OriginalDefinition.Type)
+                            IsSequence = IsSequence(parameter.OriginalDefinition.Type)
                         }]
                     }
                     : effect;
@@ -2339,8 +2488,9 @@ public static class IrLowering
 
             static IOperation Unwrapped(IOperation value) => value is IConversionOperation conversion ? Unwrapped(conversion.Operand) : value;
 
-            static bool IsImmutableValue(IOperation value) =>
-                Unwrapped(value).Type is not { } type || LibraryModels.BuiltIn.IsImmutable(type);
+            static bool IsImmutableValue(IOperation value) => IsImmutableType(Unwrapped(value).Type);
+
+            static bool IsImmutableType(ITypeSymbol? type) => type is null || LibraryModels.BuiltIn.IsImmutable(type);
 
             static bool IsFrameworkSlice(ITypeSymbol type) => Bcl.TypeName(type) is "System.Span`1" or "System.ReadOnlySpan`1";
 
@@ -2372,18 +2522,50 @@ public static class IrLowering
             return null;
         }
 
-        /// <summary>Lowered as the unsupported operation it was, then followed by the timer subscription.</summary>
+        /// <summary>A subscription to or an unsubscription from an event (R1, R2): a call of the event's add or remove accessor on its
+        /// receiver with the handler, routed as any call of the accessor is — virtually, through an interface, or exactly for
+        /// <c>base.E</c>. The timer's <c>Elapsed</c> is its recognizer's instead: a subscription is the timer operation, and an
+        /// unsubscription does nothing.</summary>
+        /// <param name="assignment">The event assignment.</param>
+        private int LowerEventAssignment(IEventAssignmentOperation assignment)
+        {
+            if (assignment.EventReference is not IEventReferenceOperation reference)
+                return LowerUnsupported(assignment);
+
+            var @event = reference.Event;
+            if (reference.Instance is not null && @event.Name == "Elapsed" && Bcl.TypeOf(@event) == Bcl.TIMERS_TIMER)
+            {
+                if (assignment.Adds)
+                    return LowerElapsedSubscription(assignment, reference);
+                LowerValue(reference.Instance);
+                LowerValue(assignment.HandlerValue);
+                return Constant(assignment, null, "void");
+            }
+
+            int? receiver = reference.Instance is null ? null : LowerValue(reference.Instance);
+            var handler = LowerValue(assignment.HandlerValue);
+            var accessor = assignment.Adds ? @event.AddMethod : @event.RemoveMethod;
+            if (accessor is null)
+                return Unknown(assignment, "unsupported", receiver is int value ? [value, handler] : [handler]);
+
+            var arguments = LoweredArguments.None with { Values = [handler], Ordinals = [0] };
+            var result = AddCall(assignment, accessor, receiver, arguments, null);
+            _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(reference)), accessor, [], arguments);
+            return result;
+        }
+
+        /// <summary>The timer subscription the recognizer records, after the timer and the handler are lowered.</summary>
+        /// <param name="assignment">The subscription.</param>
+        /// <param name="reference">The timer's <c>Elapsed</c> event.</param>
         private int LowerElapsedSubscription(IEventAssignmentOperation assignment, IEventReferenceOperation reference)
         {
             var timer = LowerValue(reference.Instance!);
-            var eventValue = Unknown(reference, "unsupported", [timer]);
             var handler = LowerValue(assignment.HandlerValue);
-            var result = Unknown(assignment, "unsupported", [eventValue, handler]);
             _operations.Add(new IrTimerOperation(NextOperation(), IrTimerAction.ElapsedSubscribe, timer, Provenance(assignment, "bcl"))
             {
                 CallbackValue = handler
             });
-            return result;
+            return Constant(assignment, null, "void");
         }
 
         /// <summary>Lowered as the unsupported operation it was; its elements are remembered when none is a spread.</summary>
@@ -2737,7 +2919,7 @@ public static class IrLowering
             {
                 var arguments = LowerArguments(creation.Arguments);
                 _operations.Add(Call(null, creation.Constructor, result, arguments, provenance));
-                _operations[^1] = AnnotateLibraryCall((IrCallOperation)_operations[^1], creation.Arguments, arguments) with
+                _operations[^1] = AnnotateLibraryCall((IrCallOperation)_operations[^1], creation.Constructor, creation.Arguments, arguments) with
                 {
                     CreatedArrayArguments = CreatedArrays(creation.Arguments)
                 };
@@ -2749,6 +2931,7 @@ public static class IrLowering
         }
 
         /// <summary>An array creation evaluates its sizes, allocates the array and stores each initializer element in order.</summary>
+        /// <param name="creation">The array creation.</param>
         private int LowerArrayCreation(IArrayCreationOperation creation)
         {
             _context.RecordMetadataSupertypes(creation.Type);
@@ -2820,6 +3003,9 @@ public static class IrLowering
         {
             var left = LowerValue(binary.LeftOperand);
             var right = LowerValue(binary.RightOperand);
+            if (DelegateCombination.Of(binary) is { } combination)
+                return CombineDelegates(combination.Removes, [left, right], binary.Type, Provenance(binary, "binary"));
+
             var result = AddTemporary(binary.Type);
             if (binary.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals)
             {
@@ -3238,6 +3424,7 @@ public static class IrLowering
 
         /// <summary>A member or an indexer of a <c>dynamic</c> receiver as the target of an assignment: its receiver and indices, lowered
         /// once, and what its read and its write are called (R4). Null for every other target.</summary>
+        /// <param name="target">The assignment's target.</param>
         private (int[] Operands, string Get, string Set)? DynamicTarget(IOperation target) => target switch
         {
             IDynamicMemberReferenceOperation member => (DynamicReceiver(member), $"dynamic get {member.MemberName}", $"dynamic set {member.MemberName}"),
@@ -3262,6 +3449,9 @@ public static class IrLowering
                 case IFieldReferenceOperation field:
                     location = GetFieldLocation(field);
                     return true;
+                case IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event):
+                    location = GetEventLocation(reference);
+                    return true;
                 case IPropertyReferenceOperation property when IsAutomatic(property.Property):
                     location = GetPropertyLocation(property);
                     return true;
@@ -3276,6 +3466,12 @@ public static class IrLowering
 
         private FieldLocation GetFieldLocation(IFieldReferenceOperation reference) =>
             new(reference.Instance is null ? null : LowerValue(reference.Instance), FieldRef(reference.Field));
+
+        /// <summary>The storage a reference to a field-like event names: Roslyn lets the event stand for its field only inside its
+        /// declaring type, where every reference that is not a subscription is one (ADR 0014).</summary>
+        /// <param name="reference">The reference to a field-like event.</param>
+        private FieldLocation GetEventLocation(IEventReferenceOperation reference) =>
+            new(reference.Instance is null ? null : LowerValue(reference.Instance), FieldLikeEvents.FieldRef(reference.Event));
 
         private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference) =>
             new(reference.Instance is null ? null : LowerValue(reference.Instance), PropertyField(reference.Property));
@@ -4183,7 +4379,7 @@ public static class IrLowering
         internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels)
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
-            if (definition.Locations.Any(location => location.IsInSource) ||
+            if (LibraryModels.IsDeclaredInRun(definition) ||
                 libraryModels.Find(definition) is not { } match)
                 return null;
             // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.
@@ -4210,6 +4406,7 @@ public static class IrLowering
                     LibraryFateKind.Holder => IrFateKind.Holder,
                     LibraryFateKind.Startup => IrFateKind.Startup,
                     LibraryFateKind.UnknownExecution => IrFateKind.UnknownExecution,
+                    LibraryFateKind.NotRun => IrFateKind.NotRun,
                     _ => throw new UnreachableException($"Unknown fate kind {fate.Kind}.")
                 }, fate.Holder switch
                 {

@@ -314,6 +314,9 @@ public static class ReachableSet
         /// <summary>Resolves a service for a construction or a root. Startup resolves everything at startup; otherwise a singleton,
         /// and a scoped service resolved from the root scope, is a lazily resolved construction per region, unless startup
         /// already builds that region, and any other service is built inside the resolving execution.</summary>
+        /// <param name="resolution">The DI resolution of the service.</param>
+        /// <param name="trigger">What asks for the service: a construction or a root.</param>
+        /// <param name="context">Where the resolution happens.</param>
         private void Resolve(DiResolution resolution, ConstructionTrigger trigger, ResolutionContext context)
         {
             if (resolution is not { Kind: DiResolutionKind.Bound, Binding: { } binding } ||
@@ -459,7 +462,8 @@ public static class ReachableSet
                             // The delegates a known call runs by its model's fates are reached as those factories are (R3).
                             if (call.Library is { InRange: true, DeclaredOpaque: false } library)
                             {
-                                foreach (var fate in library.Fates)
+                                // A not-run delegate is neither run nor kept by the call (ADR 0015): it reaches nothing.
+                                foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
                                 {
                                     if (call.ArgumentAt(fate.ParameterOrdinal) is not int handed)
                                         continue;

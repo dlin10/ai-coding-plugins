@@ -415,7 +415,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     };
 }
 
-public enum IrFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution }
+public enum IrFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution, NotRun }
 
 public enum IrHolderKind { Result, This }
 
@@ -702,6 +702,25 @@ public sealed record IrComputeOperation(int Id, int ResultValue, string Operator
 {
     public override IReadOnlyList<int> DefinedValues => [ResultValue];
     public override IReadOnlyList<int> Operands => OperandValues;
+}
+
+/// <summary>A predefined combination or removal of delegates (R3): <c>a + b</c>, <c>a - b</c>, their compound forms and
+/// <c>Delegate.Combine</c>, <c>Remove</c> and <c>RemoveAll</c>. The result is a new delegate that may run every delegate a
+/// contributing operand may run; it is computed from every operand all the same.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The combined delegate.</param>
+/// <param name="Removes">Whether the operation removes its later operand from its first rather than combining them.</param>
+/// <param name="OperandValues">The operands in parameter order: the left operand or <c>source</c> first.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
+public sealed record IrCombineDelegatesOperation(int Id, int ResultValue, bool Removes, IReadOnlyList<int> OperandValues,
+                                                 IrProvenance Provenance) : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => OperandValues;
+
+    /// <summary>The operands whose objects and origins the result may hold: every operand of a combination, the first of a removal,
+    /// since what a removal removes is not in its result.</summary>
+    public IReadOnlyList<int> ContributingOperands => Removes ? OperandValues.Take(1).ToArray() : OperandValues;
 }
 
 public sealed record IrCompareOperation(int Id, int ResultValue, IrComparisonKind Comparison,

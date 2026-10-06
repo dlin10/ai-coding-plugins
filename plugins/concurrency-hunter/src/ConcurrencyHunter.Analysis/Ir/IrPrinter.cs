@@ -97,6 +97,8 @@ public static class IrPrinter
                                        $"operands={Values(atomic.OperandValues)} target={OperationId(atomic.TargetOperationId)}"),
         IrComputeOperation compute => F($"compute {Value(compute.ResultValue)} {Text(compute.Operator)} " +
                                          $"operands={Values(compute.OperandValues)}"),
+        IrCombineDelegatesOperation combine => F($"{(combine.Removes ? "remove-delegates" : "combine-delegates")} " +
+                                                 $"{Value(combine.ResultValue)} operands={Values(combine.OperandValues)}"),
         IrCompareOperation compare => F($"compare {Value(compare.ResultValue)} {compare.Comparison} " +
                                          $"left={Value(compare.LeftValue)} right={OptionalValue(compare.RightValue)} " +
                                          $"type={OptionalText(compare.Type)}"),

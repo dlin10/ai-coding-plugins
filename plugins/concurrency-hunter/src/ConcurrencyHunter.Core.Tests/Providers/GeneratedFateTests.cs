@@ -27,6 +27,7 @@ public sealed class GeneratedFateTests
     private static readonly ClassifiedFate HolderResult = new(FateClassifier.HOLDER, FateClassifier.RESULT);
     private static readonly ClassifiedFate HolderThis = new(FateClassifier.HOLDER, FateClassifier.THIS);
     private static readonly ClassifiedFate Unknown = new(FateClassifier.UNKNOWN_EXECUTION, null);
+    private static readonly ClassifiedFate NotRun = new(FateClassifier.NOT_RUN, null);
 
     // ---- invoke-now ----
 
@@ -148,11 +149,11 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
-    public void Never_fired_and_not_kept_is_unknown_execution()
+    public void Never_fired_and_not_kept_is_not_run()
     {
         var trace = Trace("public static class Api { public static void Run(Action a) { } }", "M:Lib.Api.Run(System.Action)");
 
-        Assert.Equal(Unknown, FateOf(trace, "a"));
+        Assert.Equal(NotRun, FateOf(trace, "a"));
         Assert.Empty(FiredIn(trace, "P_a_0_Call"));
     }
 
@@ -465,14 +466,18 @@ public sealed class GeneratedFateTests
         Assert.Contains(trace.Driver.Uncovered[FateClassifier.RESULT], why => why.StartsWith("M:Lib.Spanned.Scan(System.ReadOnlySpan{System.Int32})", StringComparison.Ordinal));
         Assert.Null(trace.Confirmation);
 
-        // A custom event accessor is called by `+=`, which the engine does not follow: the trigger could show nothing.
+        // A custom event accessor is called by `+=`, which the engine now lowers as a call of the accessor: it is a trigger, and the
+        // trigger shows it runs the delegate in a Task.Run.
         var evented = Trace("""
             public sealed class Evented { private Action _a; public Evented(Action a) { _a = a; } public event Action Changed { add { Task.Run(_a); } remove { } } }
             public static class Api { public static Evented Make(Action a) => new Evented(a); }
             """, "M:Lib.Api.Make(System.Action)");
 
         Assert.Equal(Unknown, FateOf(evented, "a"));
-        Assert.Contains(evented.Driver!.Uncovered[FateClassifier.RESULT], why => why.StartsWith("M:Lib.Evented.add_Changed(System.Action)", StringComparison.Ordinal));
+        Assert.DoesNotContain(evented.Driver!.Uncovered[FateClassifier.RESULT], why => why.StartsWith("M:Lib.Evented.add_Changed(System.Action)", StringComparison.Ordinal));
+        var add = Assert.Single(evented.Driver.Triggers, trigger => trigger.Member == "M:Lib.Evented.add_Changed(System.Action)");
+        Assert.Contains(ConfirmationFiredIn(evented, $"P_a_0_{add.Action}"),
+                        execution => execution.StartsWith(DriverExecutions.Own(add.Action) + ">spawn:", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -642,14 +647,15 @@ public sealed class GeneratedFateTests
     // ---- holder result ----
 
     [Fact]
-    public void A_holder_result_whose_trigger_the_driver_never_called_is_holder_result()
+    public void A_holder_result_whose_trigger_the_driver_never_called_is_unknown_execution()
     {
+        // R7: no trigger ran the delegate the result keeps, so nothing shows the result runs it rather than only storing it.
         var trace = Trace("""
             public sealed class Quiet { private Action _a; public Quiet(Action a) { _a = a; } internal void Fire() => _a(); }
             public static class Api { public static Quiet Keep(Action a) => new Quiet(a); }
             """, "M:Lib.Api.Keep(System.Action)");
 
-        Assert.Equal(HolderResult, FateOf(trace, "a"));
+        Assert.Equal(Unknown, FateOf(trace, "a"));
     }
 
     [Fact]
@@ -659,21 +665,23 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
-    public void A_member_returning_Task_of_T_whose_awaited_object_keeps_the_delegate_is_holder_result()
+    public void A_member_returning_Task_of_T_whose_awaited_object_keeps_the_delegate_is_unknown_execution()
     {
+        // The fate run finds the awaited object a holder, but R7 keeps it only when a trigger ran the delegate: a trigger's Fire on the
+        // awaited object runs no body, since the heap carries no value through an await.
         var trace = Trace("public static class Api { public static async Task<Holder> MakeAsync(Action a) { await Task.Delay(1); return new Holder(a); } }",
                           "M:Lib.Api.MakeAsync(System.Action)");
 
-        Assert.Equal(HolderResult, FateOf(trace, "a"));
+        Assert.Equal(Unknown, FateOf(trace, "a"));
     }
 
     [Fact]
-    public void A_member_returning_ValueTask_of_T_whose_awaited_object_keeps_the_delegate_is_holder_result()
+    public void A_member_returning_ValueTask_of_T_whose_awaited_object_keeps_the_delegate_is_unknown_execution()
     {
         var trace = Trace("public static class Api { public static async ValueTask<Holder> MakeAsync(Action a) { await Task.Delay(1); return new Holder(a); } }",
                           "M:Lib.Api.MakeAsync(System.Action)");
 
-        Assert.Equal(HolderResult, FateOf(trace, "a"));
+        Assert.Equal(Unknown, FateOf(trace, "a"));
     }
 
     [Fact]

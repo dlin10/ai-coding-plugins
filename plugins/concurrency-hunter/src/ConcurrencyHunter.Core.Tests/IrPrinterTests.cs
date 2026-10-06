@@ -68,6 +68,8 @@ public sealed class IrPrinterTests
                                    IrLockMode.Exclusive, Provenance),
             new IrAtomicOperation(nextOperation++, nextValue++, "Interlocked.Exchange", [3, 0], Provenance),
             new IrComputeOperation(nextOperation++, nextValue++, "add", [0, 1], Provenance),
+            new IrCombineDelegatesOperation(nextOperation++, nextValue++, false, [0, 1], Provenance),
+            new IrCombineDelegatesOperation(nextOperation++, nextValue++, true, [0, 1], Provenance),
             new IrCompareOperation(nextOperation++, nextValue++, IrComparisonKind.Equality, 0, 1, null, Provenance),
             new IrConvertOperation(nextOperation++, nextValue++, 0, "System.Int64",
                                    IrConversionKind.Numeric, Provenance),
@@ -88,7 +90,7 @@ public sealed class IrPrinterTests
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
                      "store-element", "address-field", "address-element", "load-reference", "store-reference",
                      "create-delegate", "capture", "escape", "return", "await", "yield",
-                     "spawn", "thread-work", "join", "when-all", "unwrap", "timer", "acquire", "release", "atomic", "compute", "compare", "convert", "unknown"
+                     "spawn", "thread-work", "join", "when-all", "unwrap", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "unknown"
                  })
         {
             Assert.Contains($" {form} ", text);

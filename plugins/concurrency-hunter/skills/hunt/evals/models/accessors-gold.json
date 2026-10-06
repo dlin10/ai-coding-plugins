@@ -1,0 +1,276 @@
+[
+ {
+  "key": "ObservableCollection.add_CollectionChanged",
+  "id": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+  "assembly": "System.ObjectModel",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": false,
+  "fieldLikeEvent": true,
+  "delegateParams": {
+   "value": {
+    "fate": "holder",
+    "holder": "this"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "holder",
+     "holder": "this"
+    }
+   }
+  },
+  "note": "Runs synchronously on the caller's thread inside the mutating member call on the same collection; no SynchronizationContext, timer or thread pool anywhere in the type. sender is the collection itself; e is a new NotifyCollectionChangedEventArgs carrying the item(s) handed to the triggering member (Clear uses a static cached Reset args). Derived classes can only reach the private backing field through base.OnCollectionChanged, so any later run is still inside a member of the receiver. The event is virtual: an override of the event in a derived type is not covered by this entry. Adding never invokes; Delegate.Combine reads only the delegate's immutable invocation list, so no effect on value."
+ },
+ {
+  "key": "ObservableCollection.remove_CollectionChanged",
+  "id": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+  "assembly": "System.ObjectModel",
+  "version": "10.0",
+  "accessor": "remove",
+  "isStatic": false,
+  "fieldLikeEvent": true,
+  "delegateParams": {
+   "value": {
+    "fate": "not-run"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "not-run"
+    }
+   }
+  },
+  "note": "Not run and not kept. The five-fate TD-034a format has no `not-run`; its closest sound fate is `invoke-now` (0..n runs, not kept afterwards), which is what a remove accessor degenerates to with 0 runs."
+ },
+ {
+  "key": "FileSystemWatcher.add_Changed",
+  "id": "M:System.IO.FileSystemWatcher.add_Changed(System.IO.FileSystemEventHandler)",
+  "assembly": "System.IO.FileSystem.Watcher",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": false,
+  "fieldLikeEvent": false,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "Runs on a thread-pool I/O completion thread (Windows path read; the Linux/macOS files were not read, but they also raise from the watcher's own background machinery, never from the caller's member call), or marshalled by ISynchronizeInvoke.BeginInvoke to another thread; never inside the user's call of a watcher member. So unknown-execution, not holder. The add is a non-atomic read-modify-write of _onChangedHandler, which the callback thread reads concurrently (benign for an immutable delegate) and which races with a concurrent add/remove from another thread (lost update) — library-own state, not expressible in the vocabulary. Kept in the delegate slot until removed or Dispose(true) nulls it."
+ },
+ {
+  "key": "FileSystemWatcher.remove_Changed",
+  "id": "M:System.IO.FileSystemWatcher.remove_Changed(System.IO.FileSystemEventHandler)",
+  "assembly": "System.IO.FileSystem.Watcher",
+  "version": "10.0",
+  "accessor": "remove",
+  "isStatic": false,
+  "fieldLikeEvent": false,
+  "delegateParams": {
+   "value": {
+    "fate": "not-run"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "not-run"
+    }
+   }
+  },
+  "note": "Not run, not kept. Non-atomic read-modify-write of the handler field (same caveat as the add). In the five-fate format the closest sound fate is invoke-now with 0 runs."
+ },
+ {
+  "key": "BackgroundWorker.add_DoWork",
+  "id": "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+  "assembly": "System.ComponentModel.EventBasedAsync",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": false,
+  "fieldLikeEvent": true,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "DoWork runs on a thread-pool thread, asynchronously to the RunWorkerAsync caller (the whole point of the type). Not holder this even though the trigger is a member of the receiver: the run is not in the caller's execution. A derived class can also call protected OnDoWork directly (then synchronous), which does not change the answer."
+ },
+ {
+  "key": "BackgroundWorker.add_RunWorkerCompleted",
+  "id": "M:System.ComponentModel.BackgroundWorker.add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+  "assembly": "System.ComponentModel.EventBasedAsync",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": false,
+  "fieldLikeEvent": true,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "Runs via SynchronizationContext.Post: with no UI context that is the default context, whose Post is ThreadPool.QueueUserWorkItem (a thread-pool thread); with a UI context it is queued to the UI thread and runs later. Never synchronously inside a BackgroundWorker member call of the caller (only a derived class calling protected OnRunWorkerCompleted would be synchronous). unknown-execution."
+ },
+ {
+  "key": "Console.add_CancelKeyPress",
+  "id": "M:System.Console.add_CancelKeyPress(System.ConsoleCancelEventHandler)",
+  "assembly": "System.Console",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": true,
+  "fieldLikeEvent": false,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": "opaque",
+  "nearestExpressibleModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "The handler is kept in a static (process-global) field, not by any receiver, and runs on an OS-created console-control thread (Windows) or a dedicated/thread-pool thread (Unix): unknown-execution. safeModel is opaque because (a) the member is static, so the vocabulary has no keeper for the global s_cancelCallbacks (`this` is forbidden on a static member and arg:value cannot name a delegate parameter), and (b) beyond storing the handler, the first add changes process-wide library state: it creates two PosixSignalRegistration objects stored in s_sigIntRegistration/s_sigQuitRegistration and registers a console control handler with the OS (SetConsoleCtrlHandler) via CoreLib's static s_registrations table; on Unix EnsureConsoleInitialized also initializes the terminal. Holds lock s_syncObject during the store. If the owner prefers a non-opaque entry, the only expressible near-answer is {effects:{}, fates:{value:{fate:unknown-execution}}}, which drops the registration side effect."
+ },
+ {
+  "key": "Component.set_Site",
+  "id": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite)",
+  "assembly": "System.ComponentModel.Primitives",
+  "version": "10.0",
+  "accessor": "set",
+  "isStatic": false,
+  "fieldLikeEvent": null,
+  "delegateParams": {},
+  "safeModel": {
+   "effects": {},
+   "keeps": {
+    "this": [
+     "arg:value"
+    ]
+   }
+  },
+  "note": "Not opaque: the only state change is storing the handed value; no counter, flag or other field is touched. No delegate parameter. The property is virtual: a call on a derived instance may dispatch to an override (e.g. WinForms Control.Site does much more); this entry describes Component's own body only."
+ },
+ {
+  "key": "ListDictionary.set_Item",
+  "id": "M:System.Collections.Specialized.ListDictionary.set_Item(System.Object,System.Object)",
+  "assembly": "System.Collections.Specialized",
+  "version": "10.0",
+  "accessor": "set",
+  "isStatic": false,
+  "fieldLikeEvent": null,
+  "delegateParams": {},
+  "safeModel": "opaque",
+  "nearestExpressibleModel": {
+   "effects": {
+    "key": [
+     "reads-deep"
+    ]
+   },
+   "keeps": {
+    "this": [
+     "arg:key",
+     "arg:value"
+    ]
+   }
+  },
+  "note": "Own-state changes are only storing the handed key/value plus the version and count counters, so on that axis the member is `keeps: {this: [arg:key, arg:value]}` (key kept only when it is new; value replaces the matched node's value). key gets reads-deep because user code (stored keys' Equals or the comparer) receives it. Why opaque anyway: the setter also runs user code ON OBJECTS THE RECEIVER KEEPS — the Equals override of every previously stored key it walks past, and the kept IComparer — and those can read (or, in a pathological Equals, write) user state reachable only from the receiver's kept storage. TD-034a has no form for that (effects allow `this` only with writes-cells; keeps/kept:this are not accesses), so by the 'does anything this vocabulary cannot say' rule the honest answer is opaque. With string/primitive keys and no comparer no user code runs, and the nearestExpressibleModel field is exact; flagged for the owner to choose."
+ },
+ {
+  "key": "ListDictionary.get_Item",
+  "id": "M:System.Collections.Specialized.ListDictionary.get_Item(System.Object)",
+  "assembly": "System.Collections.Specialized",
+  "version": "10.0",
+  "accessor": "get",
+  "isStatic": false,
+  "fieldLikeEvent": null,
+  "delegateParams": {},
+  "safeModel": "opaque",
+  "nearestExpressibleModel": {
+   "effects": {
+    "key": [
+     "reads-deep"
+    ]
+   },
+   "result": "[kept:this]"
+  },
+  "note": "Result is one of the values the receiver keeps, or null: `[kept:this]`. key: reads-deep (handed to user Equals/Compare). Opaque for the same reason as the setter: it runs user code (Equals of each stored key walked, or the kept IComparer) on objects only the receiver keeps, which TD-034a cannot express; if that is accepted as out of scope, nearestExpressibleModel is the answer (exact for string/primitive keys without a comparer)."
+ },
+ {
+  "key": "SslClientAuthenticationOptions.set_RemoteCertificateValidationCallback",
+  "id": "M:System.Net.Security.SslClientAuthenticationOptions.set_RemoteCertificateValidationCallback(System.Net.Security.RemoteCertificateValidationCallback)",
+  "assembly": "System.Net.Security",
+  "version": "10.0",
+  "accessor": "set",
+  "isStatic": false,
+  "fieldLikeEvent": null,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "A pure property bag: the setter only stores the handed value (not opaque). The delegate is run only by OTHER components that read it through the getter — SslStream (on the caller's thread for synchronous AuthenticateAsClient, but on thread-pool I/O continuations for AuthenticateAsClientAsync), SocketsHttpHandler connection setup (thread pool), QuicConnection (explicitly offloaded to the thread pool). Since no run is inside a member of the options object, holder this is wrong; unknown-execution. The vocabulary cannot also say that the setter keeps the delegate for the getter (keeps arg:P must name a non-delegate parameter), so a get_RemoteCertificateValidationCallback model could not name it as kept:this."
+ },
+ {
+  "key": "Process.add_Exited",
+  "id": "M:System.Diagnostics.Process.add_Exited(System.EventHandler)",
+  "assembly": "System.Diagnostics.Process",
+  "version": "10.0",
+  "accessor": "add",
+  "isStatic": false,
+  "fieldLikeEvent": false,
+  "delegateParams": {
+   "value": {
+    "fate": "unknown-execution"
+   }
+  },
+  "safeModel": {
+   "effects": {},
+   "fates": {
+    "value": {
+     "fate": "unknown-execution"
+    }
+   }
+  },
+  "note": "Some runs are synchronous inside the caller's HasExited/WaitForExit call, but the normal path is the thread-pool registered-wait callback (Windows path read; Process.Unix.cs was not read), or ISynchronizeInvoke marshalling — so unknown-execution, not holder. Exited fires once per started process. The add is a non-atomic RMW of _onExited, racing with a concurrent add/remove (lost update) and read by the callback thread; library-own state, not expressible."
+ }
+]

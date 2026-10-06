@@ -54,7 +54,11 @@ Each of these was found by a wrong answer, not by design. SPEC TD-034b states th
 
 - **Open world.** With protobuf as decompiled source, a parser factory that only the framework calls — through
   `ParseFrom`, which no root reaches — made no access at all: the finding metadata mode had found vanished with no gap
-  and no counter. A delegate the driver did not see run is `unknown-execution`.
+  and no counter. A delegate the driver did not see run is `unknown-execution`, unless the analysis followed it into the
+  call, nothing keeps it, it was handed to nothing the analysis cannot follow, and the call reached no code the analysis
+  did not see (no receiverless dispatch, no dropped body, no unsupported operation): then it is `not-run` (run B2b, ADR
+  0015). A remove accessor whose body only removes the handler from its slot (`_h -= value`) is the case: it neither
+  runs nor keeps its handler. A remove that invokes or keeps `value` is classified like any member.
 - **Kept beats fired.** `CircuitStateController`'s constructor calls `Reset()`, which calls `_onReset` behind
   `if (circuitState != CircuitState.Closed)`; the engine does not follow the field's value, so the probe fired during the
   call and the first classifier said `invoke-now`. The callback runs later, in the requests. A delegate is `invoke-now`
@@ -83,7 +87,9 @@ line is written per member.
 
 1. **Resolve the member.** Roslyn's `DocumentationCommentId.CreateDeclarationId` appends `~ReturnType`; XML
    documentation and ILSpy's `IdStringProvider` do not (they add it only for `op_Implicit` and `op_Explicit`). Strip it
-   before asking the decompiler. A property setter is reached through its `P:` id.
+   before asking the decompiler. Every accessor — getter, setter, indexer accessor, event add or remove — is reached
+   through its own `M:` id (run B2b); a `P:` or `E:` id answers `accessor` and names its accessors' `M:` ids, and an
+   init-only setter answers `driver-not-synthesized`.
 2. **Choose type arguments.** No constraint: `int`, or `object` under `class`. A class constraint that is concrete and
    not generic: the constraint itself (`Handle<TException>` gets `Exception`). Interface constraints, self-referential
    ones included (`MessageParser<T> where T : IMessage<T>`): a stub class that implements every abstract member of the

@@ -137,7 +137,7 @@ internal static class ProjectModelResolver
             : entry;
         return EntryRejection(checkedEntry, method, compilation) is { } refusal ? refusal :
                LibraryModels.IsRecognizedType(typeName) ? "a phase 3-4 recognizer owns this type." :
-               method.DeclaringSyntaxReferences.Length != 0 ? "member has a body in the run." : null;
+               LibraryModels.IsDeclaredInRun(method.OriginalDefinition) ? "member has a body in the run." : null;
     }
 
     internal static string? EntryRejection(ProjectModelEntry entry, IMethodSymbol definition, Compilation compilation)
@@ -160,7 +160,6 @@ internal static class ProjectModelResolver
                entry.Versions is { } range && (method.ContainingAssembly.Identity.Version < range.Minimum ||
                                                 method.ContainingAssembly.Identity.Version >= range.Maximum) ?
                    "assembly version is outside the entry's versions." :
-               method.MethodKind == MethodKind.PropertySet ? "setters are not supported." :
                LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation, entry.Effects, entry.Stores, entry.Outputs, entry.Keeps) is { } refusal ? refusal :
                entry.Effects.Any(effect => effect.Parameter != "this" && method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?
                    "an effect names a missing parameter." : null;

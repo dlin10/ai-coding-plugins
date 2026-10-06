@@ -132,6 +132,7 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>Marks the call defining <paramref name="value"/> as one whose result the heap models: a handle, a tail or a group.</summary>
+        /// <param name="value">The value a call defines.</param>
         private void ModelCall(int value)
         {
             if (DefiningCall(value) is int call)
@@ -373,6 +374,14 @@ public static class MethodSummaryBuilder
                         capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue))
                         {
                             Producers = Producers(assign.SourceValue)
+                        });
+                        break;
+                    case IrCombineDelegatesOperation combine when _values[combine.ResultValue].SymbolKey is { } key && _capturedKeys.Contains(key):
+                        capturedStores.Add(new CapturedStore(combine.Id, key,
+                                                             Final(combine.ContributingOperands.SelectMany(operand => _points[operand]), delegates),
+                                                             Dependencies(combine.ResultValue))
+                        {
+                            Producers = Producers(combine.ResultValue)
                         });
                         break;
                 }
@@ -1151,6 +1160,11 @@ public static class MethodSummaryBuilder
                     case IrAssignOperation assign:
                         pending.Push(assign.SourceValue);
                         break;
+                    // A combined delegate comes from wherever the delegates it may run come from (R3).
+                    case IrCombineDelegatesOperation combine:
+                        foreach (var operand in combine.ContributingOperands)
+                            pending.Push(operand);
+                        break;
                     case IrConvertOperation convert:
                         pending.Push(convert.OperandValue);
                         break;
@@ -1357,6 +1371,7 @@ public static class MethodSummaryBuilder
         /// <summary>The unknown sources a value may come from: <c>null</c> and defaults, parameters, captured variables, field loads
         /// (a field holds its default before its first write), call results other than the handles, tails and groups the heap models,
         /// and every operation the summary does not follow.</summary>
+        /// <param name="value">The value.</param>
         private HashSet<UnknownSource> EvaluateUnknown(IrValue value)
         {
             if (value.Kind == IrValueKind.Receiver)
@@ -1378,6 +1393,7 @@ public static class MethodSummaryBuilder
             return definition switch
             {
                 IrAssignOperation assign => [.. _unknown[assign.SourceValue]],
+                IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _unknown[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _unknown[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _unknown[convert.OperandValue]],
                 IrAllocateOperation or IrCreateDelegateOperation or IrComputeOperation or IrCompareOperation => [],
@@ -1392,6 +1408,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The calls a value comes from as <see cref="UnknownSource.SourceCall"/>, followed over the same steps as the unknown
         /// sources themselves, so that a value merging two calls keeps both.</summary>
+        /// <param name="value">The value.</param>
         private HashSet<int> EvaluateSourceCalls(IrValue value)
         {
             if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
@@ -1403,6 +1420,7 @@ public static class MethodSummaryBuilder
             return definition switch
             {
                 IrAssignOperation assign => [.. _sourceCalls[assign.SourceValue]],
+                IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _sourceCalls[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _sourceCalls[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _sourceCalls[convert.OperandValue]],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _sourceCalls[outer]],
@@ -1432,6 +1450,7 @@ public static class MethodSummaryBuilder
             return definition switch
             {
                 IrAssignOperation assign => [.. _points[assign.SourceValue]],
+                IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _points[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _points[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _points[convert.OperandValue]],
                 IrAllocateOperation allocate => [new AllocationValue(new CreationSite(_body.BodyId, allocate.Id,
@@ -1508,6 +1527,8 @@ public static class MethodSummaryBuilder
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _dependencies[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _dependencies[convert.OperandValue]],
                 IrComputeOperation compute => compute.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
+                // What a removal removes decides its result as much as what it removes from, so every operand is a dependency (R3).
+                IrCombineDelegatesOperation combine => combine.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrCompareOperation compare => compare.Operands.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrAwaitOperation awaited => [.. _dependencies[awaited.AwaitableValue]],
                 IrUnknownOperation unknown => unknown.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),

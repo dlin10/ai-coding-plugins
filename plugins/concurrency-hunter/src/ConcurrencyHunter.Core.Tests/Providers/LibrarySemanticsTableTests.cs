@@ -382,12 +382,11 @@ public sealed class LibrarySemanticsTableTests
     }
 
     [Fact]
-    public void No_member_takes_a_delegate_without_a_fate_or_is_a_setter()
+    public void No_member_takes_a_delegate_without_a_fate()
     {
         Assert.All(Table.Members, member =>
         {
             var method = (IMethodSymbol)DocumentationCommentId.GetSymbolsForDeclarationId(member.Id, Real.Value).Single();
-            Assert.NotEqual(MethodKind.PropertySet, method.MethodKind);
             // A delegate a member takes has its fate since phase 5c run B.
             Assert.DoesNotContain(method.Parameters, parameter => parameter.Type.TypeKind == TypeKind.Delegate &&
                                                                   member.Fates.All(fate => fate.Parameter != parameter.Name));

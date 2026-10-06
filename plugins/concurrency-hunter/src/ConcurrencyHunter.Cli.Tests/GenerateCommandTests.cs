@@ -166,6 +166,11 @@ public sealed class GenerateCommandTests : IDisposable
         Assert.True(code == ExitCode.Ok, error);
         using var document = Answer();
         Assert.Equal(GenerationReasons.ACCESSOR, document.RootElement.GetProperty("reason").GetString());
+        // The document carries no detail: the generator's answer names the accessors to generate instead.
+        var answer = ModelGenerator.Generate(new GenerationRequest("Acme.Props", "2.0.0", "P:Acme.Box.Value", "Acme.Props", "net8.0"), _install.Resolver(),
+                                             CancellationToken.None);
+        Assert.Contains("M:Acme.Box.get_Value", answer.Detail);
+        Assert.Contains("M:Acme.Box.set_Value(System.Func{System.Int32})", answer.Detail);
     }
 
     [Fact]

@@ -257,9 +257,13 @@ public sealed class ValueProvenance
         return Order(values);
     }
 
+    /// <summary>The name an entry gives a value of the member's own frame, or <c>null</c> when it has none. A delegate parameter
+    /// never has one: a fate speaks for it, and TD-034a refuses <c>arg:P</c> for a delegate-typed <c>P</c> (task 11).</summary>
+    /// <param name="value">The value.</param>
     private LibraryValue? SymbolicName(AbstractValue value) => value switch
     {
-        ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
+        ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length &&
+                                      TypeShape.Of(_driver.Member.Parameters[parameter.Ordinal].Type) != TypeShapeKind.Delegate =>
             new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name),
         ConcurrencyHunter.Heap.ThisValue => new ThisValue(),
         PathValue path when SymbolicName(path.Base) is { } root && path.Segments.All(segment => segment is ELEMENT or KEYS) =>
@@ -591,8 +595,9 @@ public sealed class ValueProvenance
             var initial = _fate.InitialValues(field);
             var (assigned, symbolic, changed) = AssignedValues(parameter.Ordinal);
             values.UnionWith(assigned);
-            _symbolicOutputs[parameter.Name] = parameter.RefKind == RefKind.Ref && changed
-                ? Order(symbolic.Append(new ArgumentValue(parameter.Name)))
+            _symbolicOutputs[parameter.Name] = parameter.RefKind == RefKind.Ref && changed &&
+                                               SymbolicName(new ParameterValue(parameter.Ordinal)) is { } own
+                ? Order(symbolic.Append(own))
                 : symbolic;
             if (parameter.RefKind == RefKind.Out)
                 values.ExceptWith(initial);
@@ -655,7 +660,8 @@ public sealed class ValueProvenance
     {
         foreach (var parameter in _driver.Parameters)
         {
-            if (!_fates.TryGetValue(parameter.Name, out var fate))
+            // A not-run delegate is handed nothing: it carries no inputs (R5).
+            if (!_fates.TryGetValue(parameter.Name, out var fate) || fate.Fate == FateClassifier.NOT_RUN)
                 continue;
             if (fate.Fate == FateClassifier.HOLDER)
             {
@@ -678,10 +684,9 @@ public sealed class ValueProvenance
         if (_confirmation is null)
             return;
         var members = _driver.Triggers.ToDictionary(trigger => trigger.Action, StringComparer.Ordinal);
-        foreach (var probe in parameter.Probes.Where(probe => members.ContainsKey(probe.Variant)))
+        var ran = FateClassifier.TriggersThatRan(_driver, parameter, _confirmation.Run);
+        foreach (var probe in parameter.Probes.Where(probe => ran.Contains(probe.Variant)))
         {
-            if (!_confirmation.FiredInOwnAction(probe))
-                continue;
             var trigger = members[probe.Variant];
             if (!_holderTriggers.TryGetValue(parameter.Name, out var fired))
                 _holderTriggers[parameter.Name] = fired = new HashSet<string>(StringComparer.Ordinal);
@@ -979,6 +984,7 @@ public sealed class ValueProvenance
         private readonly Dictionary<string, List<LibraryValue>> _roots = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _fired = new(StringComparer.Ordinal);
         private readonly IReadOnlySet<WrittenEdge> _placed;
+        private readonly IReadOnlySet<WrittenEdge> _placedSeeds;
 
         public RunContext(Driver driver, ScopeRun run)
         {
@@ -994,6 +1000,7 @@ public sealed class ValueProvenance
             Allocations = new Allocations(driver, Heap, Analysis, Executions, Reachability);
             Written = ReadWrittenEdges();
             _placed = ReadPlacedEdges();
+            _placedSeeds = ReadPlacedSeeds();
             BuildRoots();
             BuildFired();
         }
@@ -1166,10 +1173,10 @@ public sealed class ValueProvenance
                                     callee.Summary.ReferenceReturns.Any(reference => RefersToParameter(callee, reference, ordinal, roots, seen)));
         }
 
-        public bool FiredInOwnAction(DriverProbe probe) => FiredExecutions(probe).Any(execution => DriverExecutions.IsOwn(execution, probe.Variant));
-
         public bool WasWritten(WrittenEdge edge)
         {
+            if (IsPlacedSlotSeed(edge.Object, edge.Field, edge.Value))
+                return false;
             if (Written.Contains(edge))
                 return true;
             foreach (var instance in MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE)))
@@ -1201,15 +1208,24 @@ public sealed class ValueProvenance
                 foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)
                                               .Where(store => FieldCarriesObject(store.Field) && store.Bases.Any(value => Matches(instance, value, @object))))
                 {
-                    values.UnionWith(ObserveValues(instance, store.Values, store.Producers, out _));
+                    values.UnionWith(ObserveValues(instance, store.Values, store.Producers, out _)
+                                         .Where(value => !IsPlacedSlotSeed(@object, store.Field.Name, value)));
                 }
             }
             return values;
         }
 
+        /// <summary>Whether a value stored into a field of an object is the delegate seed setup placed in that same field of that
+        /// same object: a call that stores it back — a combination with the slot's own value, a removal from it — writes nothing
+        /// new into the slot (task 11, rule (b)).</summary>
+        /// <param name="object">The object stored into.</param>
+        /// <param name="field">The field stored into.</param>
+        /// <param name="value">The stored object.</param>
+        public bool IsPlacedSlotSeed(string @object, string field, string value) =>
+            _placedSeeds.Any(edge => edge.Object == @object && edge.Value == value && FieldMatches(edge.Field, field));
+
         private bool FieldCarriesObject(IrFieldRef field) =>
-            DocumentationCommentId.GetFirstSymbolForDeclarationId($"F:{field.ContainingTypeId}.{field.Name}", _driver.Compilation) is not IFieldSymbol symbol ||
-            CanHoldObject(symbol.Type);
+            FieldSymbols.Of(field, _driver.Compilation) is not IFieldSymbol symbol || CanHoldObject(symbol.Type);
 
         /// <summary>The regions stored directly into cells of an array by the member.</summary>
         /// <param name="object">The array region.</param>
@@ -1510,6 +1526,42 @@ public sealed class ValueProvenance
             }
             return placed;
         }
+
+        /// <summary>The delegate seeds setup put into a field: the stores made in a setup execution, whatever instance makes them —
+        /// a field-like event's add accessor runs in setup and in the call alike. A value a store read back from the same field is
+        /// what the field held, not what setup put there, so it does not count.</summary>
+        private IReadOnlySet<WrittenEdge> ReadPlacedSeeds()
+        {
+            var placed = new HashSet<WrittenEdge>();
+            foreach (var access in Run.Collection?.Accesses ?? [])
+            {
+                if (access.Operation is AccessOperation.Read or AccessOperation.AtomicRead || !Executions.InSetup(access.ExecutionId) ||
+                    !Heap.Instances.TryGetValue(access.InstanceId, out var instance))
+                {
+                    continue;
+                }
+                var values = instance.Summary.Accesses.Where(summary => summary.OperationId == access.OperationId && summary.Kind == SummaryAccessKind.Store)
+                                     .SelectMany(summary => summary.Values.Where(value => !ReadsField(value, summary.Field)))
+                                     .SelectMany(value => Resolve(instance, value))
+                                     .Where(value => Heap.Regions.TryGetValue(value, out var region) && region.Kind == HeapRegionKind.Delegate &&
+                                                     Allocations.Of(value).Role == DriverRole.Seed)
+                                     .ToHashSet(StringComparer.Ordinal);
+                var field = EdgeField(access.Resource.AccessPath.LastOrDefault() ?? access.Resource.Member.Name);
+                foreach (var @object in Reachability.WrittenObjects(access))
+                    AddExistingEdges(placed, @object, field, values);
+            }
+            return placed;
+        }
+
+        /// <summary>Whether a value is a read of a field's own slot: the same static field, or a path ending in it.</summary>
+        /// <param name="value">The value.</param>
+        /// <param name="field">The field.</param>
+        private static bool ReadsField(AbstractValue value, IrFieldRef field) => value switch
+        {
+            StaticFieldValue @static => FieldSlot.Key(@static.Field) == FieldSlot.Key(field),
+            PathValue { Segments: [.., var last] } => last == FieldSlot.Key(field),
+            _ => false
+        };
 
         private void AddExistingEdges(HashSet<WrittenEdge> written, string @object, string field, IReadOnlySet<string> values)
         {

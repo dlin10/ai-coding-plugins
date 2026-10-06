@@ -125,13 +125,11 @@ internal static class ModelEvals
     /// <param name="parameter">The gold parameter.</param>
     public static ClassifiedFate Answered(GeneratedAnswer answer, string parameter) => answer.Classified?.GetValueOrDefault(parameter) ?? Unknown;
 
-    /// <summary>Whether a fate is no unsafe narrowing of the gold one: the gold fate with the gold holder kind, <c>unknown-execution</c>,
-    /// or <c>holder</c> <c>result</c> where the gold is <c>iterator</c>. Anything else — a <c>holder</c> of the wrong kind included —
-    /// is unsafe.</summary>
+    /// <summary>Whether a fate is no unsafe narrowing of the gold one, as <see cref="EntryComparator.FateIsSafe"/> decides it.</summary>
     /// <param name="answered">The classified fate.</param>
     /// <param name="gold">The gold fate.</param>
     public static bool IsSafe(ClassifiedFate answered, ClassifiedFate gold) =>
-        answered == gold || answered == Unknown || answered == HolderResult && gold.Fate == FateClassifier.ITERATOR;
+        EntryComparator.FateIsSafe(gold.Fate, gold.Holder, answered.Fate, answered.Holder);
 
     /// <summary>Whether a fate is the gold one, holder kind included.</summary>
     /// <param name="answered">The classified fate.</param>
@@ -140,10 +138,19 @@ internal static class ModelEvals
 
     public static string Show(ClassifiedFate fate) => fate.Holder is null ? fate.Fate : $"{fate.Fate} {fate.Holder}";
 
-    /// <summary>The number of gold parameters a run classified exactly.</summary>
+    /// <summary>The verdict report of the fate gold set: one line per gold delegate parameter, under its member's declaration id,
+    /// <c>exact</c> by <see cref="IsExact"/>, else <c>wider</c> or <c>unsafe</c> by <see cref="IsSafe"/>.</summary>
     /// <param name="run">The run.</param>
-    public static int Exact(EvalRun run) =>
-        run.Answers.Sum(answer => answer.Gold.DelegateParams.Count(parameter => IsExact(Answered(answer.Answer, parameter), answer.Gold.Fate)));
+    public static IReadOnlyList<ReportLine> Lines(EvalRun run) =>
+        run.Answers.SelectMany(answer => answer.Gold.DelegateParams.Select(parameter => Answered(answer.Answer, parameter))
+                                               .Select(answered => new ReportLine(answer.Gold.Id,
+                                                                                  EvalReport.Verdict(IsExact(answered, answer.Gold.Fate),
+                                                                                                     !IsSafe(answered, answer.Gold.Fate)))))
+           .ToArray();
+
+    /// <summary>The number of gold parameters a run classified exactly: the <c>exact</c> lines of its report.</summary>
+    /// <param name="run">The run.</param>
+    public static int Exact(EvalRun run) => EvalReport.Exact(Lines(run));
 
     /// <summary>The number of fate-gold members for which generation produced a whole entry.</summary>
     /// <param name="run">The run.</param>
@@ -255,7 +262,7 @@ internal static class ModelEvals
         {
             var recorded = JsonNode.Parse(File.ReadAllText(path))!;
             var current = JsonNode.Parse(fresh)!;
-            foreach (var property in new[] { "fateGoldEntries", "effectsExact" })
+            foreach (var property in new[] { "exact", "fateGoldEntries", "effectsExact", "accessorsExact" })
                 Check(property, (int?)recorded[property], (int?)current[property]);
             foreach (var group in recorded["linqExact"]!.AsObject())
                 Check($"linqExact.{group.Key}", (int?)group.Value, (int?)current["linqExact"]?[group.Key]);
@@ -277,7 +284,8 @@ internal static class ModelEvals
     /// <param name="run">The run.</param>
     /// <param name="effects">The whole-entry effects run.</param>
     /// <param name="linq">The built-in LINQ oracle run.</param>
-    public static string Snapshot(EvalRun run, WholeEntryRun effects, WholeEntryRun linq)
+    /// <param name="accessors">The accessor gold set's run.</param>
+    public static string Snapshot(EvalRun run, WholeEntryRun effects, WholeEntryRun linq, WholeEntryRun accessors)
     {
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -298,8 +306,12 @@ internal static class ModelEvals
             foreach (var answer in linq.Answers)
                 WriteMember(json, answer.Answer);
             json.WriteEndArray();
+            json.WriteStartArray("accessors");
+            foreach (var answer in accessors.Answers)
+                WriteMember(json, answer.Answer);
+            json.WriteEndArray();
             json.WriteStartArray("packages");
-            foreach (var package in MergePackages(run.Packages, effects.Packages, linq.Packages))
+            foreach (var package in MergePackages(run.Packages, effects.Packages, linq.Packages, accessors.Packages))
             {
                 json.WriteStartObject();
                 json.WriteString("assembly", package.Assembly);
@@ -319,6 +331,7 @@ internal static class ModelEvals
             foreach (var (group, exact) in WholeEntryEvals.ExactByGroup(linq).OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 json.WriteNumber(group, exact);
             json.WriteEndObject();
+            json.WriteNumber("accessorsExact", AccessorEvals.Exact(accessors));
             json.WriteEndObject();
         }
 
@@ -422,7 +435,7 @@ internal static class ModelEvals
         }
         if (!JsonNode.DeepEquals(before["exact"], after["exact"]))
             answers.Add($"exact: recorded {before["exact"]?.ToJsonString() ?? "nothing"}, now {after["exact"]?.ToJsonString() ?? "nothing"}");
-        foreach (var count in new[] { "fateGoldEntries", "effectsExact", "linqExact" })
+        foreach (var count in new[] { "fateGoldEntries", "effectsExact", "linqExact", "accessorsExact" })
         {
             if (!JsonNode.DeepEquals(before[count], after[count]))
                 answers.Add($"{count}: recorded {before[count]?.ToJsonString() ?? "nothing"}, now {after[count]?.ToJsonString() ?? "nothing"}");
@@ -435,7 +448,7 @@ internal static class ModelEvals
     public static string Normalize(string text) => text.Replace("\r\n", "\n");
 
     private static Dictionary<string, JsonNode> AnswerNodes(JsonNode document) =>
-        new[] { "members", "effects", "linq" }.SelectMany(section => (document[section]?.AsArray() ?? []).Select(entry => (Section: section, Entry: entry)))
+        new[] { "members", "effects", "linq", "accessors" }.SelectMany(section => (document[section]?.AsArray() ?? []).Select(entry => (Section: section, Entry: entry)))
                                                    .Where(item => item.Entry is not null)
                                                    .ToDictionary(item => $"{item.Section}:{(string)item.Entry!["member"]!}", item => item.Entry!,
                                                                  StringComparer.Ordinal);

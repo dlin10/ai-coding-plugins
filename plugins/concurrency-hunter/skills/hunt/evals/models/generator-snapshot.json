@@ -443,7 +443,7 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
-      "reachedBodies": 457
+      "reachedBodies": 458
     },
     {
       "member": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
@@ -456,7 +456,7 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
-      "reachedBodies": 457
+      "reachedBodies": 458
     },
     {
       "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
@@ -2935,6 +2935,254 @@
       "reachedBodies": 0
     }
   ],
+  "accessors": [
+    {
+      "member": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "fabe842a-2434-4045-a06f-a01af8e43bae"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "fabe842a-2434-4045-a06f-a01af8e43bae"
+      },
+      "classified": null,
+      "reason": "driver-not-synthesized",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    },
+    {
+      "member": "M:System.Collections.Specialized.ListDictionary.get_Item(System.Object)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "1ab479b2-e1d9-462d-8891-555d2f8907ae"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 38
+    },
+    {
+      "member": "M:System.Collections.Specialized.ListDictionary.set_Item(System.Object,System.Object)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "1ab479b2-e1d9-462d-8891-555d2f8907ae"
+      },
+      "classified": {},
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 38
+    },
+    {
+      "member": "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "777e26ab-96d9-43f4-bb9f-616781c73c72"
+      },
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 22
+    },
+    {
+      "member": "M:System.ComponentModel.BackgroundWorker.add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "777e26ab-96d9-43f4-bb9f-616781c73c72"
+      },
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "vocabulary",
+      "reachedBodies": 22
+    },
+    {
+      "member": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "e7714447-a3cb-4c79-bce6-6e7374c9f249"
+      },
+      "classified": {},
+      "reason": null,
+      "model": {
+        "member": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite)",
+        "assemblies": [
+          "System.ComponentModel.Primitives"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 13
+    },
+    {
+      "member": "M:System.Console.add_CancelKeyPress(System.ConsoleCancelEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "aaf146d0-4986-45a7-bfc8-18300c2e26b4"
+      },
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": null,
+      "modelReason": "unknown-touch",
+      "reachedBodies": 14
+    },
+    {
+      "member": "M:System.Diagnostics.Process.add_Exited(System.EventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "e9373620-50e0-45a7-afbe-369c5cc9d809"
+      },
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.Diagnostics.Process.add_Exited(System.EventHandler)",
+        "assemblies": [
+          "System.Diagnostics.Process"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "value": {
+            "fate": "unknown-execution"
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 29
+    },
+    {
+      "member": "M:System.IO.FileSystemWatcher.add_Changed(System.IO.FileSystemEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "87c6b41a-d121-4321-b25c-22cb415e68bb"
+      },
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.IO.FileSystemWatcher.add_Changed(System.IO.FileSystemEventHandler)",
+        "assemblies": [
+          "System.IO.FileSystem.Watcher"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "value": {
+            "fate": "unknown-execution"
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 17
+    },
+    {
+      "member": "M:System.IO.FileSystemWatcher.remove_Changed(System.IO.FileSystemEventHandler)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "87c6b41a-d121-4321-b25c-22cb415e68bb"
+      },
+      "classified": {
+        "value": {
+          "fate": "not-run",
+          "holder": null
+        }
+      },
+      "reason": null,
+      "model": {
+        "member": "M:System.IO.FileSystemWatcher.remove_Changed(System.IO.FileSystemEventHandler)",
+        "assemblies": [
+          "System.IO.FileSystem.Watcher"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "value": {
+            "fate": "not-run"
+          }
+        }
+      },
+      "modelReason": null,
+      "reachedBodies": 17
+    },
+    {
+      "member": "M:System.Net.Security.SslClientAuthenticationOptions.set_RemoteCertificateValidationCallback(System.Net.Security.RemoteCertificateValidationCallback)",
+      "implementation": {
+        "assemblyVersion": "10.0.0.0",
+        "fileVersion": "10.0.1226.42308",
+        "mvid": "889c23f0-44c2-4ec6-adb3-cd6ca649b9c6"
+      },
+      "classified": null,
+      "reason": "library-does-not-compile",
+      "model": null,
+      "modelReason": null,
+      "reachedBodies": 0
+    }
+  ],
   "packages": [
     {
       "assembly": "AutoMapper",
@@ -2973,10 +3221,55 @@
       "driversSynthesized": 6
     },
     {
+      "assembly": "System.Collections.Specialized",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 290,
+      "externBodies": 0,
+      "members": 2,
+      "driversSynthesized": 2
+    },
+    {
+      "assembly": "System.ComponentModel.EventBasedAsync",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 51,
+      "externBodies": 0,
+      "members": 2,
+      "driversSynthesized": 2
+    },
+    {
+      "assembly": "System.ComponentModel.Primitives",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 166,
+      "externBodies": 0,
+      "members": 1,
+      "driversSynthesized": 1
+    },
+    {
       "assembly": "System.Console",
       "package": null,
       "implementationVersion": "10.0.12",
       "bodies": 380,
+      "externBodies": 0,
+      "members": 3,
+      "driversSynthesized": 3
+    },
+    {
+      "assembly": "System.Diagnostics.Process",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 565,
+      "externBodies": 0,
+      "members": 1,
+      "driversSynthesized": 1
+    },
+    {
+      "assembly": "System.IO.FileSystem.Watcher",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 116,
       "externBodies": 0,
       "members": 2,
       "driversSynthesized": 2
@@ -3006,6 +3299,24 @@
       "bodies": 230,
       "externBodies": 0,
       "members": 15,
+      "driversSynthesized": 0
+    },
+    {
+      "assembly": "System.Net.Security",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 870,
+      "externBodies": 0,
+      "members": 1,
+      "driversSynthesized": 0
+    },
+    {
+      "assembly": "System.ObjectModel",
+      "package": null,
+      "implementationVersion": "10.0.12",
+      "bodies": 141,
+      "externBodies": 0,
+      "members": 2,
       "driversSynthesized": 0
     },
     {
@@ -3042,5 +3353,6 @@
   "linqExact": {
     "System.Linq": 5,
     "System.Linq.Queryable": 0
-  }
+  },
+  "accessorsExact": 7
 }

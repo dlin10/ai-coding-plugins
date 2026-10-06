@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.2",
   "target": "demo/Demo.slnx",
-  "revision": "85344be5cbf245bfc312ea8a1e2a12fc2600fe14",
+  "revision": "0661dd8e91fa9073e71fd0c1a599baa665e44dac",
   "workingTreeClean": false,
   "engineVersion": "0.1.0",
-  "recordedAt": "2026-10-03T12:49:17.1054032\u002B00:00",
+  "recordedAt": "2026-10-06T10:09:24.9709371\u002B00:00",
   "machine": {
     "logicalProcessors": 16,
     "memoryGb": 31.9
@@ -18,91 +18,91 @@
     "steps": [
       {
         "step": "load",
-        "seconds": 3.584
+        "seconds": 3.167
       },
       {
         "step": "scope-discovery",
-        "seconds": 2.047
+        "seconds": 2.013
       },
       {
         "step": "program-index",
-        "seconds": 1.356
+        "seconds": 1.411
       },
       {
         "step": "lowering",
-        "seconds": 1.556
+        "seconds": 1.546
       },
       {
         "step": "reachable-set",
-        "seconds": 0.087
+        "seconds": 0.096
       },
       {
         "step": "summaries-and-fixpoint",
-        "seconds": 1.397
+        "seconds": 1.388
       },
       {
         "step": "executions",
-        "seconds": 0.261
+        "seconds": 0.276
       },
       {
         "step": "accesses",
-        "seconds": 0.84
+        "seconds": 0.712
       },
       {
         "step": "pairing",
-        "seconds": 0.056
+        "seconds": 0.06
       },
       {
         "step": "solver",
-        "seconds": 0.31
+        "seconds": 0.253
       },
       {
         "step": "findings",
-        "seconds": 0.042
+        "seconds": 0.045
       },
       {
         "step": "render",
-        "seconds": 0.189
+        "seconds": 0.107
       }
     ],
-    "totalSeconds": 14.2
+    "totalSeconds": 13.381
   },
-  "peakWorkingSetMb": 379.7,
+  "peakWorkingSetMb": 379.6,
   "counts": {
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 311,
+    "roots": 314,
     "rootsPerProvider": {
-      "aspnetcore": 138,
-      "hosting": 173
+      "aspnetcore": 140,
+      "hosting": 174
     },
-    "reachableBodies": 1221,
-    "summaries": 1221,
-    "regions": 794,
-    "instances": 1267,
-    "accesses": 1567,
+    "reachableBodies": 1241,
+    "summaries": 1241,
+    "regions": 801,
+    "instances": 1287,
+    "accesses": 1584,
     "pairs": {
-      "comparisons": 1633,
-      "cartesianBound": 578351,
+      "comparisons": 1649,
+      "cartesianBound": 591329,
       "largestBucket": 8,
-      "buckets": 676,
+      "buckets": 684,
       "skips": {
-        "confined": 8,
+        "confined": 10,
         "disjoint-iteration": 1,
-        "no-conflicting-operation": 67,
-        "no-overlap": 293,
+        "no-conflicting-operation": 71,
+        "no-overlap": 294,
         "ordered": 21,
-        "read-read": 982,
+        "read-read": 990,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 238
+      "candidates": 239
     },
-    "findings": 219,
-    "occurrences": 235,
-    "groups": 174,
+    "findings": 220,
+    "occurrences": 236,
+    "groups": 175,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -238,6 +238,7 @@
       "9b409de3db87e3c6",
       "9bf7e171c6e3076b",
       "9c9c8106b0ad6f1d",
+      "9e916fff144b0e86",
       "9f784624fea9d5f0",
       "a0a00611df8f4181",
       "a409bd7b17e5b916",
@@ -329,23 +330,23 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 138,
-        "hosting": 172
+        "aspnetcore": 140,
+        "hosting": 173
       },
-      "accesses": 1075,
+      "accesses": 1087,
       "counters": {
         "delegate-to-opaque": 7,
         "element-operation": 34,
-        "known-call": 259,
-        "known-call-built-in": 255,
+        "known-call": 263,
+        "known-call-built-in": 259,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 16,
         "opaque-by-project": 1,
-        "opaque-call": 1056,
+        "opaque-call": 1066,
         "out-of-range-call": 0,
-        "reachable-bodies": 1218,
+        "reachable-bodies": 1238,
         "scc-budget-exceeded": 0,
         "semantic-gap": 10,
         "solver-available": 1,
@@ -355,7 +356,7 @@
         "unanalysed-registration": 0,
         "unproven-reference": 13,
         "unresolved-locator": 2,
-        "unsupported-operation": 21,
+        "unsupported-operation": 17,
         "wildcard-access": 8
       },
       "ordering": {
@@ -363,7 +364,7 @@
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 28
+        "unproven-joins": 29
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
@@ -420,7 +421,7 @@
   "targets": {
     "deterministicSeconds": {
       "limit": 90,
-      "actual": 14.2,
+      "actual": 13.381,
       "met": true
     },
     "peakRssGb": {

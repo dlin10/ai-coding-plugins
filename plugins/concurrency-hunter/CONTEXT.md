@@ -357,7 +357,8 @@ Where a delegate handed to a **Known call** runs, named by an execution the engi
 the returned sequence is enumerated, by whoever enumerates it), `holder` (wherever a member of the
 object that keeps it runs), `di-factory` (where the service it builds is resolved, as often as its
 lifetime says), `startup` (in startup), or `unknown-execution` (in an **Unknown execution**, as the
-model's known answer rather than a gap). A fate also says what each of the delegate's parameters is
+model's known answer rather than a gap); or `not-run`, when the call neither runs the delegate nor
+keeps it, as removing an event handler or comparing two delegates does. A fate also says what each of the delegate's parameters is
 handed — an argument of the call, the elements of one, what another delegate returned, a new object
 the library made for it — and whether
 what the delegate returns is part of what the call returns; what it does not name, the delegate is
@@ -375,8 +376,10 @@ enumerated, in addition, by an **Unknown execution**.
 _Avoid_: lazy result, deferred query, LINQ iterator (the iterator is the user's `yield` method)
 
 **Holder**:
-A library object that keeps a delegate it was given: the object the call returns — for a
-constructor, the object it creates — or the object the call is made on. Its delegate runs wherever
+A library object that keeps a delegate it was given and runs it in its own members: the object the
+call returns — for a constructor, the object it creates — or the object the call is made on. An
+object that only stores a delegate for other code to read and run, as an options bag does, is not a
+holder: the delegate runs wherever that other code runs it. A holder's delegate runs wherever
 any member of the holder runs, because only code that reaches the holder can reach the delegate; a
 holder the heap cannot follow any more — handed to a call without a body other than as the object it
 is called on, stored where a timer or the framework reads it — makes the delegate's fate
@@ -417,10 +420,12 @@ value that came from a call without a body look followed.
 _Avoid_: stub, mock, placeholder
 
 **Open-world rule**:
-Library code is not a closed world: a delegate the **Model generator** did not see run, or saw run
-and still kept after the call, may be run later by code no root reaches, so its fate is
-`unknown-execution`. The absence of an observed call proves nothing; an observed trigger list is
-never taken as complete. The same holds for what a member does to its arguments: the accesses the
+Library code is not a closed world: a delegate the **Model generator** saw run and still kept after
+the call, or that anything the analysis cannot see may have reached — a call without a body, a
+dispatch with no receiver object, code it could not lower — may be run later by code no root
+reaches, so its fate is `unknown-execution`. Only a delegate that nothing keeps and nothing unseen
+reached — and that the analysis followed into the call at all — is known not to run (`not-run`). An observed trigger list is never taken as complete. The
+same holds for what a member does to its arguments: the accesses the
 driver saw to the objects it handed over are a lower bound, so when anything the analysis cannot
 see — a call without a body, an **Unknown execution** — reached those objects, the member gets no
 generated model at all rather than a partial one.
@@ -429,7 +434,8 @@ _Avoid_: conservative default, fallback
 **Unsafe narrowing**:
 A generated answer that claims less than the truth: a **Delegate fate** other than the true one,
 unless it is `unknown-execution`, or `holder` on the returned object where the truth is `iterator`,
-since enumerating a result calls its members; or a **Library model** that leaves out a read, a
+since enumerating a result calls its members, or the truth is `not-run`, which every answer covers
+(an answered `not-run` claims less than any other truth); or a **Library model** that leaves out a read, a
 write, a kept value or a result the member has, or describes a member that should stay opaque. The
 model evals count it, and it must be zero; an answer wider than the truth is safe, only less useful.
 _Avoid_: false negative (a finding the report misses), wrong label
@@ -497,7 +503,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   library object, or by keepers the analysis cannot tell apart, it is shared, even when the
   execution that created it is the only one that touches it directly.
 - A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection or happens-before.
-- The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and a **Holder** is decided by what can reach the delegate, not by the calls the **Driver** happened to observe.
+- The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and an object is a **Holder** only when it keeps the delegate and one of its own members was seen running it; from then on the delegate runs wherever any member of the holder runs, not only at the calls the **Driver** happened to observe.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
 - A **Finding group** has exactly one **Skeleton** and at most one **Narrative**; a group whose **Confidence label** is High or Medium makes the run `Incomplete` without a **Narrative**, a Low group does not.

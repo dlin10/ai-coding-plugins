@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Frontend;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -37,10 +38,12 @@ public sealed record DriverParameter(string Name, int Ordinal, RefKind RefKind, 
 /// receiver).</param>
 public sealed record DriverTrigger(string Action, string Member, string Holder);
 
-/// <summary>One setup assignment that places a seed at a library field path.</summary>
+/// <summary>One setup statement that places a seed at a library field path: an assignment to a field or auto-property, or a
+/// subscription to a field-like event.</summary>
 /// <param name="Path">The path from <c>this</c>, <c>arg:&lt;parameter&gt;</c> or <c>static</c>.</param>
-/// <param name="Operation">The assignment operation that stores the seed.</param>
-public sealed record DriverSeedStatement(string Path, ISimpleAssignmentOperation Operation);
+/// <param name="Operation">The operation that stores the seed: an <see cref="ISimpleAssignmentOperation"/> for a field or
+/// property seed, an <see cref="IEventAssignmentOperation"/> for an event seed.</param>
+public sealed record DriverSeedStatement(string Path, IOperation Operation);
 
 /// <summary>A synthesized driver, compiled against its library.</summary>
 /// <param name="Member">The member the driver calls, in the library compilation.</param>
@@ -144,8 +147,8 @@ public static class DriverSynthesizer
                               .FirstOrDefault(symbol => SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, library.Assembly));
 
     /// <summary>The driver of one member, or the first reason of G-6's order that applies from the member's kind on:
-    /// <c>accessor</c> for a property, an event or an accessor method, <c>driver-not-synthesized</c> for any other kind the
-    /// generator does not take (a field), <c>not-a-candidate</c>, <c>body-does-not-compile</c>, <c>driver-not-synthesized</c> for a
+    /// <c>accessor</c> for a property or an event, <c>driver-not-synthesized</c> for any other kind the generator does not take (a
+    /// field), <c>not-a-candidate</c>, <c>body-does-not-compile</c>, <c>driver-not-synthesized</c> for a
     /// driver that could not be built.</summary>
     /// <param name="library">The library compilation, its failing bodies made <c>extern</c>.</param>
     /// <param name="member">The member, from <see cref="FindMember"/>.</param>
@@ -177,12 +180,16 @@ public static class DriverSynthesizer
                                              CancellationToken cancellationToken)
     {
         if (IsAccessor(member))
-            return new DriverSynthesis(null, GenerationReasons.ACCESSOR, $"{Id(member)} is a property, event or accessor");
-        if (member is not IMethodSymbol { MethodKind: MethodKind.Ordinary or MethodKind.Constructor or MethodKind.UserDefinedOperator or MethodKind.Conversion } method)
+            return new DriverSynthesis(null, GenerationReasons.ACCESSOR, AccessorDetail(member));
+        if (member is not IMethodSymbol
+            {
+                MethodKind: MethodKind.Ordinary or MethodKind.Constructor or MethodKind.UserDefinedOperator or MethodKind.Conversion or
+                            MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd or MethodKind.EventRemove
+            } method)
         {
             var kind = member is IMethodSymbol other ? other.MethodKind.ToString() : member.Kind.ToString();
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED,
-                                       $"{Id(member)} is a {kind}, not a method, constructor, operator or conversion");
+                                       $"{Id(member)} is a {kind}, not a method, constructor, operator, conversion or accessor");
         }
 
         var definition = method.OriginalDefinition;
@@ -234,10 +241,54 @@ public static class DriverSynthesizer
                                    null, "");
     }
 
-    /// <summary>Whether a symbol is a property, event, or one of their accessor methods.</summary>
+    /// <summary>Whether a member answers <c>accessor</c>: a property or an event, named by its <c>P:</c> or <c>E:</c> id. Its
+    /// accessor methods, named by their <c>M:</c> ids, are generated as methods are.</summary>
     /// <param name="member">The library member.</param>
-    public static bool IsAccessor(ISymbol member) => member is IPropertySymbol or IEventSymbol ||
-        member is IMethodSymbol { MethodKind: MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.EventAdd or MethodKind.EventRemove };
+    public static bool IsAccessor(ISymbol member) => member is IPropertySymbol or IEventSymbol;
+
+    /// <summary>The detail of an <c>accessor</c> answer: the property or event, and the <c>M:</c> ids of its accessors to generate
+    /// instead.</summary>
+    /// <param name="member">The property or event.</param>
+    public static string AccessorDetail(ISymbol member)
+    {
+        IEnumerable<IMethodSymbol?> accessors = member switch
+        {
+            IPropertySymbol property => [property.GetMethod, property.SetMethod],
+            IEventSymbol @event => [@event.AddMethod, @event.RemoveMethod],
+            _ => []
+        };
+        return $"{Id(member)} is a property or event; generate its accessors: {string.Join(", ", accessors.OfType<IMethodSymbol>().Select(Id))}";
+    }
+
+    /// <summary>Whether a caller could call a member before <see cref="LibraryFieldOpening"/> opened the copy: the member, of any
+    /// kind, and each of its containing types are public as the unopened compilation declares them. The opening makes the private
+    /// members and nested types it opens <c>internal</c>, and strips the modifier of a seed auto-property's accessor, which makes that
+    /// accessor public in the copy.</summary>
+    /// <param name="library">The library compilation, opened or not.</param>
+    /// <param name="member">The member or type, in that compilation or another assembly.</param>
+    internal static bool OriginalAccessibility(CSharpCompilation library, ISymbol member)
+    {
+        for (var current = Original(library, member); current is not null; current = current.ContainingType)
+        {
+            if (current.DeclaredAccessibility != Accessibility.Public)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>The symbol with the same declaration id in the unopened compilation; a symbol of another assembly, or one the
+    /// unopened compilation does not resolve, is its own.</summary>
+    /// <param name="library">The library compilation, opened or not.</param>
+    /// <param name="symbol">The symbol.</param>
+    private static ISymbol Original(CSharpCompilation library, ISymbol symbol)
+    {
+        var definition = symbol.OriginalDefinition;
+        if (!SymbolEqualityComparer.Default.Equals(definition.ContainingAssembly, library.Assembly) || definition.GetDocumentationCommentId() is not { } id)
+            return definition;
+        var unopened = LibraryFieldOpening.Unopened(library);
+        return ReferenceEquals(unopened, library) ? definition : FindMember(unopened, id) ?? definition;
+    }
 
     private static IReadOnlyList<DriverSeedStatement> SeedOperations(CSharpCompilation compilation, SyntaxTree tree,
                                                                      IReadOnlyList<(string Path, string Statement)> statements,
@@ -246,7 +297,7 @@ public static class DriverSynthesizer
         var setup = tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>()
                         .Single(method => method.Identifier.Text == SETUP);
         var assignments = compilation.GetSemanticModel(tree).GetOperation(setup, cancellationToken)!.Descendants()
-                                     .OfType<ISimpleAssignmentOperation>().ToList();
+                                     .Where(operation => operation is ISimpleAssignmentOperation or IEventAssignmentOperation).ToList();
         var result = new List<DriverSeedStatement>();
         foreach (var (path, statement) in statements)
         {
@@ -310,6 +361,12 @@ public static class DriverSynthesizer
         return operation is not null && operation.Descendants().Any(child => child switch
         {
             IInvocationOperation invocation => Id(invocation.TargetMethod.OriginalDefinition) == memberId,
+            IPropertyReferenceOperation reference =>
+                (reference.Parent is ISimpleAssignmentOperation assignment && assignment.Target == reference
+                    ? reference.Property.SetMethod
+                    : reference.Property.GetMethod) is { } accessor && Id(accessor.OriginalDefinition) == memberId,
+            IEventAssignmentOperation { EventReference: IEventReferenceOperation { Event: var @event } } subscription =>
+                (subscription.Adds ? @event.AddMethod : @event.RemoveMethod) is { } eventAccessor && Id(eventAccessor.OriginalDefinition) == memberId,
             IObjectCreationOperation creation => creation.Constructor is { } constructor && Id(constructor.OriginalDefinition) == memberId,
             IBinaryOperation binary => binary.OperatorMethod is { } binaryOperator && Id(binaryOperator.OriginalDefinition) == memberId,
             IUnaryOperation unary => unary.OperatorMethod is { } unaryOperator && Id(unaryOperator.OriginalDefinition) == memberId,
@@ -658,11 +715,15 @@ public static class DriverSynthesizer
             _ => type
         };
 
-        /// <summary>Records why the recipe cannot call the member.</summary>
+        /// <summary>Records why the recipe cannot call the member. Whether it is public, and whether it is an init accessor, is read
+        /// on the unopened compilation: the opening strips a seed auto-property accessor's modifier and turns its <c>init</c> into
+        /// <c>set</c>.</summary>
         private void CheckCallable()
         {
-            if (member.DeclaredAccessibility != Accessibility.Public || !PubliclyNamed(member.ContainingType))
+            if (!OriginalAccessibility(library, member))
                 Fail($"{Id(member)} is not public");
+            if (Original(library, member) is IMethodSymbol { IsInitOnly: true })
+                Fail($"{Id(member)} is an init accessor, which no driver form calls on a receiver whose state setup chose");
             if (member.IsAbstract)
                 Fail($"{Id(member)} is abstract");
             if (member.ContainingType.TypeKind == TypeKind.Interface && !member.IsStatic)
@@ -755,6 +816,13 @@ public static class DriverSynthesizer
         private void SeedMember(ISymbol field, string access, string path, int depth, List<string> statements)
         {
             var type = Substitute(MemberType(field));
+            // A field-like event's storage is seeded by subscribing a witness: a subscription reads nothing and goes no deeper.
+            if (field is IEventSymbol)
+            {
+                if (depth == 0 || !(Accessible(field) || IsOpened(field)) || !SeedEvent(access, type, path, statements))
+                    RecordUnseeded(path, field, type);
+                return;
+            }
             if (!CanRead(field) || depth == 0)
             {
                 RecordUnseeded(path, field, type);
@@ -799,6 +867,24 @@ public static class DriverSynthesizer
                 return true;
             Rollback(snapshot, "Seed");
             seededValue = null;
+            return false;
+        }
+
+        /// <summary>Subscribes the witness a delegate-typed field would get to a field-like event, or rolls back and answers
+        /// <c>false</c>.</summary>
+        /// <param name="target">The expression naming the event.</param>
+        /// <param name="type">The event's delegate type.</param>
+        /// <param name="path">The event's field path.</param>
+        /// <param name="statements">The statements the subscription is added in.</param>
+        private bool SeedEvent(string target, ITypeSymbol type, string path, List<string> statements)
+        {
+            var snapshot = Snapshot();
+            if (SeedClassValue(type) is { } seed && Failures.Count == snapshot.Failures)
+            {
+                AddSeed(path, $"{target} += {seed};", statements);
+                return true;
+            }
+            Rollback(snapshot, "Seed");
             return false;
         }
 
@@ -1054,8 +1140,11 @@ public static class DriverSynthesizer
                 {
                     if (candidate.IsStatic != isStatic || candidate.IsImplicitlyDeclared)
                         continue;
-                    if (candidate is IFieldSymbol { IsConst: false } || candidate is IPropertySymbol { IsIndexer: false } property && IsAutoProperty(property))
+                    if (candidate is IFieldSymbol { IsConst: false } || candidate is IPropertySymbol { IsIndexer: false } property && IsAutoProperty(property) ||
+                        candidate is IEventSymbol @event && FieldLikeEvents.Is(@event) && SeedableFields.Seed(@event.Type))
+                    {
                         yield return candidate;
+                    }
                 }
             }
         }
@@ -1112,6 +1201,10 @@ public static class DriverSynthesizer
                          field.Type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
                     RecordUnseeded(fieldPath, storage, field.Type);
             }
+
+            // No backing field of a field-like event is listed among the struct's members: the event names its storage.
+            foreach (var @event in named.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
+                RecordUnseeded(path + "/" + Id(@event), @event, @event.Type);
         }
 
         private void RecordUnseeded(string path, ISymbol field, ITypeSymbol type)
@@ -1167,6 +1260,7 @@ public static class DriverSynthesizer
         {
             IFieldSymbol field => field.Type,
             IPropertySymbol property => property.Type,
+            IEventSymbol @event => @event.Type,
             _ => throw new ArgumentOutOfRangeException(nameof(member))
         };
 
@@ -1178,7 +1272,8 @@ public static class DriverSynthesizer
         }
 
         /// <summary>The receiver: the driver's subclass when a user could subclass its type, overriding everything but the member and
-        /// what it overrides; else the recipe's value.</summary>
+        /// what it overrides, and for an accessor the property or event it belongs to and what that overrides; else the recipe's
+        /// value.</summary>
         /// <param name="receiver">The receiver's type.</param>
         private string ReceiverValue(INamedTypeSymbol receiver)
         {
@@ -1189,6 +1284,11 @@ public static class DriverSynthesizer
                 var excluded = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
                 for (var overridden = member; overridden is not null; overridden = overridden.OverriddenMethod)
                     excluded.Add(overridden.OriginalDefinition);
+                for (var associated = member.AssociatedSymbol; associated is not null;
+                     associated = associated switch { IPropertySymbol property => property.OverriddenProperty, IEventSymbol @event => @event.OverriddenEvent, _ => null })
+                {
+                    excluded.Add(associated.OriginalDefinition);
+                }
                 if (receiver.IsAbstract || Derivation.Overridable(receiver, out _).Any(candidate => !excluded.Contains(candidate.OriginalDefinition)))
                     return $"new {DriverClass("Sub", owner.Name, receiver, excluded)}()";
             }
@@ -1259,8 +1359,16 @@ public static class DriverSynthesizer
             var list = string.Join(", ", arguments);
             var containing = R(Substitute(member.ContainingType));
             var typeArguments = member.IsGenericMethod ? "<" + string.Join(", ", member.TypeParameters.Select(R)) + ">" : "";
+            var target = member.IsStatic ? containing : $"Recv_{variant}";
             return member.MethodKind switch
             {
+                MethodKind.PropertyGet when member.AssociatedSymbol is IPropertySymbol { IsIndexer: true } => $"{target}[{list}]",
+                MethodKind.PropertyGet => $"{target}.{Escape(member.AssociatedSymbol!.Name)}",
+                MethodKind.PropertySet when member.AssociatedSymbol is IPropertySymbol { IsIndexer: true } =>
+                    $"{target}[{string.Join(", ", arguments.SkipLast(1))}] = {arguments[^1]}",
+                MethodKind.PropertySet => $"{target}.{Escape(member.AssociatedSymbol!.Name)} = {arguments[^1]}",
+                MethodKind.EventAdd => $"{target}.{Escape(member.AssociatedSymbol!.Name)} += {arguments[^1]}",
+                MethodKind.EventRemove => $"{target}.{Escape(member.AssociatedSymbol!.Name)} -= {arguments[^1]}",
                 MethodKind.Constructor => $"new {containing}({list})",
                 MethodKind.Conversion => $"(({R(Substitute(member.ReturnType))})({list}))",
                 MethodKind.UserDefinedOperator when arguments.Count == 2 && BinaryOperators.TryGetValue(member.Name, out var binary) =>
@@ -1311,11 +1419,13 @@ public static class DriverSynthesizer
             }
 
             // A field-like event's accessors are the compiler's: they combine delegates and run none, so there is nothing to observe.
-            static bool IsCallable(IMethodSymbol method) =>
-                method is { IsStatic: false, DeclaredAccessibility: Accessibility.Public } &&
+            // Whether a member is public or init is read as the library declares it, before the opening (OriginalAccessibility); the
+            // containing type a caller must name is TriggerStatement's to judge, so a member on one it cannot name stays uncovered.
+            bool IsCallable(IMethodSymbol method) =>
+                method is { IsStatic: false } && Original(library, method) is IMethodSymbol { DeclaredAccessibility: Accessibility.Public, IsInitOnly: false } &&
                 method.MethodKind is MethodKind.Ordinary or MethodKind.DelegateInvoke or MethodKind.PropertyGet or MethodKind.PropertySet or
                                      MethodKind.EventAdd or MethodKind.EventRemove &&
-                !method.IsInitOnly && !IsFieldLikeEventAccessor(method);
+                !IsFieldLikeEventAccessor(method);
 
             static ISymbol Root(IMethodSymbol method)
             {
@@ -1327,7 +1437,7 @@ public static class DriverSynthesizer
 
         /// <summary>The statement of a trigger action after the call: one call of the holder's member, through a cast to the type
         /// declaring it when that is not the holder's static type, its arguments built by setup into fields of their own; a task it
-        /// returns awaited. A member the driver cannot call, or whose call the engine does not follow (an event accessor), is a
+        /// returns awaited; an event accessor is a subscription or an unsubscription. A member the driver cannot call is a
         /// failure.</summary>
         /// <param name="trigger">The member: a method, a property or indexer accessor, an event accessor or a delegate's <c>Invoke</c>.</param>
         /// <param name="holder">The holder's static type.</param>
@@ -1336,15 +1446,12 @@ public static class DriverSynthesizer
         private string TriggerStatement(IMethodSymbol trigger, INamedTypeSymbol holder, string target, string variant)
         {
             var declaring = trigger.ContainingType;
-            if (!PubliclyNamed(declaring))
+            if (!OriginalAccessibility(library, declaring))
                 return Fail($"{Id(trigger)} is declared on {declaring.ToDisplayString()}, which a caller cannot name");
             if (trigger.IsVararg)
                 return Fail($"{Id(trigger)} takes a variable argument list");
             if (trigger.GetAttributes().Concat(trigger.AssociatedSymbol?.GetAttributes() ?? []).Any(IsObsoleteError))
                 return Fail($"{Id(trigger)} is obsolete as an error");
-            // The engine does not follow `+=` or `-=` (an unsupported operation), so such a trigger could show nothing.
-            if (trigger.MethodKind is MethodKind.EventAdd or MethodKind.EventRemove)
-                return Fail($"{Id(trigger)} is an event accessor the engine does not follow");
             var returned = trigger.MethodKind == MethodKind.PropertyGet ? ((IPropertySymbol)trigger.AssociatedSymbol!).Type : trigger.ReturnType;
             if (returned is IPointerTypeSymbol or IFunctionPointerTypeSymbol)
                 return Fail($"{Id(trigger)} returns a pointer");
@@ -1390,6 +1497,12 @@ public static class DriverSynthesizer
                     return $"{access} = {arguments[^1]};";
                 }
 
+                case MethodKind.EventAdd or MethodKind.EventRemove:
+                {
+                    var operation = trigger.MethodKind == MethodKind.EventAdd ? "+=" : "-=";
+                    return $"{receiver}.{Escape(trigger.AssociatedSymbol!.Name)} {operation} {arguments[^1]};";
+                }
+
                 default:
                 {
                     var typeArguments = trigger.IsGenericMethod ? "<" + string.Join(", ", trigger.TypeParameters.Select(R)) + ">" : "";
@@ -1399,13 +1512,12 @@ public static class DriverSynthesizer
             }
         }
 
-        /// <summary>Whether an accessor is one the compiler wrote for a field-like event declared in source, which no subclass can
-        /// replace: not virtual, abstract or an override.</summary>
+        /// <summary>Whether an accessor is one the compiler wrote for a field-like event (<see cref="FieldLikeEvents.Is"/>) that no
+        /// subclass can replace: neither virtual nor an override (R8). An <c>extern</c> event is not field-like, so its accessors are
+        /// triggers.</summary>
         /// <param name="accessor">The accessor.</param>
         private static bool IsFieldLikeEventAccessor(IMethodSymbol accessor) =>
-            accessor.AssociatedSymbol is IEventSymbol { IsVirtual: false, IsAbstract: false, IsOverride: false } @event &&
-            @event.DeclaringSyntaxReferences is [var reference] &&
-            reference.GetSyntax() is VariableDeclaratorSyntax { Parent.Parent: EventFieldDeclarationSyntax };
+            accessor.AssociatedSymbol is IEventSymbol { IsVirtual: false, IsOverride: false } @event && FieldLikeEvents.Is(@event);
 
         private static bool IsObsoleteError(AttributeData attribute) =>
             attribute.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } &&

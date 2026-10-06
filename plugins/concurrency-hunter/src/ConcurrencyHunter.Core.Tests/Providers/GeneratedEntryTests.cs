@@ -187,7 +187,7 @@ public sealed class GeneratedEntryTests
     [Fact]
     public void A_confirmed_result_holder_without_observed_delegate_inputs_has_an_entry()
     {
-        var answer = Answer("public sealed class Quiet { private Action _done; public Quiet(Action done) { _done = done; } internal void Fire() => _done(); } " +
+        var answer = Answer("public sealed class Quiet { private Action _done; public Quiet(Action done) { _done = done; } public void Fire() => _done(); } " +
                             "public static class Api { public static Quiet Keep(Action done) => new Quiet(done); }",
                             "M:Lib.Api.Keep(System.Action)");
 
@@ -423,6 +423,72 @@ public sealed class GeneratedEntryTests
     {
         var answer = Answer("public struct State { public int Count; } public sealed class Fresh { public State Current; } " +
                             "public sealed class Host { public void Run(object p) { var fresh = new Fresh(); fresh.Current.Count++; } }",
+                            "M:Lib.Host.Run(System.Object)");
+
+        AssertPassesReader(answer);
+    }
+
+    [Fact]
+    public void A_receiver_seed_handed_to_an_extern_method_has_vocabulary_reason()
+    {
+        // The seed stands for a user object a program stored in the receiver; unseen code touching it is a read `this` cannot carry.
+        var answer = Answer("public class Item { public object Value; } " +
+                            "public sealed class Host { private Item _item; public void Run(object p) { Sink.Take(_item); } }",
+                            "M:Lib.Host.Run(System.Object)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    [Fact]
+    public void A_receiver_seed_whose_ToString_the_member_calls_has_vocabulary_reason()
+    {
+        var answer = Answer("public class Item { public object Value; } " +
+                            "public sealed class Host { private Item _item; public void Run(object p) { _ = _item.ToString(); } }",
+                            "M:Lib.Host.Run(System.Object)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    [Fact]
+    public void A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_has_vocabulary_reason()
+    {
+        var answer = Answer("public class Item { public object Value; } public sealed class Slot { public Item Item; } " +
+                            "public sealed class Host { private Slot _slot = new Slot(); public void Run(object p) { Sink.Take(_slot); } }",
+                            "M:Lib.Host.Run(System.Object)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    [Fact]
+    public void A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_has_vocabulary_reason()
+    {
+        // The heap does not follow order: the seed's Child setup stored lands in the kept value too, so an argument reaches it; the
+        // read of the previously held object's Child is still a read of a user object `this` cannot carry.
+        var answer = Answer("public class Item { public object Child; } " +
+                            "public sealed class Host { private Item _item; public Item P { set { _item.Child.ToString(); _item = value; } } }",
+                            "M:Lib.Host.set_P(Lib.Item)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    [Fact]
+    public void A_receiver_seed_left_alone_by_a_setter_that_reads_its_value_keeps_its_entry()
+    {
+        // Where the rule stops: the setter reads only what it was handed and keeps it nowhere, so no receiver seed is read. (Keeping
+        // it in _item would merge the seed's Child into the value's, and the read would be a seed read: vocabulary.)
+        var answer = Answer("public class Item { public object Child; } " +
+                            "public sealed class Host { private Item _item; public Item P { set { value.Child.ToString(); } } public Item Q => _item; }",
+                            "M:Lib.Host.set_P(Lib.Item)");
+
+        AssertPassesReader(answer);
+    }
+
+    [Fact]
+    public void A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_keeps_its_entry()
+    {
+        // No seed is read: the object handed out is the library's own, so the receiver read stays the library's own state.
+        var answer = Answer("public sealed class Leaf { public int Value; } " +
+                            "public sealed class Host { private readonly Leaf _leaf = new Leaf(); public void Run(object p) { Sink.Take(_leaf); } }",
                             "M:Lib.Host.Run(System.Object)");
 
         AssertPassesReader(answer);
