@@ -9,7 +9,7 @@ public sealed class AskingTheUserSkillTests
     public void The_protocol_covers_every_question_the_orchestrator_asks()
     {
         Contains("## Asking the user", "the interview, the Scout, critic and builder selections, the instruction questions, " +
-                 "decisions on findings, the round cap, approval, and the values a gate needs",
+                 "decisions on findings, the round cap, narrowing a code-review round, approval, and the values a gate needs",
                  "holds whichever skill is running the interview", Skill());
     }
 
@@ -106,6 +106,19 @@ public sealed class AskingTheUserSkillTests
     {
         Contains("When one critique brings several, ask them one at a time", "Say in plain words what the open findings are",
                  "one variable per question, each saying which gate reads it and what for", Skill());
+    }
+
+    /// <summary>
+    /// The refusal of an oversized round leaves the orchestrator a scope decision, so the skill
+    /// sends it to the user with both remedies and rules out the workaround run
+    /// 20261004-093111-b79938 fell back on.
+    /// </summary>
+    [Fact]
+    public void Narrowing_an_oversized_round_is_asked_and_never_done_by_moving_files()
+    {
+        Contains("### When a round is too large for the critic's vendor", "Show the user those sizes and ask how to narrow the round",
+                 "`untrackedByReference: true`", "`excludePaths`", "Neither is remembered: pass the same arguments on every later round",
+                 "Do not move files out of the repository to make a round fit", Skill());
     }
 
     private static void Contains(params string[] values)

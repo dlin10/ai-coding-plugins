@@ -1,5 +1,36 @@
 # Plan Forge Flow releases
 
+## 0.42.0
+
+A code-review prompt longer than the critic's vendor accepts is refused before the critic starts,
+and the orchestrator has two ways to narrow the round. In concurrency-hunter run
+`20261004-093111-b79938`, a fourth round the user had granted reached codex at 1,056,671
+characters, and codex refused it at its limit of 1,048,576 after the process had started: the round
+came back as a vendor failure carrying only codex's stderr, and the orchestrator moved the plan's
+gate script out of the repository for the length of the review to make it fit. See
+[docs/adr/0029](docs/adr/0029-refuse-an-oversized-review-prompt-and-let-the-orchestrator-narrow-it.md).
+
+- Each vendor states the most characters its CLI accepts as one prompt, counted as Unicode scalar
+  values: 1,048,576 for codex, which counts the stdin prompt alone; none for claude, whose limit is
+  the model's context in tokens, or for cursor-agent. A code-review prompt over it is refused with
+  its size, the limit, what it holds — tracked diff, untracked files, plan, ledger projection — and
+  its ten largest files. Nothing is counted, a user's grant still stands, and the flow log records
+  the round as not sent.
+- `forge.review.code` and `forge.work.start` for `review.code` take `excludePaths`: paths or git
+  pathspec patterns, relative to `workspaceRoot`, that leave this round's window. The changed paths,
+  the content diff and the sensitive-path guard share them, and the critic and the critique summary
+  name them.
+- Both take `untrackedByReference`: the window's untracked files are listed with their line counts
+  for the critic to read from the working tree instead of embedded. Their contents still pass the
+  secret guard. Replayed over run `20261004-093111-b79938`'s tree, it took the prompt from 1,026,655
+  characters to 572,430.
+- The review window names tracked files relative to `workspaceRoot`, as untracked files and
+  pathspecs already were, so a name the refusal lists can be handed back to `excludePaths`. The
+  critic's diff is unchanged.
+- The forge skill asks the user how to narrow an oversized round, recommends
+  `untrackedByReference` when the untracked files are the run's work, keeps `excludePaths` for what
+  is not, and rules out moving files out of the repository.
+
 ## 0.41.0
 
 A code-review fix batch is framed by the rules its findings break, so a domain's axes reach the

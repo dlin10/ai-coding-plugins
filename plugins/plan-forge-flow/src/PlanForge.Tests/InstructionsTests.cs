@@ -269,9 +269,11 @@ public sealed class InstructionsTests : IDisposable
 
     private sealed class ReviewGit : IReviewGit
     {
-        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, CancellationToken ct) =>
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths,
+                                                        CancellationToken ct) =>
             Task.FromResult(new ReviewWindow(baselineHead, baselineHead, false, ["tracked.txt"],
-                                             "--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-old\n+new\n"));
+                                             [new ReviewFile("tracked.txt", "--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-old\n+new\n",
+                                                             Untracked: false)]));
     }
 
     /// <summary>Walks up from the test binary to the repository's editable prompt tree.</summary>

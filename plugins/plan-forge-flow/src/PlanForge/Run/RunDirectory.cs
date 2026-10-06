@@ -452,6 +452,21 @@ internal sealed class RunDirectory
     /// Records that a round ran past its cap because the user granted it, so a reader of
     /// <c>flow_log.md</c> sees the round as bought rather than budgeted.
     /// </summary>
+    /// <summary>
+    /// A round refused before any critic started, which spends nothing: the timeline says why, so a
+    /// round the user granted does not read as one that ran and failed. See docs/adr/0029.
+    /// </summary>
+    /// <param name="act">The act's label, such as "Code review".</param>
+    /// <param name="round">The round that was not sent.</param>
+    /// <param name="reason">Why it was refused.</param>
+    public void AppendFlowRoundNotSent(string act, int round, string reason) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).Append(" — round ").Append(round).AppendLine(" not sent")
+                               .AppendLine()
+                               .AppendLine(reason.TrimEnd())
+                               .AppendLine()
+                               .ToString());
+
     public void AppendFlowGrantedRound(string act, int round) =>
         AtomicFile.Append(FlowLogPath,
             new StringBuilder().Append("## ").Append(act).AppendLine(" — extra round granted")

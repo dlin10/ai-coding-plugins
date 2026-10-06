@@ -24,8 +24,8 @@ an ordinary request to plan something, or an existing draft are not consent.
 
 Every question you put to the user follows this section unless the user asks otherwise: the
 interview, the Scout, critic and builder selections, the instruction questions, decisions on
-findings, the round cap, approval, and the values a gate needs. It belongs to forge and holds
-whichever skill is running the interview.
+findings, the round cap, narrowing a code-review round, approval, and the values a gate needs. It
+belongs to forge and holds whichever skill is running the interview.
 
 Ask one question per call of the host's question tool — `AskUserQuestion` in Claude Code — or per
 message where the host has none, and wait for the answer before you ask the next. Work out the
@@ -880,6 +880,27 @@ list the axes of each rule the fixes touched, probe every combination against an
 path that must agree), fix the root causes, then spend one round to confirm. Hold the fixes you make
 on the host to the Builder's own rule — fix the rule, not the place — and record each with
 `forge.log.append`.
+
+### When a round is too large for the critic's vendor
+
+The review window only grows over a run, and codex accepts at most 1,048,576 characters in one
+prompt. A round over its vendor's limit is refused before any critic starts: nothing was sent, the
+round was not counted, a grant the user gave for it still stands, and the flow log says the round
+was not sent. The refusal lists what the prompt holds and its ten largest files, named from
+`workspaceRoot`. Show the user those sizes and ask how to narrow the round, as "Asking the user"
+describes, then start the same round again with what they chose:
+
+- `untrackedByReference: true` lists the untracked files for the critic to read from the working
+  tree instead of embedding them. Nothing leaves the review; the critic reads the new files with its
+  own tools, and their contents still pass the secret check. Recommend it when the untracked files
+  are the run's work.
+- `excludePaths` takes paths or patterns out of the round, named as the refusal names them. Only
+  for what is not the run's work — a plan's gate script, generated output such as an eval snapshot.
+  A deliverable the plan asks for left out is one the critic cannot judge.
+
+Neither is remembered: pass the same arguments on every later round, and say in your narration what
+the critic was not handed. Do not move files out of the repository to make a round fit — a gate
+that runs a moved file fails, and the window would then differ from the tree the gates check.
 
 ## Choosing the vendor and model
 

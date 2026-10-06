@@ -10,6 +10,13 @@ internal interface IVendor
     /// <summary>Models and effort levels this vendor advertises. Advisory: the vendor CLI decides.</summary>
     VendorCatalog Catalog { get; }
 
+    /// <summary>
+    /// The most characters the vendor's CLI accepts as one turn's act prompt, counted as Unicode
+    /// scalar values, or null where it states none. A prompt over it is refused before the vendor
+    /// starts, rather than by the vendor after it has. See docs/adr/0029.
+    /// </summary>
+    int? PromptCharacterLimit => null;
+
     Task<VendorReadiness> ProbeAsync(CancellationToken ct);
 
     /// <summary>

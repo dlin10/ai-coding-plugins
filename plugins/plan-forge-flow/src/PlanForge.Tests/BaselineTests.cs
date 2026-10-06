@@ -250,7 +250,7 @@ public sealed class BaselineTests : IDisposable
         await _git.OutputAsync(["add", "--", "tracked.txt"], ct);
         await _git.OutputAsync(["commit", "-qm", "run work"], ct);
 
-        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, [], ct);
 
         Assert.False(window.IsFallback);
         Assert.Equal(baseline.Head, window.BaseHead);
@@ -270,7 +270,7 @@ public sealed class BaselineTests : IDisposable
         await _git.OutputAsync(["commit", "-qm", "committed phase"], ct);
         await WriteFileAsync("dirty.txt", "still dirty\n", ct);
 
-        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, [], ct);
 
         Assert.Equal(["dirty.txt", "tracked.txt"], window.ChangedPaths.Order(StringComparer.Ordinal));
         Assert.Contains("committed during the run", window.Diff, StringComparison.Ordinal);
@@ -287,7 +287,7 @@ public sealed class BaselineTests : IDisposable
         await WriteFileAsync("tracked.txt", "dirty at forge.begin\n", ct);
         var baseline = await Baseline.CaptureAsync(_git, ct);
 
-        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, [], ct);
 
         Assert.Equal(["tracked.txt"], window.ChangedPaths);
         Assert.Contains("dirty at forge.begin", window.Diff, StringComparison.Ordinal);
@@ -304,7 +304,7 @@ public sealed class BaselineTests : IDisposable
         await _git.OutputAsync(["commit", "-qm", "temporary phase"], ct);
         await WriteFileAsync("tracked.txt", "original\n", ct);
 
-        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, [], ct);
 
         Assert.Empty(window.ChangedPaths);
         Assert.Empty(window.Diff);
@@ -324,13 +324,62 @@ public sealed class BaselineTests : IDisposable
         var fallbackHead = (await _git.OutputAsync(["rev-parse", "HEAD"], ct)).Trim();
         await WriteFileAsync("tracked.txt", "dirty after divergence\n", ct);
 
-        var window = await _git.ReadReviewWindowAsync(baseline.Head, ct);
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, [], ct);
 
         Assert.True(window.IsFallback);
         Assert.Equal(fallbackHead, window.BaseHead);
         Assert.Equal(["tracked.txt"], window.ChangedPaths);
         Assert.Contains("-replacement history", window.Diff, StringComparison.Ordinal);
         Assert.DoesNotContain("-original", window.Diff, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The window is cut into one block per file so a refusal can name the largest, and the cut
+    /// loses nothing: the tracked blocks put back together are git's own diff. A round's exclusion
+    /// leaves both reads, the paths and the content, as the documentation's does.
+    /// </summary>
+    [Fact]
+    public async Task A_review_window_is_one_block_per_file_and_an_exclusion_leaves_both_reads()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "dirty.txt");
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("tracked.txt", "changed\nand longer\n", ct);
+        await WriteFileAsync("dirty.txt", "dirty\n", ct);
+        await WriteFileAsync("new.txt", "brand new\n", ct);
+        await WriteFileAsync("build/gate.ps1", "run tooling\n", ct);
+
+        var window = await _git.ReadReviewWindowAsync(baseline.Head, ["build"], ct);
+
+        Assert.Equal(["dirty.txt", "tracked.txt", "new.txt"], window.Files.Select(file => file.Path));
+        Assert.Equal([false, false, true], window.Files.Select(file => file.Untracked));
+        Assert.All(window.Files, file => Assert.StartsWith("diff --git ", file.Diff, StringComparison.Ordinal));
+        Assert.Equal(await _git.OutputAsync(["diff", baseline.Head], ct),
+                     string.Join('\n', window.Files.Where(file => !file.Untracked).Select(file => file.Diff)));
+        Assert.DoesNotContain("build/gate.ps1", window.ChangedPaths);
+        Assert.DoesNotContain("run tooling", window.Diff, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A workspace below the repository root, as concurrency-hunter's is: git's diff headers carry
+    /// the workspace's own path and a pathspec does not, so the window names a tracked file the way
+    /// <c>excludePaths</c> takes it, and handing that name back takes the file out.
+    /// </summary>
+    [Fact]
+    public async Task A_workspace_below_the_repository_root_names_its_files_as_an_exclusion_takes_them()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "plugin/a.txt");
+        var baseline = await Baseline.CaptureAsync(_git, ct);
+        await WriteFileAsync("plugin/a.txt", "changed\n", ct);
+        await WriteFileAsync("plugin/b.txt", "new\n", ct);
+        var plugin = new GitClient(Path.Combine(_repo, "plugin"));
+
+        var whole = await plugin.ReadReviewWindowAsync(baseline.Head, [], ct);
+        var narrowed = await plugin.ReadReviewWindowAsync(baseline.Head, [whole.Files[0].Path], ct);
+
+        Assert.Equal(["a.txt", "b.txt"], whole.Files.Select(file => file.Path));
+        Assert.Equal(["b.txt"], narrowed.Files.Select(file => file.Path));
     }
 
     [Fact]
@@ -340,7 +389,7 @@ public sealed class BaselineTests : IDisposable
         await InitialCommitAsync(ct);
 
         var error = await Assert.ThrowsAsync<ReviewBaselineUnavailableException>(() =>
-            _git.ReadReviewWindowAsync("missing-baseline", ct));
+            _git.ReadReviewWindowAsync("missing-baseline", [], ct));
 
         Assert.Contains("begin a new run", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("missing-baseline", error.Message, StringComparison.Ordinal);

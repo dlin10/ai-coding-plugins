@@ -41,10 +41,11 @@ internal sealed class WorkAct
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
-        string? note = null)
+        string? note = null,
+        ReviewScope? scope = null)
     {
         ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
-                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note);
+                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note, scope);
         ArgumentNullException.ThrowIfNull(run);
 
         switch (act)
@@ -66,7 +67,7 @@ internal sealed class WorkAct
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
                 var codeReviewAct = new CodeReview(_vendor, _prompts, git);
-                var codeReview = await codeReviewAct.ReviewAsync(run, selection!, userGrantedRound, ct).ConfigureAwait(false);
+                var codeReview = await codeReviewAct.ReviewAsync(run, selection!, userGrantedRound, ct, scope).ConfigureAwait(false);
                 return SpeedWarnings.Attach(run, JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique),
                                             codeReviewAct.SpeedWarning);
 
@@ -102,12 +103,15 @@ internal sealed class WorkAct
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
-        string? note = null)
+        string? note = null,
+        ReviewScope? scope = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
         if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix" and not "scout")
             throw new ArgumentRejectedException($"unknown work act '{act}'");
+        if (scope is not null && act != "review.code")
+            throw new ArgumentRejectedException($"excludePaths and untrackedByReference are not used by {act}");
 
         if (act == "scout")
         {
