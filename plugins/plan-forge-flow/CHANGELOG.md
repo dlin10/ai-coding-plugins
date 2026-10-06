@@ -30,6 +30,11 @@ gate script out of the repository for the length of the review to make it fit. S
 - The forge skill asks the user how to narrow an oversized round, recommends
   `untrackedByReference` when the untracked files are the run's work, keeps `excludePaths` for what
   is not, and rules out moving files out of the repository.
+- The run-wide gates a review fix is checked against run for up to 40 minutes; a task's gate keeps
+  its 20. In concurrency-hunter run `20261005-204040-0c34b6` the plan's final gate took 25 to 31
+  minutes, so all three review rounds' fixes came back as a gate timeout and were verified by hand.
+  The call that carries the fix keeps its one-hour limit, so a long builder turn and a long gate can
+  still outlast it together.
 
 ## 0.41.0
 
