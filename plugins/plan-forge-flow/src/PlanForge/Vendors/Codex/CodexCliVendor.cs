@@ -13,6 +13,10 @@ internal sealed class CodexCliVendor : IVendor
 {
     private static readonly TimeSpan PROBE_TIMEOUT = TimeSpan.FromSeconds(30);
 
+    // codex-rs MAX_USER_INPUT_TEXT_CHARS: turn/start refuses a turn whose text input — the prompt
+    // read from stdin, and nothing else — has more `chars()` than this. See CONTEXT.md.
+    private const int PROMPT_CHARACTER_LIMIT = 1 << 20;
+
     private readonly string? _workingDirectory;
 
     public CodexCliVendor(string? workingDirectory = null)
@@ -25,6 +29,8 @@ internal sealed class CodexCliVendor : IVendor
 
     /// <summary>Filled by <see cref="ProbeAsync"/> — Codex publishes a live model list.</summary>
     public VendorCatalog Catalog { get; private set; }
+
+    public int? PromptCharacterLimit => PROMPT_CHARACTER_LIMIT;
 
     /// <summary>
     /// A repair can itself fail, so the probe checks locally that the shell codex would choose is a

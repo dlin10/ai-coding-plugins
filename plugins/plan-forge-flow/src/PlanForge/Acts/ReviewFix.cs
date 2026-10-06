@@ -165,7 +165,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var killed = builder.KilledBackgroundTasks;
         SpeedWarning = builder.SpeedWarning;
         var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan),
-                                                 PlanGates.HasRunWideGates(plan), killed, state, ct);
+                                                 PlanGates.HasRunWideGates(plan), killed, state, GateRunner.FIX_TIMEOUT, ct);
         var closes = result.Gate?.Outcome == "passed"
                      || (result.Gate?.Outcome == "not_executable"
                          && result.Status == "done"

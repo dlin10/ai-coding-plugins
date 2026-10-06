@@ -1,3 +1,4 @@
+using System.Globalization;
 using PlanForge.Acts;
 using PlanForge.Prompts;
 using PlanForge.Repo;
@@ -398,16 +399,169 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Contains("`dotnet test`", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The refusal codex gave run 20261004-093111-b79938 only after it had started, now given before
+    /// any critic starts: nothing spent, a granted round still granted, and the sizes the
+    /// orchestrator needs to choose what to narrow, largest file first.
+    /// </summary>
+    [Fact]
+    public async Task A_prompt_over_the_vendors_limit_is_refused_before_the_critic_starts_and_spends_nothing()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", string.Concat(Enumerable.Repeat("tracked line\n", 40)), ct);
+        await WriteFileAsync("src/New.cs", string.Concat(Enumerable.Repeat("// new line\n", 80)), ct);
+
+        var critic = new RecordingVendor("codex") { PromptCharacterLimit = 1_000 };
+        var run = NewRun(codeReviewRounds: 3);
+
+        var error = await Assert.ThrowsAsync<ReviewPromptTooLargeException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), true, ct));
+
+        Assert.Empty(critic.Sessions);
+        var state = run.ReadState();
+        Assert.Equal(3, state.CodeReviewRounds);
+        Assert.Equal(3, state.CodeReviewRoundCap);
+        Assert.Equal(0, state.GrantedCodeReviewRounds);
+        Assert.Contains("codex accepts at most 1,000", error.Message, StringComparison.Ordinal);
+        Assert.Contains("the user's grant for it still stands", error.Message, StringComparison.Ordinal);
+        Assert.Contains("- tracked diff: ", error.Message, StringComparison.Ordinal);
+        Assert.Contains("- untracked files: ", error.Message, StringComparison.Ordinal);
+        Assert.Contains("- approved plan: ", error.Message, StringComparison.Ordinal);
+        var largest = error.Message[error.Message.IndexOf("Largest files:", StringComparison.Ordinal)..];
+        Assert.True(largest.IndexOf("src/New.cs (untracked)", StringComparison.Ordinal)
+                    < largest.IndexOf("tracked.txt", StringComparison.Ordinal), largest);
+        Assert.Contains("`untrackedByReference: true`", error.Message, StringComparison.Ordinal);
+        Assert.Contains("`excludePaths`", error.Message, StringComparison.Ordinal);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Code review — round 4 not sent", flow, StringComparison.Ordinal);
+        Assert.Contains("codex accepts at most 1,000", flow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Codex counts Rust <c>chars()</c>, so the limit is in Unicode scalar values: a prompt exactly at
+    /// it is sent, one over is not, and an emoji is one character, where a UTF-16 length would have
+    /// refused the prompt at the limit.
+    /// </summary>
+    [Fact]
+    public async Task The_limit_counts_characters_as_codex_does_and_admits_a_prompt_exactly_at_it()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", string.Concat(Enumerable.Repeat("emoji \U0001F600\n", 20)), ct);
+
+        var measuring = new RecordingVendor("codex");
+        measuring.Enqueue(new Critique("approve", [], "looks good"));
+        await NewReview(measuring).ReviewAsync(NewRun(runId: "measure"), new Selection("critic-model", null), false, ct);
+        var prompt = Assert.Single(measuring.Sessions).PromptText;
+        var characters = prompt.EnumerateRunes().Count();
+        Assert.True(prompt.Length > characters);
+
+        var atLimit = new RecordingVendor("codex") { PromptCharacterLimit = characters };
+        atLimit.Enqueue(new Critique("approve", [], "looks good"));
+        await NewReview(atLimit).ReviewAsync(NewRun(runId: "at-limit"), new Selection("critic-model", null), false, ct);
+        Assert.Equal(prompt, Assert.Single(atLimit.Sessions).PromptText);
+
+        var overLimit = new RecordingVendor("codex") { PromptCharacterLimit = characters - 1 };
+        var error = await Assert.ThrowsAsync<ReviewPromptTooLargeException>(() =>
+            NewReview(overLimit).ReviewAsync(NewRun(runId: "over-limit"), new Selection("critic-model", null), false, ct));
+        Assert.Contains($"is {characters.ToString("N0", CultureInfo.InvariantCulture)} characters", error.Message,
+                        StringComparison.Ordinal);
+        Assert.Empty(overLimit.Sessions);
+    }
+
+    /// <summary>
+    /// A round's exclusions go into the one pathspec the content diff and the sensitive-path guard
+    /// share, so an excluded file is neither sent nor refused, and the critic is told it is out.
+    /// </summary>
+    [Fact]
+    public async Task An_excluded_path_leaves_the_window_and_the_critic_is_told_so()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+        await WriteFileAsync("build/gate.ps1", "gate script body\n", ct);
+        await WriteFileAsync("config/appsettings.Production.json", "secret-looking change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+
+        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct,
+                                                           ReviewScope.From(["build/*.ps1", "config"], false));
+
+        var prompt = Assert.Single(critic.Sessions).PromptText;
+        Assert.Contains("ordinary change", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("gate script body", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("appsettings.Production.json", prompt, StringComparison.Ordinal);
+        Assert.Contains("Also excluded from this round by the orchestrator: `build/*.ps1`, `config`.", prompt,
+                        StringComparison.Ordinal);
+        Assert.Contains("Excluded from this round: `build/*.ps1`, `config`.", critique.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Untracked_files_by_reference_are_listed_for_the_critic_instead_of_embedded()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+        await WriteFileAsync("src/New.cs", "first new line\nsecond new line\nthird new line\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+
+        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct,
+                                                           ReviewScope.From(null, true));
+
+        var prompt = Assert.Single(critic.Sessions).PromptText;
+        Assert.Contains("ordinary change", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("second new line", prompt, StringComparison.Ordinal);
+        Assert.Contains("# Untracked files to read", prompt, StringComparison.Ordinal);
+        Assert.Contains("- `src/New.cs` (3 lines)", prompt, StringComparison.Ordinal);
+        Assert.Contains("Untracked files given to the critic by path: 1.", critique.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The critic reads a file it is pointed to with its own tools, which sends the contents to the
+    /// vendor all the same, so the secret guard reads them though the prompt does not carry them.
+    /// </summary>
+    [Fact]
+    public async Task A_secret_in_an_untracked_file_given_by_reference_is_still_refused()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+        await WriteFileAsync("src/Settings.cs", "SECRET=9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c\n", ct);
+
+        var critic = new RecordingVendor("claude");
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct,
+                                          ReviewScope.From(null, true)));
+
+        Assert.Contains("src/Settings.cs", error.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+    }
+
+    [Theory]
+    [InlineData(":(top)src")]
+    [InlineData(":!src")]
+    [InlineData(" ")]
+    public void An_excluded_path_that_is_blank_or_pathspec_magic_is_refused(string path)
+    {
+        Assert.Throws<ArgumentRejectedException>(() => ReviewScope.From([path], false));
+    }
+
     private CodeReview NewReview(RecordingVendor critic, IReviewGit? reviewGit = null) =>
         new(critic, new PromptLibrary(RepositoryPrompts()), reviewGit ?? _git);
 
     private RunDirectory NewRun(bool approved = true,
                                 int reviewRounds = 0,
                                 int codeReviewRounds = 0,
-                                string? baselineHead = null)
+                                string? baselineHead = null,
+                                string runId = "review")
     {
-        var run = RunDirectory.Create(_repo, "review");
-        run.WriteState(new RunState("review", _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
+        var run = RunDirectory.Create(_repo, runId);
+        run.WriteState(new RunState(runId, _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
                                     BaselineHead: baselineHead ?? _baselineHead, Approved: approved,
                                     CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
         run.WritePlan(Plan);
@@ -441,13 +595,13 @@ public sealed class CodeReviewTests : IDisposable
                                    string? baseline = null,
                                    string? baseHead = null) : IReviewGit
     {
-        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead,
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths,
                                                         CancellationToken ct) =>
             Task.FromResult(new ReviewWindow(baseline ?? baselineHead,
                                              baseHead ?? baselineHead,
                                              isFallback,
                                              changedPaths,
-                                             diff));
+                                             diff.Length == 0 ? [] : [new ReviewFile(changedPaths[0], diff, Untracked: false)]));
     }
 
     private static string RepositoryPrompts()

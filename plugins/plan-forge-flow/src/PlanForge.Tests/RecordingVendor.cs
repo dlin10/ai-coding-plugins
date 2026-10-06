@@ -11,6 +11,8 @@ internal sealed class RecordingVendor(string id) : IVendor
 
     public VendorCatalog Catalog { get; init; } = new([], CatalogSource.Resolved);
 
+    public int? PromptCharacterLimit { get; init; }
+
     public List<RecordingVendorSession> Sessions { get; } = [];
 
     public void Enqueue(object response,

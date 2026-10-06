@@ -8,16 +8,34 @@ namespace PlanForge.Repo;
 /// The final code state handed to a Critic, with the identity of the Git range that produced both
 /// its changed paths and its content diff. See docs/adr/0016.
 /// </summary>
+/// <param name="BaselineHead">The run's baseline commit, resolved.</param>
+/// <param name="BaseHead">The commit the window starts from: the baseline, or <c>HEAD</c> when it fell back.</param>
+/// <param name="IsFallback">Whether the baseline is no longer an ancestor of <c>HEAD</c>.</param>
+/// <param name="ChangedPaths">Every path in the window, tracked and untracked.</param>
+/// <param name="Files">The content diff, one block per file in git's order, empty blocks left out.</param>
 internal sealed record ReviewWindow(string BaselineHead,
                                     string BaseHead,
                                     bool IsFallback,
                                     IReadOnlyList<string> ChangedPaths,
-                                    string Diff);
+                                    IReadOnlyList<ReviewFile> Files)
+{
+    /// <summary>The whole content diff, as one text.</summary>
+    public string Diff => string.Join('\n', Files.Select(file => file.Diff));
+}
+
+/// <summary>One file's block of a review window's content diff.</summary>
+/// <param name="Path">The post-image path.</param>
+/// <param name="Diff">The block, header included, rendered as a new-file diff when untracked.</param>
+/// <param name="Untracked">Whether git does not track the file, so its whole content is the block.</param>
+internal sealed record ReviewFile(string Path, string Diff, bool Untracked);
 
 internal interface IReviewGit
 {
     /// <summary>Resolves the run baseline or its disclosed fallback, then reads that one window.</summary>
-    Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, CancellationToken ct);
+    /// <param name="baselineHead">The commit recorded by <c>forge.begin</c>.</param>
+    /// <param name="excludedPaths">Paths this round leaves out of the window, beside the documentation.</param>
+    /// <param name="ct">Cancels the git reads.</param>
+    Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths, CancellationToken ct);
 }
 
 internal sealed class GitClient : IReviewGit
@@ -47,40 +65,82 @@ internal sealed class GitClient : IReviewGit
         return string.Join('\n', lines);
     }
 
-    public Task<string> DiffAsync(CancellationToken ct) => DiffAsync("HEAD", ct);
+    public async Task<string> DiffAsync(CancellationToken ct) =>
+        string.Join('\n', (await FilesAsync("HEAD", ReviewContentFilter, string.Empty, ct)).Select(file => file.Diff));
 
-    public async Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, CancellationToken ct)
+    public async Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead,
+                                                          IReadOnlyList<string> excludedPaths,
+                                                          CancellationToken ct)
     {
+        // A round's own exclusions join the documentation's, so the paths the sensitive-path guard
+        // reads and the content sent stay one set. See docs/adr/0029.
+        string[] filter = [.. ReviewContentFilter, .. excludedPaths.Select(path => $":(exclude){path}")];
         var resolvedBaseline = await ResolveBaselineAsync(baselineHead, ct);
         var isFallback = !await IsAncestorAsync(resolvedBaseline, ct);
         var baseHead = isFallback ? (await OutputAsync(["rev-parse", "HEAD"], ct)).Trim() : resolvedBaseline;
-        var changedPaths = await ChangedPathsAsync(baseHead, ct);
-        var diff = await DiffAsync(baseHead, ct);
-        return new ReviewWindow(resolvedBaseline, baseHead, isFallback, changedPaths, diff);
+        var changedPaths = await ChangedPathsAsync(baseHead, filter, ct);
+        var prefix = (await OutputAsync(["rev-parse", "--show-prefix"], ct)).Trim();
+        var files = await FilesAsync(baseHead, filter, prefix, ct);
+        return new ReviewWindow(resolvedBaseline, baseHead, isFallback, changedPaths, files);
     }
 
-    private async Task<string> DiffAsync(string baseHead, CancellationToken ct)
+    /// <summary>The content diff, one block per file: tracked files in git's order, then untracked ones.</summary>
+    /// <param name="baseHead">The commit the diff starts from.</param>
+    /// <param name="filter">The pathspec both reads take.</param>
+    /// <param name="prefix">
+    /// The workspace's path inside the repository, which git's diff headers carry and a pathspec
+    /// does not: a tracked file is named without it, so a name the window gives is one
+    /// <c>excludePaths</c> takes, as an untracked file's already is.
+    /// </param>
+    /// <param name="ct">Cancels the git reads.</param>
+    private async Task<IReadOnlyList<ReviewFile>> FilesAsync(string baseHead, string[] filter, string prefix, CancellationToken ct)
     {
-        var trackedDiff = await OutputAsync(["diff", baseHead, "--", .. ReviewContentFilter], ct);
-        var parts = new List<string> { trackedDiff };
-        foreach (var path in await UntrackedPathsAsync(ct))
-            parts.Add(await UntrackedDiffAsync(path, ct));
+        var files = TrackedFiles(await OutputAsync(["diff", baseHead, "--", .. filter], ct), prefix).ToList();
+        foreach (var path in await UntrackedPathsAsync(filter, ct))
+        {
+            var diff = await UntrackedDiffAsync(path, ct);
+            if (diff.Length > 0) files.Add(new ReviewFile(path, diff, Untracked: true));
+        }
 
-        return string.Join('\n', parts.Where(part => part.Length > 0));
+        return files;
     }
 
-    public Task<IReadOnlyList<string>> ChangedPathsAsync(CancellationToken ct) => ChangedPathsAsync("HEAD", ct);
-
-    private async Task<IReadOnlyList<string>> ChangedPathsAsync(string baseHead, CancellationToken ct)
+    /// <summary>
+    /// A tracked diff cut into one block per file at each <c>diff --git</c> header. The cut is exact
+    /// because git prefixes every content line of a hunk, so no line of a file's content can open a
+    /// line of the diff with that header.
+    /// </summary>
+    /// <param name="diff">The output of one <c>git diff</c>.</param>
+    /// <param name="prefix">The workspace's path inside the repository, taken off each file's name.</param>
+    private static IEnumerable<ReviewFile> TrackedFiles(string diff, string prefix)
     {
-        var output = await OutputAsync(["diff", baseHead, "--name-only", "--", .. ReviewContentFilter], ct);
+        if (diff.Length == 0) yield break;
+
+        var lines = diff.Split('\n');
+        var start = 0;
+        for (var index = 1; index <= lines.Length; index++)
+        {
+            if (index < lines.Length && !lines[index].StartsWith("diff --git ", StringComparison.Ordinal)) continue;
+
+            var path = Baseline.HeaderPath(lines[start]);
+            if (path.StartsWith(prefix, StringComparison.Ordinal)) path = path[prefix.Length..];
+            yield return new ReviewFile(path, string.Join('\n', lines[start..index]), Untracked: false);
+            start = index;
+        }
+    }
+
+    public Task<IReadOnlyList<string>> ChangedPathsAsync(CancellationToken ct) => ChangedPathsAsync("HEAD", ReviewContentFilter, ct);
+
+    private async Task<IReadOnlyList<string>> ChangedPathsAsync(string baseHead, string[] filter, CancellationToken ct)
+    {
+        var output = await OutputAsync(["diff", baseHead, "--name-only", "--", .. filter], ct);
         var tracked = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return [.. tracked, .. await UntrackedPathsAsync(ct)];
+        return [.. tracked, .. await UntrackedPathsAsync(filter, ct)];
     }
 
-    private async Task<IReadOnlyList<string>> UntrackedPathsAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<string>> UntrackedPathsAsync(string[] filter, CancellationToken ct)
     {
-        var output = await OutputAsync(["ls-files", "--others", "--exclude-standard", "--", .. ReviewContentFilter], ct);
+        var output = await OutputAsync(["ls-files", "--others", "--exclude-standard", "--", .. filter], ct);
         return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
@@ -226,7 +286,7 @@ internal sealed record Baseline(string Head, string Diff)
     /// a space is ambiguous in this header and is left to the comparison to treat as one file.
     /// </summary>
     /// <param name="header">The header line.</param>
-    private static string HeaderPath(string header)
+    internal static string HeaderPath(string header)
     {
         var marker = header.LastIndexOf(" b/", StringComparison.Ordinal);
         return marker < 0 ? header : header[(marker + 3)..];

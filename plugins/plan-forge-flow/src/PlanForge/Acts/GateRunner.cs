@@ -39,8 +39,15 @@ internal static class GateRunner
 {
     private const int OutputTailLength = 4000;
 
-    /// <summary>The same bound a builder turn gets: a gate is a test suite at most, not a build farm.</summary>
-    private static readonly TimeSpan DEFAULT_TIMEOUT = TimeSpan.FromMinutes(20);
+    /// <summary>The bound on a task's gate: the same bound a builder turn gets, since a gate is a test suite at most, not a build farm.</summary>
+    internal static readonly TimeSpan TASK_TIMEOUT = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// The bound on the run-wide gates a review fix is checked against. Those are the plan's final gates, which run the whole
+    /// suite and the evals: in run 20261005-204040-0c34b6 its G1 took 25 to 31 minutes, so under the task bound every fix
+    /// came back a timeout and had to be verified on the host by hand.
+    /// </summary>
+    internal static readonly TimeSpan FIX_TIMEOUT = TimeSpan.FromMinutes(40);
 
     private const string Preamble =
         "$ErrorActionPreference = 'Stop'\n"
@@ -54,12 +61,6 @@ internal static class GateRunner
 
     /// <summary>With the BOM, which is the half of this that matters: see the remarks on the class.</summary>
     private static readonly UTF8Encoding _scriptEncoding = new(encoderShouldEmitUTF8Identifier: true);
-
-    public static Task<GateRun> RunAsync(GateCommand gate,
-                                         string workspaceRoot,
-                                         IReadOnlyDictionary<string, string>? environment,
-                                         CancellationToken ct) =>
-        RunAsync(gate, workspaceRoot, environment, DEFAULT_TIMEOUT, ct);
 
     internal static async Task<GateRun> RunAsync(GateCommand gate,
                                                  string workspaceRoot,

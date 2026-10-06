@@ -24,7 +24,7 @@ these terms replace it.
 | **Evidence check** | The Orchestrator's comparison of its plan with every fact in the Scout report that bears on a Change point, made after each Impact pass and before the review that follows it. Each such fact is either used by the plan or departed from on purpose; a deliberate departure is recorded in the Run log, and also in the plan wherever a Critic would otherwise raise it. |
 | **Matrix task** | A plan task whose test walks every combination of one rule's axes — the inputs its answer depends on — and checks each cell against an expectation table the plan writes from the requirements, never from the code. It names its axes, its excluded combinations with their reasons, and the cells known to be wider than their expectation, each with a reason that becomes an open question; it replaces the one-by-one cases of that rule elsewhere in the plan. The Orchestrator's **matrix check**, made while the approach is drafted and before the Impact pass, decides which rules need one; from the second round on, review adds one when more than half of a round's new findings are combinations or edge cases of one rule. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
-| **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. |
+| **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. One round may leave further paths out of it (`excludePaths`) or hand its untracked files to the Critic by path rather than by content (`untrackedByReference`), each only for that call; see docs/adr/0029. |
 | **Flow log** | The complete user-facing timeline of a run, `flow_log.md`: every Scout outcome, identified Critic finding, Builder result, fix round with its Fix note, Orchestrator revision, disposition decision, Raise, reopening proposal and closure. It is appended by the server and never fed back to a Worker; the Canonical decision ledger is the Critic's bounded input. |
 | **Canonical decision ledger** | The Run-local source of truth for findings that still matter to a future Critic. Each entry preserves an immutable `origin` (`plan_review` or `code_review`) and has a mutable `activePhase`, so a plan-origin decision accepted for reopening during code review keeps its identity while moving into the code projection. Plan review receives active plan entries; code review receives settled plan decisions and active code entries. Closed entries leave the ledger, while the Flow log remains the complete user-facing audit. |
 | **Decision ledger file** | The Run's `decision-ledger.json`: an indented, versioned JSON snapshot containing the next monotonic finding number, current entries in ID order, applied decision batches, and fix-attempt records. Every replacement goes through `AtomicFile`; malformed content, an unsupported schema version, a violated invariant, or exhausted write retries fail the tool call rather than recreating empty state or continuing a Worker without its decisions. Unlike Telemetry, this state is not best effort. |
@@ -952,6 +952,39 @@ Two limits come with the documentation boundary, both recorded rather than fixed
 edit to `CONTEXT.md` or an ADR is invisible to drift and to code review. And a vendor worker runs in
 the workspace, so nothing here stops it reading an excluded file it was not sent; the pathspec
 governs what is handed over, not what is reachable.
+
+A code-review round may add its own paths to that pathspec with `excludePaths`, and they then leave
+the changed paths and the content diff together, so the sensitive-path guard narrows with what is
+sent. Git's diff headers name a tracked file from the repository root, while a pathspec and
+`ls-files` are relative to `workspaceRoot`; the window therefore names tracked files without the
+workspace's prefix, so that a name the size refusal lists is one `excludePaths` takes. The
+Critic's diff keeps git's headers as they are.
+
+## Codex refuses a turn over 1,048,576 characters; claude and cursor-agent state no limit
+
+Read from the codex-rs source on 2026-10-05 against codex-cli 0.159.2, after run
+`20261004-093111-b79938` failed a code-review round with `turn/start failed: Input exceeds the
+maximum length of 1048576 characters` and `actual_chars: 1056671`:
+
+- **What codex counts.** `protocol/src/user_input.rs` sets `MAX_USER_INPUT_TEXT_CHARS = 1 << 20`.
+  The app server's turn processor sums `text_char_count` over the turn's input items, which is
+  `text.chars().count()` for a text item — Unicode scalar values, so a surrogate pair is one
+  character where .NET's `string.Length` counts two — and refuses the turn above the limit.
+  `codex exec` turns the prompt read from stdin into exactly one text item; `developer_instructions`
+  and the `--output-schema` file are not input items and are not counted. Plan Forge writes stdin as
+  UTF-8 without a byte-order mark, so the act prompt it measures is the text codex counts.
+- **How close the run came.** Its telemetry records each attempt's Worker prompt size, which adds
+  the role prompt and the schema and counts UTF-8 bytes: 1,086,196, 1,138,761 and 1,133,780 bytes
+  for the three rounds that passed, 1,152,629 for the refused one. The window only grows over a run,
+  so a run that passes round one near the limit meets it later.
+- **Claude.** The `claude.exe` of Claude Code 2.1.286 holds no client-side character limit on its
+  prompt. The only length refusal is the API's `prompt is too long`, counted in tokens against the
+  model's context window, which no character count here can predict.
+- **cursor-agent.** The 2026.09.18-9a7762b bundle holds no client-side limit either. Whatever its
+  service enforces was not measured.
+
+The server therefore refuses an oversized code-review prompt for codex only, before the critic
+starts; see docs/adr/0029.
 
 ## The session is not the workspace, and only one host says where it is
 
