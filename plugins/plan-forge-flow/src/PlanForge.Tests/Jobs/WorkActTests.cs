@@ -181,6 +181,35 @@ public sealed class WorkActTests : IDisposable
     }
 
     [Fact]
+    public async Task Code_review_dispatch_carries_the_rounds_scope()
+    {
+        var git = new RecordingReviewGit(["tracked.cs"], "diff");
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new Critique("approve", [], "good"));
+
+        await new WorkAct(vendor, _prompts, git).RunAsync(
+            "review.code", NewApprovedRun("code-scoped"), null, new Selection("critic", null), null, null, null,
+            false, CancellationToken.None, scope: ReviewScope.From(["build"], false));
+
+        Assert.Contains("Also excluded from this round by the orchestrator: `build`.",
+                        Assert.Single(vendor.Sessions).PromptText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("plan.review")]
+    [InlineData("build.next")]
+    [InlineData("review.fix")]
+    [InlineData("scout")]
+    public void A_review_scope_is_refused_by_every_act_but_code_review(string act)
+    {
+        var error = Assert.Throws<ArgumentRejectedException>(() =>
+            WorkAct.ValidateArguments(act, null, new Selection("model", null), null, null, null, false,
+                                      scope: ReviewScope.From(null, true)));
+
+        Assert.Contains("untrackedByReference", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Legacy_blank_optional_arguments_keep_their_existing_per_act_behavior()
     {
         var selection = new Selection("model", null);
@@ -238,8 +267,9 @@ public sealed class WorkActTests : IDisposable
 
     private sealed class RecordingReviewGit(IReadOnlyList<string> paths, string diff) : IReviewGit
     {
-        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead,
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths,
                                                         CancellationToken ct) =>
-            Task.FromResult(new ReviewWindow(baselineHead, baselineHead, IsFallback: false, paths, diff));
+            Task.FromResult(new ReviewWindow(baselineHead, baselineHead, IsFallback: false, paths,
+                                             diff.Length == 0 ? [] : [new ReviewFile(paths[0], diff, Untracked: false)]));
     }
 }

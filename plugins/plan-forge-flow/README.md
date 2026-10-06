@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.41.0
+# Plan Forge Flow 0.42.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -31,7 +31,7 @@ not restrict access.
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
 | `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
-| `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan |
+| `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. A prompt longer than the critic's vendor accepts is refused before it starts, with its sizes; `excludePaths` and `untrackedByReference` narrow that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs the plan's executable `## Gates` on the host |
 | `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
 | `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job |

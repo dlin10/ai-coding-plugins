@@ -260,6 +260,25 @@ public sealed class ToolSurfaceTests
         Assert.Contains("documents.scout", skill, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The two ways to narrow an oversized code-review round reach it on both of its routes, and
+    /// neither is asked for unless the orchestrator asks: docs/adr/0029.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(ForgeTools.ReviewCode))]
+    [InlineData(nameof(ForgeTools.StartWork))]
+    public void Code_review_publishes_its_optional_round_scope(string methodName)
+    {
+        var schema = SchemaFor(methodName);
+        var properties = schema.GetProperty("properties");
+        var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        Assert.Contains("array", properties.GetProperty("excludePaths").GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("boolean", properties.GetProperty("untrackedByReference").GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("excludePaths", required);
+        Assert.DoesNotContain("untrackedByReference", required);
+    }
+
     private static System.Text.Json.JsonElement SchemaFor(string methodName)
     {
         var services = new ServiceCollection()

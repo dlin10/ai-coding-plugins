@@ -32,17 +32,20 @@ internal static class Gatekeeper
     /// left work running in the background is <c>background_killed</c> and runs no gate: by the
     /// builder's own account the work was still in progress — see docs/adr/0018.
     /// </summary>
-    /// <param name="result"></param>
+    /// <param name="result">The builder's own report of the turn.</param>
     /// <param name="gates">The executable gate commands, run in order; empty when none is executable.</param>
     /// <param name="stated">Whether the plan states a gate at all, executable or not.</param>
     /// <param name="killed">What the vendor killed when the turn ended; empty when nothing was left running.</param>
-    /// <param name="state"></param>
-    /// <param name="ct"></param>
+    /// <param name="state">The run, whose workspace root the gate runs in and whose gate environment it gets.</param>
+    /// <param name="timeout">How long the gate may run before it is killed and reported as a timeout:
+    /// <see cref="GateRunner.TASK_TIMEOUT"/> for a task, <see cref="GateRunner.FIX_TIMEOUT"/> for a review fix.</param>
+    /// <param name="ct">Cancels the gate along with the call.</param>
     public static async Task<BuildResult> CheckAsync(BuildResult result,
                                                      IReadOnlyList<GateCommand> gates,
                                                      bool stated,
                                                      IReadOnlyList<string> killed,
                                                      RunState state,
+                                                     TimeSpan timeout,
                                                      CancellationToken ct)
     {
         var label = gates.Count == 0 ? "Gate" : Label(gates);
@@ -69,7 +72,7 @@ internal static class Gatekeeper
                                                          ? "the gate is a condition rather than a command; the builder's verification stands"
                                                          : "the plan states no gate; the builder's verification stands") };
 
-        var run = await GateRunner.RunAsync(Joined(gates), state.WorkspaceRoot, state.GateEnvironment, ct)
+        var run = await GateRunner.RunAsync(Joined(gates), state.WorkspaceRoot, state.GateEnvironment, timeout, ct)
                                   .ConfigureAwait(false);
 
         // The exit code decides the status in both directions. Upward matters as much as downward:

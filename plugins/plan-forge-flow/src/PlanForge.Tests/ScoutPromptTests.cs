@@ -128,8 +128,9 @@ public sealed class ScoutPromptTests : IDisposable
 
     private sealed class ReviewGit : IReviewGit
     {
-        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, CancellationToken ct) =>
+        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths,
+                                                        CancellationToken ct) =>
             Task.FromResult(new ReviewWindow(baselineHead, baselineHead, IsFallback: false,
-                                             ["tracked.cs"], "diff"));
+                                             ["tracked.cs"], [new ReviewFile("tracked.cs", "diff", Untracked: false)]));
     }
 }

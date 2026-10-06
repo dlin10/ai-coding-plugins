@@ -37,6 +37,16 @@ internal sealed class ForgeTools
         "change and when to stop. A retry's note says what changed since the last call. It never replaces a finding. Only " +
         "with non-empty fixFindingIds; recorded verbatim in the Flow log.";
 
+    private const string EXCLUDE_PATHS_DESCRIPTION =
+        "Paths or git pathspec patterns, relative to workspaceRoot, that this round leaves out of the review window beside " +
+        "every CONTEXT.md and docs/adr/**: nothing of theirs is sent, and the critic is told they were left out. For what " +
+        "is not the run's work, such as run tooling or generated output, and only after asking the user. This call only.";
+
+    private const string UNTRACKED_BY_REFERENCE_DESCRIPTION =
+        "List the window's untracked files for the critic to read from the working tree with its own tools, instead of " +
+        "embedding their contents, which takes their size off the prompt; their contents are still checked for secrets. " +
+        "Only after asking the user. This call only.";
+
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic, builder, and Scout of the run may call without being asked; omit it for the Roslyn servers alone.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
@@ -472,6 +482,7 @@ internal sealed class ForgeTools
     /// excluded disproved that, so the orchestrator now takes a turn between critic and builder —
     /// see docs/adr/0005.
     /// </summary>
+    /// <param name="catalogs">The vendor catalogues a Fast request is confirmed against.</param>
     /// <param name="roots">The session roots advertised by the MCP host.</param>
     /// <param name="workspaceRoot">The run's workspace root.</param>
     /// <param name="runId">The run whose code is reviewed.</param>
@@ -480,7 +491,10 @@ internal sealed class ForgeTools
     /// <param name="effort">The optional critic effort level.</param>
     /// <param name="vendor">The critic vendor, defaulting to Claude.</param>
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
-    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix.")]
+    /// <param name="fast">Whether the critic runs at the vendor's Fast tier.</param>
+    /// <param name="excludePaths">Paths this round leaves out of the review window.</param>
+    /// <param name="untrackedByReference">Whether untracked files reach the critic by path instead of by content.</param>
+    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix. A prompt longer than the critic's vendor accepts — codex takes 1,048,576 characters — is refused before the critic starts, with the sizes that make it up and nothing counted; excludePaths and untrackedByReference narrow the round.")]
     public static async Task<string> ReviewCode(CatalogCache catalogs,
                                                 SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -490,18 +504,23 @@ internal sealed class ForgeTools
                                                 [Description("Optional effort level.")] string? effort = null,
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                                 [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
-                                                [Description(FAST_DESCRIPTION)] bool fast = false)
+                                                [Description(FAST_DESCRIPTION)] bool fast = false,
+                                                [Description(EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
+                                                [Description(UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.code",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
-             ("userGrantedRound", userGrantedRound ? "true" : "false")],
+             ("userGrantedRound", userGrantedRound ? "true" : "false"),
+             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
+             ("untrackedByReference", Flag(untrackedByReference))],
             async () =>
             {
+                var scope = ReviewScope.From(excludePaths, untrackedByReference);
                 var critic = VendorFactory.Create(vendor, workspaceRoot);
                 var selection = await FastTier.ConfirmAsync(catalogs, critic, new Selection(model, effort, fast), workspaceRoot, ct);
                 var act = new CodeReview(critic, new PromptLibrary(), new GitClient(workspaceRoot));
-                var critique = await act.ReviewAsync(run, selection, userGrantedRound, ct);
+                var critique = await act.ReviewAsync(run, selection, userGrantedRound, ct, scope);
 
                 return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                                           ForgeToolJson.Default.CritiqueResult),
@@ -564,13 +583,15 @@ internal sealed class ForgeTools
                                          [Description("Required by review.fix when fixFindingIds is non-empty.")] string? fixAttemptId = null,
                                          [Description("Exact ledger finding IDs for review.fix. Empty means decisions-only.")] string[]? fixFindingIds = null,
                                          [Description("For review.fix only. " + NOTE_DESCRIPTION)] string? note = null,
-                                         [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false)
+                                         [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false,
+                                         [Description("For review.code only. " + EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
+                                         [Description("For review.code only. " + UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, null,
                          deferred, revision, userGrantedRound, question, sessionMode, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds, catalogs, fast, note);
+                         fixFindingIds, catalogs, fast, note, excludePaths, untrackedByReference);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -618,7 +639,9 @@ internal sealed class ForgeTools
                                                  string[]? fixFindingIds = null,
                                                  CatalogCache? catalogs = null,
                                                  bool fast = false,
-                                                 string? note = null)
+                                                 string? note = null,
+                                                 string[]? excludePaths = null,
+                                                 bool untrackedByReference = false)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
@@ -629,13 +652,18 @@ internal sealed class ForgeTools
              ("sessionMode", sessionMode), ("decisionBatchId", decisions?.DecisionBatchId),
              ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
-             ("note", note)],
+             ("note", note),
+             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
+             ("untrackedByReference", untrackedByReference ? "true" : null)],
             async () =>
             {
                 var selection = model is null ? null : new Selection(model, effort, fast);
+                var scope = excludePaths is null && !untrackedByReference
+                    ? null
+                    : ReviewScope.From(excludePaths, untrackedByReference);
                 WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
                                           userGrantedRound, question, sessionMode, decisions, fixAttemptId,
-                                          fixFindingIds, note);
+                                          fixFindingIds, note, scope);
                 if (act == "scout")
                 {
                     if (vendor is not null || effort is not null || fast)
@@ -674,7 +702,7 @@ internal sealed class ForgeTools
                 var started = registry.Start(run.Path, act,
                     jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
                                                userGrantedRound, jobCt, question, sessionMode, decisions,
-                                               fixAttemptId, fixFindingIds, note));
+                                               fixAttemptId, fixFindingIds, note, scope));
 
                 var record = started.Record;
                 return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, Documents(run)),

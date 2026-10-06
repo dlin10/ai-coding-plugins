@@ -84,7 +84,8 @@ internal sealed class Build
         // — not the builder's account of the checks it ran. See docs/adr/0015.
         var killed = session.KilledBackgroundTasks;
         SpeedWarning = session.SpeedWarning;
-        var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), killed, state, ct);
+        var result = await Gatekeeper.CheckAsync(reported, gate is null ? [] : [gate], PlanGates.HasGate(task.Text), killed, state,
+                                                 GateRunner.TASK_TIMEOUT, ct);
 
         // A task the builder could not do, or whose gate failed, stays the next task, so the
         // following call retries it instead of stepping over it as if it had been built.
