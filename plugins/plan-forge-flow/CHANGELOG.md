@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.43.0
+
+The forge skill gives the orchestrator six checks to walk before it writes a revision of a plan, and
+asks it to label every later plan-review finding the way code review already does. Over thirteen
+concurrency-hunter runs, about half of the plan-review findings after round 1 sat in text a revision
+had written — two thirds from round 6 on — and the plans that took longest to review grew by two
+thirds over their rounds, against a third for the ones that converged fastest.
+
+- *Writing a revision* in the forge skill: a rule arrives with its gate rows and tests; a changed
+  term, count or decision changes wherever the plan states it; claims about the code pass the
+  Evidence check; a finding that names one member of a class is answered for the class; a new
+  mechanism goes to the user before it is written; the revision changes what the findings name and
+  what the checks reach.
+- From the second plan-review round on, the orchestrator labels every new finding `own`, `sibling`,
+  `same-class` or `older` and records one line per round with `forge.log.append`, so later runs
+  can measure the share a revision caused.
+
 ## 0.42.0
 
 A code-review prompt longer than the critic's vendor accepts is refused before the critic starts,
